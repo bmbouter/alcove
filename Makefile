@@ -7,7 +7,7 @@ BINDIR   := bin
 INTERNAL_NET := alcove-internal
 EXTERNAL_NET := alcove-external
 
-REGISTRY     ?= ghcr.io/alcove-dev
+REGISTRY     ?= ghcr.io/bmbouter
 GHCR_USER    ?= $(USER)
 IMAGES       := bridge gate skiff-base
 

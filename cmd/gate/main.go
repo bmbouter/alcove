@@ -51,6 +51,9 @@ import (
 	"github.com/bmbouter/alcove/internal/gate"
 )
 
+// Version is set at build time via -ldflags.
+var Version = "dev"
+
 func main() {
 	cfg, err := loadConfig()
 	if err != nil {

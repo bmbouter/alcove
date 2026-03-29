@@ -32,9 +32,12 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
+// Version is set at build time via -ldflags.
+var Version = "dev"
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	log.Println("alcove-bridge starting")
+	log.Printf("alcove-bridge %s starting", Version)
 
 	// Load configuration.
 	cfg, err := bridge.LoadConfig()

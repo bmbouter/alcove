@@ -36,6 +36,9 @@ import (
 	"github.com/bmbouter/alcove/internal/ledger"
 )
 
+// Version is set at build time via -ldflags.
+var Version = "dev"
+
 const (
 	defaultHeartbeatTimeout = 10 * time.Minute
 	walBatchSize            = 50
