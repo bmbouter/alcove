@@ -7,6 +7,7 @@ BINDIR   := bin
 INTERNAL_NET := alcove-internal
 EXTERNAL_NET := alcove-external
 
+comma := ,
 REGISTRY     ?= ghcr.io/bmbouter
 GHCR_USER    ?= $(USER)
 IMAGES       := bridge gate skiff-base
@@ -84,7 +85,7 @@ dev-up: dev-config ## Start full containerized environment
 		--user $$(id -u):$$(id -g) \
 		-v $${XDG_RUNTIME_DIR}/podman/podman.sock:/run/podman/podman.sock:z \
 		-v $(CURDIR)/web:/web:ro,z \
-		$(if $(wildcard alcove.conf),-v $(CURDIR)/alcove.conf:/etc/alcove/alcove.conf:ro,) \
+		$(if $(wildcard alcove.conf),-v $(CURDIR)/alcove.conf:/etc/alcove/alcove.conf:ro$(comma)z,) \
 		-e CONTAINER_HOST=unix:///run/podman/podman.sock \
 		-e LEDGER_DATABASE_URL=postgres://alcove:alcove@alcove-ledger:5432/alcove?sslmode=disable \
 		-e HAIL_URL=nats://alcove-hail:4222 \
