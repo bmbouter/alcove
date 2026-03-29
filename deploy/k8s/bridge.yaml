@@ -1,0 +1,68 @@
+# Deployment for the Alcove Bridge controller.
+#
+# Bridge is the central component: REST API, dashboard, and task scheduler.
+# It creates Skiff Jobs via the Kubernetes API and communicates with NATS (Hail)
+# for messaging and PostgreSQL (Ledger) for session storage.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alcove-bridge
+  namespace: alcove
+  labels:
+    app.kubernetes.io/name: bridge
+    app.kubernetes.io/part-of: alcove
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bridge
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bridge
+        app.kubernetes.io/part-of: alcove
+    spec:
+      serviceAccountName: alcove-bridge
+      containers:
+        - name: bridge
+          image: ghcr.io/bmbouter/alcove-bridge:latest
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          env:
+            - name: RUNTIME
+              value: "kubernetes"
+            - name: ALCOVE_NAMESPACE
+              value: "alcove"
+            - name: HAIL_URL
+              value: "nats://alcove-hail:4222"
+            - name: ALCOVE_CREDENTIAL_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: alcove-secrets
+                  key: credential-key
+            - name: LEDGER_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: alcove-secrets
+                  key: database-url
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 100m
+              memory: 256Mi

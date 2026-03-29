@@ -1,0 +1,61 @@
+# Services for Alcove components.
+#
+# These provide stable DNS names within the cluster so components can
+# discover each other (e.g., Bridge connects to alcove-hail:4222).
+---
+# Bridge REST API and dashboard.
+apiVersion: v1
+kind: Service
+metadata:
+  name: alcove-bridge
+  namespace: alcove
+  labels:
+    app.kubernetes.io/name: bridge
+    app.kubernetes.io/part-of: alcove
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: bridge
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+---
+# Hail — NATS message bus for status updates and cancellation.
+apiVersion: v1
+kind: Service
+metadata:
+  name: alcove-hail
+  namespace: alcove
+  labels:
+    app.kubernetes.io/name: hail
+    app.kubernetes.io/part-of: alcove
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: hail
+  ports:
+    - port: 4222
+      targetPort: 4222
+      protocol: TCP
+      name: nats
+---
+# Ledger — PostgreSQL session store.
+apiVersion: v1
+kind: Service
+metadata:
+  name: alcove-ledger
+  namespace: alcove
+  labels:
+    app.kubernetes.io/name: ledger
+    app.kubernetes.io/part-of: alcove
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ledger
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+      name: postgres

@@ -26,7 +26,7 @@ func NewRuntime(runtimeType string) (runtime.Runtime, error) {
 	case "podman":
 		return runtime.NewPodmanRuntime(), nil
 	case "kubernetes":
-		return nil, fmt.Errorf("kubernetes runtime not yet implemented")
+		return runtime.NewKubernetesRuntime()
 	default:
 		return nil, fmt.Errorf("unknown runtime type: %s", runtimeType)
 	}

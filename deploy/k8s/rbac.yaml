@@ -1,0 +1,61 @@
+# RBAC resources for the Alcove Bridge controller.
+#
+# Bridge needs to create/manage Skiff Jobs, watch pod status, read pod logs,
+# manage NetworkPolicies for Skiff pod isolation, and read Secrets for
+# credential injection into Gate sidecars.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alcove-bridge
+  namespace: alcove
+  labels:
+    app.kubernetes.io/name: bridge
+    app.kubernetes.io/part-of: alcove
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: alcove-bridge
+  namespace: alcove
+  labels:
+    app.kubernetes.io/name: bridge
+    app.kubernetes.io/part-of: alcove
+rules:
+  # Bridge creates Skiff Jobs (one per task) and deletes them on completion.
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "delete", "get", "list", "watch"]
+  # Bridge watches pod status for task lifecycle tracking.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  # Bridge streams pod logs back to the dashboard.
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  # Bridge creates per-Skiff NetworkPolicies to enforce network isolation.
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["create", "delete", "get"]
+  # Bridge reads Secrets to inject credentials into Gate sidecars.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: alcove-bridge
+  namespace: alcove
+  labels:
+    app.kubernetes.io/name: bridge
+    app.kubernetes.io/part-of: alcove
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: alcove-bridge
+subjects:
+  - kind: ServiceAccount
+    name: alcove-bridge
+    namespace: alcove

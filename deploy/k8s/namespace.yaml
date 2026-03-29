@@ -1,0 +1,7 @@
+# Namespace for all Alcove components.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: alcove
+  labels:
+    app.kubernetes.io/part-of: alcove
