@@ -1,0 +1,278 @@
+# Getting Started with Alcove
+
+Run Alcove on your laptop in 5 minutes. Everything runs in containers via podman.
+
+## Prerequisites
+
+- **podman** (rootless) -- `sudo dnf install podman` (Fedora) or equivalent
+- **podman socket** -- must be running for Bridge to create worker containers
+- **make** -- for build and run targets
+- **Go 1.25+** -- only needed for `make build` (local binaries); not required for `make up` which builds inside containers
+
+### Enable the podman socket
+
+Alcove's Bridge controller creates ephemeral worker containers. It needs access
+to the podman socket to do this.
+
+```bash
+systemctl --user enable --now podman.socket
+```
+
+Verify it's running:
+
+```bash
+podman info > /dev/null && echo "podman is ready"
+ls $XDG_RUNTIME_DIR/podman/podman.sock && echo "socket is available"
+```
+
+## Using Pre-built Images (Optional)
+
+Instead of building images locally, you can pull pre-built images from GitHub
+Container Registry:
+
+```bash
+make pull VERSION=v0.1.0
+```
+
+This pulls all three images and tags them locally. Then use `make dev-up`
+(which skips the build step) instead of `make up`.
+
+## Quick Start
+
+### 1. Clone
+
+```bash
+git clone https://github.com/bmbouter/alcove.git
+cd alcove
+```
+
+### 2. Build and run
+
+**Option A: Build locally** (takes ~3 min first time):
+```bash
+make up
+```
+
+**Option B: Use pre-built images** (faster):
+```bash
+make up-pull VERSION=v0.1.0
+```
+
+This builds all container images and starts:
+- **Bridge** (controller + dashboard) on http://localhost:8080
+- **Hail** (NATS message bus) on nats://localhost:4222
+- **Ledger** (PostgreSQL) on localhost:5432
+
+`make up` auto-generates an `alcove.conf` file from `alcove.conf.example` with
+a random `credential_key` for credential encryption. This file is gitignored.
+
+### 3. Open the dashboard
+
+Go to http://localhost:8080 in your browser. Log in with:
+- Username: `admin`
+- Password: `admin`
+
+Change the default password after first login.
+
+> **Note:** The database is ephemeral. Each `make down` + `make up` cycle wipes
+> all data (containers run with `--rm`).
+
+### 4. Submit your first task
+
+From the dashboard:
+1. Click "New Task"
+2. Enter a prompt like "Write a hello world Python script"
+3. Select your provider
+4. Click Submit
+
+Or via CLI:
+```bash
+# Build the CLI
+make build
+
+# Login
+./bin/alcove login http://localhost:8080
+
+# Submit a task
+./bin/alcove run "Write a hello world Python script"
+
+# Watch it live
+./bin/alcove run --watch "Explain what the Alcove project does" --repo https://github.com/...
+```
+
+Or via curl:
+```bash
+# Get auth token
+TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"YOUR_PASSWORD"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+# Submit a task
+curl -X POST http://localhost:8080/api/v1/tasks \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"Say hello","provider":"anthropic","timeout":300}'
+
+# List sessions
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/sessions
+```
+
+### 5. Stop
+
+```bash
+make down
+```
+
+## Configuration
+
+### LLM Providers
+
+Alcove needs an LLM provider for Claude Code. Configure via the dashboard:
+
+1. Go to **Settings** and select the system LLM provider
+2. Go to **Credentials** and add your LLM API key
+
+Alternatively, set environment variables for initial setup (auto-migrated to
+the credential store on first startup):
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-...          # Anthropic API
+# or
+VERTEX_PROJECT=your-gcp-project       # Google Vertex AI
+VERTEX_API_KEY=your-vertex-key
+```
+
+### Debug Mode
+
+Keep worker containers after exit for log inspection:
+```bash
+ALCOVE_DEBUG=true
+```
+
+### All Environment Variables
+
+See `docs/configuration.md` for the complete list.
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────┐
+│  Your laptop (podman)                    │
+│                                          │
+│  ┌──────────┐  ┌──────┐  ┌──────────┐  │
+│  │ Bridge   │  │ Hail │  │ Ledger   │  │
+│  │ :8080    │  │ NATS │  │ Postgres │  │
+│  └────┬─────┘  └──────┘  └──────────┘  │
+│       │ creates via podman socket        │
+│  ┌────┴──────────────────────┐          │
+│  │ Skiff + Gate (ephemeral)  │          │
+│  │ Claude Code + auth proxy  │──► LLM   │
+│  └───────────────────────────┘          │
+└─────────────────────────────────────────┘
+```
+
+Each task gets a fresh Skiff container with a Gate sidecar on a dual-network
+setup. Skiff is attached only to the internal network (`alcove-internal`,
+created with `--internal` so it has no external access). Gate bridges both
+the internal and external (`alcove-external`) networks, proxying all external
+traffic and injecting LLM credentials. When the task finishes, both containers
+are destroyed.
+
+## GitHub/GitLab Integration
+
+Alcove can interact with GitHub and GitLab on behalf of your coding agent.
+Register a credential, then include SCM services in your task scope:
+
+```bash
+# Register a GitHub PAT
+curl -X POST http://localhost:8080/api/v1/credentials \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"github","provider":"github","auth_type":"pat","credential":"ghp_your_token"}'
+
+# Submit a task with GitHub scope
+curl -X POST http://localhost:8080/api/v1/tasks \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"Fix the typo in README.md and open a PR","provider":"vertex","scope":{"services":{"github":{"repos":["org/repo"],"operations":["clone","push_branch","create_pr_draft"]}}}}'
+```
+
+See [SCM Authorization Design](docs/design/gate-scm-authorization.md) for the
+full operation taxonomy and security model.
+
+## Useful Commands
+
+| Command | Description |
+|---------|-------------|
+| `make up` | Build images and start everything |
+| `make down` | Stop all containers |
+| `make logs` | Show logs from all containers |
+| `make build` | Build Go binaries locally |
+| `make test` | Run tests |
+| `make test-network` | Test dual-network isolation setup |
+
+## Troubleshooting
+
+### "podman socket not found"
+
+Make sure the socket is enabled:
+```bash
+systemctl --user enable --now podman.socket
+echo $XDG_RUNTIME_DIR  # Should be /run/user/$(id -u)
+```
+
+### Bridge can't create containers
+
+Check that the podman socket is accessible from inside the Bridge container:
+```bash
+podman exec alcove-bridge podman --remote info
+```
+
+### Port already in use
+
+If `make up` fails because a port is occupied, check for conflicting services:
+```bash
+ss -tlnp | grep -E "5432|4222|8080"
+```
+
+Stop whatever is using those ports (PostgreSQL on 5432, NATS on 4222, or
+another web server on 8080) before running `make up` again.
+
+### Tasks fail immediately
+
+Check if the Skiff/Gate images are built:
+```bash
+podman images | grep alcove
+```
+
+If missing, run `make build-images`.
+
+## Development Workflow
+
+For Go development on Alcove itself, you can run Bridge locally
+instead of in a container for faster iteration:
+
+```bash
+# Start only infrastructure
+make dev-infra
+
+# Build and run Bridge locally
+make build
+LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
+HAIL_URL="nats://localhost:4222" \
+RUNTIME=podman \
+SKIFF_IMAGE="localhost/alcove-skiff:$(cat VERSION)" \
+GATE_IMAGE="localhost/alcove-gate:$(cat VERSION)" \
+ALCOVE_NETWORK="alcove-internal" \
+ALCOVE_EXTERNAL_NETWORK="alcove-external" \
+./bin/bridge
+```
+
+Bridge also needs `SKIFF_IMAGE`, `GATE_IMAGE`, `ALCOVE_NETWORK`, and
+`ALCOVE_EXTERNAL_NETWORK` to create worker containers. If you built images via `make build-images`, they are tagged
+with the version from the `VERSION` file (not `:dev`). You can set all of these
+as environment variables before running Bridge.
+
+This skips the Bridge container image rebuild cycle. Infrastructure
+(NATS + PostgreSQL) still runs in containers.

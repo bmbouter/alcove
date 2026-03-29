@@ -1,0 +1,35 @@
+# Build artifacts
+bin/
+/alcove
+/bridge
+/gate
+/skiff-init
+
+# Test artifacts
+*.test
+coverage.out
+coverage.html
+
+# Debug
+__debug_bin*
+*.log
+
+# Go workspaces
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment and config (secrets)
+.env
+.env.*
+config.yaml
+alcove.conf
+
+# OS
+.DS_Store

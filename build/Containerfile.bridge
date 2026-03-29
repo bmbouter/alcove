@@ -1,0 +1,41 @@
+# Containerfile.bridge — Multi-stage build for the Alcove Bridge controller.
+
+# Stage 1: Build
+FROM docker.io/library/golang:1.25 AS builder
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+ARG VERSION=dev
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.Version=${VERSION}" -o /out/bridge ./cmd/bridge
+
+# Stage 2: Runtime
+# Use ubi9 (not ubi9-minimal) because we need podman for container management.
+# Bridge creates Skiff+Gate containers via the podman CLI.
+FROM registry.access.redhat.com/ubi9/ubi:latest
+
+ARG VERSION=dev
+LABEL org.opencontainers.image.title="alcove-bridge" \
+      org.opencontainers.image.description="Alcove controller — REST API, dashboard, and task scheduler" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.source="https://github.com/bmbouter/alcove" \
+      org.opencontainers.image.vendor="alcove-dev" \
+      org.opencontainers.image.licenses="Apache-2.0"
+
+COPY --from=builder /out/bridge /usr/local/bin/bridge
+
+# Copy dashboard static files
+COPY web/ /web/
+
+# Install podman for container management (Bridge creates Skiff+Gate containers)
+RUN dnf install -y podman && \
+    useradd -r -u 1001 -s /sbin/nologin alcove && \
+    dnf clean all
+
+USER 1001
+
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/local/bin/bridge"]

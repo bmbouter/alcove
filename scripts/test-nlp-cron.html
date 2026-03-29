@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NLP Cron Parser Test Suite</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+        background: #1a1a2e;
+        color: #e0e0e0;
+        padding: 2rem;
+    }
+    h1 {
+        color: #00d4aa;
+        margin-bottom: 0.5rem;
+        font-size: 1.5rem;
+    }
+    .summary {
+        font-size: 1.1rem;
+        margin-bottom: 1.5rem;
+        padding: 0.75rem 1rem;
+        border-radius: 6px;
+        display: inline-block;
+    }
+    .summary.all-pass { background: #0a3d2a; color: #4ade80; }
+    .summary.has-fail { background: #3d0a0a; color: #f87171; }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.9rem;
+    }
+    th {
+        background: #16213e;
+        color: #00d4aa;
+        text-align: left;
+        padding: 0.6rem 0.75rem;
+        border-bottom: 2px solid #0f3460;
+    }
+    td {
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid #1a1a3e;
+    }
+    tr.pass { background: #0a2a1a; }
+    tr.fail { background: #2a0a0a; }
+    tr.pass td:last-child { color: #4ade80; font-weight: bold; }
+    tr.fail td:last-child { color: #f87171; font-weight: bold; }
+    code {
+        background: #0f0f23;
+        padding: 0.15rem 0.4rem;
+        border-radius: 3px;
+        font-size: 0.85rem;
+    }
+    .null { color: #888; font-style: italic; }
+</style>
+</head>
+<body>
+<h1>NLP Cron Parser Test Suite</h1>
+<div id="summary" class="summary"></div>
+<table>
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>Input</th>
+            <th>Expected Cron</th>
+            <th>Got Cron</th>
+            <th>Expected Name</th>
+            <th>Got Name</th>
+            <th>Result</th>
+        </tr>
+    </thead>
+    <tbody id="results"></tbody>
+</table>
+
+<script>
+// parseNaturalCron - converts natural language schedule descriptions to cron expressions.
+// Returns {cron, name} or null if the input cannot be parsed.
+function parseNaturalCron(input) {
+    if (!input || typeof input !== 'string') return null;
+
+    const s = input.trim().toLowerCase();
+    if (!s) return null;
+
+    const dayMap = {
+        'sunday': 0, 'sun': 0,
+        'monday': 1, 'mon': 1,
+        'tuesday': 2, 'tue': 2, 'tues': 2,
+        'wednesday': 3, 'wed': 3,
+        'thursday': 4, 'thu': 4, 'thur': 4, 'thurs': 4,
+        'friday': 5, 'fri': 5,
+        'saturday': 6, 'sat': 6,
+    };
+
+    // Parse a time expression, returns {hour, minute} or null
+    function parseTime(str) {
+        str = str.trim();
+        if (str === 'midnight') return {hour: 0, minute: 0};
+        if (str === 'noon') return {hour: 12, minute: 0};
+
+        // "14:30" or "8:30am"
+        let m = str.match(/^(\d{1,2}):(\d{2})\s*(am|pm)?$/);
+        if (m) {
+            let h = parseInt(m[1], 10);
+            let min = parseInt(m[2], 10);
+            if (m[3] === 'pm' && h < 12) h += 12;
+            if (m[3] === 'am' && h === 12) h = 0;
+            return {hour: h, minute: min};
+        }
+
+        // "2am", "3pm", "9am"
+        m = str.match(/^(\d{1,2})\s*(am|pm)$/);
+        if (m) {
+            let h = parseInt(m[1], 10);
+            if (m[2] === 'pm' && h < 12) h += 12;
+            if (m[2] === 'am' && h === 12) h = 0;
+            return {hour: h, minute: 0};
+        }
+
+        return null;
+    }
+
+    // Extract time from the end of string after "at"
+    function extractTimeAfterAt(str) {
+        const m = str.match(/\bat\s+(.+)$/);
+        if (m) return parseTime(m[1]);
+        return null;
+    }
+
+    // "every N minutes"
+    let match = s.match(/^every\s+(\d+)\s+minutes?$/);
+    if (match) {
+        const n = parseInt(match[1], 10);
+        return {cron: `*/${n} * * * *`, name: `Every ${n} minutes`};
+    }
+
+    // "every hour"
+    if (s === 'every hour') {
+        return {cron: '0 * * * *', name: 'Every hour'};
+    }
+
+    // "every N hours"
+    match = s.match(/^every\s+(\d+)\s+hours?$/);
+    if (match) {
+        const n = parseInt(match[1], 10);
+        return {cron: `0 */${n} * * *`, name: `Every ${n} hours`};
+    }
+
+    // "twice a day"
+    if (s === 'twice a day') {
+        return {cron: '0 0,12 * * *', name: 'Twice a day'};
+    }
+
+    // "hourly on weekdays"
+    if (s === 'hourly on weekdays') {
+        return {cron: '0 * * * 1-5', name: 'Hourly on weekdays'};
+    }
+
+    // "daily at TIME" or "every day at TIME"
+    match = s.match(/^(?:daily|every\s+day)\s+at\s+(.+)$/);
+    if (match) {
+        const t = parseTime(match[1]);
+        if (t) return {cron: `${t.minute} ${t.hour} * * *`, name: `Daily at ${t.hour}:${String(t.minute).padStart(2, '0')}`};
+    }
+
+    // "weekdays at TIME" or "every weekday at TIME"
+    match = s.match(/^(?:every\s+)?weekdays?\s+at\s+(.+)$/);
+    if (match) {
+        const t = parseTime(match[1]);
+        if (t) return {cron: `${t.minute} ${t.hour} * * 1-5`, name: `Weekdays at ${t.hour}:${String(t.minute).padStart(2, '0')}`};
+    }
+
+    // "every <day> at TIME" or "every <day> and <day> at TIME"
+    match = s.match(/^every\s+(.+?)\s+at\s+(.+)$/);
+    if (match) {
+        const daysPart = match[1];
+        const t = parseTime(match[2]);
+        if (t) {
+            // Split on "and" or ","
+            const dayTokens = daysPart.split(/\s*(?:and|,)\s*/).map(d => d.trim());
+            const dayNums = dayTokens.map(d => dayMap[d]);
+            if (dayNums.length > 0 && dayNums.every(d => d !== undefined)) {
+                const dayStr = dayNums.join(',');
+                return {cron: `${t.minute} ${t.hour} * * ${dayStr}`, name: null};
+            }
+        }
+    }
+
+    // "every month on the 1st" or "monthly on the 15th at 3pm"
+    match = s.match(/^(?:every\s+month|monthly)\s+on\s+the\s+(\d+)(?:st|nd|rd|th)?(?:\s+at\s+(.+))?$/);
+    if (match) {
+        const day = parseInt(match[1], 10);
+        let t = {hour: 0, minute: 0};
+        if (match[2]) {
+            const parsed = parseTime(match[2]);
+            if (parsed) t = parsed;
+        }
+        return {cron: `${t.minute} ${t.hour} ${day} * *`, name: null};
+    }
+
+    return null;
+}
+
+// Test cases
+const tests = [
+    {input: 'every hour', cron: '0 * * * *', name: 'Every hour'},
+    {input: 'every 15 minutes', cron: '*/15 * * * *', name: 'Every 15 minutes'},
+    {input: 'every 30 minutes', cron: '*/30 * * * *', name: 'Every 30 minutes'},
+    {input: 'every 6 hours', cron: '0 */6 * * *', name: 'Every 6 hours'},
+    {input: 'every 2 hours', cron: '0 */2 * * *', name: 'Every 2 hours'},
+    {input: 'daily at 2am', cron: '0 2 * * *'},
+    {input: 'daily at 3pm', cron: '0 15 * * *'},
+    {input: 'daily at 14:30', cron: '30 14 * * *'},
+    {input: 'every day at 9am', cron: '0 9 * * *'},
+    {input: 'every day at midnight', cron: '0 0 * * *'},
+    {input: 'every day at noon', cron: '0 12 * * *'},
+    {input: 'weekdays at 9am', cron: '0 9 * * 1-5'},
+    {input: 'every weekday at 8:30am', cron: '30 8 * * 1-5'},
+    {input: 'every monday at 9am', cron: '0 9 * * 1'},
+    {input: 'every friday at 5pm', cron: '0 17 * * 5'},
+    {input: 'every sunday at 6am', cron: '0 6 * * 0'},
+    {input: 'twice a day', cron: '0 0,12 * * *'},
+    {input: 'every month on the 1st', cron: '0 0 1 * *'},
+    {input: 'monthly on the 15th at 3pm', cron: '0 15 15 * *'},
+    {input: 'hourly on weekdays', cron: '0 * * * 1-5'},
+    {input: 'every 5 minutes', cron: '*/5 * * * *'},
+    {input: 'Every Tuesday and Thursday at 10am', cron: '0 10 * * 2,4'},
+    // Negative tests (should return null)
+    {input: 'asdfgh', cron: null},
+    {input: '', cron: null},
+    {input: 'every other tuesday', cron: null},
+];
+
+function fmt(val) {
+    if (val === null || val === undefined) return '<span class="null">null</span>';
+    return '<code>' + val + '</code>';
+}
+
+let passed = 0;
+let total = tests.length;
+const tbody = document.getElementById('results');
+
+tests.forEach((t, i) => {
+    const result = parseNaturalCron(t.input);
+    const gotCron = result ? result.cron : null;
+    const gotName = result ? result.name : null;
+    const expectedName = t.name !== undefined ? t.name : undefined;
+
+    const cronMatch = gotCron === t.cron;
+    // Only check name if expected name is specified in the test case
+    const nameMatch = expectedName === undefined || gotName === expectedName;
+    const pass = cronMatch && nameMatch;
+
+    if (pass) passed++;
+
+    const tr = document.createElement('tr');
+    tr.className = pass ? 'pass' : 'fail';
+    tr.innerHTML = `
+        <td>${i + 1}</td>
+        <td><code>${t.input || '(empty)'}</code></td>
+        <td>${fmt(t.cron)}</td>
+        <td>${fmt(gotCron)}</td>
+        <td>${fmt(expectedName !== undefined ? expectedName : '(not checked)')}</td>
+        <td>${fmt(gotName)}</td>
+        <td>${pass ? 'PASS' : 'FAIL'}</td>
+    `;
+    tbody.appendChild(tr);
+});
+
+const summaryEl = document.getElementById('summary');
+summaryEl.textContent = `${passed}/${total} tests passed`;
+summaryEl.className = 'summary ' + (passed === total ? 'all-pass' : 'has-fail');
+</script>
+</body>
+</html>

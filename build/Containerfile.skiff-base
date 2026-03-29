@@ -1,0 +1,80 @@
+# Containerfile.skiff-base — Base image for Skiff workers.
+# Contains Claude Code CLI, git, and basic dev tooling.
+
+# Stage 1: Build skiff-init
+FROM docker.io/library/golang:1.25 AS builder
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+ARG VERSION=dev
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.Version=${VERSION}" -o /out/skiff-init ./cmd/skiff-init
+
+# Stage 2: Runtime
+FROM registry.access.redhat.com/ubi9/ubi:latest
+
+ARG VERSION=dev
+LABEL org.opencontainers.image.title="alcove-skiff-base" \
+      org.opencontainers.image.description="Alcove ephemeral worker — Claude Code CLI environment" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.source="https://github.com/bmbouter/alcove" \
+      org.opencontainers.image.vendor="alcove-dev" \
+      org.opencontainers.image.licenses="Apache-2.0"
+
+# Install system packages: git, python3, and basic dev tools
+RUN dnf install -y \
+        git \
+        python3 \
+        python3-pip \
+        make \
+        jq \
+        findutils \
+        diffutils \
+        patch \
+        which \
+        tar \
+        gzip \
+    && dnf clean all
+
+# Install Node.js (LTS) for Claude Code CLI
+RUN dnf module enable -y nodejs:20 && \
+    dnf install -y nodejs npm && \
+    dnf clean all
+
+# Install GitHub CLI (gh)
+RUN dnf install -y 'dnf-command(config-manager)' && \
+    dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo && \
+    dnf install -y gh --repo gh-cli && \
+    dnf clean all
+
+# Install GitLab CLI (glab)
+RUN curl -sL "https://gitlab.com/gitlab-org/cli/-/releases/permalink/latest/downloads/glab_linux_amd64" \
+    -o /usr/local/bin/glab && \
+    chmod +x /usr/local/bin/glab
+
+# Install Claude Code CLI via npm
+RUN npm install -g @anthropic-ai/claude-code
+
+# Copy the skiff-init binary from the build stage
+COPY --from=builder /out/skiff-init /usr/local/bin/skiff-init
+
+# Install the git credential helper for Gate integration
+COPY build/alcove-credential-helper /usr/local/bin/alcove-credential-helper
+RUN chmod +x /usr/local/bin/alcove-credential-helper
+
+# Configure git for Gate-proxied credential management
+RUN git config --system credential.helper '/usr/local/bin/alcove-credential-helper' && \
+    git config --system credential.useHttpPath true && \
+    git config --system url."https://github.com/".insteadOf "git@github.com:" && \
+    git config --system url."https://github.com/".insteadOf "ssh://git@github.com/" && \
+    git config --system url."https://gitlab.com/".insteadOf "git@gitlab.com:" && \
+    git config --system url."https://gitlab.com/".insteadOf "ssh://git@gitlab.com/"
+
+# Create a non-root user for running tasks
+RUN useradd -m -u 1001 -s /bin/bash skiff
+USER 1001
+WORKDIR /home/skiff
+
+ENTRYPOINT ["/usr/local/bin/skiff-init"]

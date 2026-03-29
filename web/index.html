@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alcove</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- Login View -->
+    <div id="login-view" class="view">
+        <div class="login-container">
+            <div class="login-logo">
+                <h1>Alcove</h1>
+                <p class="login-subtitle">Sandboxed AI Coding Agents</p>
+            </div>
+            <form id="login-form" autocomplete="on">
+                <div class="form-group">
+                    <label for="login-username">Username</label>
+                    <input type="text" id="login-username" name="username" required autofocus autocomplete="username">
+                </div>
+                <div class="form-group">
+                    <label for="login-password">Password</label>
+                    <input type="password" id="login-password" name="password" required autocomplete="current-password">
+                </div>
+                <div id="login-error" class="error-message" role="alert" hidden></div>
+                <button type="submit" class="btn btn-primary btn-full">Sign In</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Dashboard View -->
+    <div id="dashboard-view" class="view" hidden>
+        <header class="top-bar">
+            <div class="top-bar-left">
+                <h1 class="brand">Alcove</h1>
+            </div>
+            <nav class="top-bar-nav" aria-label="Main navigation">
+                <a href="#sessions" class="nav-tab" data-tab="sessions">Sessions</a>
+                <a href="#task/new" class="nav-tab" data-tab="task/new">New Task</a>
+                <a href="#schedules" class="nav-tab" data-tab="schedules">Schedules</a>
+                <a href="#credentials" class="nav-tab" data-tab="credentials">Credentials</a>
+                <a href="#profiles" class="nav-tab" data-tab="profiles">Profiles</a>
+                <a href="#users" class="nav-tab nav-admin-only" data-tab="users" hidden>Users</a>
+                <a href="#settings" class="nav-tab nav-admin-only" data-tab="settings" hidden>Settings</a>
+            </nav>
+            <div class="top-bar-right">
+                <div class="user-dropdown" id="user-dropdown">
+                    <button class="user-dropdown-toggle" id="user-dropdown-toggle">
+                        <span id="user-info" class="user-info"></span>
+                        <span class="dropdown-arrow">&#9662;</span>
+                    </button>
+                    <div class="user-dropdown-menu" id="user-dropdown-menu" hidden>
+                        <button class="user-dropdown-item" id="change-password-btn">Change Password</button>
+                        <button class="user-dropdown-item user-dropdown-logout" id="logout-btn">Logout</button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <main id="main-content" class="main-content">
+            <!-- Sessions List -->
+            <div id="page-sessions" class="page" hidden>
+                <!-- Setup Checklist (shown for new users) -->
+                <div id="setup-checklist" class="setup-checklist" hidden>
+                    <div class="setup-checklist-header">
+                        <h3>Getting Started</h3>
+                        <button id="setup-checklist-dismiss" class="btn btn-small btn-outline" title="Dismiss checklist">Dismiss</button>
+                    </div>
+                    <ul class="setup-checklist-items">
+                        <li id="setup-item-login" class="setup-item setup-item-done">
+                            <span class="setup-check">&#10003;</span>
+                            <span class="setup-label">Logged in as <strong id="setup-username"></strong></span>
+                        </li>
+                        <li id="setup-item-llm" class="setup-item">
+                            <span class="setup-check">&#10007;</span>
+                            <span class="setup-label">Add an LLM credential <span class="setup-required">(required to run tasks)</span></span>
+                            <a href="#credentials" class="btn btn-small btn-outline setup-action">Add Credential</a>
+                        </li>
+                        <li id="setup-item-scm" class="setup-item">
+                            <span class="setup-check">&#10007;</span>
+                            <span class="setup-label">Add a GitHub or GitLab credential <span class="setup-optional">(optional, for repository access)</span></span>
+                            <a href="#credentials" class="btn btn-small btn-outline setup-action">Add Credential</a>
+                        </li>
+                        <li id="setup-item-profile" class="setup-item">
+                            <span class="setup-check">&#10007;</span>
+                            <span class="setup-label">Create a security profile <span class="setup-optional">(optional, controls tool permissions)</span></span>
+                            <a href="#profiles" class="btn btn-small btn-outline setup-action">Create Profile</a>
+                        </li>
+                        <li id="setup-item-task" class="setup-item">
+                            <span class="setup-check">&#9675;</span>
+                            <span class="setup-label">Submit your first task</span>
+                            <a href="#task/new" class="btn btn-small btn-primary setup-action">New Task</a>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="page-header">
+                    <h2>Sessions</h2>
+                    <div class="filters">
+                        <select id="filter-status" class="input input-small" aria-label="Filter by status">
+                            <option value="">All Statuses</option>
+                            <option value="running">Running</option>
+                            <option value="completed">Completed</option>
+                            <option value="error">Error</option>
+                            <option value="cancelled">Cancelled</option>
+                            <option value="timeout">Timeout</option>
+                        </select>
+                        <input type="text" id="filter-search" class="input input-small" placeholder="Search sessions..." aria-label="Search sessions">
+                    </div>
+                </div>
+                <div id="sessions-table-container" class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Submitter</th>
+                                <th>Status</th>
+                                <th>Provider</th>
+                                <th>Duration</th>
+                                <th>Prompt</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sessions-tbody"></tbody>
+                    </table>
+                    <div id="sessions-empty" class="empty-state" hidden>
+                        <p>No sessions found.</p>
+                    </div>
+                    <div id="sessions-loading" class="loading-state" hidden>
+                        <div class="spinner"></div>
+                        <p>Loading sessions...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- New Task -->
+            <div id="page-task-new" class="page" hidden>
+                <div class="page-header">
+                    <h2>New Task</h2>
+                </div>
+                <form id="task-form" class="form-card">
+                    <div class="form-group">
+                        <label for="task-prompt">Prompt <span class="required">*</span></label>
+                        <textarea id="task-prompt" class="input" rows="6" required placeholder="Describe the task for the AI agent..."></textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group form-group-half">
+                            <label for="task-provider">Provider</label>
+                            <select id="task-provider" class="input">
+                                <option value="">Loading providers...</option>
+                            </select>
+                        </div>
+                        <div class="form-group form-group-half">
+                            <label for="task-repo">Repository URL</label>
+                            <input type="url" id="task-repo" class="input" placeholder="https://github.com/org/repo.git">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group form-group-half">
+                            <label for="task-timeout">Timeout (minutes): <span id="timeout-value">60</span></label>
+                            <input type="range" id="task-timeout" class="input-range" min="5" max="240" value="60" step="5">
+                            <small class="form-help">Task will be stopped if it exceeds this duration.</small>
+                        </div>
+                        <div class="form-group form-group-half">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="task-debug">
+                                <span>Debug mode</span>
+                            </label>
+                            <small class="form-help">Preserves worker containers after completion for debugging failed tasks.</small>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Security Profiles</label>
+                        <div id="task-profile-selector">
+                            <div id="task-profile-chips" class="profile-chips"></div>
+                            <select id="task-profile-add" class="input" style="max-width:250px;">
+                                <option value="">+ Add profile...</option>
+                            </select>
+                        </div>
+                        <div id="task-profile-effective" class="profile-effective" hidden></div>
+                        <small class="form-help">Select profiles to grant tool access. <a href="#profiles">Create a new profile</a></small>
+                        <div id="task-profile-stacking-hint" class="profile-stacking-hint" hidden>
+                            <strong>Tip: Stack profiles for mixed repo scoping.</strong> For example, use a "read-all" profile (all repos) with a "pulp-contributor" profile (specific repos) to read broadly but write only to selected repos.
+                        </div>
+                    </div>
+                    <div id="task-warnings" class="task-warnings" hidden></div>
+                    <div id="task-error" class="error-message" role="alert" hidden></div>
+                    <div id="task-success" class="success-message" role="status" hidden></div>
+                    <button type="submit" class="btn btn-primary">Submit Task</button>
+                </form>
+            </div>
+
+            <!-- Schedules -->
+            <div id="page-schedules" class="page" hidden>
+                <div class="page-header">
+                    <h2>Schedules</h2>
+                    <button id="show-create-schedule" class="btn btn-small btn-primary">Create Schedule</button>
+                </div>
+                <div id="schedule-form-container" class="form-card" hidden>
+                    <form id="schedule-form">
+                        <div class="form-row">
+                            <div class="form-group form-group-half">
+                                <label for="sched-name">Name <span class="required">*</span></label>
+                                <input type="text" id="sched-name" class="input" placeholder="e.g., Nightly dependency audit" required>
+                            </div>
+                            <div class="form-group form-group-half">
+                                <label for="sched-cron">Cron Expression <span class="required">*</span></label>
+                                <input type="text" id="sched-cron" class="input mono" placeholder="0 2 * * *" required>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="sched-natural">Describe your schedule in plain English <small style="color:var(--text-muted)">(optional)</small></label>
+                            <input type="text" id="sched-natural" class="input" placeholder='e.g., "every weekday at 9am" or "daily at 2pm"'>
+                        </div>
+                        <details class="cron-help">
+                            <summary>Cron syntax help</summary>
+                            <div class="cron-help-content">
+                                <p>Format: <code>minute hour day-of-month month day-of-week</code></p>
+                                <table class="cron-examples">
+                                    <tr><td>Every hour</td><td><code>0 * * * *</code></td></tr>
+                                    <tr><td>Every 15 minutes</td><td><code>*/15 * * * *</code></td></tr>
+                                    <tr><td>Daily at 2:00 AM</td><td><code>0 2 * * *</code></td></tr>
+                                    <tr><td>Weekdays at 9:00 AM</td><td><code>0 9 * * 1-5</code></td></tr>
+                                    <tr><td>Every Sunday at 6:00 AM</td><td><code>0 6 * * 0</code></td></tr>
+                                    <tr><td>First of every month</td><td><code>0 0 1 * *</code></td></tr>
+                                    <tr><td>Every 6 hours</td><td><code>0 */6 * * *</code></td></tr>
+                                    <tr><td>Mon-Fri at 8:30 AM</td><td><code>30 8 * * 1-5</code></td></tr>
+                                </table>
+                                <p>Supports: exact values, wildcards (*), steps (*/5), ranges (1-5), lists (1,3,5)</p>
+                            </div>
+                        </details>
+                        <div class="form-group">
+                            <label for="sched-prompt">Prompt <span class="required">*</span></label>
+                            <textarea id="sched-prompt" class="input" rows="4" required></textarea>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group form-group-half">
+                                <label for="sched-provider">Provider</label>
+                                <select id="sched-provider" class="input"><option value="">Select a provider</option></select>
+                            </div>
+                            <div class="form-group form-group-half">
+                                <label for="sched-repo">Repository URL</label>
+                                <input type="url" id="sched-repo" class="input" placeholder="https://github.com/org/repo">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group form-group-half">
+                                <label for="sched-timeout">Timeout (minutes): <span id="sched-timeout-value">60</span></label>
+                                <input type="range" id="sched-timeout" class="input-range" min="5" max="240" value="60" step="5">
+                            </div>
+                            <div class="form-group form-group-quarter">
+                                <label class="checkbox-label" style="padding-top:28px;">
+                                    <input type="checkbox" id="sched-debug"> <span>Debug</span>
+                                </label>
+                            </div>
+                            <div class="form-group form-group-quarter">
+                                <label class="checkbox-label" style="padding-top:28px;">
+                                    <input type="checkbox" id="sched-enabled" checked> <span>Enabled</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div id="schedule-form-error" class="error-message" role="alert" hidden></div>
+                        <div style="display:flex;gap:8px;margin-top:16px;">
+                            <button type="submit" id="schedule-submit-btn" class="btn btn-primary">Create Schedule</button>
+                            <button type="button" id="cancel-create-schedule" class="btn btn-outline">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Cron</th>
+                                <th>Next Run</th>
+                                <th>Last Run</th>
+                                <th>Enabled</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="schedules-tbody"></tbody>
+                    </table>
+                    <div id="schedules-empty" class="empty-state" hidden><p>No schedules. Create one to run tasks on a recurring cron schedule.</p></div>
+                    <div id="schedules-loading" class="loading-state" hidden><div class="spinner"></div><p>Loading schedules...</p></div>
+                </div>
+            </div>
+
+            <!-- Credentials -->
+            <div id="page-credentials" class="page" hidden>
+                <div class="page-header">
+                    <h2>Credentials</h2>
+                    <button id="show-create-credential" class="btn btn-small btn-primary">Add Credential</button>
+                </div>
+                <div id="credential-form-container" class="form-card" hidden></div>
+                <div id="credentials-grouped-container">
+                    <div id="credentials-loading" class="loading-state" hidden><div class="spinner"></div><p>Loading credentials...</p></div>
+                    <div id="credentials-empty" class="empty-state" hidden><p>No credentials configured. Add one to connect AI providers or code platforms.</p></div>
+
+                    <div id="credentials-section-llm" class="credentials-section" hidden>
+                        <div class="credentials-section-label">LLM Providers</div>
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Provider</th>
+                                        <th>Auth Type</th>
+                                        <th>Project / Region</th>
+                                        <th>Created</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="credentials-tbody-llm"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div id="credentials-section-scm" class="credentials-section" hidden>
+                        <div class="credentials-section-label">Code Platforms</div>
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Provider</th>
+                                        <th>Auth Type</th>
+                                        <th>Host</th>
+                                        <th>Created</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="credentials-tbody-scm"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Profiles -->
+            <div id="page-profiles" class="page" hidden>
+                <div class="page-header">
+                    <h2>Security Profiles</h2>
+                    <button id="show-create-profile" class="btn btn-small btn-primary">Create Profile</button>
+                </div>
+
+                <div id="profile-form-container" class="form-card" hidden>
+                    <form id="profile-form">
+                        <div class="form-group">
+                            <label>Build Mode</label>
+                            <div style="display:flex;gap:8px;margin-bottom:12px;">
+                                <button type="button" class="btn btn-small profile-mode-btn active" data-profile-mode="ai">AI Builder</button>
+                                <button type="button" class="btn btn-small btn-outline profile-mode-btn" data-profile-mode="manual">Manual</button>
+                            </div>
+                        </div>
+
+                        <!-- AI Builder mode -->
+                        <div id="profile-ai-mode">
+                            <div class="form-group">
+                                <label for="profile-ai-description">Describe the profile you need</label>
+                                <textarea id="profile-ai-description" class="input" rows="3" placeholder="e.g., A profile for a contributor who can read and create PRs on GitHub, but not merge or delete branches"></textarea>
+                            </div>
+                            <div style="display:flex;gap:8px;margin-bottom:16px;">
+                                <button type="button" id="profile-ai-generate" class="btn btn-primary btn-small">Generate</button>
+                            </div>
+                            <div id="profile-ai-result" class="ai-builder-result" hidden></div>
+                            <div id="profile-ai-error" class="error-message" role="alert" hidden></div>
+                        </div>
+
+                        <!-- Manual / review mode fields -->
+                        <div id="profile-manual-mode" hidden>
+                            <div class="form-row">
+                                <div class="form-group form-group-half">
+                                    <label for="profile-name">Name <span class="required">*</span></label>
+                                    <input type="text" id="profile-name" class="input" placeholder="e.g., github-contributor" required>
+                                </div>
+                                <div class="form-group form-group-half">
+                                    <label for="profile-description">Description</label>
+                                    <input type="text" id="profile-description" class="input" placeholder="e.g., Can read and create PRs">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Tool Permissions</label>
+                                <div id="profile-tool-selection">
+                                    <div class="loading-state"><div class="spinner"></div><p>Loading tools...</p></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="profile-form-error" class="error-message" role="alert" hidden></div>
+                        <div style="display:flex;gap:8px;margin-top:16px;">
+                            <button type="submit" id="profile-submit-btn" class="btn btn-primary">Save Profile</button>
+                            <button type="button" id="cancel-create-profile" class="btn btn-outline">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="profile-stacking-hint" style="margin-bottom:16px;">
+                    <strong>How profiles work:</strong> Each profile grants a set of operations, optionally scoped to specific repositories.
+                    To allow broad read access but restrict writes to certain repos, create separate profiles and select them together on a task.
+                    Permissions are merged (union) across all selected profiles.
+                </div>
+
+                <!-- Starter profiles -->
+                <div class="profile-section-label">Starter Profiles</div>
+                <div id="profiles-builtin"></div>
+
+                <!-- Your profiles -->
+                <div class="profile-section-label">Your Profiles</div>
+                <div id="profiles-user"></div>
+                <div id="profiles-empty" class="empty-state" hidden><p>No custom profiles yet. Create one or use a starter profile.</p></div>
+                <div id="profiles-loading" class="loading-state" hidden><div class="spinner"></div><p>Loading profiles...</p></div>
+
+                <div style="margin-top:24px;">
+                    <small class="form-help"><a href="#tools-admin" id="profiles-tools-admin-link">Manage tools (admin)</a></small>
+                </div>
+            </div>
+
+            <!-- Tools (admin, accessible from profiles page) -->
+            <div id="page-tools" class="page" hidden>
+                <div class="page-header">
+                    <button id="back-to-profiles" class="btn btn-small btn-outline">Back to Profiles</button>
+                    <h2>Tools</h2>
+                    <button id="show-create-tool" class="btn btn-small btn-primary">Add Custom Tool</button>
+                </div>
+                <div id="tool-form-container" class="form-card" hidden>
+                    <form id="tool-form">
+                        <div class="form-row">
+                            <div class="form-group form-group-half">
+                                <label for="tool-name">Name <span class="required">*</span></label>
+                                <input type="text" id="tool-name" class="input" placeholder="e.g., my-github" required>
+                            </div>
+                            <div class="form-group form-group-half">
+                                <label for="tool-display-name">Display Name</label>
+                                <input type="text" id="tool-display-name" class="input" placeholder="e.g., My GitHub">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="tool-mcp-command">MCP Command <span class="required">*</span></label>
+                            <input type="text" id="tool-mcp-command" class="input mono" placeholder="e.g., npx @modelcontextprotocol/server-github" required>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group form-group-half">
+                                <label for="tool-api-host">API Host</label>
+                                <input type="text" id="tool-api-host" class="input" placeholder="e.g., api.github.com">
+                            </div>
+                            <div class="form-group form-group-half">
+                                <label for="tool-auth-header">Auth Header</label>
+                                <input type="text" id="tool-auth-header" class="input" placeholder="e.g., Authorization">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="tool-auth-format">Auth Format</label>
+                            <input type="text" id="tool-auth-format" class="input" placeholder="e.g., token {token}">
+                        </div>
+                        <div class="form-group">
+                            <label for="tool-operations">Operations <small style="color:var(--text-muted)">(one per line)</small></label>
+                            <textarea id="tool-operations" class="input mono" rows="4" placeholder="clone&#10;read_prs&#10;read_issues&#10;push_branch"></textarea>
+                        </div>
+                        <div id="tool-form-error" class="error-message" role="alert" hidden></div>
+                        <div style="display:flex;gap:8px;margin-top:16px;">
+                            <button type="submit" id="tool-submit-btn" class="btn btn-primary">Add Tool</button>
+                            <button type="button" id="cancel-create-tool" class="btn btn-outline">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Type</th>
+                                <th>Operations</th>
+                                <th>API Host</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tools-tbody"></tbody>
+                    </table>
+                    <div id="tools-empty" class="empty-state" hidden><p>No tools configured.</p></div>
+                    <div id="tools-loading" class="loading-state" hidden><div class="spinner"></div><p>Loading tools...</p></div>
+                </div>
+            </div>
+
+            <!-- Users -->
+            <div id="page-users" class="page" hidden>
+                <div class="page-header">
+                    <h2>Users</h2>
+                    <button id="show-create-user" class="btn btn-small btn-primary">Create User</button>
+                </div>
+                <div id="create-user-form-container" class="form-card" hidden>
+                    <form id="create-user-form">
+                        <div class="form-row">
+                            <div class="form-group form-group-half">
+                                <label for="new-user-username">Username <span class="required">*</span></label>
+                                <input type="text" id="new-user-username" class="input" required>
+                            </div>
+                            <div class="form-group form-group-half">
+                                <label for="new-user-password">Password <span class="required">*</span></label>
+                                <input type="password" id="new-user-password" class="input" required>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="new-user-admin"> <span>Administrator</span>
+                            </label>
+                        </div>
+                        <div id="create-user-error" class="error-message" role="alert" hidden></div>
+                        <div class="form-actions" style="display:flex;gap:8px;margin-top:16px;">
+                            <button type="submit" class="btn btn-primary">Create User</button>
+                            <button type="button" id="cancel-create-user" class="btn btn-outline">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Username</th>
+                                <th>Created</th>
+                                <th>Role</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-tbody"></tbody>
+                    </table>
+                    <div id="users-empty" class="empty-state" hidden><p>No users found.</p></div>
+                    <div id="users-loading" class="loading-state" hidden>
+                        <div class="spinner"></div>
+                        <p>Loading users...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings -->
+            <div id="page-settings" class="page" hidden>
+                <div class="page-header">
+                    <h2>Settings</h2>
+                </div>
+                <div class="settings-section">
+                    <h3>System LLM</h3>
+                    <p class="form-help">The LLM used by Alcove for AI features (profile builder). Separate from user task credentials.</p>
+                    <div id="settings-llm-status"></div>
+                    <button id="settings-llm-configure" class="btn btn-small btn-primary" style="margin:12px 0;">Configure System LLM</button>
+                    <div id="settings-llm-form-container" hidden></div>
+                </div>
+            </div>
+
+            <!-- Session Detail -->
+            <div id="page-session-detail" class="page" hidden>
+                <div class="page-header">
+                    <button id="back-to-sessions" class="btn btn-small btn-outline">Back to Sessions</button>
+                    <h2 id="detail-title">Session Detail</h2>
+                </div>
+                <div class="session-meta-grid" id="session-meta"></div>
+                <div class="detail-tabs" role="tablist">
+                    <button class="detail-tab active" data-detail-tab="transcript" role="tab" aria-selected="true">Transcript</button>
+                    <button class="detail-tab" data-detail-tab="proxy-log" role="tab" aria-selected="false">Proxy Log</button>
+                </div>
+                <div id="detail-transcript" class="detail-panel">
+                    <div id="transcript-content" class="transcript-content"></div>
+                    <div id="transcript-loading" class="loading-state" hidden>
+                        <div class="spinner"></div>
+                        <p>Loading transcript...</p>
+                    </div>
+                </div>
+                <div id="detail-proxy-log" class="detail-panel" hidden>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Timestamp</th>
+                                    <th>Method</th>
+                                    <th>URL</th>
+                                    <th>Operation</th>
+                                    <th>Service</th>
+                                    <th>Status Code</th>
+                                    <th>Decision</th>
+                                </tr>
+                            </thead>
+                            <tbody id="proxy-log-tbody"></tbody>
+                        </table>
+                    </div>
+                    <div id="proxy-log-loading" class="loading-state" hidden>
+                        <div class="spinner"></div>
+                        <p>Loading proxy log...</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="change-password-modal" class="modal-overlay" hidden>
+        <div class="modal-card">
+            <h3>Change Password</h3>
+            <form id="change-password-form">
+                <div class="form-group">
+                    <label for="cp-current">Current Password</label>
+                    <input type="password" id="cp-current" class="input" required>
+                </div>
+                <div class="form-group">
+                    <label for="cp-new">New Password</label>
+                    <input type="password" id="cp-new" class="input" required minlength="8">
+                </div>
+                <div class="form-group">
+                    <label for="cp-confirm">Confirm New Password</label>
+                    <input type="password" id="cp-confirm" class="input" required>
+                </div>
+                <div id="cp-error" class="error-message" role="alert" hidden></div>
+                <div id="cp-success" class="success-message" role="status" hidden></div>
+                <div style="display:flex;gap:8px;margin-top:16px;">
+                    <button type="submit" class="btn btn-primary">Change Password</button>
+                    <button type="button" id="cp-cancel" class="btn btn-outline">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <template id="credential-form-template">
+        <form>
+            <div class="form-row">
+                <div class="form-group form-group-half" data-role="cred-name-group">
+                    <label>Name <span class="required">*</span></label>
+                    <input type="text" data-role="cred-name" class="input" placeholder="e.g., Production Anthropic Key" required>
+                </div>
+                <div class="form-group form-group-half">
+                    <label>Provider <span class="required">*</span></label>
+                    <select data-role="cred-provider" class="input" required>
+                        <option value="">Select a provider</option>
+                        <option value="anthropic">Anthropic</option>
+                        <option value="google-vertex">Google Vertex AI</option>
+                        <option value="github">GitHub</option>
+                        <option value="gitlab">GitLab</option>
+                    </select>
+                </div>
+            </div>
+            <div data-role="cred-anthropic-fields">
+                <div class="form-group">
+                    <label>API Key <span class="required">*</span></label>
+                    <input type="password" data-role="cred-api-key" class="input" placeholder="sk-ant-...">
+                    <small class="form-help">Your Anthropic API key. It will be stored securely and never shown again.</small>
+                </div>
+            </div>
+            <div data-role="cred-vertex-fields" hidden>
+                <div class="form-group">
+                    <label>Authentication Type <span class="required">*</span></label>
+                    <select data-role="cred-auth-type" class="input">
+                        <option value="service_account">Service Account</option>
+                        <option value="adc">Application Default Credentials (ADC)</option>
+                    </select>
+                    <small data-role="cred-json-help-sa" class="form-help">Upload a GCP service account JSON key file.</small>
+                    <small data-role="cred-json-help-adc" class="form-help" hidden>Application Default Credentials will be used from the environment. JSON key is optional.</small>
+                </div>
+                <details class="vertex-guide" data-role="vertex-setup-guide">
+                    <summary>How to get these credentials</summary>
+                    <div class="vertex-guide-content">
+                        <div class="vertex-guide-tabs">
+                            <button type="button" class="vertex-guide-tab active" data-guide-tab="adc">Option A: ADC (Quick Setup)</button>
+                            <button type="button" class="vertex-guide-tab" data-guide-tab="sa">Option B: Service Account</button>
+                        </div>
+
+                        <div class="vertex-guide-panel" data-role="guide-panel-adc">
+                            <p>ADC is the fastest way to get started. If you've already run <code>gcloud auth application-default login</code>, the file is already on your machine.</p>
+                            <ol>
+                                <li>If you haven't already, install the <a href="https://cloud.google.com/sdk/docs/install" target="_blank" rel="noopener">gcloud CLI</a> and run:
+                                    <pre><code>gcloud auth application-default login</code></pre>
+                                </li>
+                                <li>The credentials file is saved at:
+                                    <pre><code>~/.config/gcloud/application_default_credentials.json</code></pre>
+                                    <small>Linux/macOS: <code>~/.config/gcloud/application_default_credentials.json</code></small><br>
+                                    <small>Windows: <code>%APPDATA%\gcloud\application_default_credentials.json</code></small>
+                                </li>
+                                <li>Copy the contents to your clipboard:
+                                    <pre><code>cat ~/.config/gcloud/application_default_credentials.json | pbcopy   # macOS
+cat ~/.config/gcloud/application_default_credentials.json | xclip -sel clip   # Linux
+cat ~/.config/gcloud/application_default_credentials.json   # or just cat and copy from terminal</code></pre>
+                                </li>
+                                <li>Paste below, or click <strong>Upload JSON file</strong> and select the file directly.</li>
+                            </ol>
+                            <p class="vertex-guide-note">The JSON will look like:</p>
+                            <pre><code>{
+  "type": "authorized_user",
+  "client_id": "7600...apps.googleusercontent.com",
+  "client_secret": "d-FL...k1q",
+  "refresh_token": "1//0e...xYZ"
+}</code></pre>
+                        </div>
+
+                        <div class="vertex-guide-panel" data-role="guide-panel-sa" hidden>
+                            <p>Service accounts are best for production or shared environments where you don't want to use personal credentials.</p>
+                            <ol>
+                                <li>Open <a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noopener">GCP Console &rarr; IAM &amp; Admin &rarr; Service Accounts</a>.</li>
+                                <li>Click <strong>Create Service Account</strong>. Name it (e.g. <code>alcove-vertex</code>).</li>
+                                <li>Grant the <strong>Vertex AI User</strong> role (<code>roles/aiplatform.user</code>).</li>
+                                <li>Click the service account &rarr; <strong>Keys</strong> tab &rarr; <strong>Add Key</strong> &rarr; <strong>Create new key</strong> &rarr; <strong>JSON</strong>. A <code>.json</code> file downloads to your computer.</li>
+                                <li>Paste the downloaded file contents below, or click <strong>Upload JSON file</strong> and select the downloaded file.</li>
+                            </ol>
+                            <p class="vertex-guide-note">The downloaded JSON will look like:</p>
+                            <pre><code>{
+  "type": "service_account",
+  "project_id": "my-project-123",
+  "private_key_id": "abc123...",
+  "client_email": "alcove@my-project.iam..."
+}</code></pre>
+                            <p class="vertex-guide-note">If you already have a service account key file, you can find it wherever you saved it, or check your Downloads folder.</p>
+                        </div>
+                    </div>
+                </details>
+                <div class="form-group">
+                    <label>Service Account JSON <span class="required">*</span></label>
+                    <textarea data-role="cred-json" class="input mono" rows="6" placeholder='{"type": "service_account", ...}'></textarea>
+                    <label class="btn btn-small btn-outline" style="margin-top:8px;cursor:pointer;">
+                        Upload JSON file
+                        <input type="file" data-role="cred-json-file" accept=".json,application/json" hidden>
+                    </label>
+                </div>
+                <div class="form-row">
+                    <div class="form-group form-group-half">
+                        <label>Project ID <span class="required">*</span></label>
+                        <input type="text" data-role="cred-project-id" class="input" placeholder="my-gcp-project">
+                        <small class="form-help">Find in <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">GCP Console</a> header, or run: <code>gcloud config get-value project</code></small>
+                    </div>
+                    <div class="form-group form-group-half">
+                        <label>Region <span class="required">*</span></label>
+                        <input type="text" data-role="cred-region" class="input" placeholder="us-east5">
+                        <small class="form-help">Common: <code>us-east5</code>, <code>us-central1</code>, <code>europe-west4</code>. Must match where Claude is enabled.</small>
+                    </div>
+                </div>
+            </div>
+            <div data-role="cred-scm-fields" hidden>
+                <div class="form-group">
+                    <label>Personal Access Token <span class="required">*</span></label>
+                    <input type="password" data-role="cred-pat" class="input mono" placeholder="ghp_... or glpat-...">
+                    <small class="form-help">
+                        <strong>GitHub:</strong> Create at <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">github.com/settings/tokens</a>. Use a fine-grained token scoped to specific repos.<br>
+                        <strong>GitLab:</strong> Create at Settings → Access Tokens. Use a project or personal access token.
+                    </small>
+                </div>
+                <div class="form-group" data-role="cred-gitlab-host-group" hidden>
+                    <label>GitLab Host</label>
+                    <input type="text" data-role="cred-gitlab-host" class="input" placeholder="gitlab.com (default, or your self-hosted URL)">
+                    <small class="form-help">Leave empty for gitlab.com. For self-hosted GitLab, enter the hostname (e.g., gitlab.mycompany.com).</small>
+                </div>
+            </div>
+            <div data-role="credential-form-error" class="error-message" role="alert" hidden></div>
+            <div style="display:flex;gap:8px;margin-top:16px;">
+                <button type="submit" data-role="cred-submit" class="btn btn-primary">Add Credential</button>
+                <button type="button" data-role="cred-cancel" class="btn btn-outline">Cancel</button>
+            </div>
+        </form>
+    </template>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
