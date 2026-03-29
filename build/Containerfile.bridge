@@ -21,7 +21,7 @@ LABEL org.opencontainers.image.title="alcove-bridge" \
       org.opencontainers.image.description="Alcove controller — REST API, dashboard, and task scheduler" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.source="https://github.com/bmbouter/alcove" \
-      org.opencontainers.image.vendor="alcove-dev" \
+      org.opencontainers.image.vendor="Alcove" \
       org.opencontainers.image.licenses="Apache-2.0"
 
 COPY --from=builder /out/bridge /usr/local/bin/bridge
