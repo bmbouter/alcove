@@ -1117,6 +1117,13 @@ select.input {
     width: 90%;
 }
 
+.modal-card-wide {
+    max-width: 600px;
+    width: 95%;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
 .modal-card h3 {
     margin-bottom: 20px;
     color: var(--text);
@@ -1183,6 +1190,12 @@ select.input {
 
 .user-dropdown-item:hover {
     background: var(--bg-input);
+}
+
+.user-dropdown-separator {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 0;
 }
 
 .user-dropdown-logout {

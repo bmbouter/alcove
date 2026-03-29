@@ -192,6 +192,21 @@
         if (e.target === e.currentTarget) hide($('#change-password-modal'));
     });
 
+    // System LLM modal
+    $('#system-llm-btn').addEventListener('click', function() {
+        hide($('#user-dropdown-menu'));
+        show($('#system-llm-modal'));
+        loadSystemLLMModal();
+    });
+
+    $('#system-llm-close').addEventListener('click', function() {
+        hide($('#system-llm-modal'));
+    });
+
+    $('#system-llm-modal').addEventListener('click', function(e) {
+        if (e.target === e.currentTarget) hide(e.currentTarget);
+    });
+
     // Change Password form submit
     $('#change-password-form').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -266,7 +281,7 @@
         stopSSE();
 
         const route = getRoute();
-        const pages = ['sessions', 'task-new', 'schedules', 'credentials', 'profiles', 'tools', 'session-detail', 'users', 'settings'];
+        const pages = ['sessions', 'task-new', 'schedules', 'credentials', 'profiles', 'tools', 'session-detail', 'users'];
         pages.forEach((p) => hide($('#page-' + p)));
 
         // Update active nav tab
@@ -312,10 +327,6 @@
             if (!isAdmin()) { navigate('sessions'); return; }
             show($('#page-users'));
             loadUsers();
-        } else if (route === 'settings') {
-            if (!isAdmin()) { navigate('sessions'); return; }
-            show($('#page-settings'));
-            loadSettings();
         } else {
             show($('#page-sessions'));
             loadSessions();
@@ -3502,20 +3513,20 @@
     }
 
     // ---------------------
-    // Settings page
+    // System LLM modal
     // ---------------------
-    async function loadSettings() {
+    async function loadSystemLLMModal() {
         try {
             var resp = await api('GET', '/api/v1/admin/settings/llm');
             var eff = await resp.json();
             renderSystemLLMStatus(eff);
         } catch(err) {
-            $('#settings-llm-status').innerHTML = '<p style="color:var(--status-error)">Failed to load settings.</p>';
+            $('#modal-llm-status').innerHTML = '<p style="color:var(--status-error)">Failed to load settings.</p>';
         }
     }
 
     function renderSystemLLMStatus(eff) {
-        var el = $('#settings-llm-status');
+        var el = $('#modal-llm-status');
         if (!eff.configured) {
             el.innerHTML = '<p style="color:var(--text-muted)">System LLM is not configured. AI features (like the profile builder) are disabled.</p>';
             return;
@@ -3536,8 +3547,8 @@
     }
 
     // Configure System LLM button
-    $('#settings-llm-configure').addEventListener('click', function() {
-        var container = $('#settings-llm-form-container');
+    $('#modal-llm-configure').addEventListener('click', function() {
+        var container = $('#modal-llm-form-container');
         show(container);
         initCredentialForm(container, {
             showName: false,
@@ -3557,7 +3568,7 @@
                 if (!settingsResp.ok) throw new Error((await settingsResp.json().catch(function() { return {}; })).error || 'Failed');
 
                 hide(container);
-                loadSettings();
+                loadSystemLLMModal();
             },
             onCancel: function() { hide(container); }
         });

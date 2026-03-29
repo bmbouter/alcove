@@ -44,7 +44,6 @@
                 <a href="#credentials" class="nav-tab" data-tab="credentials">Credentials</a>
                 <a href="#profiles" class="nav-tab" data-tab="profiles">Profiles</a>
                 <a href="#users" class="nav-tab nav-admin-only" data-tab="users" hidden>Users</a>
-                <a href="#settings" class="nav-tab nav-admin-only" data-tab="settings" hidden>Settings</a>
             </nav>
             <div class="top-bar-right">
                 <div class="user-dropdown" id="user-dropdown">
@@ -53,6 +52,8 @@
                         <span class="dropdown-arrow">&#9662;</span>
                     </button>
                     <div class="user-dropdown-menu" id="user-dropdown-menu" hidden>
+                        <button class="user-dropdown-item nav-admin-only" id="system-llm-btn" hidden>System LLM</button>
+                        <div class="user-dropdown-separator nav-admin-only" hidden></div>
                         <button class="user-dropdown-item" id="change-password-btn">Change Password</button>
                         <button class="user-dropdown-item user-dropdown-logout" id="logout-btn">Logout</button>
                     </div>
@@ -533,20 +534,6 @@
                 </div>
             </div>
 
-            <!-- Settings -->
-            <div id="page-settings" class="page" hidden>
-                <div class="page-header">
-                    <h2>Settings</h2>
-                </div>
-                <div class="settings-section">
-                    <h3>System LLM</h3>
-                    <p class="form-help">The LLM used by Alcove for AI features (profile builder). Separate from user task credentials.</p>
-                    <div id="settings-llm-status"></div>
-                    <button id="settings-llm-configure" class="btn btn-small btn-primary" style="margin:12px 0;">Configure System LLM</button>
-                    <div id="settings-llm-form-container" hidden></div>
-                </div>
-            </div>
-
             <!-- Session Detail -->
             <div id="page-session-detail" class="page" hidden>
                 <div class="page-header">
@@ -614,6 +601,20 @@
                     <button type="button" id="cp-cancel" class="btn btn-outline">Cancel</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- System LLM Modal -->
+    <div id="system-llm-modal" class="modal-overlay" hidden>
+        <div class="modal-card modal-card-wide">
+            <h3>System LLM</h3>
+            <p class="form-help">The LLM used by Alcove for AI features (profile builder). Separate from user task credentials.</p>
+            <div id="modal-llm-status"></div>
+            <button id="modal-llm-configure" class="btn btn-small btn-primary" style="margin: 12px 0;">Configure</button>
+            <div id="modal-llm-form-container" hidden></div>
+            <div style="display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;">
+                <button type="button" id="system-llm-close" class="btn btn-outline">Close</button>
+            </div>
         </div>
     </div>
 
