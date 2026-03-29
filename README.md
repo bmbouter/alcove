@@ -1,6 +1,10 @@
-# Alcove
+<p align="center">
+  <img src="web/logo.svg" alt="Alcove" width="120">
+</p>
 
-Sandboxed AI coding agents on OpenShift/Kubernetes — natively.
+<h1 align="center">Alcove</h1>
+
+<p align="center">Sandboxed AI coding agents on OpenShift/Kubernetes — natively.</p>
 
 Alcove runs AI coding agents (Claude Code) in ephemeral, network-isolated
 containers with full auditability. Each task gets a fresh container, a

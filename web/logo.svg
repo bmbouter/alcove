@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="wave4a" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#0891b2"/>
+    </linearGradient>
+    <linearGradient id="wave4b" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0ea5e9"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+    <linearGradient id="wave4c" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="wave4d" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1e3a8a"/>
+      <stop offset="100%" stop-color="#172554"/>
+    </linearGradient>
+    <linearGradient id="core4" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#0ea5e9"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Outermost wave layer -->
+  <path d="M 100 10
+           Q 155 10 175 35 Q 195 60 190 100
+           Q 185 140 160 165 Q 135 190 100 190
+           Q 65 190 40 165 Q 15 140 10 100
+           Q 5 60 25 35 Q 45 10 100 10 Z"
+        fill="none" stroke="url(#wave4d)" stroke-width="5" opacity="0.9"/>
+
+  <!-- Second wave layer - slightly irregular -->
+  <path d="M 100 28
+           Q 142 25 160 48 Q 178 70 175 100
+           Q 172 130 152 152 Q 130 175 100 175
+           Q 70 175 48 152 Q 28 130 25 100
+           Q 22 70 40 48 Q 58 25 100 28 Z"
+        fill="none" stroke="url(#wave4c)" stroke-width="5"/>
+
+  <!-- Third wave layer -->
+  <path d="M 100 48
+           Q 130 45 145 62 Q 160 80 158 100
+           Q 156 120 142 138 Q 125 155 100 155
+           Q 75 155 58 138 Q 44 120 42 100
+           Q 40 80 55 62 Q 70 45 100 48 Z"
+        fill="none" stroke="url(#wave4b)" stroke-width="5"/>
+
+  <!-- Fourth wave layer -->
+  <path d="M 100 66
+           Q 120 64 130 76 Q 140 88 138 100
+           Q 136 112 128 122 Q 118 133 100 135
+           Q 82 133 72 122 Q 64 112 62 100
+           Q 60 88 70 76 Q 80 64 100 66 Z"
+        fill="none" stroke="url(#wave4a)" stroke-width="5"/>
+
+  <!-- Central agent diamond/star -->
+  <path d="M 100 80 L 112 95 L 100 120 L 88 95 Z" fill="url(#core4)"/>
+
+  <!-- Inner glow -->
+  <circle cx="100" cy="100" r="8" fill="#e0f2fe" opacity="0.6"/>
+
+  <!-- Small radiating dots -->
+  <circle cx="100" cy="75" r="2.5" fill="#7dd3fc" opacity="0.8"/>
+  <circle cx="125" cy="100" r="2.5" fill="#7dd3fc" opacity="0.8"/>
+  <circle cx="100" cy="125" r="2.5" fill="#7dd3fc" opacity="0.8"/>
+  <circle cx="75" cy="100" r="2.5" fill="#7dd3fc" opacity="0.8"/>
+</svg>
