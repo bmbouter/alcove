@@ -1,0 +1,271 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  name: alcove
+parameters:
+- name: BRIDGE_IMAGE
+  value: ghcr.io/bmbouter/alcove-bridge
+- name: BRIDGE_IMAGE_TAG
+  value: latest
+- name: GATE_IMAGE
+  value: ghcr.io/bmbouter/alcove-gate
+- name: SKIFF_IMAGE
+  value: ghcr.io/bmbouter/alcove-skiff-base
+- name: NATS_IMAGE
+  value: docker.io/library/nats:latest
+- name: BRIDGE_REPLICAS
+  value: "1"
+- name: NAMESPACE
+  value: ${NAMESPACE}
+objects:
+
+# --- ServiceAccount ---
+- apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    name: alcove-bridge
+    labels:
+      app.kubernetes.io/name: bridge
+      app.kubernetes.io/part-of: alcove
+
+# --- RBAC ---
+- apiVersion: rbac.authorization.k8s.io/v1
+  kind: Role
+  metadata:
+    name: alcove-bridge
+    labels:
+      app.kubernetes.io/name: bridge
+      app.kubernetes.io/part-of: alcove
+  rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "delete", "get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["create", "delete", "get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+
+- apiVersion: rbac.authorization.k8s.io/v1
+  kind: RoleBinding
+  metadata:
+    name: alcove-bridge
+    labels:
+      app.kubernetes.io/name: bridge
+      app.kubernetes.io/part-of: alcove
+  roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: Role
+    name: alcove-bridge
+  subjects:
+  - kind: ServiceAccount
+    name: alcove-bridge
+
+# --- Bridge Deployment ---
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: alcove-bridge
+    labels:
+      app.kubernetes.io/name: bridge
+      app.kubernetes.io/part-of: alcove
+  spec:
+    replicas: ${{BRIDGE_REPLICAS}}
+    selector:
+      matchLabels:
+        app.kubernetes.io/name: bridge
+    template:
+      metadata:
+        labels:
+          app.kubernetes.io/name: bridge
+          app.kubernetes.io/part-of: alcove
+      spec:
+        serviceAccountName: alcove-bridge
+        containers:
+        - name: bridge
+          image: ${BRIDGE_IMAGE}:${BRIDGE_IMAGE_TAG}
+          ports:
+          - containerPort: 8080
+            name: http
+            protocol: TCP
+          env:
+          - name: RUNTIME
+            value: "kubernetes"
+          - name: ALCOVE_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: HAIL_URL
+            value: "nats://alcove-hail:4222"
+          - name: GATE_IMAGE
+            value: ${GATE_IMAGE}
+          - name: SKIFF_IMAGE
+            value: ${SKIFF_IMAGE}
+          - name: LEDGER_DATABASE_URL
+            valueFrom:
+              secretKeyRef:
+                name: alcove-config
+                key: ledger-database-url
+          - name: ALCOVE_CREDENTIAL_KEY
+            valueFrom:
+              secretKeyRef:
+                name: alcove-config
+                key: credential-key
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+# --- NATS (Hail) Deployment ---
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: alcove-hail
+    labels:
+      app.kubernetes.io/name: hail
+      app.kubernetes.io/part-of: alcove
+  spec:
+    replicas: 1
+    selector:
+      matchLabels:
+        app.kubernetes.io/name: hail
+    template:
+      metadata:
+        labels:
+          app.kubernetes.io/name: hail
+          app.kubernetes.io/part-of: alcove
+      spec:
+        containers:
+        - name: nats
+          image: ${NATS_IMAGE}
+          ports:
+          - containerPort: 4222
+            name: nats
+            protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: 4222
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            tcpSocket:
+              port: 4222
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+# --- Services ---
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: alcove-bridge
+    labels:
+      app.kubernetes.io/name: bridge
+      app.kubernetes.io/part-of: alcove
+  spec:
+    type: ClusterIP
+    selector:
+      app.kubernetes.io/name: bridge
+    ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: alcove-hail
+    labels:
+      app.kubernetes.io/name: hail
+      app.kubernetes.io/part-of: alcove
+  spec:
+    type: ClusterIP
+    selector:
+      app.kubernetes.io/name: hail
+    ports:
+    - port: 4222
+      targetPort: 4222
+      protocol: TCP
+      name: nats
+
+# --- NetworkPolicies ---
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    name: default-deny
+    labels:
+      app.kubernetes.io/part-of: alcove
+  spec:
+    podSelector: {}
+    policyTypes:
+    - Ingress
+    - Egress
+
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    name: allow-intra-namespace
+    labels:
+      app.kubernetes.io/part-of: alcove
+  spec:
+    podSelector: {}
+    policyTypes:
+    - Ingress
+    - Egress
+    ingress:
+    - from:
+      - podSelector: {}
+    egress:
+    - to:
+      - podSelector: {}
+    - to:
+      - namespaceSelector: {}
+      ports:
+      - protocol: UDP
+        port: 53
+      - protocol: TCP
+        port: 53
+
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    name: bridge-external-egress
+    labels:
+      app.kubernetes.io/part-of: alcove
+  spec:
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/name: bridge
+    policyTypes:
+    - Egress
+    egress:
+    - {}

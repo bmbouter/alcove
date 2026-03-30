@@ -1,0 +1,25 @@
+---
+$schema: /app-sre/app-1.yml
+
+labels:
+  service: alcove
+
+name: alcove
+
+description: |
+  Sandboxed AI coding agents on OpenShift/Kubernetes
+
+serviceOwners:
+- name: Brian Bouterse
+  email: bmbouter@redhat.com
+
+dependencies:
+- $ref: /dependencies/github/service.yml
+- $ref: /dependencies/openshift/service.yml
+
+quayRepos: []
+
+codeComponents:
+- name: alcove
+  resource: upstream
+  url: https://github.com/bmbouter/alcove
