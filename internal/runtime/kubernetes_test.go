@@ -42,7 +42,7 @@ func TestJobName(t *testing.T) {
 	}{
 		{"abc123", "alcove-task-abc123"},
 		{"task-1", "alcove-task-task-1"},
-		{"", "alcove-task-"},
+		{"", "alcove-task"},
 	}
 	for _, tt := range tests {
 		if got := jobName(tt.taskID); got != tt.want {
@@ -401,16 +401,22 @@ func TestRunTask_CreatesNetworkPolicy(t *testing.T) {
 		t.Fatalf("expected 3 egress rules, got %d", len(np.Spec.Egress))
 	}
 
-	// Rule 0: DNS (UDP 53).
+	// Rule 0: DNS (UDP and TCP 53).
 	dnsRule := np.Spec.Egress[0]
-	if len(dnsRule.Ports) != 1 {
-		t.Fatalf("DNS rule: expected 1 port, got %d", len(dnsRule.Ports))
+	if len(dnsRule.Ports) != 2 {
+		t.Fatalf("DNS rule: expected 2 ports, got %d", len(dnsRule.Ports))
 	}
 	if *dnsRule.Ports[0].Protocol != corev1.ProtocolUDP {
-		t.Errorf("DNS rule protocol = %q, want UDP", *dnsRule.Ports[0].Protocol)
+		t.Errorf("DNS rule port 0 protocol = %q, want UDP", *dnsRule.Ports[0].Protocol)
 	}
 	if dnsRule.Ports[0].Port.IntValue() != 53 {
-		t.Errorf("DNS rule port = %d, want 53", dnsRule.Ports[0].Port.IntValue())
+		t.Errorf("DNS rule port 0 = %d, want 53", dnsRule.Ports[0].Port.IntValue())
+	}
+	if *dnsRule.Ports[1].Protocol != corev1.ProtocolTCP {
+		t.Errorf("DNS rule port 1 protocol = %q, want TCP", *dnsRule.Ports[1].Protocol)
+	}
+	if dnsRule.Ports[1].Port.IntValue() != 53 {
+		t.Errorf("DNS rule port 1 = %d, want 53", dnsRule.Ports[1].Port.IntValue())
 	}
 
 	// Rule 1: HTTPS (TCP 443).
@@ -691,6 +697,234 @@ func TestEnvMapToVars_Empty(t *testing.T) {
 	vars := envMapToVars(nil)
 	if len(vars) != 0 {
 		t.Errorf("expected 0 env vars for nil map, got %d", len(vars))
+	}
+}
+
+func TestRunTask_NilEnvMaps(t *testing.T) {
+	rt, clientset := newTestKubernetesRuntime()
+	ctx := context.Background()
+
+	spec := TaskSpec{
+		TaskID:    "task-nil-env",
+		Image:     "skiff:latest",
+		GateImage: "gate:latest",
+		Env:       nil,
+		GateEnv:   nil,
+	}
+
+	_, err := rt.RunTask(ctx, spec)
+	if err != nil {
+		t.Fatalf("RunTask() error: %v", err)
+	}
+
+	jobs, _ := clientset.BatchV1().Jobs("test-ns").List(ctx, metav1.ListOptions{})
+	job := jobs.Items[0]
+
+	// Gate should have no env vars when GateEnv is nil.
+	gate := job.Spec.Template.Spec.InitContainers[0]
+	if len(gate.Env) != 0 {
+		t.Errorf("gate env vars = %d, want 0 for nil GateEnv", len(gate.Env))
+	}
+
+	// Skiff should still have proxy env vars even when Env is nil.
+	skiff := job.Spec.Template.Spec.Containers[0]
+	skiffEnvMap := envVarsToMap(skiff.Env)
+	if skiffEnvMap["HTTP_PROXY"] != "http://localhost:8443" {
+		t.Errorf("HTTP_PROXY = %q, want default proxy when Env is nil", skiffEnvMap["HTTP_PROXY"])
+	}
+	if skiffEnvMap["HTTPS_PROXY"] != "http://localhost:8443" {
+		t.Errorf("HTTPS_PROXY = %q, want default proxy when Env is nil", skiffEnvMap["HTTPS_PROXY"])
+	}
+	if skiffEnvMap["NO_PROXY"] != "localhost,127.0.0.1" {
+		t.Errorf("NO_PROXY = %q, want default NO_PROXY when Env is nil", skiffEnvMap["NO_PROXY"])
+	}
+	if skiffEnvMap["ANTHROPIC_BASE_URL"] != "http://localhost:8443" {
+		t.Errorf("ANTHROPIC_BASE_URL = %q, want default when Env is nil", skiffEnvMap["ANTHROPIC_BASE_URL"])
+	}
+}
+
+func TestK8sRunTask_ProxyEnvNO_PROXYNotOverridden(t *testing.T) {
+	rt, clientset := newTestKubernetesRuntime()
+	ctx := context.Background()
+
+	spec := TaskSpec{
+		TaskID:    "task-noproxy",
+		Image:     "skiff:latest",
+		GateImage: "gate:latest",
+		Env: map[string]string{
+			"NO_PROXY": "my-service.local,10.0.0.0/8",
+		},
+	}
+
+	_, err := rt.RunTask(ctx, spec)
+	if err != nil {
+		t.Fatalf("RunTask() error: %v", err)
+	}
+
+	jobs, _ := clientset.BatchV1().Jobs("test-ns").List(ctx, metav1.ListOptions{})
+	skiff := jobs.Items[0].Spec.Template.Spec.Containers[0]
+	skiffEnvMap := envVarsToMap(skiff.Env)
+
+	if skiffEnvMap["NO_PROXY"] != "my-service.local,10.0.0.0/8" {
+		t.Errorf("NO_PROXY was overridden: got %q, want %q", skiffEnvMap["NO_PROXY"], "my-service.local,10.0.0.0/8")
+	}
+}
+
+func TestRunTask_AnthropicBaseURLAlwaysOverridden(t *testing.T) {
+	rt, clientset := newTestKubernetesRuntime()
+	ctx := context.Background()
+
+	spec := TaskSpec{
+		TaskID:    "task-anthropic",
+		Image:     "skiff:latest",
+		GateImage: "gate:latest",
+		Env: map[string]string{
+			"ANTHROPIC_BASE_URL": "https://custom-llm-endpoint.example.com",
+		},
+	}
+
+	_, err := rt.RunTask(ctx, spec)
+	if err != nil {
+		t.Fatalf("RunTask() error: %v", err)
+	}
+
+	jobs, _ := clientset.BatchV1().Jobs("test-ns").List(ctx, metav1.ListOptions{})
+	skiff := jobs.Items[0].Spec.Template.Spec.Containers[0]
+	skiffEnvMap := envVarsToMap(skiff.Env)
+
+	// ANTHROPIC_BASE_URL must always be forced to localhost:8443 (Gate sidecar),
+	// regardless of what the user provides. This is a security requirement:
+	// LLM keys never enter Skiff.
+	if skiffEnvMap["ANTHROPIC_BASE_URL"] != "http://localhost:8443" {
+		t.Errorf("ANTHROPIC_BASE_URL should be forced to Gate sidecar, got %q", skiffEnvMap["ANTHROPIC_BASE_URL"])
+	}
+}
+
+func TestTaskStatus_NoConditionsNoActivePods(t *testing.T) {
+	rt, clientset := newTestKubernetesRuntime()
+	ctx := context.Background()
+
+	// A job with no conditions and no active pods -- happens briefly during
+	// pod scheduling or image pull.
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "alcove-task-scheduling-1",
+			Namespace: "test-ns",
+		},
+		Status: batchv1.JobStatus{
+			Active: 0,
+			// No conditions set.
+		},
+	}
+	_, err := clientset.BatchV1().Jobs("test-ns").Create(ctx, job, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("creating test job: %v", err)
+	}
+
+	status, err := rt.TaskStatus(ctx, TaskHandle{ID: "scheduling-1"})
+	if err != nil {
+		t.Fatalf("TaskStatus() error: %v", err)
+	}
+	// Should be "running" since the job exists but hasn't finished.
+	if status != "running" {
+		t.Errorf("status = %q, want %q", status, "running")
+	}
+}
+
+func TestK8sInfo(t *testing.T) {
+	rt, _ := newTestKubernetesRuntime()
+	ctx := context.Background()
+
+	info, err := rt.Info(ctx)
+	if err != nil {
+		t.Fatalf("Info() error: %v", err)
+	}
+	if info.Type != "kubernetes" {
+		t.Errorf("info.Type = %q, want %q", info.Type, "kubernetes")
+	}
+	// The fake clientset returns a version; just verify it's non-empty.
+	// (fake.NewSimpleClientset returns "0.0" as GitVersion by default.)
+	if info.Version == "" {
+		t.Error("info.Version is empty, expected a value from fake discovery")
+	}
+}
+
+func TestRunTask_DebugModeStillSetsActiveDeadline(t *testing.T) {
+	rt, clientset := newTestKubernetesRuntime()
+	ctx := context.Background()
+
+	spec := TaskSpec{
+		TaskID:    "task-debug-timeout",
+		Image:     "skiff:latest",
+		GateImage: "gate:latest",
+		Debug:     true,
+		Timeout:   7200,
+	}
+
+	_, err := rt.RunTask(ctx, spec)
+	if err != nil {
+		t.Fatalf("RunTask() error: %v", err)
+	}
+
+	jobs, _ := clientset.BatchV1().Jobs("test-ns").List(ctx, metav1.ListOptions{})
+	job := jobs.Items[0]
+
+	// Debug mode disables TTL but should not affect activeDeadlineSeconds.
+	if job.Spec.TTLSecondsAfterFinished != nil {
+		t.Errorf("ttlSecondsAfterFinished should be nil in debug mode, got %d", *job.Spec.TTLSecondsAfterFinished)
+	}
+	if job.Spec.ActiveDeadlineSeconds == nil || *job.Spec.ActiveDeadlineSeconds != 7200 {
+		t.Errorf("activeDeadlineSeconds = %v, want 7200 (debug mode should not affect timeout)", job.Spec.ActiveDeadlineSeconds)
+	}
+}
+
+func TestRunTask_MultipleTasksCreateSeparateResources(t *testing.T) {
+	rt, clientset := newTestKubernetesRuntime()
+	ctx := context.Background()
+
+	for _, taskID := range []string{"task-a", "task-b"} {
+		spec := TaskSpec{
+			TaskID:    taskID,
+			Image:     "skiff:latest",
+			GateImage: "gate:latest",
+		}
+		_, err := rt.RunTask(ctx, spec)
+		if err != nil {
+			t.Fatalf("RunTask(%s) error: %v", taskID, err)
+		}
+	}
+
+	// Verify two separate Jobs were created.
+	jobs, _ := clientset.BatchV1().Jobs("test-ns").List(ctx, metav1.ListOptions{})
+	if len(jobs.Items) != 2 {
+		t.Errorf("expected 2 jobs, got %d", len(jobs.Items))
+	}
+
+	// Verify two separate NetworkPolicies were created.
+	nps, _ := clientset.NetworkingV1().NetworkPolicies("test-ns").List(ctx, metav1.ListOptions{})
+	if len(nps.Items) != 2 {
+		t.Errorf("expected 2 network policies, got %d", len(nps.Items))
+	}
+}
+
+func TestJobName_ExactlyAt63Chars(t *testing.T) {
+	// The prefix "alcove-task-" is 12 chars, so a 51-char ID produces exactly 63.
+	id := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 51 chars
+	name := jobName(id)
+	if len(name) != 63 {
+		t.Errorf("jobName produced name of length %d, want exactly 63", len(name))
+	}
+	if name != jobNamePrefix+id {
+		t.Errorf("jobName = %q, want %q", name, jobNamePrefix+id)
+	}
+}
+
+func TestJobName_OneOverLimit(t *testing.T) {
+	// 52-char ID + 12-char prefix = 64, should be truncated to 63.
+	id := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 52 chars
+	name := jobName(id)
+	if len(name) != 63 {
+		t.Errorf("jobName produced name of length %d, want 63", len(name))
 	}
 }
 

@@ -26,6 +26,13 @@ spec:
       containers:
         - name: bridge
           image: ghcr.io/bmbouter/alcove-bridge:latest
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: ["ALL"]
           ports:
             - containerPort: 8080
               name: http
@@ -37,16 +44,20 @@ spec:
               value: "alcove"
             - name: HAIL_URL
               value: "nats://alcove-hail:4222"
+            - name: SKIFF_IMAGE
+              value: "ghcr.io/bmbouter/alcove-skiff-base:latest"
+            - name: GATE_IMAGE
+              value: "ghcr.io/bmbouter/alcove-gate:latest"
             - name: ALCOVE_DATABASE_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
-                  name: alcove-secrets
+                  name: alcove-config
                   key: database-encryption-key
             - name: LEDGER_DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: alcove-secrets
-                  key: database-url
+                  name: alcove-config
+                  key: ledger-database-url
           livenessProbe:
             httpGet:
               path: /api/v1/health
@@ -64,5 +75,5 @@ spec:
               cpu: 100m
               memory: 256Mi
             limits:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 500m
+              memory: 512Mi

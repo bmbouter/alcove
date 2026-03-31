@@ -20,9 +20,13 @@ import (
 	"log"
 	"os"
 
+	"strings"
+
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
@@ -97,6 +101,7 @@ func jobName(taskID string) string {
 	if len(name) > 63 {
 		name = name[:63]
 	}
+	name = strings.TrimRight(name, "-")
 	return name
 }
 
@@ -146,6 +151,9 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 	securityContext := &corev1.SecurityContext{
 		RunAsNonRoot:             boolPtr(true),
 		AllowPrivilegeEscalation: boolPtr(false),
+		SeccompProfile: &corev1.SeccompProfile{
+			Type: corev1.SeccompProfileTypeRuntimeDefault,
+		},
 		Capabilities: &corev1.Capabilities{
 			Drop: []corev1.Capability{"ALL"},
 		},
@@ -166,6 +174,16 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 				Protocol:      corev1.ProtocolTCP,
 			},
 		},
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("50m"),
+				corev1.ResourceMemory: resource.MustParse("64Mi"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+			},
+		},
 	}
 
 	// Skiff is the main container that runs the actual task.
@@ -174,6 +192,16 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 		Image:           spec.Image,
 		Env:             skiffEnvVars,
 		SecurityContext: securityContext,
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("100m"),
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("2"),
+				corev1.ResourceMemory: resource.MustParse("4Gi"),
+			},
+		},
 	}
 
 	// Build the Job spec.
@@ -256,11 +284,15 @@ func (k *KubernetesRuntime) createNetworkPolicy(ctx context.Context, taskID stri
 				networkingv1.PolicyTypeEgress,
 			},
 			Egress: []networkingv1.NetworkPolicyEgressRule{
-				// Allow DNS resolution (UDP 53 to any).
+				// Allow DNS resolution (UDP and TCP 53 to any).
 				{
 					Ports: []networkingv1.NetworkPolicyPort{
 						{
 							Protocol: &udp,
+							Port:     &dnsPort,
+						},
+						{
+							Protocol: &tcp,
 							Port:     &dnsPort,
 						},
 					},
@@ -298,13 +330,10 @@ func (k *KubernetesRuntime) createNetworkPolicy(ctx context.Context, taskID stri
 }
 
 // deleteNetworkPolicy removes the NetworkPolicy for a task.
+// Returns the raw API error (not wrapped) so callers can use apierrors.IsNotFound().
 func (k *KubernetesRuntime) deleteNetworkPolicy(ctx context.Context, taskID string) error {
 	name := jobName(taskID)
-	err := k.clientset.NetworkingV1().NetworkPolicies(k.namespace).Delete(ctx, name, metav1.DeleteOptions{})
-	if err != nil {
-		return fmt.Errorf("deleting network policy %s: %w", name, err)
-	}
-	return nil
+	return k.clientset.NetworkingV1().NetworkPolicies(k.namespace).Delete(ctx, name, metav1.DeleteOptions{})
 }
 
 // CancelTask deletes the Job (cascading to its pod) and the associated
@@ -317,12 +346,12 @@ func (k *KubernetesRuntime) CancelTask(ctx context.Context, handle TaskHandle) e
 	// Delete the Job with background propagation to cascade to pods.
 	if err := k.clientset.BatchV1().Jobs(k.namespace).Delete(ctx, name, metav1.DeleteOptions{
 		PropagationPolicy: &propagation,
-	}); err != nil {
+	}); err != nil && !apierrors.IsNotFound(err) {
 		log.Printf("warning: failed to delete job %s: %v", name, err)
 	}
 
 	// Delete the associated NetworkPolicy.
-	if err := k.deleteNetworkPolicy(ctx, handle.ID); err != nil {
+	if err := k.deleteNetworkPolicy(ctx, handle.ID); err != nil && !apierrors.IsNotFound(err) {
 		log.Printf("warning: failed to delete network policy for task %s: %v", handle.ID, err)
 	}
 
@@ -335,8 +364,10 @@ func (k *KubernetesRuntime) TaskStatus(ctx context.Context, handle TaskHandle) (
 	name := jobName(handle.ID)
 	job, err := k.clientset.BatchV1().Jobs(k.namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		// If the Job doesn't exist, report not_found.
-		return "not_found", nil
+		if apierrors.IsNotFound(err) {
+			return "not_found", nil
+		}
+		return "", fmt.Errorf("getting job %s: %w", name, err)
 	}
 
 	// Check Job conditions for completion or failure.

@@ -91,6 +91,13 @@ objects:
         containers:
         - name: bridge
           image: ${BRIDGE_IMAGE}:${BRIDGE_IMAGE_TAG}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: ["ALL"]
           ports:
           - containerPort: 8080
             name: http
@@ -108,6 +115,8 @@ objects:
             value: "postgres"
           - name: GATE_IMAGE
             value: ${GATE_IMAGE}
+          - name: BRIDGE_URL
+            value: "http://alcove-bridge:8080"
           - name: SKIFF_IMAGE
             value: ${SKIFF_IMAGE}
           - name: LEDGER_DATABASE_URL
@@ -162,6 +171,13 @@ objects:
         containers:
         - name: nats
           image: ${NATS_IMAGE}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: ["ALL"]
           ports:
           - containerPort: 4222
             name: nats

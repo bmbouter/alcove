@@ -21,13 +21,23 @@ Each task gets a fresh container, a scoped authorization proxy, and a complete s
 |------|---------|
 | `data/services/pulp/deploy-alcove.yml` | SaaS file (saas-file-2 schema) deploying Alcove via the [OpenShift template](https://github.com/bmbouter/alcove/blob/main/deploy/openshift/template.yaml) from the Alcove GitHub repo |
 | `resources/terraform/resources/pulp/stage/rds-alcove-stage.yml` | RDS defaults — PostgreSQL 16, db.t3.medium, 20GB, encrypted, single-AZ for staging |
+| `resources/pulp-stage/alcove-config.secret.yaml` | Resource template (extracurlyjinja2) that constructs the `alcove-config` Secret from vault + ERv2 RDS outputs |
 
 ### Modified files
 
 | File | Change |
 |------|--------|
+| `data/services/pulp/app.yml` | Add `alcove` codeComponent pointing to github.com/bmbouter/alcove |
 | `data/services/pulp/namespaces/pulp-stage.yml` | Add `alcove-stage` RDS external resource with ERv2. Output secret: `alcove-db` |
-| `data/services/pulp/namespaces/shared-resources/stage.yml` | Add `alcove-config` vault secret for credential encryption key and database URL |
+| `data/services/pulp/namespaces/shared-resources/stage.yml` | Add `alcove-config` resource-template reference |
+
+## How the alcove-config secret is constructed
+
+The `alcove-config.secret.yaml` resource template uses the `vault()` function to:
+- Read `database-encryption-key` from `app-interface/pulp/stage/alcove-config` in vault (manually created)
+- Construct `ledger-database-url` from the ERv2 RDS output fields (`db.host`, `db.port`, `db.name`, `db.user`, `db.password`) at `app-sre/integrations-output/external-resources/crcs02ue1/pulp-stage/alcove-db`
+
+Bridge reads both values from the resulting Kubernetes Secret via `secretKeyRef`.
 
 ## What gets deployed
 
@@ -50,15 +60,12 @@ All images are public on ghcr.io:
 
 ## Prerequisites before merge
 
-1. **Create vault secret** at `app-interface/pulp/stage/alcove-config` with:
-   - `ledger-database-url`: RDS connection string (update after ERv2 provisions the DB). Format: `postgres://postgres:<password>@<rds-host>:5432/postgres?sslmode=require`
-   - `database-encryption-key`: AES-256 encryption key for credential storage. Generate with: `openssl rand -hex 32`
+1. **Create vault secret** at `app-interface/pulp/stage/alcove-config` with one key:
+   - `database-encryption-key`: AES-256 encryption key. Generate with: `openssl rand -hex 32`
 
-2. **Verify RDS provisioning**: After merge, ERv2 will create the `alcove-stage` RDS instance. The `alcove-db` secret will appear in the namespace with connection details. Update the vault secret's `ledger-database-url` with the actual RDS endpoint.
+2. The `ledger-database-url` is **automatically constructed** from the ERv2 RDS output — no manual URL needed.
 
 ## RBAC permissions (minimal)
-
-Bridge's ServiceAccount needs only these permissions in the `pulp-stage` namespace:
 
 | Resource | Verbs | Purpose |
 |----------|-------|---------|
@@ -67,12 +74,6 @@ Bridge's ServiceAccount needs only these permissions in the `pulp-stage` namespa
 | `core/pods/log` | get | Debug log access |
 | `networking.k8s.io/networkpolicies` | create, delete, get | Per-task network isolation |
 | `core/secrets` | get | Read credentials for Gate injection |
-
-## Network isolation
-
-- Bridge can reach external services (OAuth2 token exchange, LLM APIs)
-- Skiff+Gate task pods get per-task NetworkPolicies restricting egress to DNS + HTTPS + internal services
-- Skiff containers have no real credentials — Gate proxies all external requests
 
 ## Rollback
 
