@@ -40,6 +40,7 @@ type TaskDefinition struct {
 	Profiles    []string              `json:"profiles,omitempty" yaml:"profiles"`
 	Tools       map[string]ToolConfig `json:"tools,omitempty" yaml:"tools"`
 	Schedule    *TaskDefSchedule      `json:"schedule,omitempty" yaml:"schedule"`
+	Trigger     *EventTrigger         `json:"trigger,omitempty" yaml:"trigger"`
 
 	// Metadata (not from YAML).
 	SourceRepo string    `json:"source_repo"`
@@ -77,6 +78,12 @@ func ParseTaskDefinition(data []byte) (*TaskDefinition, error) {
 		}
 		if _, err := ParseCron(td.Schedule.Cron); err != nil {
 			return nil, fmt.Errorf("invalid cron expression in schedule: %w", err)
+		}
+	}
+
+	if td.Trigger != nil {
+		if td.Trigger.GitHub != nil && len(td.Trigger.GitHub.Events) == 0 {
+			return nil, fmt.Errorf("trigger.github block present but events list is empty")
 		}
 	}
 

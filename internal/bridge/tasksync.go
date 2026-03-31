@@ -16,6 +16,7 @@ package bridge
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -265,10 +266,51 @@ func (s *TaskRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo) error {
 
 // reconcileSchedule creates, updates, or removes a schedule for a task definition.
 func (s *TaskRepoSyncer) reconcileSchedule(ctx context.Context, td *TaskDefinition, repoURL string) error {
-	if td.Schedule == nil {
-		// No schedule in YAML — remove any existing YAML-sourced schedule.
+	hasCron := td.Schedule != nil
+	hasTrigger := td.Trigger != nil
+
+	if !hasCron && !hasTrigger {
+		// No schedule or trigger in YAML — remove any existing YAML-sourced schedule.
 		_, err := s.db.Exec(ctx, `DELETE FROM schedules WHERE source_key = $1 AND source = 'yaml'`, td.SourceKey)
 		return err
+	}
+
+	// Determine trigger_type.
+	triggerType := "cron"
+	if hasCron && hasTrigger {
+		triggerType = "cron-and-event"
+	} else if hasTrigger && !hasCron {
+		triggerType = "event"
+	}
+
+	// Marshal event config if present.
+	var eventConfigJSON []byte
+	if td.Trigger != nil {
+		var err error
+		eventConfigJSON, err = json.Marshal(td.Trigger)
+		if err != nil {
+			return fmt.Errorf("marshaling event config: %w", err)
+		}
+	}
+
+	// Compute cron and next_run if applicable.
+	var cronExpr string
+	var nextRun *time.Time
+	var enabled bool
+
+	if hasCron {
+		cronExpr = td.Schedule.Cron
+		enabled = td.Schedule.Enabled
+		parsed, err := ParseCron(cronExpr)
+		if err != nil {
+			return fmt.Errorf("invalid cron: %w", err)
+		}
+		now := time.Now().UTC()
+		nr := parsed.Next(now)
+		nextRun = &nr
+	} else {
+		// Event-only: enabled by default, no cron.
+		enabled = true
 	}
 
 	// Check if a schedule with this source_key already exists.
@@ -277,34 +319,22 @@ func (s *TaskRepoSyncer) reconcileSchedule(ctx context.Context, td *TaskDefiniti
 
 	if err != nil {
 		// No existing schedule — create one.
-		cronExpr, err := ParseCron(td.Schedule.Cron)
-		if err != nil {
-			return fmt.Errorf("invalid cron: %w", err)
-		}
 		now := time.Now().UTC()
-		nextRun := cronExpr.Next(now)
-
 		_, err = s.db.Exec(ctx, `
-			INSERT INTO schedules (id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, next_run, created_at, owner, debug, source, source_key)
-			VALUES ($1, $2, $3, $4, $5, $6, '', $7, $8, $9, $10, '_system', $11, 'yaml', $12)
-		`, uuid.New().String(), td.Name, td.Schedule.Cron, td.Prompt, td.Repo, td.Provider,
-			td.Timeout, td.Schedule.Enabled, nextRun, now, td.Debug, td.SourceKey)
+			INSERT INTO schedules (id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, next_run, created_at, owner, debug, source, source_key, trigger_type, event_config)
+			VALUES ($1, $2, $3, $4, $5, $6, '', $7, $8, $9, $10, '_system', $11, 'yaml', $12, $13, $14)
+		`, uuid.New().String(), td.Name, cronExpr, td.Prompt, td.Repo, td.Provider,
+			td.Timeout, enabled, nextRun, now, td.Debug, td.SourceKey, triggerType, eventConfigJSON)
 		return err
 	}
 
 	// Existing schedule — update it.
-	cronExpr, err := ParseCron(td.Schedule.Cron)
-	if err != nil {
-		return fmt.Errorf("invalid cron: %w", err)
-	}
-	now := time.Now().UTC()
-	nextRun := cronExpr.Next(now)
-
 	_, err = s.db.Exec(ctx, `
 		UPDATE schedules SET name = $1, cron = $2, prompt = $3, repo = $4, provider = $5,
-		    timeout = $6, enabled = $7, next_run = $8, debug = $9
-		WHERE id = $10 AND source = 'yaml'
-	`, td.Name, td.Schedule.Cron, td.Prompt, td.Repo, td.Provider,
-		td.Timeout, td.Schedule.Enabled, nextRun, td.Debug, existingID)
+		    timeout = $6, enabled = $7, next_run = $8, debug = $9,
+		    trigger_type = $10, event_config = $11
+		WHERE id = $12 AND source = 'yaml'
+	`, td.Name, cronExpr, td.Prompt, td.Repo, td.Provider,
+		td.Timeout, enabled, nextRun, td.Debug, triggerType, eventConfigJSON, existingID)
 	return err
 }

@@ -170,6 +170,7 @@ func AuthMiddleware(store Authenticator, mgr UserManager) func(http.Handler) htt
 			// Public and internal routes.
 			if path == "/api/v1/auth/login" || path == "/api/v1/health" ||
 				strings.HasPrefix(path, "/api/v1/internal/") ||
+				strings.HasPrefix(path, "/api/v1/webhooks/") ||
 				(r.Method == http.MethodPost && isSessionIngestionPath(path)) {
 				next.ServeHTTP(w, r)
 				return

@@ -53,6 +53,7 @@
                     </button>
                     <div class="user-dropdown-menu" id="user-dropdown-menu" hidden>
                         <button class="user-dropdown-item nav-admin-only" id="system-llm-btn" hidden>System LLM</button>
+                        <button class="user-dropdown-item nav-admin-only" id="webhook-config-btn" hidden>Webhook</button>
                         <button class="user-dropdown-item nav-admin-only" id="system-skill-repos-btn" hidden>Skill Repos (System)</button>
                         <div class="user-dropdown-separator nav-admin-only" hidden></div>
                         <button class="user-dropdown-item" id="user-skill-repos-btn">My Skill Repos</button>
@@ -216,6 +217,14 @@
                             </div>
                         </div>
                         <div class="form-group">
+                            <label>Trigger Type</label>
+                            <select id="sched-trigger-type" class="input">
+                                <option value="cron">Cron (time-based)</option>
+                                <option value="event">GitHub Event</option>
+                                <option value="cron-and-event">Both Cron and Event</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
                             <label for="sched-natural">Describe your schedule in plain English <small style="color:var(--text-muted)">(optional)</small></label>
                             <input type="text" id="sched-natural" class="input" placeholder='e.g., "every weekday at 9am" or "daily at 2pm"'>
                         </div>
@@ -236,6 +245,27 @@
                                 <p>Supports: exact values, wildcards (*), steps (*/5), ranges (1-5), lists (1,3,5)</p>
                             </div>
                         </details>
+                        <div id="event-config-section" hidden>
+                            <div class="form-group">
+                                <label>GitHub Events</label>
+                                <div class="checkbox-group">
+                                    <label class="checkbox-label checkbox-label-inline"><input type="checkbox" value="push" class="event-checkbox"> Push</label>
+                                    <label class="checkbox-label checkbox-label-inline"><input type="checkbox" value="pull_request" class="event-checkbox"> Pull Request</label>
+                                    <label class="checkbox-label checkbox-label-inline"><input type="checkbox" value="issue_comment" class="event-checkbox"> Issue Comment</label>
+                                    <label class="checkbox-label checkbox-label-inline"><input type="checkbox" value="release" class="event-checkbox"> Release</label>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group form-group-half">
+                                    <label>Repository Filter</label>
+                                    <input type="text" id="sched-event-repos" class="input" placeholder="org/repo (comma-separated, empty = all)">
+                                </div>
+                                <div class="form-group form-group-half">
+                                    <label>Branch Filter</label>
+                                    <input type="text" id="sched-event-branches" class="input" placeholder="main, develop (empty = all)">
+                                </div>
+                            </div>
+                        </div>
                         <div class="form-group">
                             <label for="sched-prompt">Prompt <span class="required">*</span></label>
                             <textarea id="sched-prompt" class="input" rows="4" required></textarea>
@@ -292,6 +322,7 @@
                         <thead>
                             <tr>
                                 <th>Name</th>
+                                <th>Trigger</th>
                                 <th>Cron</th>
                                 <th>Source</th>
                                 <th>Next Run</th>
@@ -302,7 +333,7 @@
                         </thead>
                         <tbody id="schedules-tbody"></tbody>
                     </table>
-                    <div id="schedules-empty" class="empty-state" hidden><p>No schedules. Create one to run tasks on a recurring cron schedule.</p></div>
+                    <div id="schedules-empty" class="empty-state" hidden><p>No schedules. Create one to run tasks on a cron schedule or in response to GitHub events.</p></div>
                     <div id="schedules-loading" class="loading-state" hidden><div class="spinner"></div><p>Loading schedules...</p></div>
                 </div>
             </div>
@@ -711,6 +742,36 @@
             <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;">
                 <button id="view-yaml-copy" class="btn btn-small btn-outline">Copy YAML</button>
                 <button id="view-yaml-close" class="btn btn-outline">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Webhook Configuration Modal -->
+    <div id="webhook-modal" class="modal-overlay" hidden>
+        <div class="modal-card modal-card-wide">
+            <h3>GitHub Webhook</h3>
+            <p class="form-help">Configure a webhook in your GitHub repo or org settings to receive events.</p>
+
+            <div id="webhook-status"></div>
+
+            <div class="webhook-setup">
+                <h4>Setup Instructions</h4>
+                <div style="background:var(--bg-secondary);padding:16px;border-radius:8px;margin:12px 0;">
+                    <p style="margin:0 0 8px;font-size:13px;color:var(--text-muted);">Payload URL:</p>
+                    <code id="webhook-url" style="font-size:14px;"></code>
+                    <p style="margin:12px 0 8px;font-size:13px;color:var(--text-muted);">Content type:</p>
+                    <code>application/json</code>
+                    <p style="margin:12px 0 8px;font-size:13px;color:var(--text-muted);">Secret:</p>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <code id="webhook-secret-display" style="font-size:14px;">Not configured</code>
+                        <button id="webhook-generate-secret" class="btn btn-small btn-primary">Generate Secret</button>
+                    </div>
+                    <p style="margin:12px 0 0;font-size:13px;color:var(--text-muted);">Events to subscribe: <strong>Pull requests</strong>, <strong>Pushes</strong>, <strong>Issue comments</strong></p>
+                </div>
+            </div>
+
+            <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;">
+                <button type="button" id="webhook-close" class="btn btn-outline">Close</button>
             </div>
         </div>
     </div>

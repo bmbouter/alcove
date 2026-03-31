@@ -1038,6 +1038,48 @@ select.input {
     color: var(--text);
 }
 
+/* Checkbox group (event config) */
+.checkbox-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.checkbox-label-inline {
+    padding-top: 0;
+    font-size: 13px !important;
+}
+
+.checkbox-label-inline input[type="checkbox"] {
+    accent-color: var(--accent);
+}
+
+/* Trigger badge */
+.trigger-badge {
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--bg-tertiary, rgba(255,255,255,0.06));
+    color: var(--text-muted);
+}
+
+.trigger-badge-event {
+    background: rgba(46, 204, 113, 0.15);
+    color: var(--status-completed);
+}
+
+.trigger-badge-both {
+    background: rgba(52, 152, 219, 0.15);
+    color: var(--status-running);
+}
+
+/* Webhook setup */
+.webhook-setup h4 {
+    color: var(--text);
+    font-size: 14px;
+    margin-bottom: 8px;
+}
+
 /* Cron help */
 .cron-help { margin-bottom: 16px; }
 .cron-help summary { cursor: pointer; color: var(--accent); font-size: 13px; }

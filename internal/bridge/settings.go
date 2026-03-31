@@ -199,6 +199,33 @@ func (s *SettingsStore) SetUserTaskRepos(ctx context.Context, username string, r
 	return err
 }
 
+// GetWebhookSecret retrieves the webhook secret from the system_settings table.
+func (s *SettingsStore) GetWebhookSecret(ctx context.Context) (string, error) {
+	var value json.RawMessage
+	err := s.db.QueryRow(ctx, "SELECT value FROM system_settings WHERE key = 'webhook_secret'").Scan(&value)
+	if err != nil {
+		return "", fmt.Errorf("webhook secret not found: %w", err)
+	}
+	var secret string
+	if err := json.Unmarshal(value, &secret); err != nil {
+		return "", fmt.Errorf("unmarshaling webhook secret: %w", err)
+	}
+	return secret, nil
+}
+
+// SetWebhookSecret stores or updates the webhook secret in the system_settings table.
+func (s *SettingsStore) SetWebhookSecret(ctx context.Context, secret string) error {
+	value, err := json.Marshal(secret)
+	if err != nil {
+		return fmt.Errorf("marshaling webhook secret: %w", err)
+	}
+	_, err = s.db.Exec(ctx, `
+		INSERT INTO system_settings (key, value, updated_at) VALUES ('webhook_secret', $1, $2)
+		ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = $2
+	`, value, time.Now().UTC())
+	return err
+}
+
 // ResolveEffective merges DB settings with env var overrides.
 // Env vars always win. Returns the effective config with source tracking.
 func (s *SettingsStore) ResolveEffective(ctx context.Context, cfg *Config) *EffectiveSystemLLM {

@@ -208,6 +208,66 @@
     });
 
     // ---------------------
+    // Webhook Configuration modal
+    // ---------------------
+    $('#webhook-config-btn').addEventListener('click', function() {
+        hide($('#user-dropdown-menu'));
+        show($('#webhook-modal'));
+        $('#webhook-url').textContent = window.location.origin + '/api/v1/webhooks/github';
+        // Fetch current webhook settings
+        api('GET', '/api/v1/admin/settings/webhook').then(function(resp) {
+            return resp.json();
+        }).then(function(data) {
+            if (data.secret_configured) {
+                $('#webhook-secret-display').textContent = 'Configured (hidden)';
+            } else {
+                $('#webhook-secret-display').textContent = 'Not configured';
+            }
+            if (data.status) {
+                $('#webhook-status').innerHTML = '<p class="success-message">' + escapeHtml(data.status) + '</p>';
+            } else {
+                $('#webhook-status').innerHTML = '';
+            }
+        }).catch(function() {
+            $('#webhook-status').innerHTML = '';
+        });
+    });
+
+    $('#webhook-generate-secret').addEventListener('click', async function() {
+        var btn = $('#webhook-generate-secret');
+        btn.disabled = true;
+        btn.textContent = 'Generating...';
+        try {
+            // Generate a random secret
+            var array = new Uint8Array(32);
+            crypto.getRandomValues(array);
+            var secret = Array.from(array, function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+
+            var resp = await api('PUT', '/api/v1/admin/settings/webhook', { secret: secret });
+            if (resp.ok) {
+                $('#webhook-secret-display').textContent = secret;
+            } else {
+                var data = await resp.json().catch(function() { return {}; });
+                alert(data.error || data.message || 'Failed to save webhook secret.');
+            }
+        } catch (err) {
+            if (err.message !== 'unauthorized') {
+                alert('Failed to generate webhook secret.');
+            }
+        }
+        btn.disabled = false;
+        btn.textContent = 'Generate Secret';
+    });
+
+    $('#webhook-close').addEventListener('click', function() {
+        hide($('#webhook-modal'));
+    });
+
+    $('#webhook-modal').addEventListener('click', function(e) {
+        if (e.target === e.currentTarget) hide(e.currentTarget);
+    });
+
+    // ---------------------
     // Skill Repos modal
     // ---------------------
     var skillReposMode = 'system';
@@ -484,9 +544,13 @@
             if (desc) {
                 html += '<div class="task-def-meta">' + escapeHtml(desc) + '</div>';
             }
+            var triggerType = d.trigger_type || '';
+            var triggerEvents = (d.trigger && d.trigger.events) || (d.event_config && d.event_config.events) || [];
             var metaParts = [];
             if (repo) metaParts.push('Repo: ' + repo);
             if (schedule) metaParts.push('Schedule: ' + schedule);
+            if (triggerType) metaParts.push('Trigger: ' + triggerType);
+            if (triggerEvents.length > 0) metaParts.push('Events: ' + triggerEvents.join(', '));
             if (metaParts.length > 0) {
                 html += '<div class="task-def-meta">' + escapeHtml(metaParts.join(' | ')) + '</div>';
             }
@@ -2415,6 +2479,24 @@
                     ? '<span class="badge badge-completed">yaml</span>'
                     : '<span class="badge">manual</span>';
                 const isYaml = source === 'yaml';
+
+                // Trigger column
+                var triggerType = s.trigger_type || 'cron';
+                var triggerHtml;
+                if (triggerType === 'event') {
+                    triggerHtml = '<span class="trigger-badge trigger-badge-event">event</span>';
+                    if (s.event_config && s.event_config.events && s.event_config.events.length > 0) {
+                        triggerHtml += '<br><small style="color:var(--text-muted)">' + escapeHtml(s.event_config.events.join(', ')) + '</small>';
+                    }
+                } else if (triggerType === 'cron-and-event') {
+                    triggerHtml = '<span class="trigger-badge trigger-badge-both">both</span>';
+                    if (s.event_config && s.event_config.events && s.event_config.events.length > 0) {
+                        triggerHtml += '<br><small style="color:var(--text-muted)">' + escapeHtml(s.event_config.events.join(', ')) + '</small>';
+                    }
+                } else {
+                    triggerHtml = '<span class="trigger-badge">cron</span>';
+                }
+
                 var actionsHtml;
                 if (isYaml) {
                     actionsHtml = '<button class="btn btn-small btn-outline view-schedule-yaml-btn" data-id="' + escapeHtml(id) + '">View</button>';
@@ -2425,6 +2507,7 @@
 
                 return '<tr>' +
                     '<td>' + escapeHtml(name) + '</td>' +
+                    '<td>' + triggerHtml + '</td>' +
                     '<td><span class="mono">' + escapeHtml(cron) + '</span><br><small style="color:var(--text-muted)">' + escapeHtml(cronDesc) + '</small></td>' +
                     '<td>' + sourceBadge + '</td>' +
                     '<td>' + escapeHtml(nextRun) + '</td>' +
@@ -2452,6 +2535,20 @@
                         $('#sched-timeout-value').textContent = timeout;
                         $('#sched-debug').checked = s.debug || false;
                         $('#sched-enabled').checked = s.enabled !== false;
+                        // Populate trigger type and event config
+                        var tt = s.trigger_type || 'cron';
+                        $('#sched-trigger-type').value = tt;
+                        $('#sched-trigger-type').dispatchEvent(new Event('change'));
+                        // Clear and set event checkboxes
+                        document.querySelectorAll('.event-checkbox').forEach(function(cb) { cb.checked = false; });
+                        if (s.event_config && s.event_config.events) {
+                            s.event_config.events.forEach(function(evt) {
+                                var cb = document.querySelector('.event-checkbox[value="' + evt + '"]');
+                                if (cb) cb.checked = true;
+                            });
+                        }
+                        $('#sched-event-repos').value = (s.event_config && s.event_config.repos) ? s.event_config.repos.join(', ') : '';
+                        $('#sched-event-branches').value = (s.event_config && s.event_config.branches) ? s.event_config.branches.join(', ') : '';
                         $('#schedule-submit-btn').textContent = 'Update Schedule';
                         show($('#schedule-form-container'));
                         $('#sched-name').focus();
@@ -2497,7 +2594,7 @@
         } catch (err) {
             hide(loading);
             if (err.message !== 'unauthorized') {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--status-error);">Failed to load schedules.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--status-error);">Failed to load schedules.</td></tr>';
             }
         }
     }
@@ -2668,6 +2765,12 @@
         $('#sched-natural').value = '';
         $('#schedule-submit-btn').textContent = 'Create Schedule';
         hide($('#schedule-form-error'));
+        // Reset trigger type and event config
+        $('#sched-trigger-type').value = 'cron';
+        $('#sched-trigger-type').dispatchEvent(new Event('change'));
+        document.querySelectorAll('.event-checkbox').forEach(function(cb) { cb.checked = false; });
+        $('#sched-event-repos').value = '';
+        $('#sched-event-branches').value = '';
         if (prefill) {
             $('#sched-prompt').value = prefill.prompt || '';
             $('#sched-provider').value = prefill.provider || '';
@@ -2692,6 +2795,8 @@
         hide($('#schedule-form-container'));
         $('#schedule-form').reset();
         hide($('#schedule-form-error'));
+        hide($('#event-config-section'));
+        $('#sched-trigger-type').value = 'cron';
         editingScheduleId = null;
         $('#schedule-submit-btn').textContent = 'Create Schedule';
     });
@@ -2699,6 +2804,36 @@
     // Schedule timeout slider
     $('#sched-timeout').addEventListener('input', function (e) {
         $('#sched-timeout-value').textContent = e.target.value;
+    });
+
+    // Trigger type toggle
+    $('#sched-trigger-type').addEventListener('change', function () {
+        var type = this.value;
+        var cronField = $('#sched-cron').closest('.form-group-half') || $('#sched-cron').parentElement;
+        var naturalField = $('#sched-natural').parentElement;
+        var cronHelp = document.querySelector('#schedule-form .cron-help');
+        var eventSection = $('#event-config-section');
+
+        if (type === 'cron') {
+            cronField.hidden = false;
+            if (naturalField) naturalField.hidden = false;
+            if (cronHelp) cronHelp.hidden = false;
+            hide(eventSection);
+            $('#sched-cron').required = true;
+        } else if (type === 'event') {
+            cronField.hidden = true;
+            if (naturalField) naturalField.hidden = true;
+            if (cronHelp) cronHelp.hidden = true;
+            show(eventSection);
+            $('#sched-cron').required = false;
+        } else {
+            // cron-and-event
+            cronField.hidden = false;
+            if (naturalField) naturalField.hidden = false;
+            if (cronHelp) cronHelp.hidden = false;
+            show(eventSection);
+            $('#sched-cron').required = true;
+        }
     });
 
     // Submit schedule form
@@ -2710,23 +2845,51 @@
         const name = $('#sched-name').value.trim();
         const cron = $('#sched-cron').value.trim();
         const prompt = $('#sched-prompt').value.trim();
+        const triggerType = $('#sched-trigger-type').value;
 
-        if (!name || !cron || !prompt) {
-            errEl.textContent = 'Name, cron expression, and prompt are required.';
+        if (!name || !prompt) {
+            errEl.textContent = 'Name and prompt are required.';
+            show(errEl);
+            return;
+        }
+
+        if ((triggerType === 'cron' || triggerType === 'cron-and-event') && !cron) {
+            errEl.textContent = 'Cron expression is required for cron-based triggers.';
             show(errEl);
             return;
         }
 
         const payload = {
             name: name,
-            cron: cron,
+            cron: (triggerType === 'event') ? undefined : cron,
             prompt: prompt,
             provider: $('#sched-provider').value || undefined,
             repo: $('#sched-repo').value.trim() || undefined,
             timeout: parseInt($('#sched-timeout').value, 10) * 60,
             debug: $('#sched-debug').checked,
-            enabled: $('#sched-enabled').checked
+            enabled: $('#sched-enabled').checked,
+            trigger_type: triggerType
         };
+
+        // Add event config if applicable
+        if (triggerType === 'event' || triggerType === 'cron-and-event') {
+            var selectedEvents = [];
+            document.querySelectorAll('.event-checkbox:checked').forEach(function(cb) {
+                selectedEvents.push(cb.value);
+            });
+            var eventRepos = $('#sched-event-repos').value.trim();
+            var eventBranches = $('#sched-event-branches').value.trim();
+            payload.event_config = {
+                events: selectedEvents.length > 0 ? selectedEvents : undefined,
+                repos: eventRepos ? eventRepos.split(',').map(function(s) { return s.trim(); }) : undefined,
+                branches: eventBranches ? eventBranches.split(',').map(function(s) { return s.trim(); }) : undefined
+            };
+            // Clean undefined fields from event_config
+            Object.keys(payload.event_config).forEach(function(k) {
+                if (payload.event_config[k] === undefined) delete payload.event_config[k];
+            });
+            if (Object.keys(payload.event_config).length === 0) delete payload.event_config;
+        }
 
         Object.keys(payload).forEach(function (k) {
             if (payload[k] === undefined) delete payload[k];

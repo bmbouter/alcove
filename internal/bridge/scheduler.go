@@ -16,6 +16,7 @@ package bridge
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strconv"
@@ -42,9 +43,11 @@ type Schedule struct {
 	NextRun     *time.Time `json:"next_run,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 	Owner       string     `json:"owner,omitempty"`
-	Debug       bool       `json:"debug,omitempty"`
-	Source      string     `json:"source,omitempty"`
-	SourceKey   string     `json:"source_key,omitempty"`
+	Debug       bool          `json:"debug,omitempty"`
+	Source      string        `json:"source,omitempty"`
+	SourceKey   string        `json:"source_key,omitempty"`
+	TriggerType string        `json:"trigger_type,omitempty"`
+	EventConfig *EventTrigger `json:"event_config,omitempty"`
 }
 
 // CronExpr represents a parsed 5-field cron expression.
@@ -280,9 +283,10 @@ func (s *Scheduler) tick(ctx context.Context) {
 	now := time.Now().UTC()
 
 	rows, err := s.db.Query(ctx, `
-		SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, owner, debug, source, source_key
+		SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, owner, debug, source, source_key, trigger_type, event_config
 		FROM schedules
 		WHERE enabled = true AND next_run <= $1
+		  AND COALESCE(trigger_type, 'cron') IN ('cron', 'cron-and-event')
 	`, now)
 	if err != nil {
 		log.Printf("scheduler: error querying schedules: %v", err)
@@ -293,12 +297,13 @@ func (s *Scheduler) tick(ctx context.Context) {
 	var due []Schedule
 	for rows.Next() {
 		var sched Schedule
-		var source, sourceKey *string
+		var source, sourceKey, triggerType *string
+		var eventConfigJSON []byte
 		if err := rows.Scan(
 			&sched.ID, &sched.Name, &sched.Cron, &sched.Prompt,
 			&sched.Repo, &sched.Provider, &sched.ScopePreset, &sched.Timeout,
 			&sched.Enabled, &sched.LastRun, &sched.NextRun, &sched.CreatedAt, &sched.Owner, &sched.Debug,
-			&source, &sourceKey,
+			&source, &sourceKey, &triggerType, &eventConfigJSON,
 		); err != nil {
 			log.Printf("scheduler: error scanning schedule row: %v", err)
 			continue
@@ -308,6 +313,15 @@ func (s *Scheduler) tick(ctx context.Context) {
 		}
 		if sourceKey != nil {
 			sched.SourceKey = *sourceKey
+		}
+		if triggerType != nil {
+			sched.TriggerType = *triggerType
+		}
+		if eventConfigJSON != nil {
+			var ec EventTrigger
+			if json.Unmarshal(eventConfigJSON, &ec) == nil {
+				sched.EventConfig = &ec
+			}
 		}
 		due = append(due, sched)
 	}
@@ -356,28 +370,51 @@ func (s *Scheduler) CreateSchedule(ctx context.Context, sched *Schedule, owner s
 		sched.ID = uuid.New().String()
 	}
 
-	cronExpr, err := ParseCron(sched.Cron)
-	if err != nil {
-		return fmt.Errorf("invalid cron expression: %w", err)
+	// Determine trigger type.
+	triggerType := sched.TriggerType
+	if triggerType == "" {
+		triggerType = "cron"
 	}
 
-	now := time.Now().UTC()
-	sched.CreatedAt = now
-	sched.Owner = owner
-	nextRun := cronExpr.Next(now)
-	sched.NextRun = &nextRun
+	// Cron is required for cron and cron-and-event types, optional for event-only.
+	if triggerType == "event" {
+		// Event-only schedules don't need cron or next_run.
+		now := time.Now().UTC()
+		sched.CreatedAt = now
+		sched.Owner = owner
+	} else {
+		cronExpr, err := ParseCron(sched.Cron)
+		if err != nil {
+			return fmt.Errorf("invalid cron expression: %w", err)
+		}
+
+		now := time.Now().UTC()
+		sched.CreatedAt = now
+		sched.Owner = owner
+		nextRun := cronExpr.Next(now)
+		sched.NextRun = &nextRun
+	}
 
 	source := sched.Source
 	if source == "" {
 		source = "manual"
 	}
 
-	_, err = s.db.Exec(ctx, `
-		INSERT INTO schedules (id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, next_run, created_at, owner, debug, source, source_key)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+	var eventConfigJSON []byte
+	if sched.EventConfig != nil {
+		var err error
+		eventConfigJSON, err = json.Marshal(sched.EventConfig)
+		if err != nil {
+			return fmt.Errorf("marshaling event config: %w", err)
+		}
+	}
+
+	_, err := s.db.Exec(ctx, `
+		INSERT INTO schedules (id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, next_run, created_at, owner, debug, source, source_key, trigger_type, event_config)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 	`, sched.ID, sched.Name, sched.Cron, sched.Prompt, sched.Repo, sched.Provider,
 		sched.ScopePreset, sched.Timeout, sched.Enabled, sched.NextRun, sched.CreatedAt, owner, sched.Debug,
-		source, nilIfEmptySched(sched.SourceKey))
+		source, nilIfEmptySched(sched.SourceKey), triggerType, eventConfigJSON)
 	if err != nil {
 		return fmt.Errorf("inserting schedule: %w", err)
 	}
@@ -388,7 +425,7 @@ func (s *Scheduler) CreateSchedule(ctx context.Context, sched *Schedule, owner s
 // ListSchedules returns schedules from the database.
 // If owner is non-empty, only schedules belonging to that owner are returned.
 func (s *Scheduler) ListSchedules(ctx context.Context, owner string) ([]Schedule, error) {
-	query := `SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, owner, debug, source, source_key
+	query := `SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, owner, debug, source, source_key, trigger_type, event_config
 		FROM schedules`
 	args := []any{}
 	if owner != "" {
@@ -406,12 +443,13 @@ func (s *Scheduler) ListSchedules(ctx context.Context, owner string) ([]Schedule
 	var schedules []Schedule
 	for rows.Next() {
 		var sched Schedule
-		var source, sourceKey *string
+		var source, sourceKey, triggerType *string
+		var eventConfigJSON []byte
 		if err := rows.Scan(
 			&sched.ID, &sched.Name, &sched.Cron, &sched.Prompt,
 			&sched.Repo, &sched.Provider, &sched.ScopePreset, &sched.Timeout,
 			&sched.Enabled, &sched.LastRun, &sched.NextRun, &sched.CreatedAt, &sched.Owner, &sched.Debug,
-			&source, &sourceKey,
+			&source, &sourceKey, &triggerType, &eventConfigJSON,
 		); err != nil {
 			return nil, fmt.Errorf("scanning schedule: %w", err)
 		}
@@ -420,6 +458,15 @@ func (s *Scheduler) ListSchedules(ctx context.Context, owner string) ([]Schedule
 		}
 		if sourceKey != nil {
 			sched.SourceKey = *sourceKey
+		}
+		if triggerType != nil {
+			sched.TriggerType = *triggerType
+		}
+		if eventConfigJSON != nil {
+			var ec EventTrigger
+			if json.Unmarshal(eventConfigJSON, &ec) == nil {
+				sched.EventConfig = &ec
+			}
 		}
 		schedules = append(schedules, sched)
 	}
@@ -433,7 +480,7 @@ func (s *Scheduler) ListSchedules(ctx context.Context, owner string) ([]Schedule
 // GetSchedule retrieves a single schedule by ID.
 // If owner is non-empty, only returns the schedule if it belongs to that owner.
 func (s *Scheduler) GetSchedule(ctx context.Context, id, owner string) (*Schedule, error) {
-	query := `SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, owner, debug, source, source_key
+	query := `SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, owner, debug, source, source_key, trigger_type, event_config
 		FROM schedules WHERE id = $1`
 	args := []any{id}
 	if owner != "" {
@@ -442,12 +489,13 @@ func (s *Scheduler) GetSchedule(ctx context.Context, id, owner string) (*Schedul
 	}
 
 	var sched Schedule
-	var source, sourceKey *string
+	var source, sourceKey, triggerType *string
+	var eventConfigJSON []byte
 	err := s.db.QueryRow(ctx, query, args...).Scan(
 		&sched.ID, &sched.Name, &sched.Cron, &sched.Prompt,
 		&sched.Repo, &sched.Provider, &sched.ScopePreset, &sched.Timeout,
 		&sched.Enabled, &sched.LastRun, &sched.NextRun, &sched.CreatedAt, &sched.Owner, &sched.Debug,
-		&source, &sourceKey,
+		&source, &sourceKey, &triggerType, &eventConfigJSON,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("querying schedule %s: %w", id, err)
@@ -458,6 +506,15 @@ func (s *Scheduler) GetSchedule(ctx context.Context, id, owner string) (*Schedul
 	if sourceKey != nil {
 		sched.SourceKey = *sourceKey
 	}
+	if triggerType != nil {
+		sched.TriggerType = *triggerType
+	}
+	if eventConfigJSON != nil {
+		var ec EventTrigger
+		if json.Unmarshal(eventConfigJSON, &ec) == nil {
+			sched.EventConfig = &ec
+		}
+	}
 	return &sched, nil
 }
 
@@ -465,28 +522,45 @@ func (s *Scheduler) GetSchedule(ctx context.Context, id, owner string) (*Schedul
 // expression has changed, it recomputes next_run.
 // If owner is non-empty, only updates the schedule if it belongs to that owner.
 func (s *Scheduler) UpdateSchedule(ctx context.Context, sched *Schedule, owner string) error {
-	// Validate the cron expression and recompute next_run.
-	cronExpr, err := ParseCron(sched.Cron)
-	if err != nil {
-		return fmt.Errorf("invalid cron expression: %w", err)
+	triggerType := sched.TriggerType
+	if triggerType == "" {
+		triggerType = "cron"
 	}
 
-	now := time.Now().UTC()
-	nextRun := cronExpr.Next(now)
-	sched.NextRun = &nextRun
+	// Event-only schedules don't need cron validation.
+	if triggerType != "event" {
+		cronExpr, err := ParseCron(sched.Cron)
+		if err != nil {
+			return fmt.Errorf("invalid cron expression: %w", err)
+		}
+		now := time.Now().UTC()
+		nextRun := cronExpr.Next(now)
+		sched.NextRun = &nextRun
+	}
+
+	var eventConfigJSON []byte
+	if sched.EventConfig != nil {
+		var err error
+		eventConfigJSON, err = json.Marshal(sched.EventConfig)
+		if err != nil {
+			return fmt.Errorf("marshaling event config: %w", err)
+		}
+	}
 
 	query := `UPDATE schedules
 		SET name = $1, cron = $2, prompt = $3, repo = $4, provider = $5,
-		    scope_preset = $6, timeout = $7, enabled = $8, next_run = $9, debug = $10
-		WHERE id = $11`
+		    scope_preset = $6, timeout = $7, enabled = $8, next_run = $9, debug = $10,
+		    trigger_type = $11, event_config = $12
+		WHERE id = $13`
 	args := []any{sched.Name, sched.Cron, sched.Prompt, sched.Repo, sched.Provider,
-		sched.ScopePreset, sched.Timeout, sched.Enabled, sched.NextRun, sched.Debug, sched.ID}
+		sched.ScopePreset, sched.Timeout, sched.Enabled, sched.NextRun, sched.Debug,
+		triggerType, eventConfigJSON, sched.ID}
 	if owner != "" {
-		query += ` AND owner = $12`
+		query += ` AND owner = $14`
 		args = append(args, owner)
 	}
 
-	_, err = s.db.Exec(ctx, query, args...)
+	_, err := s.db.Exec(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("updating schedule: %w", err)
 	}
@@ -516,11 +590,27 @@ func (s *Scheduler) DeleteSchedule(ctx context.Context, id, owner string) error 
 // If owner is non-empty, only updates the schedule if it belongs to that owner.
 func (s *Scheduler) EnableSchedule(ctx context.Context, id string, enabled bool, owner string) error {
 	if enabled {
-		// Recompute next_run when enabling.
+		// Recompute next_run when enabling (only for cron-based schedules).
 		sched, err := s.GetSchedule(ctx, id, owner)
 		if err != nil {
 			return err
 		}
+
+		// Event-only schedules don't need next_run.
+		if sched.TriggerType == "event" {
+			query := `UPDATE schedules SET enabled = $1 WHERE id = $2`
+			args := []any{enabled, id}
+			if owner != "" {
+				query += ` AND owner = $3`
+				args = append(args, owner)
+			}
+			_, err = s.db.Exec(ctx, query, args...)
+			if err != nil {
+				return fmt.Errorf("enabling schedule %s: %w", id, err)
+			}
+			return nil
+		}
+
 		cronExpr, err := ParseCron(sched.Cron)
 		if err != nil {
 			return fmt.Errorf("invalid cron expression: %w", err)

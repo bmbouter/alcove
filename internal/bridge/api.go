@@ -16,9 +16,14 @@ package bridge
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -93,6 +98,8 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/task-definitions/sync", a.handleTaskDefinitionsSync)
 	mux.HandleFunc("/api/v1/task-definitions/", a.handleTaskDefinitionByID)
 	mux.HandleFunc("/api/v1/task-templates", a.handleTaskTemplates)
+	mux.HandleFunc("/api/v1/webhooks/github", a.handleWebhookGitHub)
+	mux.HandleFunc("/api/v1/admin/settings/webhook", a.handleAdminSettingsWebhook)
 }
 
 // --- Health ---
@@ -1625,6 +1632,270 @@ func (a *API) handleTaskTemplates(w http.ResponseWriter, r *http.Request) {
 		"templates": templates,
 		"count":     len(templates),
 	})
+}
+
+// --- Webhooks ---
+
+func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	ctx := r.Context()
+
+	// Read the raw body for HMAC validation.
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "failed to read request body")
+		return
+	}
+
+	// Validate HMAC signature.
+	secret, err := a.settingsStore.GetWebhookSecret(ctx)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "webhook secret not configured")
+		return
+	}
+
+	sigHeader := r.Header.Get("X-Hub-Signature-256")
+	if sigHeader == "" {
+		respondError(w, http.StatusUnauthorized, "missing signature header")
+		return
+	}
+
+	// Compute expected signature.
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(body)
+	expectedSig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	if !hmac.Equal([]byte(sigHeader), []byte(expectedSig)) {
+		respondError(w, http.StatusUnauthorized, "invalid signature")
+		return
+	}
+
+	// Check idempotency via X-GitHub-Delivery header.
+	deliveryID := r.Header.Get("X-GitHub-Delivery")
+	if deliveryID == "" {
+		deliveryID = fmt.Sprintf("unknown-%d", time.Now().UnixNano())
+	}
+
+	eventType := r.Header.Get("X-GitHub-Event")
+	if eventType == "" {
+		respondError(w, http.StatusBadRequest, "missing X-GitHub-Event header")
+		return
+	}
+
+	// Parse the payload.
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid JSON payload")
+		return
+	}
+
+	// Extract event info.
+	action, _ := payload["action"].(string)
+	repo := ""
+	if repoObj, ok := payload["repository"].(map[string]any); ok {
+		repo, _ = repoObj["full_name"].(string)
+	}
+
+	// Extract branch.
+	branch := ""
+	switch eventType {
+	case "push":
+		if ref, ok := payload["ref"].(string); ok {
+			// ref is like "refs/heads/main"
+			branch = strings.TrimPrefix(ref, "refs/heads/")
+		}
+	case "pull_request":
+		if pr, ok := payload["pull_request"].(map[string]any); ok {
+			if head, ok := pr["head"].(map[string]any); ok {
+				branch, _ = head["ref"].(string)
+			}
+		}
+	}
+
+	// Extract additional info for dispatched tasks.
+	sha := ""
+	prNumber := ""
+	switch eventType {
+	case "push":
+		if after, ok := payload["after"].(string); ok {
+			sha = after
+		}
+	case "pull_request":
+		if pr, ok := payload["pull_request"].(map[string]any); ok {
+			if head, ok := pr["head"].(map[string]any); ok {
+				if s, ok := head["sha"].(string); ok {
+					sha = s
+				}
+			}
+			if num, ok := pr["number"].(float64); ok {
+				prNumber = fmt.Sprintf("%d", int(num))
+			}
+		}
+	}
+
+	// Record delivery for idempotency (INSERT ... ON CONFLICT DO NOTHING).
+	result, err := a.db.Exec(ctx,
+		`INSERT INTO webhook_deliveries (delivery_id, event_type, repo, action) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+		deliveryID, eventType, repo, action)
+	if err != nil {
+		log.Printf("webhook: error recording delivery %s: %v", deliveryID, err)
+		respondError(w, http.StatusInternalServerError, "failed to record delivery")
+		return
+	}
+	if result.RowsAffected() == 0 {
+		// Already processed.
+		respondJSON(w, http.StatusOK, map[string]any{"matched": 0, "dispatched": 0, "duplicate": true})
+		return
+	}
+
+	// Query schedules with event triggers.
+	rows, queryErr := a.db.Query(ctx, `
+		SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, owner, debug, trigger_type, event_config
+		FROM schedules
+		WHERE enabled = true
+		  AND COALESCE(trigger_type, 'cron') IN ('event', 'cron-and-event')
+		  AND event_config IS NOT NULL
+	`)
+	if queryErr != nil {
+		log.Printf("webhook: error querying schedules: %v", queryErr)
+		respondError(w, http.StatusInternalServerError, "failed to query schedules")
+		return
+	}
+	defer rows.Close()
+
+	matched := 0
+	dispatched := 0
+
+	for rows.Next() {
+		var sched struct {
+			ID          string
+			Name        string
+			Cron        string
+			Prompt      string
+			Repo        string
+			Provider    string
+			ScopePreset string
+			Timeout     int
+			Enabled     bool
+			Owner       string
+			Debug       bool
+			TriggerType string
+			EventConfig []byte
+		}
+
+		if err := rows.Scan(
+			&sched.ID, &sched.Name, &sched.Cron, &sched.Prompt,
+			&sched.Repo, &sched.Provider, &sched.ScopePreset, &sched.Timeout,
+			&sched.Enabled, &sched.Owner, &sched.Debug, &sched.TriggerType, &sched.EventConfig,
+		); err != nil {
+			log.Printf("webhook: error scanning schedule: %v", err)
+			continue
+		}
+
+		var trigger EventTrigger
+		if err := json.Unmarshal(sched.EventConfig, &trigger); err != nil {
+			log.Printf("webhook: error unmarshaling event_config for schedule %s: %v", sched.ID, err)
+			continue
+		}
+
+		if trigger.GitHub == nil || !trigger.GitHub.Matches(eventType, action, repo, branch) {
+			continue
+		}
+
+		matched++
+
+		// Build TaskRequest with webhook context as env vars.
+		taskReq := TaskRequest{
+			Prompt:   sched.Prompt,
+			Repo:     sched.Repo,
+			Provider: sched.Provider,
+			Timeout:  sched.Timeout,
+			Debug:    sched.Debug,
+		}
+
+		session, err := a.dispatcher.DispatchTask(ctx, taskReq, sched.Owner)
+		if err != nil {
+			log.Printf("webhook: error dispatching schedule %s (%s): %v", sched.Name, sched.ID, err)
+			continue
+		}
+
+		// Store webhook context as metadata on the session.
+		webhookMeta := map[string]string{
+			"GITHUB_EVENT":     eventType,
+			"GITHUB_REPO":      repo,
+			"GITHUB_REF":       branch,
+			"GITHUB_SHA":       sha,
+			"GITHUB_PR_NUMBER": prNumber,
+		}
+		metaJSON, _ := json.Marshal(webhookMeta)
+		_, _ = a.db.Exec(ctx,
+			`UPDATE sessions SET prompt = prompt || E'\n\n[webhook: ' || $1 || ']' WHERE id = $2`,
+			string(metaJSON), session.ID)
+
+		dispatched++
+		log.Printf("webhook: dispatched schedule %s (%s) for %s %s/%s", sched.Name, sched.ID, eventType, repo, action)
+	}
+
+	// Update delivery record with match count.
+	_, _ = a.db.Exec(ctx,
+		`UPDATE webhook_deliveries SET matched_schedules = $1 WHERE delivery_id = $2`,
+		matched, deliveryID)
+
+	respondJSON(w, http.StatusOK, map[string]any{"matched": matched, "dispatched": dispatched})
+}
+
+// --- Admin Settings: Webhook ---
+
+func (a *API) handleAdminSettingsWebhook(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("X-Alcove-Admin") != "true" {
+		respondError(w, http.StatusForbidden, "admin access required")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		_, err := a.settingsStore.GetWebhookSecret(r.Context())
+		configured := err == nil
+		respondJSON(w, http.StatusOK, map[string]any{
+			"configured": configured,
+			"url":        "/api/v1/webhooks/github",
+		})
+	case http.MethodPut:
+		var req struct {
+			Secret string `json:"secret"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+			return
+		}
+
+		// Auto-generate if not provided.
+		if req.Secret == "" {
+			b := make([]byte, 32)
+			if _, err := rand.Read(b); err != nil {
+				respondError(w, http.StatusInternalServerError, "failed to generate secret")
+				return
+			}
+			req.Secret = hex.EncodeToString(b)
+		}
+
+		if err := a.settingsStore.SetWebhookSecret(r.Context(), req.Secret); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to save webhook secret")
+			return
+		}
+
+		respondJSON(w, http.StatusOK, map[string]any{
+			"configured": true,
+			"secret":     req.Secret,
+			"url":        "/api/v1/webhooks/github",
+		})
+	default:
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
 }
 
 // --- Helpers ---
