@@ -84,6 +84,67 @@ func (s *SettingsStore) SetSystemLLM(ctx context.Context, settings *SystemLLMSet
 	return err
 }
 
+// SkillRepo represents a git repository containing Claude Code skills/agents.
+type SkillRepo struct {
+	URL  string `json:"url"`
+	Ref  string `json:"ref,omitempty"`  // branch/tag/commit, default: main
+	Name string `json:"name,omitempty"` // display name
+}
+
+// GetSystemSkillRepos returns the system-wide skill repos.
+func (s *SettingsStore) GetSystemSkillRepos(ctx context.Context) ([]SkillRepo, error) {
+	var value json.RawMessage
+	err := s.db.QueryRow(ctx, "SELECT value FROM system_settings WHERE key = 'skill_repos'").Scan(&value)
+	if err != nil {
+		return nil, fmt.Errorf("system skill repos not found: %w", err)
+	}
+	var repos []SkillRepo
+	if err := json.Unmarshal(value, &repos); err != nil {
+		return nil, fmt.Errorf("unmarshaling system skill repos: %w", err)
+	}
+	return repos, nil
+}
+
+// SetSystemSkillRepos saves the system-wide skill repos.
+func (s *SettingsStore) SetSystemSkillRepos(ctx context.Context, repos []SkillRepo) error {
+	value, err := json.Marshal(repos)
+	if err != nil {
+		return fmt.Errorf("marshaling system skill repos: %w", err)
+	}
+	_, err = s.db.Exec(ctx, `
+		INSERT INTO system_settings (key, value, updated_at) VALUES ('skill_repos', $1, $2)
+		ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = $2
+	`, value, time.Now().UTC())
+	return err
+}
+
+// GetUserSkillRepos returns a user's personal skill repos.
+func (s *SettingsStore) GetUserSkillRepos(ctx context.Context, username string) ([]SkillRepo, error) {
+	var value json.RawMessage
+	err := s.db.QueryRow(ctx, "SELECT value FROM user_settings WHERE username = $1 AND key = 'skill_repos'", username).Scan(&value)
+	if err != nil {
+		return nil, fmt.Errorf("user skill repos not found: %w", err)
+	}
+	var repos []SkillRepo
+	if err := json.Unmarshal(value, &repos); err != nil {
+		return nil, fmt.Errorf("unmarshaling user skill repos: %w", err)
+	}
+	return repos, nil
+}
+
+// SetUserSkillRepos saves a user's personal skill repos.
+func (s *SettingsStore) SetUserSkillRepos(ctx context.Context, username string, repos []SkillRepo) error {
+	value, err := json.Marshal(repos)
+	if err != nil {
+		return fmt.Errorf("marshaling user skill repos: %w", err)
+	}
+	_, err = s.db.Exec(ctx, `
+		INSERT INTO user_settings (username, key, value, updated_at) VALUES ($1, 'skill_repos', $2, $3)
+		ON CONFLICT (username, key) DO UPDATE SET value = $2, updated_at = $3
+	`, username, value, time.Now().UTC())
+	return err
+}
+
 // ResolveEffective merges DB settings with env var overrides.
 // Env vars always win. Returns the effective config with source tracking.
 func (s *SettingsStore) ResolveEffective(ctx context.Context, cfg *Config) *EffectiveSystemLLM {

@@ -207,6 +207,120 @@
         if (e.target === e.currentTarget) hide(e.currentTarget);
     });
 
+    // ---------------------
+    // Skill Repos modal
+    // ---------------------
+    var skillReposMode = 'system';
+    var skillReposList = [];
+
+    function skillReposEndpoint() {
+        return skillReposMode === 'system'
+            ? '/api/v1/admin/settings/skill-repos'
+            : '/api/v1/user/settings/skill-repos';
+    }
+
+    async function loadSkillRepos() {
+        var listEl = $('#skill-repos-list');
+        listEl.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Loading...</p></div>';
+        try {
+            var resp = await api('GET', skillReposEndpoint());
+            if (!resp.ok) {
+                listEl.innerHTML = '<p class="error-message">Failed to load skill repos.</p>';
+                return;
+            }
+            var data = await resp.json();
+            skillReposList = data.repos || [];
+            renderSkillRepos();
+        } catch (err) {
+            listEl.innerHTML = '<p class="error-message">Failed to load skill repos.</p>';
+        }
+    }
+
+    function renderSkillRepos() {
+        var listEl = $('#skill-repos-list');
+        if (skillReposList.length === 0) {
+            listEl.innerHTML = '<p class="skill-repos-empty">No skill repos configured.</p>';
+            return;
+        }
+        var html = '';
+        for (var i = 0; i < skillReposList.length; i++) {
+            var repo = skillReposList[i];
+            html += '<div class="skill-repo-item">';
+            html += '<span class="skill-repo-url">' + escapeHtml(repo.url) + '</span>';
+            if (repo.ref) {
+                html += '<span class="skill-repo-ref">' + escapeHtml(repo.ref) + '</span>';
+            }
+            if (repo.name) {
+                html += '<span class="skill-repo-name">' + escapeHtml(repo.name) + '</span>';
+            }
+            html += '<button class="skill-repo-delete" data-index="' + i + '" title="Remove">&#x2715;</button>';
+            html += '</div>';
+        }
+        listEl.innerHTML = html;
+
+        // Attach delete handlers
+        listEl.querySelectorAll('.skill-repo-delete').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var idx = parseInt(btn.getAttribute('data-index'), 10);
+                skillReposList.splice(idx, 1);
+                saveSkillRepos();
+            });
+        });
+    }
+
+    async function saveSkillRepos() {
+        try {
+            var resp = await api('PUT', skillReposEndpoint(), { repos: skillReposList });
+            if (!resp.ok) {
+                alert('Failed to save skill repos.');
+            }
+            renderSkillRepos();
+        } catch (err) {
+            alert('Failed to save skill repos.');
+        }
+    }
+
+    $('#system-skill-repos-btn').addEventListener('click', function() {
+        hide($('#user-dropdown-menu'));
+        skillReposMode = 'system';
+        $('#skill-repos-title').textContent = 'Skill Repos (System)';
+        show($('#skill-repos-modal'));
+        loadSkillRepos();
+    });
+
+    $('#user-skill-repos-btn').addEventListener('click', function() {
+        hide($('#user-dropdown-menu'));
+        skillReposMode = 'user';
+        $('#skill-repos-title').textContent = 'My Skill Repos';
+        show($('#skill-repos-modal'));
+        loadSkillRepos();
+    });
+
+    $('#skill-repo-add-btn').addEventListener('click', function() {
+        var url = $('#skill-repo-url').value.trim();
+        if (!url) return;
+        var ref = $('#skill-repo-ref').value.trim() || 'main';
+        var name = $('#skill-repo-name').value.trim();
+        if (!name) {
+            // Derive name from URL: last path segment without .git
+            var parts = url.replace(/\.git$/, '').split('/');
+            name = parts[parts.length - 1] || 'repo';
+        }
+        skillReposList.push({ url: url, ref: ref, name: name });
+        $('#skill-repo-url').value = '';
+        $('#skill-repo-ref').value = '';
+        $('#skill-repo-name').value = '';
+        saveSkillRepos();
+    });
+
+    $('#skill-repos-close').addEventListener('click', function() {
+        hide($('#skill-repos-modal'));
+    });
+
+    $('#skill-repos-modal').addEventListener('click', function(e) {
+        if (e.target === e.currentTarget) hide(e.currentTarget);
+    });
+
     // Change Password form submit
     $('#change-password-form').addEventListener('submit', async (e) => {
         e.preventDefault();

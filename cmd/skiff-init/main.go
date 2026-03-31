@@ -39,6 +39,9 @@ import (
 // Version is set at build time via -ldflags.
 var Version = "dev"
 
+// skillPluginDirs holds paths to cloned skill/agent repos for --plugin-dir flags.
+var skillPluginDirs []string
+
 const (
 	defaultHeartbeatTimeout = 10 * time.Minute
 	walBatchSize            = 50
@@ -189,6 +192,9 @@ func runClaude(
 	}
 	if task.Budget > 0 {
 		args = append(args, "--max-budget-usd", strconv.FormatFloat(task.Budget, 'f', 2, 64))
+	}
+	for _, dir := range skillPluginDirs {
+		args = append(args, "--plugin-dir", dir)
 	}
 	args = append(args, task.Prompt)
 
@@ -362,6 +368,9 @@ func setupEnv(task internal.Task) {
 		configureMCPServers(mcpConfig)
 	}
 
+	// Load skill/agent repos if specified.
+	loadSkillRepos()
+
 	// Apply task-specific env vars
 	for k, v := range task.Env {
 		os.Setenv(k, v)
@@ -413,6 +422,79 @@ func configureMCPServers(configJSON string) {
 	}
 	settingsData, _ := json.MarshalIndent(settings, "", "  ")
 	os.WriteFile(settingsPath, settingsData, 0644)
+}
+
+// skillRepo represents a skill/agent repository to clone and load as a plugin.
+type skillRepo struct {
+	URL  string `json:"url"`
+	Ref  string `json:"ref,omitempty"`
+	Name string `json:"name,omitempty"`
+}
+
+// loadSkillRepos reads ALCOVE_SKILL_REPOS, clones each repo, and populates
+// skillPluginDirs so that runClaude() can pass --plugin-dir flags.
+func loadSkillRepos() {
+	reposJSON := os.Getenv("ALCOVE_SKILL_REPOS")
+	if reposJSON == "" {
+		return
+	}
+
+	var repos []skillRepo
+	if err := json.Unmarshal([]byte(reposJSON), &repos); err != nil {
+		log.Printf("warning: invalid ALCOVE_SKILL_REPOS JSON: %v", err)
+		return
+	}
+
+	if len(repos) == 0 {
+		return
+	}
+
+	baseDir := "/tmp/alcove-skills"
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		log.Printf("warning: failed to create skill repos directory: %v", err)
+		return
+	}
+
+	for _, repo := range repos {
+		if repo.URL == "" {
+			log.Printf("warning: skipping skill repo with empty URL")
+			continue
+		}
+
+		// Determine directory name: use Name if provided, otherwise derive from URL
+		dirName := repo.Name
+		if dirName == "" {
+			dirName = filepath.Base(repo.URL)
+			// Strip .git suffix if present
+			if ext := filepath.Ext(dirName); ext == ".git" {
+				dirName = dirName[:len(dirName)-len(ext)]
+			}
+		}
+
+		cloneDir := filepath.Join(baseDir, dirName)
+
+		args := []string{"clone", "--depth=1"}
+		if repo.Ref != "" {
+			args = append(args, "--branch", repo.Ref)
+		}
+		args = append(args, repo.URL, cloneDir)
+
+		cmd := exec.Command("git", args...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		if err := cmd.Run(); err != nil {
+			log.Printf("warning: failed to clone skill repo %s: %v", repo.URL, err)
+			continue
+		}
+
+		log.Printf("cloned skill repo %s to %s", repo.URL, cloneDir)
+		skillPluginDirs = append(skillPluginDirs, cloneDir)
+	}
+
+	if len(skillPluginDirs) > 0 {
+		log.Printf("loaded %d skill repo(s)", len(skillPluginDirs))
+	}
 }
 
 // cloneRepo performs a shallow clone of the given repo.

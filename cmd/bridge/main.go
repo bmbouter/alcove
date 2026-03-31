@@ -158,7 +158,7 @@ func main() {
 	}
 
 	// Create dispatcher and API.
-	dispatcher := bridge.NewDispatcher(nc, dbpool, rt, cfg, credStore, toolStore, profileStore)
+	dispatcher := bridge.NewDispatcher(nc, dbpool, rt, cfg, credStore, toolStore, profileStore, settingsStore)
 
 	// Start listening for status updates from Skiff pods.
 	if err := dispatcher.ListenForStatusUpdates(context.Background()); err != nil {

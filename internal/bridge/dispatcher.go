@@ -32,28 +32,30 @@ import (
 // Dispatcher manages task lifecycle: creation, dispatch to Skiff pods,
 // and status tracking.
 type Dispatcher struct {
-	nc           *nats.Conn
-	db           *pgxpool.Pool
-	rt           runtime.Runtime
-	cfg          *Config
-	credStore    *CredentialStore
-	toolStore    *ToolStore
-	profileStore *ProfileStore
-	mu           sync.Mutex
-	handles      map[string]runtime.TaskHandle // sessionID -> handle
+	nc            *nats.Conn
+	db            *pgxpool.Pool
+	rt            runtime.Runtime
+	cfg           *Config
+	credStore     *CredentialStore
+	toolStore     *ToolStore
+	profileStore  *ProfileStore
+	settingsStore *SettingsStore
+	mu            sync.Mutex
+	handles       map[string]runtime.TaskHandle // sessionID -> handle
 }
 
 // NewDispatcher creates a Dispatcher with the given dependencies.
-func NewDispatcher(nc *nats.Conn, db *pgxpool.Pool, rt runtime.Runtime, cfg *Config, credStore *CredentialStore, toolStore *ToolStore, profileStore *ProfileStore) *Dispatcher {
+func NewDispatcher(nc *nats.Conn, db *pgxpool.Pool, rt runtime.Runtime, cfg *Config, credStore *CredentialStore, toolStore *ToolStore, profileStore *ProfileStore, settingsStore *SettingsStore) *Dispatcher {
 	return &Dispatcher{
-		nc:           nc,
-		db:           db,
-		rt:           rt,
-		cfg:          cfg,
-		credStore:    credStore,
-		toolStore:    toolStore,
-		profileStore: profileStore,
-		handles:      make(map[string]runtime.TaskHandle),
+		nc:            nc,
+		db:            db,
+		rt:            rt,
+		cfg:           cfg,
+		credStore:     credStore,
+		toolStore:     toolStore,
+		profileStore:  profileStore,
+		settingsStore: settingsStore,
+		handles:       make(map[string]runtime.TaskHandle),
 	}
 }
 
@@ -505,6 +507,24 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		skiffEnv["GITLAB_PERSONAL_ACCESS_TOKEN"] = token
 		skiffEnv["GITLAB_API_URL"] = fmt.Sprintf("http://%s:8443/gitlab/api/v4", gateName)
 		skiffEnv["GLAB_HOST"] = fmt.Sprintf("http://%s:8443/gitlab", gateName)
+	}
+
+	// Resolve skill repos for this task.
+	var skillRepos []SkillRepo
+
+	// System-wide repos.
+	if systemRepos, err := d.settingsStore.GetSystemSkillRepos(ctx); err == nil {
+		skillRepos = append(skillRepos, systemRepos...)
+	}
+
+	// User-specific repos.
+	if userRepos, err := d.settingsStore.GetUserSkillRepos(ctx, submitter); err == nil {
+		skillRepos = append(skillRepos, userRepos...)
+	}
+
+	if len(skillRepos) > 0 {
+		reposJSON, _ := json.Marshal(skillRepos)
+		skiffEnv["ALCOVE_SKILL_REPOS"] = string(reposJSON)
 	}
 
 	// Start Skiff pod via Runtime.

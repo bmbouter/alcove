@@ -76,6 +76,8 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/profiles/", a.handleProfileByID)
 	mux.HandleFunc("/api/v1/internal/token-refresh", a.handleTokenRefresh)
 	mux.HandleFunc("/api/v1/admin/settings/llm", a.handleAdminSettingsLLM)
+	mux.HandleFunc("/api/v1/admin/settings/skill-repos", a.handleAdminSettingsSkillRepos)
+	mux.HandleFunc("/api/v1/user/settings/skill-repos", a.handleUserSettingsSkillRepos)
 }
 
 // --- Health ---
@@ -1324,6 +1326,78 @@ func (a *API) handleAdminSettingsLLM(w http.ResponseWriter, r *http.Request) {
 		// Return effective config.
 		eff := a.settingsStore.ResolveEffective(r.Context(), a.cfg)
 		respondJSON(w, http.StatusOK, eff)
+	default:
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (a *API) handleAdminSettingsSkillRepos(w http.ResponseWriter, r *http.Request) {
+	// Admin check.
+	if r.Header.Get("X-Alcove-Admin") != "true" {
+		respondError(w, http.StatusForbidden, "admin access required")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		repos, err := a.settingsStore.GetSystemSkillRepos(r.Context())
+		if err != nil {
+			// No repos configured yet — return empty list.
+			repos = []SkillRepo{}
+		}
+		respondJSON(w, http.StatusOK, map[string]any{"repos": repos})
+	case http.MethodPut:
+		var req struct {
+			Repos []SkillRepo `json:"repos"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+			return
+		}
+		if req.Repos == nil {
+			req.Repos = []SkillRepo{}
+		}
+		if err := a.settingsStore.SetSystemSkillRepos(r.Context(), req.Repos); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to save skill repos")
+			return
+		}
+		respondJSON(w, http.StatusOK, map[string]any{"repos": req.Repos})
+	default:
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (a *API) handleUserSettingsSkillRepos(w http.ResponseWriter, r *http.Request) {
+	username := r.Header.Get("X-Alcove-User")
+	if username == "" {
+		respondError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		repos, err := a.settingsStore.GetUserSkillRepos(r.Context(), username)
+		if err != nil {
+			// No repos configured yet — return empty list.
+			repos = []SkillRepo{}
+		}
+		respondJSON(w, http.StatusOK, map[string]any{"repos": repos})
+	case http.MethodPut:
+		var req struct {
+			Repos []SkillRepo `json:"repos"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+			return
+		}
+		if req.Repos == nil {
+			req.Repos = []SkillRepo{}
+		}
+		if err := a.settingsStore.SetUserSkillRepos(r.Context(), username, req.Repos); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to save skill repos")
+			return
+		}
+		respondJSON(w, http.StatusOK, map[string]any{"repos": req.Repos})
 	default:
 		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
