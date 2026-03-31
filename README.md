@@ -30,12 +30,13 @@ See [Problem Statement](docs/design/problem-statement.md).
 
 ## Status
 
-Phase 1 implemented. The project has a working end-to-end pipeline: CLI, REST
-API, dashboard, task scheduler, ephemeral container execution (podman), NATS
-messaging, PostgreSQL session storage, credential management, and dual auth
-backends (Argon2id passwords + session tokens). See
-[Implementation Status](docs/design/implementation-status.md) for details on
-what is built and what is planned next.
+Phase 1 complete with Phase 2 features underway. Working end-to-end pipeline:
+CLI, REST API, dashboard, task scheduler, ephemeral container execution
+(podman and Kubernetes), NATS messaging, PostgreSQL session storage, credential
+management, dual auth backends, skill/agent repos (Claude Code plugins loaded
+into workers), YAML task definitions (version-controlled reusable tasks from
+git repos), and per-task NetworkPolicy enforcement on Kubernetes. See
+[Implementation Status](docs/design/implementation-status.md) for details.
 
 ## Requirements
 
@@ -62,7 +63,10 @@ For the full setup walkthrough, see the [Getting Started](docs/getting-started.m
 | Document | Description |
 |----------|-------------|
 | [Getting Started](docs/getting-started.md) | Setup, configuration, and first task walkthrough |
+| [Configuration](docs/configuration.md) | All environment variables, skill repos, task definitions |
+| [API Reference](docs/api-reference.md) | REST API endpoints, request/response formats |
 | [CLI Reference](docs/cli-reference.md) | All commands, flags, and usage examples |
+| [Development Guide](docs/development-guide.md) | Building, testing, adding features |
 | [Architecture](docs/design/architecture.md) | Component design, deployment diagrams, roadmap |
 | [Architecture Decisions](docs/design/architecture-decisions.md) | Resolved design choices (18 decisions) |
 | [Implementation Status](docs/design/implementation-status.md) | Current state, what works, what is next |

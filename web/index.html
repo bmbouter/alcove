@@ -56,6 +56,8 @@
                         <button class="user-dropdown-item nav-admin-only" id="system-skill-repos-btn" hidden>Skill Repos (System)</button>
                         <div class="user-dropdown-separator nav-admin-only" hidden></div>
                         <button class="user-dropdown-item" id="user-skill-repos-btn">My Skill Repos</button>
+                        <button class="user-dropdown-item nav-admin-only" id="system-task-repos-btn" hidden>Task Repos (System)</button>
+                        <button class="user-dropdown-item" id="user-task-repos-btn">My Task Repos</button>
                         <button class="user-dropdown-item" id="change-password-btn">Change Password</button>
                         <button class="user-dropdown-item user-dropdown-logout" id="logout-btn">Logout</button>
                     </div>
@@ -271,12 +273,27 @@
                         </div>
                     </form>
                 </div>
+                <div id="task-definitions-section">
+                    <div class="section-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                        <h3>Task Definitions</h3>
+                        <div style="display:flex;gap:8px;">
+                            <button id="sync-task-defs" class="btn btn-small btn-outline">Sync Now</button>
+                            <button id="browse-templates" class="btn btn-small btn-primary">Browse Templates</button>
+                        </div>
+                    </div>
+                    <div id="task-definitions-list"></div>
+                    <div id="task-definitions-empty" class="empty-state" hidden>
+                        <p>No task definitions found. Add a task repo to get started, or browse templates.</p>
+                    </div>
+                </div>
+                <hr style="border-color: var(--border); margin: 24px 0;">
                 <div class="table-container">
                     <table class="data-table">
                         <thead>
                             <tr>
                                 <th>Name</th>
                                 <th>Cron</th>
+                                <th>Source</th>
                                 <th>Next Run</th>
                                 <th>Last Run</th>
                                 <th>Enabled</th>
@@ -649,6 +666,63 @@
 
             <div style="display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;">
                 <button type="button" id="skill-repos-close" class="btn btn-outline">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Task Repos Modal -->
+    <div id="task-repos-modal" class="modal-overlay" hidden>
+        <div class="modal-card modal-card-wide">
+            <h3 id="task-repos-title">Task Repos</h3>
+            <p class="form-help">Git repositories containing YAML task definitions. Each repo should have a <code>.alcove/tasks/</code> directory with task YAML files.</p>
+
+            <div id="task-repos-list"></div>
+
+            <div class="task-repo-add" style="margin-top: 16px;">
+                <h4>Add Repository</h4>
+                <div class="form-row">
+                    <div class="form-group form-group-half">
+                        <label>Repository URL <span class="required">*</span></label>
+                        <input type="text" id="task-repo-url" class="input" placeholder="https://github.com/org/task-definitions.git">
+                    </div>
+                    <div class="form-group" style="flex: 0 0 120px;">
+                        <label>Branch/Tag</label>
+                        <input type="text" id="task-repo-ref" class="input" placeholder="main">
+                    </div>
+                    <div class="form-group" style="flex: 0 0 150px;">
+                        <label>Name</label>
+                        <input type="text" id="task-repo-name" class="input" placeholder="e.g., team-tasks">
+                    </div>
+                </div>
+                <button id="task-repo-add-btn" class="btn btn-small btn-primary">Add</button>
+            </div>
+
+            <div style="display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;">
+                <button type="button" id="task-repos-close" class="btn btn-outline">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- View YAML Modal -->
+    <div id="view-yaml-modal" class="modal-overlay" hidden>
+        <div class="modal-card modal-card-wide">
+            <h3 id="view-yaml-title">Task Definition</h3>
+            <pre id="view-yaml-content" style="background:var(--bg-input);padding:16px;border-radius:8px;overflow-x:auto;font-size:13px;max-height:60vh;overflow-y:auto;"></pre>
+            <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;">
+                <button id="view-yaml-copy" class="btn btn-small btn-outline">Copy YAML</button>
+                <button id="view-yaml-close" class="btn btn-outline">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Templates Modal -->
+    <div id="templates-modal" class="modal-overlay" hidden>
+        <div class="modal-card modal-card-wide">
+            <h3>Starter Templates</h3>
+            <p class="form-help">Copy these YAML templates into your repo's <code>.alcove/tasks/</code> directory.</p>
+            <div id="templates-list"></div>
+            <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;">
+                <button id="templates-close" class="btn btn-outline">Close</button>
             </div>
         </div>
     </div>

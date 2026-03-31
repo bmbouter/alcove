@@ -383,10 +383,44 @@ Use the provided `HashPassword` and `VerifyPassword` functions from the `auth`
 package. They use argon2id with these parameters: 64 MB memory, 3 iterations,
 parallelism 4, 32-byte key.
 
-## Adding a New Runtime Backend
+## Runtime Backends
 
 The `Runtime` interface in `internal/runtime/runtime.go` abstracts over
-container runtimes. The existing implementation is `PodmanRuntime`.
+container runtimes. There are two implementations:
+
+- **PodmanRuntime** (`podman.go`) -- creates Skiff and Gate as separate
+  containers on dual podman networks (`--internal` for isolation)
+- **KubernetesRuntime** (`kubernetes.go`) -- creates a k8s Job with Gate as a
+  native sidecar (init container with `restartPolicy: Always`) and Skiff as the
+  main container. Also creates a per-task NetworkPolicy restricting egress.
+
+Set `RUNTIME=podman` or `RUNTIME=kubernetes` to select the backend.
+
+### Kubernetes Runtime Details
+
+The Kubernetes runtime uses direct client-go API calls (no operator or CRDs).
+Key design points:
+
+- **Jobs with native sidecars:** Gate runs as an init container with
+  `restartPolicy: Always`, which makes it a native sidecar that starts before
+  and stops after the main Skiff container. Gate and Skiff share the pod's
+  network namespace, so proxy env vars point to `localhost:8443`.
+- **NetworkPolicy per task:** each Job gets a NetworkPolicy restricting egress
+  to only the Gate sidecar (on localhost), Hail (NATS), and Bridge.
+- **OpenShift compatible:** security contexts use `restricted-v2` SCC
+  (non-root, drop all capabilities, `seccompProfile: RuntimeDefault`).
+- **Minimal RBAC:** Bridge needs create/get/list/delete on Jobs and
+  NetworkPolicies in its namespace.
+- **Namespace detection:** uses `ALCOVE_NAMESPACE` env var, then in-cluster
+  service account namespace, then defaults to `alcove`.
+
+To test with Kubernetes locally, use `kind` or `minikube`:
+
+```bash
+RUNTIME=kubernetes KUBECONFIG=~/.kube/config ./bin/bridge
+```
+
+### Adding a New Runtime Backend
 
 ```go
 type Runtime interface {
@@ -400,27 +434,78 @@ type Runtime interface {
 }
 ```
 
-To add a new runtime (for example, Kubernetes):
+To add a new runtime:
 
-1. Create a new file in `internal/runtime/`, e.g., `kubernetes.go`.
+1. Create a new file in `internal/runtime/`.
+2. Implement all seven methods. `RunTask` must start both Skiff and Gate with
+   shared networking and proxy configuration.
+3. Wire it into Bridge startup based on the `RUNTIME` environment variable.
 
-2. Implement all seven methods of the `Runtime` interface. Key types:
+## Skill Repos and Task Definitions
 
-   - `TaskSpec` -- describes a Skiff task (images, env vars, timeout, network)
-   - `TaskHandle` -- returned by `RunTask`, used to track and cancel tasks
-   - `ServiceSpec` -- describes infrastructure services (NATS, PostgreSQL)
-   - `RuntimeInfo` -- type and version metadata
+### Skill Repos
 
-3. Key design constraints:
-   - `RunTask` must start both a Skiff container and a Gate sidecar
-   - The Gate sidecar must share the network namespace with Skiff
-   - Skiff must have `HTTP_PROXY` and `HTTPS_PROXY` pointing to the Gate
-     container so all external traffic routes through Gate
-   - On Kubernetes, use a Pod with two containers (Skiff + Gate sidecar) in a
-     Job; on podman, use two containers on the same network
+Skill repos are git repositories containing Claude Code plugins. The plugin
+structure expected by Skiff:
 
-4. Add a constructor and wire it into Bridge startup based on the `RUNTIME`
-   environment variable.
+```
+my-skills-repo/
+  .claude-plugin/
+    plugin.json       # Plugin manifest
+  skills/             # Skill definitions
+  agents/             # Agent definitions
+```
+
+At dispatch time, Bridge reads system-wide and per-user skill repos from the
+settings store, merges them, and passes the JSON to Skiff as
+`ALCOVE_SKILL_REPOS`. Skiff clones each repo and passes the directories to
+`claude` via `--plugin-dir` flags.
+
+The relevant code paths:
+
+- `internal/bridge/settings.go` -- `SkillRepo` type, `GetSystemSkillRepos()`,
+  `SetSystemSkillRepos()`, `GetUserSkillRepos()`, `SetUserSkillRepos()`
+- `internal/bridge/dispatcher.go` -- merges skill repos and sets
+  `ALCOVE_SKILL_REPOS` env var
+- `cmd/skiff-init/main.go` -- `loadSkillRepos()` clones repos and builds
+  `--plugin-dir` flags
+
+### Task Definition YAML Format
+
+Task definitions are YAML files in `.alcove/tasks/*.yml` within a task repo:
+
+```yaml
+name: run-tests
+prompt: |
+  Run the full test suite and fix any failures.
+repo: https://github.com/org/myproject.git
+provider: anthropic
+model: claude-sonnet-4-20250514
+timeout: 1800
+budget_usd: 5.0
+profiles:
+  - read-only-github
+tools:
+  - github
+schedule: "0 2 * * *"
+```
+
+All fields except `name` and `prompt` are optional. The `schedule` field uses
+standard 5-field cron syntax. When a schedule is present, Bridge creates a
+corresponding schedule entry automatically.
+
+### Testing with Task Repos
+
+To test task repo syncing locally:
+
+1. Create a test git repo with a `.alcove/tasks/` directory containing YAML
+   task files.
+2. Push it to a Git host or use a local bare repo.
+3. Register the repo via the API or dashboard.
+4. Wait for the sync interval (default 5 minutes) or trigger a manual sync
+   via `POST /api/v1/task-definitions/sync`.
+5. Check the dashboard or `GET /api/v1/task-definitions` to verify the tasks
+   appear.
 
 ## Gate SCM Proxy Endpoints
 

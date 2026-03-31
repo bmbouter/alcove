@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 2026-03-29
+Last updated: 2026-03-30
 
 ## Project Overview
 
@@ -36,7 +36,9 @@ alcove/
 │   ├── runtime/
 │   │   ├── runtime.go          ✅ Runtime interface (RunTask, CancelTask, EnsureService, etc.)
 │   │   ├── podman.go           ✅ PodmanRuntime implementation (podman CLI wrapper)
-│   │   └── podman_test.go      ✅ 14 tests (TestHelperProcess pattern)
+│   │   ├── podman_test.go      ✅ 14 tests (TestHelperProcess pattern)
+│   │   ├── kubernetes.go       ✅ KubernetesRuntime implementation (client-go, Jobs with native sidecars, NetworkPolicy)
+│   │   └── kubernetes_test.go  ✅ Kubernetes runtime tests
 │   ├── bridge/
 │   │   ├── api.go              ✅ REST handlers (tasks, sessions, schedules, credentials, providers, profiles, tools, settings, health, transcript SSE streaming, proxy-log ingestion)
 │   │   ├── dispatcher.go       ✅ Task dispatch: creates session, resolves security profiles, publishes to NATS, starts Skiff+Gate with LLM/SCM credentials and tool configs
@@ -47,7 +49,7 @@ alcove/
 │   │   ├── scheduler.go        ✅ Cron scheduler: parsing, next-run computation, schedule CRUD, background tick loop, per-schedule debug flag
 │   │   ├── profiles.go         ✅ Security profiles: multi-rule per-repo operation scoping, builtin profile seeding, profile CRUD with owner scoping
 │   │   ├── tools.go            ✅ MCP tool registry: tool CRUD, MCP command/args, tool configs passed to Gate/Skiff
-│   │   ├── settings.go         ✅ Admin settings: system LLM configuration (provider, model, credential), env+DB+config resolution
+│   │   ├── settings.go         ✅ Admin settings: system LLM configuration, skill repos (system + per-user), env+DB+config resolution
 │   │   ├── llm.go              ✅ BridgeLLM: system LLM client for AI-powered features (Anthropic + Vertex AI), used by profile builder
 │   │   ├── migrate.go          ✅ Embedded SQL migration runner with advisory locking
 │   │   └── migrations/
@@ -224,6 +226,35 @@ alcove/
 18. **Session Pagination** — Session list API supports `per_page` and page-based
     pagination for large session histories.
 
+19. **Skill/Agent Repos** — Git repositories containing Claude Code plugins
+    (skills and agents) that are loaded into Skiff containers. System-wide
+    (admin) and per-user configuration via `GET/PUT /api/v1/admin/settings/skill-repos`
+    and `GET/PUT /api/v1/user/settings/skill-repos`. At dispatch time, Bridge
+    merges both lists and passes them to Skiff as `ALCOVE_SKILL_REPOS`. Skiff
+    clones each repo and passes them to Claude Code via `--plugin-dir` flags.
+    Plugin structure: `.claude-plugin/plugin.json` with `skills/` and `agents/`
+    directories.
+
+20. **YAML Task Definitions** — Tasks defined in `.alcove/tasks/*.yml` in git
+    repos. Task repo registration (system + per-user) via settings API.
+    YAML schema supports name, prompt, repo, provider, model, timeout, budget,
+    profiles, tools, and schedule fields. Auto-sync every 5 minutes. Dashboard
+    supports Run Now and View YAML actions. Starter templates available via
+    `GET /api/v1/task-templates`.
+
+21. **Kubernetes Runtime** — `KubernetesRuntime` in `internal/runtime/kubernetes.go`
+    implements the `Runtime` interface using direct client-go API calls (no
+    operator needed). Each task runs as a k8s Job with Gate as a native sidecar
+    (init container with `restartPolicy: Always`) and Skiff as the main
+    container. Creates a per-task NetworkPolicy restricting egress. Compatible
+    with OpenShift restricted-v2 SCC (runs as non-root, drops all capabilities,
+    sets `seccompProfile: RuntimeDefault`). Minimal RBAC: Bridge needs create/delete
+    permissions for Jobs and NetworkPolicies.
+
+22. **CI/CD** — GitHub Actions workflows for testing (`ci.yml`) and releasing
+    (`release.yml`). Container images published to `ghcr.io/bmbouter`.
+    v0.1.0 released.
+
 ## What's NOT Working Yet
 
 ### 1. NATS Dead Code
@@ -310,16 +341,10 @@ make build-images
 
 ### Medium-term (Phase 2)
 
-4. **Kubernetes runtime** — implement the `Runtime` interface for Kubernetes
-   (currently only podman is implemented).
-
-5. **NetworkPolicy enforcement** — OpenShift NetworkPolicy to enforce that
-   Skiff pods can only reach Gate (podman uses dual-network isolation with `--internal` flag).
-
-6. **Session artifacts** — structured output (PRs, patches, commits) with
+4. **Session artifacts** — structured output (PRs, patches, commits) with
    links back to source services.
 
-7. **Credential rotation and expiry** — notifications for expiring credentials,
+5. **Credential rotation and expiry** — notifications for expiring credentials,
    automatic rotation support.
 
 See the full roadmap in [architecture-decisions.md](architecture-decisions.md#roadmap-revised).

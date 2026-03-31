@@ -82,6 +82,8 @@ can also be set in `alcove.conf` (see [alcove.conf](#alcoveconf) above).
 | `ALCOVE_EXTERNAL_NETWORK` | string | `alcove-external` | External podman network for Gate egress. Gate bridges both networks; Skiff is attached only to the internal network. |
 | `BRIDGE_URL` | string | `http://alcove-bridge:<port>` | URL where Bridge can be reached by Skiff/Gate containers. |
 | `SKIFF_HAIL_URL` | string | `nats://alcove-hail:4222` | NATS URL injected into Skiff containers (may differ from Bridge's own `HAIL_URL`). |
+| `ALCOVE_SKILL_REPOS` | string (JSON) | _(unset)_ | JSON array of skill repo objects. Overrides database-configured skill repos. Each object has `url` (required), `ref` (optional, default `main`), and `name` (optional). |
+| `TASK_REPO_SYNC_INTERVAL` | string (duration) | `5m` | How often Bridge syncs YAML task definitions from registered task repos. Accepts Go duration syntax. |
 
 ---
 
@@ -137,6 +139,7 @@ Skiff is the ephemeral worker container (`cmd/skiff-init`). These variables are
 | `NO_PROXY` | string | _(injected)_ | Internal services exempt from proxy (includes Gate container name). |
 | `ANTHROPIC_BASE_URL` | string | _(injected)_ | Points to Gate for LLM API proxying (`http://gate-<taskID>:8443`). |
 | `ANTHROPIC_API_KEY` | string | `sk-placeholder-routed-through-gate` | Placeholder key that satisfies Claude Code validation. Real key is held by Gate. |
+| `ALCOVE_SKILL_REPOS` | string (JSON) | _(injected)_ | JSON array of skill repo objects. Skiff clones each repo and passes them to Claude Code via `--plugin-dir` flags. |
 
 The following SCM-related environment variables are injected by Bridge when the
 task's scope includes a `github` or `gitlab` service. They configure the `gh`
@@ -287,6 +290,76 @@ env:
         name: alcove-credential-key
         key: credential-key
 ```
+
+---
+
+## Skill Repos
+
+Skill repos are git repositories containing Claude Code plugins (skills and
+agents) that extend what Claude Code can do inside Skiff containers. Each repo
+should have a `.claude-plugin/plugin.json` file with skill and agent
+definitions under `skills/` and `agents/` directories.
+
+Configure skill repos in the dashboard under **Settings** or via the API:
+
+- **System-wide (admin):** `GET/PUT /api/v1/admin/settings/skill-repos`
+- **Per-user:** `GET/PUT /api/v1/user/settings/skill-repos`
+
+At dispatch time, Bridge merges system-wide and per-user skill repos and passes
+them to Skiff via the `ALCOVE_SKILL_REPOS` environment variable. Skiff clones
+each repo and passes the directories to Claude Code as `--plugin-dir` flags.
+
+You can also set `ALCOVE_SKILL_REPOS` as a Bridge environment variable to
+provide a default list without using the database.
+
+---
+
+## Task Repos and Task Definitions
+
+Task repos are git repositories containing YAML task definitions in
+`.alcove/tasks/*.yml`. They allow teams to define reusable, version-controlled
+tasks that appear in the dashboard.
+
+Configure task repos in the dashboard or via the API:
+
+- **System-wide (admin):** `GET/PUT /api/v1/admin/settings/task-repos`
+- **Per-user:** `GET/PUT /api/v1/user/settings/task-repos`
+
+Bridge syncs task repos automatically every 5 minutes (configurable via
+`TASK_REPO_SYNC_INTERVAL`). Each YAML file defines a task:
+
+```yaml
+name: run-tests
+prompt: |
+  Run the full test suite and fix any failures.
+repo: https://github.com/org/myproject.git
+provider: anthropic
+model: claude-sonnet-4-20250514
+timeout: 1800
+budget_usd: 5.0
+profiles:
+  - read-only-github
+tools:
+  - github
+schedule: "0 2 * * *"
+```
+
+| Field       | Type     | Required | Description |
+|-------------|----------|----------|-------------|
+| `name`      | string   | yes      | Unique task name |
+| `prompt`    | string   | yes      | The task instruction |
+| `repo`      | string   | no       | Git repository URL to clone |
+| `provider`  | string   | no       | LLM provider name |
+| `model`     | string   | no       | Model override |
+| `timeout`   | int      | no       | Timeout in seconds |
+| `budget_usd`| float    | no       | Maximum spend |
+| `profiles`  | string[] | no       | Security profile names to apply |
+| `tools`     | string[] | no       | MCP tool names to enable |
+| `schedule`  | string   | no       | Cron expression for automatic execution |
+
+Task definitions appear in the dashboard where users can run them directly or
+view the source YAML. Starter templates are also available via
+`GET /api/v1/task-templates`.
 
 ---
 

@@ -1,0 +1,7 @@
+name: Code Review
+description: Review recent changes for bugs, security issues, and style
+prompt: |
+  Review the most recent commit for potential bugs, security vulnerabilities,
+  code style issues, and performance concerns. Provide specific, actionable
+  feedback with file and line references.
+timeout: 900

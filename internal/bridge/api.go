@@ -16,8 +16,10 @@ package bridge
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"strconv"
@@ -30,6 +32,9 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
+//go:embed templates/*.yml
+var templateFS embed.FS
+
 // API holds the HTTP handlers for the Bridge REST API.
 type API struct {
 	dispatcher    *Dispatcher
@@ -41,10 +46,12 @@ type API struct {
 	profileStore  *ProfileStore
 	settingsStore *SettingsStore
 	llm           *BridgeLLM
+	defStore      *TaskDefStore
+	syncer        *TaskRepoSyncer
 }
 
 // NewAPI creates the API handler set.
-func NewAPI(dispatcher *Dispatcher, db *pgxpool.Pool, cfg *Config, scheduler *Scheduler, credStore *CredentialStore, toolStore *ToolStore, profileStore *ProfileStore, settingsStore *SettingsStore, llm *BridgeLLM) *API {
+func NewAPI(dispatcher *Dispatcher, db *pgxpool.Pool, cfg *Config, scheduler *Scheduler, credStore *CredentialStore, toolStore *ToolStore, profileStore *ProfileStore, settingsStore *SettingsStore, llm *BridgeLLM, defStore *TaskDefStore, syncer *TaskRepoSyncer) *API {
 	return &API{
 		dispatcher:    dispatcher,
 		db:            db,
@@ -55,6 +62,8 @@ func NewAPI(dispatcher *Dispatcher, db *pgxpool.Pool, cfg *Config, scheduler *Sc
 		profileStore:  profileStore,
 		settingsStore: settingsStore,
 		llm:           llm,
+		defStore:      defStore,
+		syncer:        syncer,
 	}
 }
 
@@ -77,7 +86,13 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/internal/token-refresh", a.handleTokenRefresh)
 	mux.HandleFunc("/api/v1/admin/settings/llm", a.handleAdminSettingsLLM)
 	mux.HandleFunc("/api/v1/admin/settings/skill-repos", a.handleAdminSettingsSkillRepos)
+	mux.HandleFunc("/api/v1/admin/settings/task-repos", a.handleAdminSettingsTaskRepos)
 	mux.HandleFunc("/api/v1/user/settings/skill-repos", a.handleUserSettingsSkillRepos)
+	mux.HandleFunc("/api/v1/user/settings/task-repos", a.handleUserSettingsTaskRepos)
+	mux.HandleFunc("/api/v1/task-definitions", a.handleTaskDefinitions)
+	mux.HandleFunc("/api/v1/task-definitions/sync", a.handleTaskDefinitionsSync)
+	mux.HandleFunc("/api/v1/task-definitions/", a.handleTaskDefinitionByID)
+	mux.HandleFunc("/api/v1/task-templates", a.handleTaskTemplates)
 }
 
 // --- Health ---
@@ -1401,6 +1416,215 @@ func (a *API) handleUserSettingsSkillRepos(w http.ResponseWriter, r *http.Reques
 	default:
 		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+// --- Task Repos Settings ---
+
+func (a *API) handleAdminSettingsTaskRepos(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("X-Alcove-Admin") != "true" {
+		respondError(w, http.StatusForbidden, "admin access required")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		repos, err := a.settingsStore.GetSystemTaskRepos(r.Context())
+		if err != nil {
+			repos = []SkillRepo{}
+		}
+		respondJSON(w, http.StatusOK, map[string]any{"repos": repos})
+	case http.MethodPut:
+		var req struct {
+			Repos []SkillRepo `json:"repos"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+			return
+		}
+		if req.Repos == nil {
+			req.Repos = []SkillRepo{}
+		}
+		if err := a.settingsStore.SetSystemTaskRepos(r.Context(), req.Repos); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to save task repos")
+			return
+		}
+		respondJSON(w, http.StatusOK, map[string]any{"repos": req.Repos})
+	default:
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (a *API) handleUserSettingsTaskRepos(w http.ResponseWriter, r *http.Request) {
+	username := r.Header.Get("X-Alcove-User")
+	if username == "" {
+		respondError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		repos, err := a.settingsStore.GetUserTaskRepos(r.Context(), username)
+		if err != nil {
+			repos = []SkillRepo{}
+		}
+		respondJSON(w, http.StatusOK, map[string]any{"repos": repos})
+	case http.MethodPut:
+		var req struct {
+			Repos []SkillRepo `json:"repos"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+			return
+		}
+		if req.Repos == nil {
+			req.Repos = []SkillRepo{}
+		}
+		if err := a.settingsStore.SetUserTaskRepos(r.Context(), username, req.Repos); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to save task repos")
+			return
+		}
+		respondJSON(w, http.StatusOK, map[string]any{"repos": req.Repos})
+	default:
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// --- Task Definitions ---
+
+func (a *API) handleTaskDefinitions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	defs, err := a.defStore.ListTaskDefinitions(r.Context())
+	if err != nil {
+		log.Printf("error: listing task definitions: %v", err)
+		respondError(w, http.StatusInternalServerError, "failed to list task definitions")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"task_definitions": defs,
+		"count":            len(defs),
+	})
+}
+
+func (a *API) handleTaskDefinitionsSync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if a.syncer == nil {
+		respondError(w, http.StatusServiceUnavailable, "task repo syncer not configured")
+		return
+	}
+
+	if err := a.syncer.SyncAll(r.Context()); err != nil {
+		log.Printf("error: manual task sync: %v", err)
+		respondError(w, http.StatusInternalServerError, "sync failed: "+err.Error())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]bool{"synced": true})
+}
+
+func (a *API) handleTaskDefinitionByID(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/task-definitions/")
+	parts := strings.SplitN(path, "/", 2)
+	id := parts[0]
+
+	if id == "" {
+		respondError(w, http.StatusBadRequest, "task definition id required")
+		return
+	}
+
+	// Handle /api/v1/task-definitions/{id}/run
+	if len(parts) == 2 && parts[1] == "run" {
+		if r.Method != http.MethodPost {
+			respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		a.handleTaskDefinitionRun(w, r, id)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	def, err := a.defStore.GetTaskDefinition(r.Context(), id)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "task definition not found")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, def)
+}
+
+func (a *API) handleTaskDefinitionRun(w http.ResponseWriter, r *http.Request, id string) {
+	def, err := a.defStore.GetTaskDefinition(r.Context(), id)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "task definition not found")
+		return
+	}
+
+	submitter := r.Header.Get("X-Alcove-User")
+	if submitter == "" {
+		submitter = "anonymous"
+	}
+
+	req := def.ToTaskRequest()
+	session, err := a.dispatcher.DispatchTask(r.Context(), req, submitter)
+	if err != nil {
+		log.Printf("error: dispatching task definition %s: %v", id, err)
+		respondError(w, http.StatusInternalServerError, "failed to dispatch task: "+err.Error())
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, session)
+}
+
+// --- Task Templates ---
+
+func (a *API) handleTaskTemplates(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	entries, err := fs.ReadDir(templateFS, "templates")
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to read templates")
+		return
+	}
+
+	type template struct {
+		Filename string `json:"filename"`
+		Content  string `json:"content"`
+	}
+
+	var templates []template
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yml") {
+			continue
+		}
+		data, err := fs.ReadFile(templateFS, "templates/"+entry.Name())
+		if err != nil {
+			continue
+		}
+		templates = append(templates, template{
+			Filename: entry.Name(),
+			Content:  string(data),
+		})
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"templates": templates,
+		"count":     len(templates),
+	})
 }
 
 // --- Helpers ---

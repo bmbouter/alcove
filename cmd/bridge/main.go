@@ -170,7 +170,14 @@ func main() {
 	scheduler.Start(context.Background())
 	defer scheduler.Stop()
 
-	api := bridge.NewAPI(dispatcher, dbpool, cfg, scheduler, credStore, toolStore, profileStore, settingsStore, bridgeLLM)
+	// Create task definition store and repo syncer.
+	defStore := bridge.NewTaskDefStore(dbpool)
+	syncer := bridge.NewTaskRepoSyncer(dbpool, settingsStore, scheduler, defStore, dispatcher)
+	syncer.Start(context.Background())
+	defer syncer.Stop()
+	log.Println("task repo syncer started")
+
+	api := bridge.NewAPI(dispatcher, dbpool, cfg, scheduler, credStore, toolStore, profileStore, settingsStore, bridgeLLM, defStore, syncer)
 
 	// Build HTTP server.
 	mux := http.NewServeMux()

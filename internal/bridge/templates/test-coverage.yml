@@ -1,0 +1,7 @@
+name: Test Coverage Analysis
+description: Analyze test coverage and suggest missing tests
+prompt: |
+  Analyze the project's test coverage. Identify untested code paths,
+  missing edge cases, and areas that would benefit from additional tests.
+  Suggest specific test cases to add.
+timeout: 1200

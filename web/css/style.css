@@ -1507,6 +1507,115 @@ select.input {
     padding: 12px 0;
 }
 
+/* Task Repos */
+.task-repo-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+
+.task-repo-item .task-repo-url {
+    flex: 1;
+    font-family: var(--font-mono);
+    font-size: 13px;
+}
+
+.task-repo-item .task-repo-ref {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.task-repo-item .task-repo-name {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.task-repo-item .task-repo-delete {
+    cursor: pointer;
+    color: var(--status-error);
+    background: none;
+    border: none;
+    font-size: 16px;
+}
+
+.task-repo-item .task-repo-delete:hover {
+    opacity: 0.8;
+}
+
+.task-repo-add h4 {
+    color: var(--text);
+    font-size: 14px;
+    margin-bottom: 12px;
+}
+
+.task-repos-empty {
+    color: var(--text-muted);
+    font-size: 13px;
+    padding: 12px 0;
+}
+
+/* Task Definition Cards */
+.task-def-card {
+    background: var(--bg-card);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border: 1px solid var(--border);
+}
+
+.task-def-info {
+    flex: 1;
+}
+
+.task-def-name {
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.task-def-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.task-def-actions {
+    display: flex;
+    gap: 8px;
+}
+
+/* Template Cards */
+.template-card {
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 12px;
+    border: 1px solid var(--border);
+}
+
+.template-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.template-card-name {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.template-card-desc {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+}
+
 /* Live streaming indicator */
 .live-badge {
     display: inline-block;

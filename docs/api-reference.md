@@ -1496,6 +1496,214 @@ curl -X POST http://localhost:8080/api/v1/profiles/build \
 
 ---
 
+## Skill Repos
+
+Configure git repositories containing Claude Code plugins (skills and agents) that are loaded into every Skiff container via `--plugin-dir`.
+
+### GET /api/v1/admin/settings/skill-repos
+
+Get the system-wide skill repos (admin only).
+
+**Response (200):**
+
+```json
+{
+  "repos": [
+    {
+      "url": "https://github.com/org/my-skills.git",
+      "ref": "main",
+      "name": "My Skills"
+    }
+  ]
+}
+```
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200  | Repos returned (empty list if none configured) |
+| 403  | Admin access required |
+
+### PUT /api/v1/admin/settings/skill-repos
+
+Set the system-wide skill repos (admin only). Replaces the entire list.
+
+**Request body:**
+
+```json
+{
+  "repos": [
+    {
+      "url": "https://github.com/org/my-skills.git",
+      "ref": "main",
+      "name": "My Skills"
+    }
+  ]
+}
+```
+
+| Field  | Type   | Required | Description |
+|--------|--------|----------|-------------|
+| `url`  | string | yes      | Git repository URL |
+| `ref`  | string | no       | Branch, tag, or commit (default: main) |
+| `name` | string | no       | Display name |
+
+**Response (200):** the saved repos list.
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200  | Repos saved |
+| 400  | Invalid request body |
+| 403  | Admin access required |
+| 500  | Storage error |
+
+**curl example:**
+
+```bash
+curl -X PUT http://localhost:8080/api/v1/admin/settings/skill-repos \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"repos": [{"url": "https://github.com/org/my-skills.git", "ref": "main"}]}'
+```
+
+### GET /api/v1/user/settings/skill-repos
+
+Get the current user's personal skill repos.
+
+**Response (200):** same shape as the admin endpoint.
+
+### PUT /api/v1/user/settings/skill-repos
+
+Set the current user's personal skill repos. Replaces the entire list.
+
+**Request body:** same shape as the admin endpoint.
+
+**Response (200):** the saved repos list.
+
+Both system-wide and per-user skill repos are merged at dispatch time and passed to Skiff via the `ALCOVE_SKILL_REPOS` environment variable.
+
+---
+
+## Task Repos
+
+Configure git repositories containing YAML task definitions (`.alcove/tasks/*.yml`). Task repos are synced automatically every 5 minutes.
+
+### GET /api/v1/admin/settings/task-repos
+
+Get the system-wide task repos (admin only).
+
+**Response (200):**
+
+```json
+{
+  "repos": [
+    {
+      "url": "https://github.com/org/task-definitions.git",
+      "ref": "main",
+      "name": "Org Tasks"
+    }
+  ]
+}
+```
+
+### PUT /api/v1/admin/settings/task-repos
+
+Set the system-wide task repos (admin only). Replaces the entire list.
+
+**Request/Response:** same shape as skill repos.
+
+### GET /api/v1/user/settings/task-repos
+
+Get the current user's personal task repos.
+
+### PUT /api/v1/user/settings/task-repos
+
+Set the current user's personal task repos.
+
+---
+
+## Task Definitions
+
+Task definitions are YAML files discovered from registered task repos. They define reusable, parameterized tasks.
+
+### GET /api/v1/task-definitions
+
+List all task definitions from synced task repos.
+
+**Response (200):**
+
+```json
+{
+  "definitions": [
+    {
+      "name": "run-tests",
+      "prompt": "Run the full test suite and fix any failures",
+      "repo": "https://github.com/org/myproject.git",
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-20250514",
+      "timeout": 1800,
+      "budget_usd": 5.0,
+      "profiles": ["read-only-github"],
+      "tools": ["github"],
+      "schedule": "0 2 * * *",
+      "source_repo": "https://github.com/org/task-definitions.git",
+      "source_file": ".alcove/tasks/run-tests.yml"
+    }
+  ]
+}
+```
+
+### GET /api/v1/task-definitions/{name}
+
+Get a single task definition by name.
+
+### POST /api/v1/task-definitions/{name}/run
+
+Run a task definition immediately as a new task. Returns the created session.
+
+**Response (201):** same shape as `POST /api/v1/tasks`.
+
+### POST /api/v1/task-definitions/sync
+
+Trigger an immediate sync of all task repos (normally happens every 5 minutes).
+
+**Response (200):**
+
+```json
+{
+  "synced": true
+}
+```
+
+---
+
+## Task Templates
+
+Starter templates for creating task definitions.
+
+### GET /api/v1/task-templates
+
+List available starter templates.
+
+**Response (200):**
+
+```json
+{
+  "templates": [
+    {
+      "name": "basic-task",
+      "description": "A simple task with a prompt and repo",
+      "yaml": "name: my-task\nprompt: |\n  Your prompt here\nrepo: https://github.com/org/repo.git\ntimeout: 1800\n"
+    }
+  ]
+}
+```
+
+---
+
 ## Admin Settings
 
 Admin-only endpoints for system configuration. Requires the `X-Alcove-Admin: true` header (set by auth middleware for admin users).

@@ -43,6 +43,8 @@ type Schedule struct {
 	CreatedAt   time.Time  `json:"created_at"`
 	Owner       string     `json:"owner,omitempty"`
 	Debug       bool       `json:"debug,omitempty"`
+	Source      string     `json:"source,omitempty"`
+	SourceKey   string     `json:"source_key,omitempty"`
 }
 
 // CronExpr represents a parsed 5-field cron expression.
@@ -278,7 +280,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 	now := time.Now().UTC()
 
 	rows, err := s.db.Query(ctx, `
-		SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, owner, debug
+		SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, owner, debug, source, source_key
 		FROM schedules
 		WHERE enabled = true AND next_run <= $1
 	`, now)
@@ -291,13 +293,21 @@ func (s *Scheduler) tick(ctx context.Context) {
 	var due []Schedule
 	for rows.Next() {
 		var sched Schedule
+		var source, sourceKey *string
 		if err := rows.Scan(
 			&sched.ID, &sched.Name, &sched.Cron, &sched.Prompt,
 			&sched.Repo, &sched.Provider, &sched.ScopePreset, &sched.Timeout,
 			&sched.Enabled, &sched.LastRun, &sched.NextRun, &sched.CreatedAt, &sched.Owner, &sched.Debug,
+			&source, &sourceKey,
 		); err != nil {
 			log.Printf("scheduler: error scanning schedule row: %v", err)
 			continue
+		}
+		if source != nil {
+			sched.Source = *source
+		}
+		if sourceKey != nil {
+			sched.SourceKey = *sourceKey
 		}
 		due = append(due, sched)
 	}
@@ -357,11 +367,17 @@ func (s *Scheduler) CreateSchedule(ctx context.Context, sched *Schedule, owner s
 	nextRun := cronExpr.Next(now)
 	sched.NextRun = &nextRun
 
+	source := sched.Source
+	if source == "" {
+		source = "manual"
+	}
+
 	_, err = s.db.Exec(ctx, `
-		INSERT INTO schedules (id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, next_run, created_at, owner, debug)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		INSERT INTO schedules (id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, next_run, created_at, owner, debug, source, source_key)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 	`, sched.ID, sched.Name, sched.Cron, sched.Prompt, sched.Repo, sched.Provider,
-		sched.ScopePreset, sched.Timeout, sched.Enabled, sched.NextRun, sched.CreatedAt, owner, sched.Debug)
+		sched.ScopePreset, sched.Timeout, sched.Enabled, sched.NextRun, sched.CreatedAt, owner, sched.Debug,
+		source, nilIfEmptySched(sched.SourceKey))
 	if err != nil {
 		return fmt.Errorf("inserting schedule: %w", err)
 	}
@@ -372,7 +388,7 @@ func (s *Scheduler) CreateSchedule(ctx context.Context, sched *Schedule, owner s
 // ListSchedules returns schedules from the database.
 // If owner is non-empty, only schedules belonging to that owner are returned.
 func (s *Scheduler) ListSchedules(ctx context.Context, owner string) ([]Schedule, error) {
-	query := `SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, owner, debug
+	query := `SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, owner, debug, source, source_key
 		FROM schedules`
 	args := []any{}
 	if owner != "" {
@@ -390,12 +406,20 @@ func (s *Scheduler) ListSchedules(ctx context.Context, owner string) ([]Schedule
 	var schedules []Schedule
 	for rows.Next() {
 		var sched Schedule
+		var source, sourceKey *string
 		if err := rows.Scan(
 			&sched.ID, &sched.Name, &sched.Cron, &sched.Prompt,
 			&sched.Repo, &sched.Provider, &sched.ScopePreset, &sched.Timeout,
 			&sched.Enabled, &sched.LastRun, &sched.NextRun, &sched.CreatedAt, &sched.Owner, &sched.Debug,
+			&source, &sourceKey,
 		); err != nil {
 			return nil, fmt.Errorf("scanning schedule: %w", err)
+		}
+		if source != nil {
+			sched.Source = *source
+		}
+		if sourceKey != nil {
+			sched.SourceKey = *sourceKey
 		}
 		schedules = append(schedules, sched)
 	}
@@ -409,7 +433,7 @@ func (s *Scheduler) ListSchedules(ctx context.Context, owner string) ([]Schedule
 // GetSchedule retrieves a single schedule by ID.
 // If owner is non-empty, only returns the schedule if it belongs to that owner.
 func (s *Scheduler) GetSchedule(ctx context.Context, id, owner string) (*Schedule, error) {
-	query := `SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, owner, debug
+	query := `SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, owner, debug, source, source_key
 		FROM schedules WHERE id = $1`
 	args := []any{id}
 	if owner != "" {
@@ -418,13 +442,21 @@ func (s *Scheduler) GetSchedule(ctx context.Context, id, owner string) (*Schedul
 	}
 
 	var sched Schedule
+	var source, sourceKey *string
 	err := s.db.QueryRow(ctx, query, args...).Scan(
 		&sched.ID, &sched.Name, &sched.Cron, &sched.Prompt,
 		&sched.Repo, &sched.Provider, &sched.ScopePreset, &sched.Timeout,
 		&sched.Enabled, &sched.LastRun, &sched.NextRun, &sched.CreatedAt, &sched.Owner, &sched.Debug,
+		&source, &sourceKey,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("querying schedule %s: %w", id, err)
+	}
+	if source != nil {
+		sched.Source = *source
+	}
+	if sourceKey != nil {
+		sched.SourceKey = *sourceKey
 	}
 	return &sched, nil
 }
@@ -519,4 +551,12 @@ func (s *Scheduler) EnableSchedule(ctx context.Context, id string, enabled bool,
 		return fmt.Errorf("updating schedule %s enabled state: %w", id, err)
 	}
 	return nil
+}
+
+// nilIfEmptySched returns nil if the string is empty, otherwise a pointer to it.
+func nilIfEmptySched(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }

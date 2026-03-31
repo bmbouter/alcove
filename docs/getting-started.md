@@ -154,6 +154,35 @@ ALCOVE_DEBUG=true
 
 See `docs/configuration.md` for the complete list.
 
+## Skill Repos and Task Definitions
+
+After configuring your LLM provider, you can optionally set up skill repos and
+task definitions to extend and automate your workflow.
+
+### Skill Repos
+
+Skill repos are git repositories containing Claude Code plugins that add
+custom skills and agents to every task. Configure them in the dashboard under
+the user menu (or under admin settings for system-wide repos).
+
+Each skill repo should contain a `.claude-plugin/plugin.json` file with skill
+and agent definitions. At task dispatch time, all configured repos are cloned
+into the Skiff container and loaded via `--plugin-dir`.
+
+### Task Definitions
+
+Task definitions are YAML files stored in git repositories under
+`.alcove/tasks/*.yml`. They let you define reusable, version-controlled tasks
+that appear in the dashboard for one-click execution.
+
+1. Create a git repo with a `.alcove/tasks/` directory
+2. Add YAML task files (see `docs/configuration.md` for the schema)
+3. Register the repo in the dashboard under **Task Repos** (user menu)
+
+Bridge syncs task repos every 5 minutes. Once synced, task definitions appear
+on the dashboard where you can run them or view the source YAML. Starter
+templates are available to help you get started.
+
 ## Architecture Overview
 
 ```

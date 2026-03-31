@@ -321,6 +321,361 @@
         if (e.target === e.currentTarget) hide(e.currentTarget);
     });
 
+    // ---------------------
+    // Task Repos modal
+    // ---------------------
+    var taskReposMode = 'system';
+    var taskReposList = [];
+
+    function taskReposEndpoint() {
+        return taskReposMode === 'system'
+            ? '/api/v1/admin/settings/task-repos'
+            : '/api/v1/user/settings/task-repos';
+    }
+
+    async function loadTaskRepos() {
+        var listEl = $('#task-repos-list');
+        listEl.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Loading...</p></div>';
+        try {
+            var resp = await api('GET', taskReposEndpoint());
+            if (!resp.ok) {
+                listEl.innerHTML = '<p class="error-message">Failed to load task repos.</p>';
+                return;
+            }
+            var data = await resp.json();
+            taskReposList = data.repos || [];
+            renderTaskRepos();
+        } catch (err) {
+            listEl.innerHTML = '<p class="error-message">Failed to load task repos.</p>';
+        }
+    }
+
+    function renderTaskRepos() {
+        var listEl = $('#task-repos-list');
+        if (taskReposList.length === 0) {
+            listEl.innerHTML = '<p class="task-repos-empty">No task repos configured.</p>';
+            return;
+        }
+        var html = '';
+        for (var i = 0; i < taskReposList.length; i++) {
+            var repo = taskReposList[i];
+            html += '<div class="task-repo-item">';
+            html += '<span class="task-repo-url">' + escapeHtml(repo.url) + '</span>';
+            if (repo.ref) {
+                html += '<span class="task-repo-ref">' + escapeHtml(repo.ref) + '</span>';
+            }
+            if (repo.name) {
+                html += '<span class="task-repo-name">' + escapeHtml(repo.name) + '</span>';
+            }
+            html += '<button class="task-repo-delete" data-index="' + i + '" title="Remove">&#x2715;</button>';
+            html += '</div>';
+        }
+        listEl.innerHTML = html;
+
+        listEl.querySelectorAll('.task-repo-delete').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var idx = parseInt(btn.getAttribute('data-index'), 10);
+                taskReposList.splice(idx, 1);
+                saveTaskRepos();
+            });
+        });
+    }
+
+    async function saveTaskRepos() {
+        try {
+            var resp = await api('PUT', taskReposEndpoint(), { repos: taskReposList });
+            if (!resp.ok) {
+                alert('Failed to save task repos.');
+            }
+            renderTaskRepos();
+        } catch (err) {
+            alert('Failed to save task repos.');
+        }
+    }
+
+    $('#system-task-repos-btn').addEventListener('click', function() {
+        hide($('#user-dropdown-menu'));
+        taskReposMode = 'system';
+        $('#task-repos-title').textContent = 'Task Repos (System)';
+        show($('#task-repos-modal'));
+        loadTaskRepos();
+    });
+
+    $('#user-task-repos-btn').addEventListener('click', function() {
+        hide($('#user-dropdown-menu'));
+        taskReposMode = 'user';
+        $('#task-repos-title').textContent = 'My Task Repos';
+        show($('#task-repos-modal'));
+        loadTaskRepos();
+    });
+
+    $('#task-repo-add-btn').addEventListener('click', function() {
+        var url = $('#task-repo-url').value.trim();
+        if (!url) return;
+        var ref = $('#task-repo-ref').value.trim() || 'main';
+        var name = $('#task-repo-name').value.trim();
+        if (!name) {
+            var parts = url.replace(/\.git$/, '').split('/');
+            name = parts[parts.length - 1] || 'repo';
+        }
+        taskReposList.push({ url: url, ref: ref, name: name });
+        $('#task-repo-url').value = '';
+        $('#task-repo-ref').value = '';
+        $('#task-repo-name').value = '';
+        saveTaskRepos();
+    });
+
+    $('#task-repos-close').addEventListener('click', function() {
+        hide($('#task-repos-modal'));
+    });
+
+    $('#task-repos-modal').addEventListener('click', function(e) {
+        if (e.target === e.currentTarget) hide(e.currentTarget);
+    });
+
+    // ---------------------
+    // Task Definitions
+    // ---------------------
+    async function loadTaskDefinitions() {
+        var listEl = $('#task-definitions-list');
+        var emptyEl = $('#task-definitions-empty');
+        listEl.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Loading task definitions...</p></div>';
+        hide(emptyEl);
+
+        try {
+            var resp = await api('GET', '/api/v1/task-definitions');
+            if (!resp.ok) {
+                listEl.innerHTML = '<p class="error-message">Failed to load task definitions.</p>';
+                return;
+            }
+            var data = await resp.json();
+            var defs = Array.isArray(data) ? data : (data.definitions || data.items || []);
+            renderTaskDefinitions(defs);
+        } catch (err) {
+            if (err.message !== 'unauthorized') {
+                listEl.innerHTML = '<p class="error-message">Failed to load task definitions.</p>';
+            }
+        }
+    }
+
+    function renderTaskDefinitions(defs) {
+        var listEl = $('#task-definitions-list');
+        var emptyEl = $('#task-definitions-empty');
+
+        if (defs.length === 0) {
+            listEl.innerHTML = '';
+            show(emptyEl);
+            return;
+        }
+
+        hide(emptyEl);
+        var html = '';
+        for (var i = 0; i < defs.length; i++) {
+            var d = defs[i];
+            var name = d.name || 'Unnamed';
+            var desc = d.description || '';
+            var repo = d.source_repo || d.repo || '';
+            var schedule = d.schedule || d.cron || '';
+            var id = d.id || '';
+
+            html += '<div class="task-def-card">';
+            html += '<div class="task-def-info">';
+            html += '<div class="task-def-name">' + escapeHtml(name) + '</div>';
+            if (desc) {
+                html += '<div class="task-def-meta">' + escapeHtml(desc) + '</div>';
+            }
+            var metaParts = [];
+            if (repo) metaParts.push('Repo: ' + repo);
+            if (schedule) metaParts.push('Schedule: ' + schedule);
+            if (metaParts.length > 0) {
+                html += '<div class="task-def-meta">' + escapeHtml(metaParts.join(' | ')) + '</div>';
+            }
+            html += '</div>';
+            html += '<div class="task-def-actions">';
+            html += '<button class="btn btn-small btn-primary task-def-run" data-id="' + escapeHtml(id) + '">Run Now</button>';
+            html += '<button class="btn btn-small btn-outline task-def-yaml" data-id="' + escapeHtml(id) + '">View YAML</button>';
+            html += '</div>';
+            html += '</div>';
+        }
+        listEl.innerHTML = html;
+
+        listEl.querySelectorAll('.task-def-run').forEach(function(btn) {
+            btn.addEventListener('click', async function() {
+                var defId = btn.getAttribute('data-id');
+                btn.disabled = true;
+                btn.textContent = 'Running...';
+                try {
+                    var resp = await api('POST', '/api/v1/task-definitions/' + defId + '/run');
+                    if (!resp.ok) {
+                        var data = await resp.json().catch(function() { return {}; });
+                        alert(data.error || data.message || 'Failed to run task.');
+                    } else {
+                        btn.textContent = 'Started';
+                        setTimeout(function() {
+                            btn.textContent = 'Run Now';
+                            btn.disabled = false;
+                        }, 2000);
+                        return;
+                    }
+                } catch (err) {
+                    if (err.message !== 'unauthorized') {
+                        alert('Failed to run task.');
+                    }
+                }
+                btn.textContent = 'Run Now';
+                btn.disabled = false;
+            });
+        });
+
+        listEl.querySelectorAll('.task-def-yaml').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                showYaml(btn.getAttribute('data-id'));
+            });
+        });
+    }
+
+    // Sync task definitions
+    $('#sync-task-defs').addEventListener('click', async function() {
+        var btn = $('#sync-task-defs');
+        btn.disabled = true;
+        btn.textContent = 'Syncing...';
+        try {
+            var resp = await api('POST', '/api/v1/task-definitions/sync');
+            if (!resp.ok) {
+                var data = await resp.json().catch(function() { return {}; });
+                alert(data.error || data.message || 'Failed to sync task definitions.');
+            }
+        } catch (err) {
+            if (err.message !== 'unauthorized') {
+                alert('Failed to sync task definitions.');
+            }
+        }
+        btn.textContent = 'Sync Now';
+        btn.disabled = false;
+        loadTaskDefinitions();
+    });
+
+    // ---------------------
+    // View YAML modal
+    // ---------------------
+    var currentYamlContent = '';
+
+    async function showYaml(id) {
+        var modal = $('#view-yaml-modal');
+        var titleEl = $('#view-yaml-title');
+        var contentEl = $('#view-yaml-content');
+
+        titleEl.textContent = 'Task Definition';
+        contentEl.textContent = 'Loading...';
+        show(modal);
+
+        try {
+            var resp = await api('GET', '/api/v1/task-definitions/' + id);
+            if (!resp.ok) {
+                contentEl.textContent = 'Failed to load task definition.';
+                return;
+            }
+            var data = await resp.json();
+            currentYamlContent = data.raw_yaml || data.yaml || '';
+            titleEl.textContent = data.name || 'Task Definition';
+            contentEl.textContent = currentYamlContent || '(no YAML content)';
+        } catch (err) {
+            if (err.message !== 'unauthorized') {
+                contentEl.textContent = 'Failed to load task definition.';
+            }
+        }
+    }
+
+    $('#view-yaml-copy').addEventListener('click', function() {
+        if (currentYamlContent) {
+            navigator.clipboard.writeText(currentYamlContent).then(function() {
+                var btn = $('#view-yaml-copy');
+                btn.textContent = 'Copied!';
+                setTimeout(function() { btn.textContent = 'Copy YAML'; }, 1500);
+            });
+        }
+    });
+
+    $('#view-yaml-close').addEventListener('click', function() {
+        hide($('#view-yaml-modal'));
+    });
+
+    $('#view-yaml-modal').addEventListener('click', function(e) {
+        if (e.target === e.currentTarget) hide(e.currentTarget);
+    });
+
+    // ---------------------
+    // Templates modal
+    // ---------------------
+    $('#browse-templates').addEventListener('click', function() {
+        show($('#templates-modal'));
+        loadTemplates();
+    });
+
+    async function loadTemplates() {
+        var listEl = $('#templates-list');
+        listEl.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Loading templates...</p></div>';
+
+        try {
+            var resp = await api('GET', '/api/v1/task-templates');
+            if (!resp.ok) {
+                listEl.innerHTML = '<p class="error-message">Failed to load templates.</p>';
+                return;
+            }
+            var data = await resp.json();
+            var templates = Array.isArray(data) ? data : (data.templates || data.items || []);
+            renderTemplates(templates);
+        } catch (err) {
+            if (err.message !== 'unauthorized') {
+                listEl.innerHTML = '<p class="error-message">Failed to load templates.</p>';
+            }
+        }
+    }
+
+    function renderTemplates(templates) {
+        var listEl = $('#templates-list');
+        if (templates.length === 0) {
+            listEl.innerHTML = '<p style="color:var(--text-muted);padding:12px 0;">No templates available.</p>';
+            return;
+        }
+
+        var html = '';
+        for (var i = 0; i < templates.length; i++) {
+            var t = templates[i];
+            html += '<div class="template-card">';
+            html += '<div class="template-card-header">';
+            html += '<span class="template-card-name">' + escapeHtml(t.name || 'Unnamed') + '</span>';
+            html += '<button class="btn btn-small btn-outline template-copy" data-index="' + i + '">Copy YAML</button>';
+            html += '</div>';
+            if (t.description) {
+                html += '<div class="template-card-desc">' + escapeHtml(t.description) + '</div>';
+            }
+            html += '</div>';
+        }
+        listEl.innerHTML = html;
+
+        listEl.querySelectorAll('.template-copy').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var idx = parseInt(btn.getAttribute('data-index'), 10);
+                var yaml = templates[idx].raw_yaml || templates[idx].yaml || '';
+                if (yaml) {
+                    navigator.clipboard.writeText(yaml).then(function() {
+                        btn.textContent = 'Copied!';
+                        setTimeout(function() { btn.textContent = 'Copy YAML'; }, 1500);
+                    });
+                }
+            });
+        });
+    }
+
+    $('#templates-close').addEventListener('click', function() {
+        hide($('#templates-modal'));
+    });
+
+    $('#templates-modal').addEventListener('click', function(e) {
+        if (e.target === e.currentTarget) hide(e.currentTarget);
+    });
+
     // Change Password form submit
     $('#change-password-form').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -419,6 +774,7 @@
         } else if (route === 'schedules') {
             show($('#page-schedules'));
             loadSchedules();
+            loadTaskDefinitions();
             loadScheduleProviders();
             if (scheduleFromSession) {
                 openScheduleForm(scheduleFromSession);
@@ -2054,17 +2410,27 @@
                     ? '<span class="badge badge-completed">enabled</span>'
                     : '<span class="badge badge-cancelled">disabled</span>';
                 const id = s.id || '';
+                const source = s.source || 'manual';
+                const sourceBadge = source === 'yaml'
+                    ? '<span class="badge badge-completed">yaml</span>'
+                    : '<span class="badge">manual</span>';
+                const isYaml = source === 'yaml';
+                var actionsHtml;
+                if (isYaml) {
+                    actionsHtml = '<button class="btn btn-small btn-outline view-schedule-yaml-btn" data-id="' + escapeHtml(id) + '">View</button>';
+                } else {
+                    actionsHtml = '<button class="btn btn-small btn-outline edit-schedule-btn" data-id="' + escapeHtml(id) + '">Edit</button> ' +
+                        '<button class="btn btn-small btn-outline delete-schedule-btn" data-id="' + escapeHtml(id) + '" style="color:var(--status-error);border-color:var(--status-error);">Delete</button>';
+                }
 
                 return '<tr>' +
                     '<td>' + escapeHtml(name) + '</td>' +
                     '<td><span class="mono">' + escapeHtml(cron) + '</span><br><small style="color:var(--text-muted)">' + escapeHtml(cronDesc) + '</small></td>' +
+                    '<td>' + sourceBadge + '</td>' +
                     '<td>' + escapeHtml(nextRun) + '</td>' +
                     '<td>' + escapeHtml(lastRun) + '</td>' +
                     '<td>' + enabledBadge + '</td>' +
-                    '<td>' +
-                        '<button class="btn btn-small btn-outline edit-schedule-btn" data-id="' + escapeHtml(id) + '">Edit</button> ' +
-                        '<button class="btn btn-small btn-outline delete-schedule-btn" data-id="' + escapeHtml(id) + '" style="color:var(--status-error);border-color:var(--status-error);">Delete</button>' +
-                    '</td>' +
+                    '<td>' + actionsHtml + '</td>' +
                     '</tr>';
             }).join('');
 
@@ -2120,10 +2486,18 @@
                     }
                 });
             });
+
+            // View YAML handlers for yaml-sourced schedules
+            tbody.querySelectorAll('.view-schedule-yaml-btn').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    var id = btn.dataset.id;
+                    showYaml(id);
+                });
+            });
         } catch (err) {
             hide(loading);
             if (err.message !== 'unauthorized') {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--status-error);">Failed to load schedules.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--status-error);">Failed to load schedules.</td></tr>';
             }
         }
     }
