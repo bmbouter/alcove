@@ -104,6 +104,8 @@ objects:
                 fieldPath: metadata.namespace
           - name: HAIL_URL
             value: "nats://alcove-hail:4222"
+          - name: AUTH_BACKEND
+            value: "postgres"
           - name: GATE_IMAGE
             value: ${GATE_IMAGE}
           - name: SKIFF_IMAGE
