@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS provider_credentials (
 ### Encryption
 
 Credentials are encrypted at rest using AES-256-GCM. The encryption key is
-derived from a master key configured via `ALCOVE_CREDENTIAL_KEY` environment
+derived from a master key configured via `ALCOVE_DATABASE_ENCRYPTION_KEY` environment
 variable (or k8s Secret in production). Bridge decrypts credentials only at
 token acquisition time, in memory.
 
@@ -183,7 +183,7 @@ For the initial implementation:
 
 - Single-user credential store (no per-user association yet)
 - Credentials registered via API (dashboard credential page can come later)
-- Encryption key from environment variable (`ALCOVE_CREDENTIAL_KEY`)
+- Encryption key from environment variable (`ALCOVE_DATABASE_ENCRYPTION_KEY`)
 - Token refresh on 401 detection (simple retry)
 - No credential rotation or expiry notifications
 
@@ -198,7 +198,7 @@ Multi-user credential association, RBAC, and audit logging are Phase 2+.
 ### Modified Files
 - `internal/bridge/api.go` — add credential management + token refresh endpoints
 - `internal/bridge/dispatcher.go` — resolve credentials at dispatch, pass tokens to Gate
-- `internal/bridge/config.go` — add `CredentialKey` config field
+- `internal/bridge/config.go` — add `DatabaseEncryptionKey` config field
 - `internal/gate/proxy.go` — use `GATE_LLM_TOKEN_TYPE` for header selection, add 401 retry with refresh
 - `cmd/gate/main.go` — read new env vars
 - `cmd/bridge/main.go` — add provider_credentials table to schema

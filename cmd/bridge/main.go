@@ -129,7 +129,7 @@ func main() {
 	}
 
 	// Create credential store and migrate env-based credentials.
-	credStore := bridge.NewCredentialStore(dbpool, cfg.CredentialKey)
+	credStore := bridge.NewCredentialStore(dbpool, cfg.DatabaseEncryptionKey)
 	credStore.MigrateFromEnv(context.Background(), cfg)
 
 	// Create tool store and seed builtin tools.

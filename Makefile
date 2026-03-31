@@ -50,7 +50,7 @@ logs: dev-logs ## Show logs from all containers
 
 dev-config: ## Generate alcove.yaml from example if it does not exist
 	@if [ ! -f alcove.yaml ]; then \
-		echo "Generating alcove.yaml with a random credential_key..."; \
+		echo "Generating alcove.yaml with a random database_encryption_key..."; \
 		sed "s/change-me-to-a-strong-secret/$$(openssl rand -hex 32)/" alcove.yaml.example > alcove.yaml; \
 		echo "Created alcove.yaml — edit as needed."; \
 	fi

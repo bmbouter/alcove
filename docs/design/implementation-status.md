@@ -388,7 +388,7 @@ See the full roadmap in [architecture-decisions.md](architecture-decisions.md#ro
 | `ALCOVE_NETWORK` | `alcove-internal` | Podman internal network name |
 | `ALCOVE_EXTERNAL_NETWORK` | `alcove-external` | Podman external network name (Gate egress) |
 | `AUTH_BACKEND` | `memory` | Auth backend: `memory` or `postgres` |
-| `ALCOVE_CREDENTIAL_KEY` | (insecure default) | Master key for credential encryption (AES-256) |
+| `ALCOVE_DATABASE_ENCRYPTION_KEY` | (insecure default) | Master key for credential encryption (AES-256) |
 | `ALCOVE_DEBUG` | (unset) | Set to any value to enable debug mode (keep containers after exit) |
 | `ALCOVE_WEB_DIR` | `web` | Path to dashboard static files |
 | `ANTHROPIC_API_KEY` | (optional) | Anthropic API key (auto-migrated to credential store) |

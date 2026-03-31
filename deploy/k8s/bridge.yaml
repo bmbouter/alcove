@@ -37,11 +37,11 @@ spec:
               value: "alcove"
             - name: HAIL_URL
               value: "nats://alcove-hail:4222"
-            - name: ALCOVE_CREDENTIAL_KEY
+            - name: ALCOVE_DATABASE_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
                   name: alcove-secrets
-                  key: credential-key
+                  key: database-encryption-key
             - name: LEDGER_DATABASE_URL
               valueFrom:
                 secretKeyRef:

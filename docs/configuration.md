@@ -20,7 +20,7 @@ The `alcove.yaml` file provides a persistent location for infrastructure-level
 Bridge settings. It uses YAML syntax:
 
 ```yaml
-credential_key: your-aes-256-key-here
+database_encryption_key: your-aes-256-key-here
 database_url: postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable
 nats_url: nats://localhost:4222
 auth_backend: memory
@@ -38,11 +38,11 @@ Environment variables always override values from the config file. For example,
 if `alcove.yaml` sets `port: 8080` but `BRIDGE_PORT=9090` is in the environment,
 Bridge listens on port 9090.
 
-**Required credential key:** Bridge requires `credential_key` (or the
-`ALCOVE_CREDENTIAL_KEY` environment variable) to be set. Bridge refuses to
+**Required database encryption key:** Bridge requires `database_encryption_key` (or the
+`ALCOVE_DATABASE_ENCRYPTION_KEY` environment variable) to be set. Bridge refuses to
 start without it. For local development, `make up` auto-generates `alcove.yaml`
 from `alcove.yaml.example` with a random key. For Kubernetes deployments,
-provide `ALCOVE_CREDENTIAL_KEY` via a k8s Secret (see
+provide `ALCOVE_DATABASE_ENCRYPTION_KEY` via a k8s Secret (see
 [Kubernetes](#kubernetes) below).
 
 The `alcove.yaml` file is gitignored. An `alcove.yaml.example` is committed to
@@ -68,7 +68,7 @@ can also be set in `alcove.yaml` (see [alcove.yaml](#alcoveyaml) above).
 | `BRIDGE_PORT` | string | `8080` | HTTP listen port for the Bridge API and dashboard. |
 | `RUNTIME` | string | `podman` | Container runtime. Must be `podman` or `kubernetes`. |
 | `AUTH_BACKEND` | string | `memory` | Authentication backend. Must be `memory` or `postgres`. See [Auth Backend Selection](#auth-backend-selection). |
-| `ALCOVE_CREDENTIAL_KEY` | string | _(required)_ | Encryption key for the credential store. **Bridge refuses to start without this.** For local dev, `make up` generates it automatically. |
+| `ALCOVE_DATABASE_ENCRYPTION_KEY` | string | _(required)_ | Encryption key for the credential store. **Bridge refuses to start without this.** For local dev, `make up` generates it automatically. |
 | `ALCOVE_DEBUG` | string | _(unset)_ | Any non-empty value enables debug mode (keeps worker containers after exit). |
 | `ALCOVE_WEB_DIR` | string | `web` | Directory containing dashboard static files. |
 | `ANTHROPIC_API_KEY` | string | _(unset)_ | Anthropic API key. Auto-migrated to credential store on startup. |
@@ -270,25 +270,25 @@ management REST API at `/api/v1/users`.
 
 ## Kubernetes
 
-On Kubernetes, provide `ALCOVE_CREDENTIAL_KEY` via a k8s Secret mounted as an
+On Kubernetes, provide `ALCOVE_DATABASE_ENCRYPTION_KEY` via a k8s Secret mounted as an
 environment variable in the Bridge Deployment:
 
 ```yaml
 apiVersion: v1
 kind: Secret
 metadata:
-  name: alcove-credential-key
+  name: alcove-database-encryption-key
 type: Opaque
 stringData:
-  credential-key: "your-random-32-byte-key-here"
+  database-encryption-key: "your-random-32-byte-key-here"
 ---
 # In the Bridge Deployment spec:
 env:
-  - name: ALCOVE_CREDENTIAL_KEY
+  - name: ALCOVE_DATABASE_ENCRYPTION_KEY
     valueFrom:
       secretKeyRef:
-        name: alcove-credential-key
-        key: credential-key
+        name: alcove-database-encryption-key
+        key: database-encryption-key
 ```
 
 ---
@@ -374,7 +374,7 @@ export RUNTIME=podman
 export AUTH_BACKEND=memory
 
 # ── Security ──────────────────────────────────────────────────
-export ALCOVE_CREDENTIAL_KEY=change-me-to-a-random-32-byte-string
+export ALCOVE_DATABASE_ENCRYPTION_KEY=change-me-to-a-random-32-byte-string
 
 # ── LLM Provider (choose one) ────────────────────────────────
 # Option A: Anthropic API

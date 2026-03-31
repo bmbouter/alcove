@@ -3,7 +3,7 @@
 
 # Database encryption key for AES-256-GCM encryption of stored credentials.
 # REQUIRED. Generate with: openssl rand -hex 32
-credential_key: change-me-to-a-strong-secret
+database_encryption_key: change-me-to-a-strong-secret
 
 # PostgreSQL connection URL for Ledger (session store).
 database_url: postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable

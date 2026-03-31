@@ -52,7 +52,7 @@ All images are public on ghcr.io:
 
 1. **Create vault secret** at `app-interface/pulp/stage/alcove-config` with:
    - `ledger-database-url`: RDS connection string (update after ERv2 provisions the DB). Format: `postgres://postgres:<password>@<rds-host>:5432/postgres?sslmode=require`
-   - `credential-key`: AES-256 encryption key for credential storage. Generate with: `openssl rand -hex 32`
+   - `database-encryption-key`: AES-256 encryption key for credential storage. Generate with: `openssl rand -hex 32`
 
 2. **Verify RDS provisioning**: After merge, ERv2 will create the `alcove-stage` RDS instance. The `alcove-db` secret will appear in the namespace with connection details. Update the vault secret's `ledger-database-url` with the actual RDS endpoint.
 

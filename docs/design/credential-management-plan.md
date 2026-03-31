@@ -18,7 +18,7 @@
 | `internal/bridge/credentials_test.go` | Create | Tests for encryption roundtrip and token acquisition |
 | `internal/bridge/api.go` | Modify | Add credential CRUD + token refresh API endpoints |
 | `internal/bridge/dispatcher.go` | Modify | Resolve credentials at dispatch, pass tokens to Gate |
-| `internal/bridge/config.go` | Modify | Add CredentialKey config field |
+| `internal/bridge/config.go` | Modify | Add DatabaseEncryptionKey config field |
 | `internal/gate/proxy.go` | Modify | Token type header selection, 401 retry with refresh |
 | `cmd/gate/main.go` | Modify | Read new GATE_LLM_TOKEN_TYPE, GATE_TOKEN_REFRESH_URL env vars |
 | `cmd/bridge/main.go` | Modify | Add provider_credentials table to schema, create CredentialStore |
@@ -482,23 +482,23 @@ git commit -m "feat: add credential store with AES-256-GCM encryption and OAuth2
 - Modify: `internal/bridge/config.go`
 - Modify: `cmd/bridge/main.go`
 
-- [ ] **Step 1: Add CredentialKey to Config**
+- [ ] **Step 1: Add DatabaseEncryptionKey to Config**
 
 In `internal/bridge/config.go`, add a field to the `Config` struct:
 
 ```go
-CredentialKey string `yaml:"credential_key"`
+DatabaseEncryptionKey string `yaml:"database_encryption_key"`
 ```
 
 In `LoadConfig()`, after the existing env overrides, add:
 
 ```go
-if v := os.Getenv("ALCOVE_CREDENTIAL_KEY"); v != "" {
-    cfg.CredentialKey = v
+if v := os.Getenv("ALCOVE_DATABASE_ENCRYPTION_KEY"); v != "" {
+    cfg.DatabaseEncryptionKey = v
 }
-if cfg.CredentialKey == "" {
-    cfg.CredentialKey = "alcove-default-key-change-me"
-    log.Println("WARNING: ALCOVE_CREDENTIAL_KEY not set — using insecure default. Set this in production.")
+if cfg.DatabaseEncryptionKey == "" {
+    cfg.DatabaseEncryptionKey = "alcove-default-key-change-me"
+    log.Println("WARNING: ALCOVE_DATABASE_ENCRYPTION_KEY not set — using insecure default. Set this in production.")
 }
 ```
 
@@ -530,7 +530,7 @@ if err != nil {
 After the `bridge.NewDispatcher(...)` line, add:
 
 ```go
-credStore := bridge.NewCredentialStore(dbpool, cfg.CredentialKey)
+credStore := bridge.NewCredentialStore(dbpool, cfg.DatabaseEncryptionKey)
 credStore.MigrateFromEnv(context.Background(), cfg)
 ```
 
@@ -547,7 +547,7 @@ Expected: exit 0
 
 ```bash
 git add internal/bridge/config.go cmd/bridge/main.go
-git commit -m "feat: add credential_key config, provider_credentials schema, and env migration"
+git commit -m "feat: add database_encryption_key config, provider_credentials schema, and env migration"
 ```
 
 ---

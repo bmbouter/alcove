@@ -32,8 +32,8 @@ type Config struct {
 	Port          string
 	RuntimeType   string // "podman" or "kubernetes"
 	DebugMode     bool
-	CredentialKey string
-	AuthBackend   string
+	DatabaseEncryptionKey string
+	AuthBackend           string
 
 	LLMCredentials map[string]string // provider name -> API key
 
@@ -88,18 +88,20 @@ func LoadConfig() (*Config, error) {
 		cfg.AuthBackend = "memory"
 	}
 
-	if v := os.Getenv("ALCOVE_CREDENTIAL_KEY"); v != "" {
-		cfg.CredentialKey = v
+	if v := os.Getenv("ALCOVE_DATABASE_ENCRYPTION_KEY"); v != "" {
+		cfg.DatabaseEncryptionKey = v
+	} else if v := os.Getenv("ALCOVE_CREDENTIAL_KEY"); v != "" {
+		cfg.DatabaseEncryptionKey = v // deprecated env var, use ALCOVE_DATABASE_ENCRYPTION_KEY
 	}
-	if cfg.CredentialKey == "" {
-		log.Fatalf(`FATAL: ALCOVE_CREDENTIAL_KEY is not set. This key encrypts stored credentials.
+	if cfg.DatabaseEncryptionKey == "" {
+		log.Fatalf(`FATAL: ALCOVE_DATABASE_ENCRYPTION_KEY is not set. This key encrypts stored credentials.
 
 For local development:
   cp alcove.yaml.example alcove.yaml
-  # Edit credential_key in alcove.yaml
+  # Edit database_encryption_key in alcove.yaml
 
 For Kubernetes:
-  Set ALCOVE_CREDENTIAL_KEY via a Kubernetes Secret.`)
+  Set ALCOVE_DATABASE_ENCRYPTION_KEY via a Kubernetes Secret.`)
 	}
 
 	// Load debug mode from environment.
@@ -161,12 +163,13 @@ func (c *Config) loadConfigFile() {
 
 // configFile represents the YAML configuration file structure.
 type configFile struct {
-	CredentialKey string `yaml:"credential_key"`
-	DatabaseURL   string `yaml:"database_url"`
-	NatsURL       string `yaml:"nats_url"`
-	AuthBackend   string `yaml:"auth_backend"`
-	Port          string `yaml:"port"`
-	Runtime       string `yaml:"runtime"`
+	DatabaseEncryptionKey string `yaml:"database_encryption_key"`
+	CredentialKeyLegacy   string `yaml:"credential_key"` // deprecated, use database_encryption_key
+	DatabaseURL           string `yaml:"database_url"`
+	NatsURL               string `yaml:"nats_url"`
+	AuthBackend           string `yaml:"auth_backend"`
+	Port                  string `yaml:"port"`
+	Runtime               string `yaml:"runtime"`
 }
 
 // parseConfigFile reads and parses a YAML config file.
@@ -181,8 +184,10 @@ func (c *Config) parseConfigFile(path string) error {
 		return fmt.Errorf("parsing config file %s: %w", path, err)
 	}
 
-	if cf.CredentialKey != "" {
-		c.CredentialKey = cf.CredentialKey
+	if cf.DatabaseEncryptionKey != "" {
+		c.DatabaseEncryptionKey = cf.DatabaseEncryptionKey
+	} else if cf.CredentialKeyLegacy != "" {
+		c.DatabaseEncryptionKey = cf.CredentialKeyLegacy // deprecated, use database_encryption_key
 	}
 	if cf.DatabaseURL != "" {
 		c.LedgerURL = cf.DatabaseURL

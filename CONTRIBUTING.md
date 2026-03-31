@@ -50,7 +50,7 @@ ALCOVE_EXTERNAL_NETWORK="alcove-external" \
 
 Infrastructure settings like `database_url`, `nats_url`, and `runtime` can also
 be set in `alcove.yaml` instead of environment variables. On first run, Bridge
-auto-generates this file with a random `credential_key`. See
+auto-generates this file with a random `database_encryption_key`. See
 `alcove.yaml.example` for the available options.
 
 See [CLAUDE.md](CLAUDE.md) for the full set of dev commands and architecture

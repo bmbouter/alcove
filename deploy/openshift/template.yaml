@@ -113,11 +113,11 @@ objects:
               secretKeyRef:
                 name: alcove-config
                 key: ledger-database-url
-          - name: ALCOVE_CREDENTIAL_KEY
+          - name: ALCOVE_DATABASE_ENCRYPTION_KEY
             valueFrom:
               secretKeyRef:
                 name: alcove-config
-                key: credential-key
+                key: database-encryption-key
           livenessProbe:
             httpGet:
               path: /api/v1/health

@@ -147,7 +147,7 @@ Bridge reads these environment variables:
 | `ALCOVE_NETWORK` | Podman internal network name | `alcove-internal` |
 | `ALCOVE_EXTERNAL_NETWORK` | Podman external network for Gate egress | `alcove-external` |
 | `AUTH_BACKEND` | Authentication backend | `memory` or `postgres` |
-| `ALCOVE_CREDENTIAL_KEY` | Encryption key for stored credentials | (secret string) |
+| `ALCOVE_DATABASE_ENCRYPTION_KEY` | Encryption key for stored credentials | (secret string) |
 | `ALCOVE_DEBUG` | Keep worker containers after exit for debugging | `true` or `false` |
 | `BRIDGE_URL` | URL where Bridge is reachable by Skiff/Gate | `http://host.containers.internal:8080` |
 | `SKIFF_HAIL_URL` | NATS URL as seen from inside Skiff containers | `nats://host.containers.internal:4222` |
