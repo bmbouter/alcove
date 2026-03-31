@@ -236,14 +236,18 @@ objects:
       name: nats
 
 # --- NetworkPolicies ---
+# All policies are scoped to Alcove pods only (app.kubernetes.io/part-of: alcove)
+# to avoid affecting other applications in the shared namespace.
 - apiVersion: networking.k8s.io/v1
   kind: NetworkPolicy
   metadata:
-    name: default-deny
+    name: alcove-default-deny
     labels:
       app.kubernetes.io/part-of: alcove
   spec:
-    podSelector: {}
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/part-of: alcove
     policyTypes:
     - Ingress
     - Egress
@@ -251,20 +255,26 @@ objects:
 - apiVersion: networking.k8s.io/v1
   kind: NetworkPolicy
   metadata:
-    name: allow-intra-namespace
+    name: alcove-allow-internal
     labels:
       app.kubernetes.io/part-of: alcove
   spec:
-    podSelector: {}
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/part-of: alcove
     policyTypes:
     - Ingress
     - Egress
     ingress:
     - from:
-      - podSelector: {}
+      - podSelector:
+          matchLabels:
+            app.kubernetes.io/part-of: alcove
     egress:
     - to:
-      - podSelector: {}
+      - podSelector:
+          matchLabels:
+            app.kubernetes.io/part-of: alcove
     - to:
       - namespaceSelector: {}
       ports:
@@ -276,7 +286,7 @@ objects:
 - apiVersion: networking.k8s.io/v1
   kind: NetworkPolicy
   metadata:
-    name: bridge-external-egress
+    name: alcove-bridge-egress
     labels:
       app.kubernetes.io/part-of: alcove
   spec:

@@ -1,49 +1,52 @@
-# Base NetworkPolicy for the alcove namespace.
+# NetworkPolicies for Alcove pods.
 #
-# Goals:
-#   1. Allow all pods within the namespace to communicate freely
-#      (Bridge <-> Hail, Bridge <-> Ledger, etc.)
-#   2. Allow Bridge egress to external networks (OAuth2 token exchange,
-#      container image pulls)
-#   3. Deny all other ingress and egress by default
+# All policies are scoped to Alcove pods only (app.kubernetes.io/part-of: alcove)
+# to avoid affecting other applications in a shared namespace.
 #
 # Per-Skiff NetworkPolicies are created dynamically by Bridge at task time
 # to isolate Skiff pods (only Gate sidecar gets external egress).
 ---
-# Default deny all traffic in the namespace.
+# Deny all traffic for Alcove pods by default.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: default-deny
+  name: alcove-default-deny
   namespace: alcove
   labels:
     app.kubernetes.io/part-of: alcove
 spec:
-  podSelector: {}
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: alcove
   policyTypes:
     - Ingress
     - Egress
 ---
-# Allow intra-namespace communication and DNS resolution.
+# Allow Alcove pods to communicate with each other and resolve DNS.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-intra-namespace
+  name: alcove-allow-internal
   namespace: alcove
   labels:
     app.kubernetes.io/part-of: alcove
 spec:
-  podSelector: {}
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: alcove
   policyTypes:
     - Ingress
     - Egress
   ingress:
     - from:
-        - podSelector: {}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: alcove
   egress:
     - to:
-        - podSelector: {}
-    # Allow DNS resolution (kube-dns / CoreDNS in kube-system).
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: alcove
     - to:
         - namespaceSelector: {}
       ports:
@@ -57,7 +60,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: bridge-external-egress
+  name: alcove-bridge-egress
   namespace: alcove
   labels:
     app.kubernetes.io/part-of: alcove
@@ -68,5 +71,4 @@ spec:
   policyTypes:
     - Egress
   egress:
-    # Allow all egress from Bridge (OAuth2 providers, Kubernetes API, etc.)
     - {}
