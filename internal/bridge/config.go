@@ -17,13 +17,12 @@
 package bridge
 
 import (
-	"bufio"
 	"fmt"
 	"log"
 	"os"
-	"strings"
 
 	"github.com/bmbouter/alcove/internal"
+	"gopkg.in/yaml.v3"
 )
 
 // Config holds all Bridge configuration.
@@ -96,8 +95,8 @@ func LoadConfig() (*Config, error) {
 		log.Fatalf(`FATAL: ALCOVE_CREDENTIAL_KEY is not set. This key encrypts stored credentials.
 
 For local development:
-  cp alcove.conf.example alcove.conf
-  # Edit credential_key in alcove.conf
+  cp alcove.yaml.example alcove.yaml
+  # Edit credential_key in alcove.yaml
 
 For Kubernetes:
   Set ALCOVE_CREDENTIAL_KEY via a Kubernetes Secret.`)
@@ -141,14 +140,16 @@ For Kubernetes:
 // loadConfigFile reads configuration from a config file.
 // It searches for the config file in this order:
 // 1. Path specified by ALCOVE_CONFIG_FILE env var
-// 2. ./alcove.conf
-// 3. /etc/alcove/alcove.conf
+// 2. ./alcove.yaml
+// 3. /etc/alcove/alcove.yaml
+// 4. ./alcove.conf (backward compatibility)
+// 5. /etc/alcove/alcove.conf (backward compatibility)
 func (c *Config) loadConfigFile() {
 	paths := []string{}
 	if v := os.Getenv("ALCOVE_CONFIG_FILE"); v != "" {
 		paths = append(paths, v)
 	}
-	paths = append(paths, "./alcove.conf", "/etc/alcove/alcove.conf")
+	paths = append(paths, "./alcove.yaml", "/etc/alcove/alcove.yaml", "./alcove.conf", "/etc/alcove/alcove.conf")
 
 	for _, path := range paths {
 		if err := c.parseConfigFile(path); err == nil {
@@ -158,43 +159,47 @@ func (c *Config) loadConfigFile() {
 	}
 }
 
-// parseConfigFile reads and parses a KEY = VALUE config file.
+// configFile represents the YAML configuration file structure.
+type configFile struct {
+	CredentialKey string `yaml:"credential_key"`
+	DatabaseURL   string `yaml:"database_url"`
+	NatsURL       string `yaml:"nats_url"`
+	AuthBackend   string `yaml:"auth_backend"`
+	Port          string `yaml:"port"`
+	Runtime       string `yaml:"runtime"`
+}
+
+// parseConfigFile reads and parses a YAML config file.
 func (c *Config) parseConfigFile(path string) error {
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		key, value, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-		key = strings.TrimSpace(key)
-		value = strings.TrimSpace(value)
-
-		switch key {
-		case "credential_key":
-			c.CredentialKey = value
-		case "database_url":
-			c.LedgerURL = value
-		case "nats_url":
-			c.HailURL = value
-		case "auth_backend":
-			c.AuthBackend = value
-		case "port":
-			c.Port = value
-		case "runtime":
-			c.RuntimeType = value
-		}
+	var cf configFile
+	if err := yaml.Unmarshal(data, &cf); err != nil {
+		return fmt.Errorf("parsing config file %s: %w", path, err)
 	}
-	return scanner.Err()
+
+	if cf.CredentialKey != "" {
+		c.CredentialKey = cf.CredentialKey
+	}
+	if cf.DatabaseURL != "" {
+		c.LedgerURL = cf.DatabaseURL
+	}
+	if cf.NatsURL != "" {
+		c.HailURL = cf.NatsURL
+	}
+	if cf.AuthBackend != "" {
+		c.AuthBackend = cf.AuthBackend
+	}
+	if cf.Port != "" {
+		c.Port = cf.Port
+	}
+	if cf.Runtime != "" {
+		c.RuntimeType = cf.Runtime
+	}
+	return nil
 }
 
 func (c *Config) validate() error {

@@ -63,7 +63,7 @@ This builds all container images and starts:
 - **Hail** (NATS message bus) on nats://localhost:4222
 - **Ledger** (PostgreSQL) on localhost:5432
 
-`make up` auto-generates an `alcove.conf` file from `alcove.conf.example` with
+`make up` auto-generates an `alcove.yaml` file from `alcove.yaml.example` with
 a random `credential_key` for credential encryption. This file is gitignored.
 
 ### 3. Open the dashboard

@@ -93,4 +93,4 @@ ALCOVE_EXTERNAL_NETWORK="alcove-external" \
 - **Dual auth backends** — `AUTH_BACKEND=memory` (default) or `postgres`, explicit selection
 - **SCM API proxied through Gate** — `/github/` and `/gitlab/` endpoints with dummy tokens, operation-level scope enforcement, real credentials never enter Skiff
 - **Custom migration runner** — embedded SQL files, advisory locking, no external dependencies
-- **`alcove.conf` for infrastructure settings** — config file search order: `ALCOVE_CONFIG_FILE` env var → `./alcove.conf` → `/etc/alcove/alcove.conf`; env vars always override; `credential_key` is required (Bridge refuses to start without it); `make up` auto-generates the file for local dev; file is gitignored
+- **`alcove.yaml` for infrastructure settings** — config file search order: `ALCOVE_CONFIG_FILE` env var → `./alcove.yaml` → `/etc/alcove/alcove.yaml`; env vars always override; `credential_key` is required (Bridge refuses to start without it); `make up` auto-generates the file for local dev; file is gitignored

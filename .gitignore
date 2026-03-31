@@ -29,6 +29,7 @@ go.work.sum
 .env
 .env.*
 config.yaml
+alcove.yaml
 alcove.conf
 
 # OS

@@ -51,7 +51,7 @@ git repos), and per-task NetworkPolicy enforcement on Kubernetes. See
 git clone https://github.com/bmbouter/alcove.git
 cd alcove
 make up
-# make up auto-generates alcove.conf with a random credential key
+# make up auto-generates alcove.yaml with a random credential key
 # Open http://localhost:8080 — log in with admin/admin
 # Configure LLM credentials and providers in the dashboard
 ```

@@ -8,44 +8,44 @@ This document covers every configuration option for Alcove's three components
 Bridge configuration comes from three sources (highest to lowest priority):
 
 1. **Environment variables** -- always take precedence over config file values
-2. **Config file (`alcove.conf`)** -- infrastructure settings that should not be in the UI/API
+2. **Config file (`alcove.yaml`)** -- infrastructure settings that should not be in the UI/API
 3. **Dashboard / API** -- credentials, providers, system LLM, users, security profiles
 
 The default admin account is `admin` / `admin`. Change the password in the
 dashboard after first login.
 
-### alcove.conf
+### alcove.yaml
 
-The `alcove.conf` file provides a persistent location for infrastructure-level
-Bridge settings. It uses simple `key=value` syntax:
+The `alcove.yaml` file provides a persistent location for infrastructure-level
+Bridge settings. It uses YAML syntax:
 
-```
-credential_key=your-aes-256-key-here
-database_url=postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable
-nats_url=nats://localhost:4222
-auth_backend=memory
-port=8080
-runtime=podman
+```yaml
+credential_key: your-aes-256-key-here
+database_url: postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable
+nats_url: nats://localhost:4222
+auth_backend: memory
+port: 8080
+runtime: podman
 ```
 
 **Search order:** Bridge looks for the config file in this order:
 
 1. Path specified by `ALCOVE_CONFIG_FILE` environment variable
-2. `./alcove.conf` (current working directory)
-3. `/etc/alcove/alcove.conf`
+2. `./alcove.yaml` (current working directory)
+3. `/etc/alcove/alcove.yaml`
 
 Environment variables always override values from the config file. For example,
-if `alcove.conf` sets `port=8080` but `BRIDGE_PORT=9090` is in the environment,
+if `alcove.yaml` sets `port: 8080` but `BRIDGE_PORT=9090` is in the environment,
 Bridge listens on port 9090.
 
 **Required credential key:** Bridge requires `credential_key` (or the
 `ALCOVE_CREDENTIAL_KEY` environment variable) to be set. Bridge refuses to
-start without it. For local development, `make up` auto-generates `alcove.conf`
-from `alcove.conf.example` with a random key. For Kubernetes deployments,
+start without it. For local development, `make up` auto-generates `alcove.yaml`
+from `alcove.yaml.example` with a random key. For Kubernetes deployments,
 provide `ALCOVE_CREDENTIAL_KEY` via a k8s Secret (see
 [Kubernetes](#kubernetes) below).
 
-The `alcove.conf` file is gitignored. An `alcove.conf.example` is committed to
+The `alcove.yaml` file is gitignored. An `alcove.yaml.example` is committed to
 the repository as a reference.
 
 For the CLI client the resolution order is:
@@ -59,7 +59,7 @@ For the CLI client the resolution order is:
 ## Bridge Environment Variables
 
 These variables configure the Bridge controller (`cmd/bridge`). The first six
-can also be set in `alcove.conf` (see [alcove.conf](#alcoveconf) above).
+can also be set in `alcove.yaml` (see [alcove.yaml](#alcoveyaml) above).
 
 | Variable | Type | Default | Description |
 |---|---|---|---|

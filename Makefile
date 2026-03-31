@@ -48,11 +48,11 @@ logs: dev-logs ## Show logs from all containers
 
 ##@ Development
 
-dev-config: ## Generate alcove.conf from example if it does not exist
-	@if [ ! -f alcove.conf ]; then \
-		echo "Generating alcove.conf with a random credential_key..."; \
-		sed "s/change-me-to-a-strong-secret/$$(openssl rand -hex 32)/" alcove.conf.example > alcove.conf; \
-		echo "Created alcove.conf — edit as needed."; \
+dev-config: ## Generate alcove.yaml from example if it does not exist
+	@if [ ! -f alcove.yaml ]; then \
+		echo "Generating alcove.yaml with a random credential_key..."; \
+		sed "s/change-me-to-a-strong-secret/$$(openssl rand -hex 32)/" alcove.yaml.example > alcove.yaml; \
+		echo "Created alcove.yaml — edit as needed."; \
 	fi
 
 dev-up: dev-config ## Start full containerized environment
@@ -85,7 +85,7 @@ dev-up: dev-config ## Start full containerized environment
 		--user $$(id -u):$$(id -g) \
 		-v $${XDG_RUNTIME_DIR}/podman/podman.sock:/run/podman/podman.sock:z \
 		-v $(CURDIR)/web:/web:ro,z \
-		$(if $(wildcard alcove.conf),-v $(CURDIR)/alcove.conf:/etc/alcove/alcove.conf:ro$(comma)z,) \
+		$(if $(wildcard alcove.yaml),-v $(CURDIR)/alcove.yaml:/etc/alcove/alcove.yaml:ro$(comma)z,) \
 		-e CONTAINER_HOST=unix:///run/podman/podman.sock \
 		-e LEDGER_DATABASE_URL=postgres://alcove:alcove@alcove-ledger:5432/alcove?sslmode=disable \
 		-e HAIL_URL=nats://alcove-hail:4222 \
