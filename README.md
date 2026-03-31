@@ -73,6 +73,7 @@ For the full setup walkthrough, see the [Getting Started](docs/getting-started.m
 | [Problem Statement](docs/design/problem-statement.md) | Why ephemeral agents |
 | [Credential Management](docs/design/credential-management.md) | How Bridge manages credentials and passes tokens to Gate |
 | [Auth Backends](docs/design/auth-backends.md) | Authentication and authorization design |
+| [Changelog](docs/changelog.md) | Release history and version notes |
 
 ## Contributing
 
