@@ -90,8 +90,6 @@ func LoadConfig() (*Config, error) {
 
 	if v := os.Getenv("ALCOVE_DATABASE_ENCRYPTION_KEY"); v != "" {
 		cfg.DatabaseEncryptionKey = v
-	} else if v := os.Getenv("ALCOVE_CREDENTIAL_KEY"); v != "" {
-		cfg.DatabaseEncryptionKey = v // deprecated env var, use ALCOVE_DATABASE_ENCRYPTION_KEY
 	}
 	if cfg.DatabaseEncryptionKey == "" {
 		log.Fatalf(`FATAL: ALCOVE_DATABASE_ENCRYPTION_KEY is not set. This key encrypts stored credentials.
@@ -141,17 +139,15 @@ For Kubernetes:
 
 // loadConfigFile reads configuration from a config file.
 // It searches for the config file in this order:
-// 1. Path specified by ALCOVE_CONFIG_FILE env var
-// 2. ./alcove.yaml
-// 3. /etc/alcove/alcove.yaml
-// 4. ./alcove.conf (backward compatibility)
-// 5. /etc/alcove/alcove.conf (backward compatibility)
+//  1. Path specified by ALCOVE_CONFIG_FILE env var
+//  2. ./alcove.yaml
+//  3. /etc/alcove/alcove.yaml
 func (c *Config) loadConfigFile() {
 	paths := []string{}
 	if v := os.Getenv("ALCOVE_CONFIG_FILE"); v != "" {
 		paths = append(paths, v)
 	}
-	paths = append(paths, "./alcove.yaml", "/etc/alcove/alcove.yaml", "./alcove.conf", "/etc/alcove/alcove.conf")
+	paths = append(paths, "./alcove.yaml", "/etc/alcove/alcove.yaml")
 
 	for _, path := range paths {
 		if err := c.parseConfigFile(path); err == nil {
@@ -164,7 +160,6 @@ func (c *Config) loadConfigFile() {
 // configFile represents the YAML configuration file structure.
 type configFile struct {
 	DatabaseEncryptionKey string `yaml:"database_encryption_key"`
-	CredentialKeyLegacy   string `yaml:"credential_key"` // deprecated, use database_encryption_key
 	DatabaseURL           string `yaml:"database_url"`
 	NatsURL               string `yaml:"nats_url"`
 	AuthBackend           string `yaml:"auth_backend"`
@@ -186,8 +181,6 @@ func (c *Config) parseConfigFile(path string) error {
 
 	if cf.DatabaseEncryptionKey != "" {
 		c.DatabaseEncryptionKey = cf.DatabaseEncryptionKey
-	} else if cf.CredentialKeyLegacy != "" {
-		c.DatabaseEncryptionKey = cf.CredentialKeyLegacy // deprecated, use database_encryption_key
 	}
 	if cf.DatabaseURL != "" {
 		c.LedgerURL = cf.DatabaseURL
