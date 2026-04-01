@@ -3,6 +3,15 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.3.3
+
+### Bug Fixes
+- Fix rh-identity user provisioning: `ON CONFLICT (external_id)` failed because
+  the `auth_users.external_id` column has a partial unique index
+  (`WHERE external_id IS NOT NULL`). PostgreSQL requires the WHERE clause in the
+  ON CONFLICT target to match. Error was: "no unique or exclusion constraint
+  matching the ON CONFLICT specification".
+
 ## v0.3.2
 
 ### Bug Fixes
