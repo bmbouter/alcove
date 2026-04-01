@@ -161,11 +161,11 @@ func main() {
 	settingsStore := bridge.NewSettingsStore(dbpool)
 
 	// Create system LLM client for AI-powered Bridge features.
-	bridgeLLM := bridge.NewBridgeLLM(cfg, credStore, settingsStore)
+	bridgeLLM := bridge.NewBridgeLLM(cfg, credStore)
 	if bridgeLLM != nil {
 		log.Println("system LLM configured")
 	} else {
-		log.Println("system LLM not configured (set BRIDGE_LLM_PROVIDER and BRIDGE_LLM_API_KEY)")
+		log.Println("system LLM not configured — add system_llm section to alcove.yaml to enable AI features")
 	}
 
 	// Create dispatcher and API.

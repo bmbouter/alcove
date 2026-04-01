@@ -136,8 +136,8 @@ alcove/
    selection and debug toggle, session detail view with live transcript streaming
    (SSE with catch-up + live) and proxy log tabs, providers page, security profiles
    page, MCP tools page, schedules page with NLP-style cron input, admin settings
-   page, user management page, guided setup checklist with contextual warnings.
-   Dark theme.
+   page (system LLM shown as read-only status), user management page, guided
+   setup checklist with contextual warnings. Dark theme.
 
 3. **Ledger Ingestion API** — Bridge serves POST endpoints for transcript, status,
    and proxy-log ingestion:
@@ -216,10 +216,14 @@ alcove/
     security profiles are resolved at dispatch time and passed to Gate/Skiff
     containers. Database schema in migration 006.
 
-15. **Admin Settings** — System LLM configuration stored in the database
-    (`system_settings` table). Settings resolve with a layered precedence:
-    database > environment variables. Admin settings API for get/set with
-    source tracking. Used by BridgeLLM for AI-powered features.
+15. **Admin Settings** — System LLM configuration is read from `alcove.yaml`
+    or `BRIDGE_LLM_*` environment variables (config-file-only, not writable
+    via dashboard or API). `PUT /api/v1/admin/settings/llm` returns 405.
+    `GET /api/v1/admin/settings/llm` returns read-only status with source
+    tracking (`env`, `config`, `default`). Dashboard shows read-only status.
+    Two providers: Anthropic (`llm_api_key`) and Google Vertex AI
+    (`llm_service_account_json` + `llm_project` + `llm_region`).
+    Used by BridgeLLM for AI-powered features.
 
 16. **Dashboard Guided Configuration** — Setup checklist on the dashboard that
     tracks configuration completeness (credentials, profiles, etc.) with

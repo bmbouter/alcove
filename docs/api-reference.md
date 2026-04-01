@@ -1725,7 +1725,7 @@ Admin-only endpoints for system configuration. Requires the `X-Alcove-Admin: tru
 
 ### GET /api/v1/admin/settings/llm
 
-Get the effective system LLM configuration. Returns the resolved configuration with source tracking for each field (`env`, `database`, or `default`).
+Get the effective system LLM configuration (read-only). Returns the resolved configuration with source tracking for each field (`env`, `config`, or `default`). The system LLM is configured exclusively in `alcove.yaml` or via environment variables.
 
 **Response (200):**
 
@@ -1734,7 +1734,7 @@ Get the effective system LLM configuration. Returns the resolved configuration w
   "provider": "anthropic",
   "provider_source": "env",
   "model": "claude-sonnet-4-20250514",
-  "model_source": "database",
+  "model_source": "config",
   "region": "",
   "region_source": "default",
   "project_id": "",
@@ -1759,52 +1759,13 @@ curl http://localhost:8080/api/v1/admin/settings/llm \
 
 ### PUT /api/v1/admin/settings/llm
 
-Update the system LLM configuration. Optionally include credential material to store a system LLM credential.
-
-**Request body:**
-
-```json
-{
-  "provider": "anthropic",
-  "model": "claude-sonnet-4-20250514",
-  "credential": "sk-ant-...",
-  "auth_type": "api_key"
-}
-```
-
-| Field           | Type   | Required | Description |
-|-----------------|--------|----------|-------------|
-| `provider`      | string | no       | LLM provider: `anthropic` or `google-vertex` |
-| `model`         | string | no       | Model name |
-| `region`        | string | no       | GCP region (Vertex only) |
-| `project_id`    | string | no       | GCP project ID (Vertex only) |
-| `credential`    | string | no       | Raw credential material (stored encrypted) |
-| `auth_type`     | string | no       | Required with `credential`: `api_key` or `service_account` |
-
-**Response (200):** the effective LLM configuration (same shape as GET).
+This endpoint returns **405 Method Not Allowed**. The system LLM configuration is read-only via the API. To change it, edit `alcove.yaml` or set `BRIDGE_LLM_*` environment variables and restart Bridge.
 
 **Status codes:**
 
 | Code | Meaning |
 |------|---------|
-| 200  | Settings updated |
-| 400  | Invalid request body |
-| 403  | Admin access required |
-| 500  | Storage error |
-
-**curl example:**
-
-```bash
-curl -X PUT http://localhost:8080/api/v1/admin/settings/llm \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "provider": "anthropic",
-    "model": "claude-sonnet-4-20250514",
-    "credential": "sk-ant-...",
-    "auth_type": "api_key"
-  }'
-```
+| 405  | Method not allowed (system LLM is config-file-only) |
 
 ---
 

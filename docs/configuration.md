@@ -8,8 +8,8 @@ This document covers every configuration option for Alcove's three components
 Bridge configuration comes from three sources (highest to lowest priority):
 
 1. **Environment variables** -- always take precedence over config file values
-2. **Config file (`alcove.yaml`)** -- infrastructure settings that should not be in the UI/API
-3. **Dashboard / API** -- credentials, providers, system LLM, users, security profiles
+2. **Config file (`alcove.yaml`)** -- infrastructure settings and system LLM configuration
+3. **Dashboard / API** -- credentials, providers, users, security profiles
 
 The default admin account is `admin` / `admin`. Change the password in the
 dashboard after first login.
@@ -26,6 +26,19 @@ nats_url: nats://localhost:4222
 auth_backend: memory
 port: 8080
 runtime: podman
+
+# System LLM configuration (choose one provider)
+# Option A: Anthropic API
+llm_provider: anthropic
+llm_api_key: sk-ant-...
+llm_model: claude-sonnet-4-20250514
+
+# Option B: Google Vertex AI
+# llm_provider: google-vertex
+# llm_service_account_json: '{"type":"service_account","project_id":"...","private_key":"...",...}'
+# llm_project: your-gcp-project-id
+# llm_region: us-east5
+# llm_model: claude-sonnet-4-20250514
 ```
 
 **Search order:** Bridge looks for the config file in this order:
@@ -85,6 +98,12 @@ can also be set in `alcove.yaml` (see [alcove.yaml](#alcoveyaml) above).
 | `SKIFF_HAIL_URL` | string | `nats://alcove-hail:4222` | NATS URL injected into Skiff containers (may differ from Bridge's own `HAIL_URL`). |
 | `ALCOVE_SKILL_REPOS` | string (JSON) | _(unset)_ | JSON array of skill repo objects. Overrides database-configured skill repos. Each object has `url` (required), `ref` (optional, default `main`), and `name` (optional). |
 | `TASK_REPO_SYNC_INTERVAL` | string (duration) | `5m` | How often Bridge syncs YAML task definitions from registered task repos. Accepts Go duration syntax. |
+| `BRIDGE_LLM_PROVIDER` | string | _(unset)_ | System LLM provider: `anthropic` or `google-vertex`. Overrides `llm_provider` in alcove.yaml. |
+| `BRIDGE_LLM_API_KEY` | string | _(unset)_ | Anthropic API key for the system LLM. Overrides `llm_api_key` in alcove.yaml. |
+| `BRIDGE_LLM_MODEL` | string | _(unset)_ | Model name for the system LLM. Overrides `llm_model` in alcove.yaml. |
+| `BRIDGE_LLM_SERVICE_ACCOUNT_JSON` | string | _(unset)_ | Google service account JSON for the system LLM (Vertex AI). Overrides `llm_service_account_json` in alcove.yaml. |
+| `BRIDGE_LLM_PROJECT` | string | _(unset)_ | GCP project ID for the system LLM (Vertex AI). Overrides `llm_project` in alcove.yaml. |
+| `BRIDGE_LLM_REGION` | string | _(unset)_ | GCP region for the system LLM (Vertex AI). Overrides `llm_region` in alcove.yaml. |
 
 ---
 
@@ -213,11 +232,57 @@ The CLI resolves the Bridge URL in this order:
 
 ---
 
+## System LLM Setup
+
+Alcove supports two LLM backends for the system LLM (used by AI-powered
+features like the profile builder). The system LLM is configured exclusively
+in `alcove.yaml` or via environment variables -- it cannot be changed through
+the dashboard or API. The dashboard shows a read-only status indicating
+whether the system LLM is configured; edit `alcove.yaml` to change it.
+
+### alcove.yaml Configuration
+
+Add the system LLM settings to your `alcove.yaml`:
+
+**Option A: Anthropic API**
+
+```yaml
+llm_provider: anthropic
+llm_api_key: sk-ant-...
+llm_model: claude-sonnet-4-20250514    # optional, defaults to claude-sonnet-4-20250514
+```
+
+**Option B: Google Vertex AI**
+
+```yaml
+llm_provider: google-vertex
+llm_service_account_json: '{"type":"service_account","project_id":"my-project",...}'
+llm_project: my-gcp-project-id
+llm_region: us-east5                   # optional, defaults to us-east5
+llm_model: claude-sonnet-4-20250514    # optional
+```
+
+### Environment Variable Overrides
+
+Environment variables override `alcove.yaml` values:
+
+| Variable | Description |
+|---|---|
+| `BRIDGE_LLM_PROVIDER` | LLM provider: `anthropic` or `google-vertex` |
+| `BRIDGE_LLM_API_KEY` | Anthropic API key |
+| `BRIDGE_LLM_MODEL` | Model name |
+| `BRIDGE_LLM_SERVICE_ACCOUNT_JSON` | Google service account JSON (Vertex AI) |
+| `BRIDGE_LLM_PROJECT` | GCP project ID (Vertex AI) |
+| `BRIDGE_LLM_REGION` | GCP region (Vertex AI) |
+
+The credential is injected into Gate as `GATE_LLM_TOKEN` at task launch time.
+The key never enters the Skiff container.
+
 ## LLM Provider Setup
 
-Alcove supports two LLM backends. At least one must be configured for Claude
-Code to function. Providers are configured via the dashboard Settings page or
-the credentials API. They are derived from credentials stored in the database.
+Alcove also supports configuring LLM providers for task execution via the
+credentials API and dashboard. At least one provider must be configured for
+Claude Code to function.
 
 ### Quick Start (Environment Variables)
 
@@ -234,16 +299,6 @@ export VERTEX_API_KEY=your-vertex-api-key
 ```
 
 After first startup, manage providers through the dashboard or API instead.
-
-### Dashboard Setup
-
-1. Log in to the dashboard at http://localhost:8080
-2. Go to **Settings** and configure the system LLM provider and model
-3. Go to **Credentials** to add or update LLM credentials
-
-The credential is stored encrypted (AES-256-GCM) in PostgreSQL and injected
-into Gate as `GATE_LLM_TOKEN` at task launch time. The key never enters the
-Skiff container.
 
 ---
 
@@ -405,7 +460,19 @@ export AUTH_BACKEND=memory          # or postgres, rh-identity
 # ── Security ──────────────────────────────────────────────────
 export ALCOVE_DATABASE_ENCRYPTION_KEY=change-me-to-a-random-32-byte-string
 
-# ── LLM Provider (choose one) ────────────────────────────────
+# ── System LLM (choose one, or set in alcove.yaml) ──────────
+# Option A: Anthropic API
+export BRIDGE_LLM_PROVIDER=anthropic
+export BRIDGE_LLM_API_KEY=sk-ant-...
+# export BRIDGE_LLM_MODEL=claude-sonnet-4-20250514
+
+# Option B: Google Vertex AI
+# export BRIDGE_LLM_PROVIDER=google-vertex
+# export BRIDGE_LLM_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
+# export BRIDGE_LLM_PROJECT=your-gcp-project-id
+# export BRIDGE_LLM_REGION=us-east5
+
+# ── LLM Provider (for task execution, choose one) ───────────
 # Option A: Anthropic API
 export ANTHROPIC_API_KEY=sk-ant-...
 # export ANTHROPIC_MODEL=claude-sonnet-4-20250514

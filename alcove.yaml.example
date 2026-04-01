@@ -19,3 +19,21 @@ port: "8080"
 
 # Container runtime: "podman" or "kubernetes".
 runtime: podman
+
+# System LLM — powers AI features (security profile builder).
+# Uncomment and configure ONE provider to enable AI features.
+
+# Option A: Anthropic API
+# system_llm:
+#   provider: anthropic
+#   api_key: sk-ant-...
+#   model: claude-sonnet-4-20250514
+
+# Option B: Google Vertex AI (Service Account)
+# system_llm:
+#   provider: google-vertex
+#   service_account_json: |
+#     {"type": "service_account", ...}
+#   project_id: my-gcp-project
+#   region: us-east5
+#   model: claude-sonnet-4-20250514

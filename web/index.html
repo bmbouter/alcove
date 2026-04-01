@@ -658,13 +658,8 @@
     <div id="system-llm-modal" class="modal-overlay" hidden>
         <div class="modal-card modal-card-wide">
             <h3>System LLM</h3>
-            <p class="form-help">The LLM used by Alcove for AI features (profile builder). Separate from user task credentials.</p>
+            <p class="form-help">The LLM used by Alcove for AI features (profile builder). Configured in alcove.yaml.</p>
             <div id="modal-llm-status"></div>
-            <div style="margin: 12px 0; display: flex; gap: 8px;">
-                <button id="modal-llm-configure" class="btn btn-small btn-primary">Configure</button>
-                <button id="modal-llm-delete" class="btn btn-small btn-outline" style="color: var(--status-error);" hidden>Delete</button>
-            </div>
-            <div id="modal-llm-form-container" hidden></div>
             <div style="display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;">
                 <button type="button" id="system-llm-close" class="btn btn-outline">Close</button>
             </div>

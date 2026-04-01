@@ -3230,7 +3230,7 @@
             var resp = await api('POST', '/api/v1/profiles/build', { description: desc });
             if (resp.status === 503) {
                 var errEl = $('#profile-ai-error');
-                errEl.textContent = 'AI generation not available -- configure manually';
+                errEl.textContent = 'AI generation not available -- configure system_llm in alcove.yaml and restart Bridge, or configure manually';
                 show(errEl);
                 return;
             }
@@ -4230,19 +4230,14 @@
 
     function renderSystemLLMStatus(eff) {
         var el = $('#modal-llm-status');
-        var configBtn = $('#modal-llm-configure');
-        var deleteBtn = $('#modal-llm-delete');
         if (!eff.configured) {
-            el.innerHTML = '<p style="color:var(--text-muted)">System LLM is not configured. AI features (like the profile builder) are disabled.</p>';
-            if (configBtn) configBtn.textContent = 'Configure';
-            if (deleteBtn) deleteBtn.hidden = true;
+            el.innerHTML = '<p style="color:var(--text-muted)">System LLM is not configured. To enable AI features (profile builder), add a system_llm section to alcove.yaml and restart Bridge.</p>';
             return;
         }
-        if (configBtn) configBtn.textContent = 'Reconfigure';
-        if (deleteBtn) deleteBtn.hidden = false;
 
         function srcBadge(src) {
             if (src === 'env') return '<span class="badge" style="font-size:10px;margin-left:4px;">ENV</span>';
+            if (src === 'config') return '<span class="badge badge-running" style="font-size:10px;margin-left:4px;">CONFIG</span>';
             if (src === 'database') return '<span class="badge badge-running" style="font-size:10px;margin-left:4px;">DB</span>';
             return '<span class="badge" style="font-size:10px;margin-left:4px;">default</span>';
         }
@@ -4254,55 +4249,6 @@
             '<div class="meta-card"><div class="meta-label">Project ID</div><div class="meta-value">' + escapeHtml(eff.project_id || '-') + srcBadge(eff.project_id_source) + '</div></div>' +
             '</div>';
     }
-
-    // Configure System LLM button
-    $('#modal-llm-configure').addEventListener('click', function() {
-        var container = $('#modal-llm-form-container');
-        show(container);
-        initCredentialForm(container, {
-            showName: false,
-            submitLabel: 'Save System LLM',
-            onSubmit: async function(payload) {
-                // Send credential data inline to the settings endpoint.
-                // The server saves it as a system credential (owner='_system'),
-                // keeping it off the user's LLMs page.
-                var settingsResp = await api('PUT', '/api/v1/admin/settings/llm', {
-                    provider: payload.provider,
-                    model: 'claude-sonnet-4-20250514',
-                    region: payload.region || 'us-east5',
-                    project_id: payload.project_id || '',
-                    credential: payload.credential,
-                    auth_type: payload.auth_type
-                });
-                if (!settingsResp.ok) throw new Error((await settingsResp.json().catch(function() { return {}; })).error || 'Failed');
-
-                await loadSystemLLMModal();
-                var modalCard = document.querySelector('#system-llm-modal .modal-card-wide');
-                if (modalCard) modalCard.scrollTop = 0;
-            },
-            onCancel: function() { hide(container); }
-        });
-        // Remove SCM options — only LLM providers
-        var llmSelect = container.querySelector('[data-role="cred-provider"]');
-        if (llmSelect) {
-            llmSelect.querySelectorAll('option[value="github"], option[value="gitlab"], option[value="jira"]').forEach(function(opt) {
-                opt.remove();
-            });
-        }
-    });
-
-    // Delete System LLM
-    $('#modal-llm-delete').addEventListener('click', async function() {
-        if (!confirm('Delete the System LLM configuration? AI features will be disabled.')) return;
-        try {
-            var resp = await api('PUT', '/api/v1/admin/settings/llm', {provider: '', model: '', region: '', project_id: ''});
-            if (!resp.ok) throw new Error('Failed to delete');
-            hide($('#modal-llm-form-container'));
-            await loadSystemLLMModal();
-        } catch(err) {
-            alert(err.message || 'Failed to delete System LLM configuration.');
-        }
-    });
 
     // ---------------------
     // Utilities

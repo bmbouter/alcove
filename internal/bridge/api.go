@@ -1310,44 +1310,10 @@ func (a *API) handleAdminSettingsLLM(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		eff := a.settingsStore.ResolveEffective(r.Context(), a.cfg)
+		eff := ResolveEffectiveLLM(a.cfg)
 		respondJSON(w, http.StatusOK, eff)
-	case http.MethodPut:
-		var req struct {
-			SystemLLMSettings
-			Credential string `json:"credential,omitempty"`
-			AuthType   string `json:"auth_type,omitempty"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			respondError(w, http.StatusBadRequest, "invalid request")
-			return
-		}
-
-		// If credential data is provided, save it as a system credential.
-		if req.Credential != "" {
-			cred := &Credential{
-				Name:      "_system_llm",
-				Provider:  req.Provider,
-				AuthType:  req.AuthType,
-				ProjectID: req.ProjectID,
-				Region:    req.Region,
-			}
-			// Delete any existing system LLM credential first.
-			_ = a.credStore.DeleteSystemCredentialByName(r.Context(), "_system_llm")
-			if err := a.credStore.CreateCredential(r.Context(), cred, []byte(req.Credential), "_system"); err != nil {
-				respondError(w, http.StatusInternalServerError, "failed to save system credential: "+err.Error())
-				return
-			}
-			req.CredentialID = cred.ID
-		}
-
-		if err := a.settingsStore.SetSystemLLM(r.Context(), &req.SystemLLMSettings); err != nil {
-			respondError(w, http.StatusInternalServerError, "failed to save settings")
-			return
-		}
-		// Return effective config.
-		eff := a.settingsStore.ResolveEffective(r.Context(), a.cfg)
-		respondJSON(w, http.StatusOK, eff)
+	case http.MethodPut, http.MethodDelete:
+		respondError(w, http.StatusMethodNotAllowed, "system LLM is configured via alcove.yaml")
 	default:
 		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}

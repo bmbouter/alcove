@@ -48,9 +48,12 @@ type Config struct {
 
 // SystemLLMConfig holds configuration for the Bridge system LLM.
 type SystemLLMConfig struct {
-	Provider string // "anthropic"
-	Model    string
-	APIKey   string // from env only
+	Provider           string `yaml:"provider"`
+	Model              string `yaml:"model"`
+	APIKey             string `yaml:"api_key"`
+	ServiceAccountJSON string `yaml:"service_account_json"`
+	ProjectID          string `yaml:"project_id"`
+	Region             string `yaml:"region"`
 }
 
 // LoadConfig reads configuration from the config file and environment variables.
@@ -122,8 +125,14 @@ For Kubernetes:
 	if v := os.Getenv("BRIDGE_LLM_MODEL"); v != "" {
 		cfg.SystemLLM.Model = v
 	}
-	if cfg.SystemLLM.Model == "" {
-		cfg.SystemLLM.Model = "claude-sonnet-4-20250514"
+	if v := os.Getenv("BRIDGE_LLM_SERVICE_ACCOUNT_JSON"); v != "" {
+		cfg.SystemLLM.ServiceAccountJSON = v
+	}
+	if v := os.Getenv("BRIDGE_LLM_PROJECT"); v != "" {
+		cfg.SystemLLM.ProjectID = v
+	}
+	if v := os.Getenv("BRIDGE_LLM_REGION"); v != "" {
+		cfg.SystemLLM.Region = v
 	}
 
 	// Load LLM credentials from environment.
@@ -188,7 +197,8 @@ type configFile struct {
 	AuthBackend           string   `yaml:"auth_backend"`
 	Port                  string   `yaml:"port"`
 	Runtime               string   `yaml:"runtime"`
-	RHIdentityAdmins      []string `yaml:"rh_identity_admins"`
+	RHIdentityAdmins      []string         `yaml:"rh_identity_admins"`
+	SystemLLM             *SystemLLMConfig `yaml:"system_llm"`
 }
 
 // parseConfigFile reads and parses a YAML config file.
@@ -223,6 +233,9 @@ func (c *Config) parseConfigFile(path string) error {
 	}
 	if len(cf.RHIdentityAdmins) > 0 {
 		c.RHIdentityAdmins = cf.RHIdentityAdmins
+	}
+	if cf.SystemLLM != nil {
+		c.SystemLLM = *cf.SystemLLM
 	}
 	return nil
 }

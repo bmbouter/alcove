@@ -131,15 +131,32 @@ make down
 
 ## Configuration
 
-### LLM Providers
+### System LLM
 
-Alcove needs an LLM provider for Claude Code. Configure via the dashboard:
+The system LLM (used for AI-powered features like the profile builder) is
+configured in `alcove.yaml` or via environment variables -- not through the
+dashboard. Add one of these to your `alcove.yaml`:
 
-1. Go to **Settings** and select the system LLM provider
-2. Go to **Credentials** and add your LLM API key
+```yaml
+# Anthropic API
+llm_provider: anthropic
+llm_api_key: sk-ant-...
 
-Alternatively, set environment variables for initial setup (auto-migrated to
-the credential store on first startup):
+# or Google Vertex AI
+# llm_provider: google-vertex
+# llm_service_account_json: '{"type":"service_account",...}'
+# llm_project: your-gcp-project-id
+# llm_region: us-east5
+```
+
+The dashboard shows a read-only system LLM status. If not configured, it
+displays a message directing you to edit `alcove.yaml`.
+
+### LLM Providers (Task Execution)
+
+Alcove also needs an LLM provider credential for running tasks with Claude
+Code. Set environment variables for initial setup (auto-migrated to the
+credential store on first startup), then manage via the dashboard:
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-...          # Anthropic API

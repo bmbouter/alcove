@@ -5,6 +5,19 @@ All notable changes to Alcove are documented here. This project uses
 
 ## v0.2.0
 
+### System LLM Config-File-Only
+- System LLM is now configured exclusively in `alcove.yaml` or via
+  `BRIDGE_LLM_*` environment variables (no longer writable via dashboard or API)
+- `PUT /api/v1/admin/settings/llm` returns 405 Method Not Allowed
+- `GET /api/v1/admin/settings/llm` remains available (read-only status)
+- Dashboard shows read-only system LLM status with guidance to edit
+  `alcove.yaml` if not configured
+- Two provider options: Anthropic (`llm_api_key`) and Google Vertex AI
+  (`llm_service_account_json` + `llm_project` + `llm_region`)
+- New env vars: `BRIDGE_LLM_SERVICE_ACCOUNT_JSON`, `BRIDGE_LLM_PROJECT`,
+  `BRIDGE_LLM_REGION`, `BRIDGE_LLM_PROVIDER`, `BRIDGE_LLM_API_KEY`,
+  `BRIDGE_LLM_MODEL`
+
 ### Red Hat Identity Auth Backend
 - New `rh-identity` auth backend (`AUTH_BACKEND=rh-identity`) for Red Hat
   deployments behind Turnpike gateway
@@ -60,8 +73,8 @@ All notable changes to Alcove are documented here. This project uses
 
 ### Dashboard
 - Logo: nested waves design (favicon, login page, README)
-- System LLM settings moved from Settings tab to user dropdown modal; shows
-  "Configure" when not set, "Reconfigure" + "Delete" when configured
+- System LLM shown as read-only status in dashboard (configured via
+  alcove.yaml only); shows guidance to edit alcove.yaml if not configured
 - SCM options (GitHub/GitLab/Jira) filtered out of the system LLM provider dropdown
 - Task Definitions section on Schedules page with source badges
 - Skill Repos and Task Repos configuration modals

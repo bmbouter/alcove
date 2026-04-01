@@ -31,27 +31,26 @@ import (
 // BridgeLLM provides LLM capabilities for Bridge system features.
 // It calls the LLM API directly (not through Gate).
 type BridgeLLM struct {
-	provider  string // "anthropic" or "google-vertex"
-	model     string
-	apiKey    string
-	region    string
-	project   string
-	credStore *CredentialStore // for acquiring OAuth2 tokens from stored credentials
+	provider           string // "anthropic" or "google-vertex"
+	model              string
+	apiKey             string
+	region             string
+	project            string
+	serviceAccountJSON string
+	credStore          *CredentialStore // for acquiring OAuth2 tokens from stored credentials
 }
 
 // NewBridgeLLM creates a BridgeLLM client from config.
 // Returns nil if no system LLM is configured (features will be disabled).
-// When a SettingsStore is provided, database settings are merged with env vars.
-func NewBridgeLLM(cfg *Config, credStore *CredentialStore, settingsStore *SettingsStore) *BridgeLLM {
-	// Resolve effective config (DB + env overlay).
-	eff := settingsStore.ResolveEffective(context.Background(), cfg)
+func NewBridgeLLM(cfg *Config, credStore *CredentialStore) *BridgeLLM {
+	eff := ResolveEffectiveLLM(cfg)
 
 	if !eff.Configured {
 		return nil
 	}
 
 	provider := eff.Provider
-	apiKey := cfg.SystemLLM.APIKey // API key only from env (security)
+	apiKey := cfg.SystemLLM.APIKey
 
 	if provider == "anthropic" && apiKey == "" {
 		return nil
@@ -61,12 +60,13 @@ func NewBridgeLLM(cfg *Config, credStore *CredentialStore, settingsStore *Settin
 	}
 
 	return &BridgeLLM{
-		provider:  provider,
-		apiKey:    apiKey,
-		model:     eff.Model,
-		region:    eff.Region,
-		project:   eff.ProjectID,
-		credStore: credStore,
+		provider:           provider,
+		apiKey:             apiKey,
+		model:              eff.Model,
+		region:             eff.Region,
+		project:            eff.ProjectID,
+		serviceAccountJSON: cfg.SystemLLM.ServiceAccountJSON,
+		credStore:          credStore,
 	}
 }
 
@@ -170,20 +170,33 @@ func (l *BridgeLLM) completeVertex(ctx context.Context, systemPrompt, userPrompt
 		return "", fmt.Errorf("marshaling request: %w", err)
 	}
 
-	// Get OAuth2 token: prefer system credentials, fall back to user credentials, then ADC.
-	// Try both "google-vertex" (provider column) and "_system_llm" (name column).
-	tokenResult, err := l.credStore.AcquireSystemToken(ctx, "google-vertex")
-	if err != nil {
+	// Get OAuth2 token: prefer inline service account JSON, then credential store, then ADC.
+	var tokenResult *TokenResult
+	if l.serviceAccountJSON != "" {
+		creds, credErr := google.CredentialsFromJSON(ctx, []byte(l.serviceAccountJSON), "https://www.googleapis.com/auth/cloud-platform")
+		if credErr != nil {
+			return "", fmt.Errorf("parsing service account JSON: %w", credErr)
+		}
+		tok, tokErr := creds.TokenSource.Token()
+		if tokErr != nil {
+			return "", fmt.Errorf("getting OAuth2 token from service account: %w", tokErr)
+		}
+		tokenResult = &TokenResult{Token: tok.AccessToken, TokenType: "bearer"}
+	}
+	if tokenResult == nil {
+		tokenResult, err = l.credStore.AcquireSystemToken(ctx, "google-vertex")
+	}
+	if tokenResult == nil {
 		tokenResult, err = l.credStore.AcquireSystemToken(ctx, "_system_llm")
 	}
-	if err != nil {
+	if tokenResult == nil {
 		tokenResult, err = l.credStore.AcquireToken(ctx, "google-vertex")
 	}
-	if err != nil {
+	if tokenResult == nil {
 		// Fallback: try google default credentials from environment
 		creds, credErr := google.FindDefaultCredentials(ctx, "https://www.googleapis.com/auth/cloud-platform")
 		if credErr != nil {
-			return "", fmt.Errorf("no Vertex credential in store (%v) and no default credentials (%v)", err, credErr)
+			return "", fmt.Errorf("no Vertex credential available and no default credentials (%v)", credErr)
 		}
 		tok, tokErr := creds.TokenSource.Token()
 		if tokErr != nil {
