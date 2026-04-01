@@ -3,6 +3,17 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.3.2
+
+### Bug Fixes
+- Fix rh-identity auth: the v0.3.1 fix made `/api/v1/auth/me` fully public,
+  which bypassed the rh-identity middleware so `X-Alcove-User` was never set.
+  Now `/auth/me` passes through when X-RH-Identity is missing (returns
+  `auth_backend` only) but processes the header normally when present.
+- Frontend enters rh-identity mode based on `auth_backend` alone, no longer
+  requires username from the initial probe.
+- Added debug logging to rh-identity middleware for header diagnostics.
+
 ## v0.3.1
 
 ### Bug Fixes
