@@ -77,17 +77,19 @@ func NewRHIdentityStore(db *pgxpool.Pool) *RHIdentityStore {
 }
 
 // UpsertUser creates or updates a user based on the RH Identity header.
-// It uses external_id (rhatUUID) as the lookup key. Returns the username.
+// It uses external_id (rhatUUID) as the primary lookup key, with username
+// (email) as fallback for users created by BootstrapAdmins without an
+// external_id. Returns the username.
 func (s *RHIdentityStore) UpsertUser(ctx context.Context, id *RHIdentity) (string, error) {
 	assoc := id.Identity.Associate
 	displayName := assoc.GivenName + " " + assoc.Surname
 
-	// Try to find existing user by external_id.
+	// Try to find existing user by external_id first.
 	var username string
 	err := s.db.QueryRow(ctx,
 		"SELECT username FROM auth_users WHERE external_id = $1", assoc.RhatUUID).Scan(&username)
 	if err == nil {
-		// User exists — update display_name in case it changed.
+		// User exists with matching external_id — update display_name.
 		_, err = s.db.Exec(ctx,
 			"UPDATE auth_users SET display_name = $1, updated_at = NOW() WHERE external_id = $2",
 			displayName, assoc.RhatUUID)
@@ -97,11 +99,25 @@ func (s *RHIdentityStore) UpsertUser(ctx context.Context, id *RHIdentity) (strin
 		return username, nil
 	}
 
-	// User doesn't exist — insert.
+	// Fallback: check by username (email). This handles users created by
+	// BootstrapAdmins which have no external_id set yet.
+	err = s.db.QueryRow(ctx,
+		"SELECT username FROM auth_users WHERE username = $1", assoc.Email).Scan(&username)
+	if err == nil {
+		// User exists by username — backfill external_id and update display_name.
+		_, err = s.db.Exec(ctx,
+			"UPDATE auth_users SET external_id = $1, display_name = $2, updated_at = NOW() WHERE username = $3",
+			assoc.RhatUUID, displayName, assoc.Email)
+		if err != nil {
+			return "", fmt.Errorf("backfilling external_id: %w", err)
+		}
+		return username, nil
+	}
+
+	// User doesn't exist at all — insert.
 	_, err = s.db.Exec(ctx,
 		`INSERT INTO auth_users (username, password, external_id, display_name, auth_source, is_admin, created_at, updated_at)
-		 VALUES ($1, NULL, $2, $3, 'rh-identity', false, NOW(), NOW())
-		 ON CONFLICT (external_id) WHERE external_id IS NOT NULL DO UPDATE SET display_name = $3, updated_at = NOW()`,
+		 VALUES ($1, NULL, $2, $3, 'rh-identity', false, NOW(), NOW())`,
 		assoc.Email, assoc.RhatUUID, displayName)
 	if err != nil {
 		return "", fmt.Errorf("creating user: %w", err)
