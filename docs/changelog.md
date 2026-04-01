@@ -3,6 +3,63 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.3.0
+
+### JIRA/Atlassian Integration
+- Gate proxies JIRA REST API via `/jira/` endpoint with full operation classification
+- 18 JIRA operations with per-project scope enforcement (project key extraction
+  from issue keys like PROJ-123)
+- Credential form accepts JIRA Cloud credentials (email + API token, Basic auth)
+- Builtin "jira" tool with security profile support
+- Live-tested against Red Hat JIRA (21/21 Gate tests pass: 10 read, 9 write
+  blocked, 2 cross-service isolation)
+
+### Red Hat Identity Auth Backend
+- New `auth_backend: rh-identity` for deployments behind Turnpike gateway
+- Decodes `X-RH-Identity` header (Base64 JSON) for SAML-authenticated users
+- JIT user provisioning from rhatUUID, email, display name
+- Admin bootstrap via `rh_identity_admins` list in alcove.yaml
+- No login form, no passwords, no session tokens
+- 21 unit tests (identity parsing, interface compliance, middleware integration)
+
+### System LLM Moved to Config File
+- System LLM configured exclusively in `alcove.yaml` (not dashboard or API)
+- Supports Anthropic (api_key) and Google Vertex AI (service_account_json)
+- PUT /api/v1/admin/settings/llm returns 405 (read-only via GET)
+- Dashboard shows read-only status in System Info panel
+
+### System Info Panel
+- Replaced "System LLM" admin-only modal with "System Info" panel visible
+  to all users
+- Shows version, runtime, auth backend, and LLM status (no secrets)
+- New GET /api/v1/system-info endpoint
+
+### Subpath Deployment Support
+- Dashboard works behind reverse proxies at any subpath (e.g., /app/alcove/)
+- Runtime base path detection from window.location.pathname
+- All API calls, SSE connections, and webhook URLs use detected base path
+- No change in behavior for root deployments
+
+### Security Profile UX
+- AI Builder defaults to Manual mode when system LLM is not configured
+- Generate button disabled with tooltip when LLM unavailable
+- Red inline warning: "System LLM not configured — AI Builder is disabled"
+
+### NetworkPolicy Fix
+- All policies scoped to `app.kubernetes.io/part-of: alcove` pods only
+- Renamed to `alcove-default-deny`, `alcove-allow-internal`, `alcove-bridge-egress`
+- Fixes issue where policies affected other apps in shared namespaces
+
+### Bug Fixes
+- JIRA credential incorrectly picked as LLM provider — excluded from
+  FirstAvailableProvider query
+- Missing GATE_TOOL_CONFIGS for JIRA — added tool config generation
+- api_host URL cleanup (strip https:// prefix and trailing slash)
+- Gate container missing home directory (useradd -m flag)
+- Bridge container podman config dirs inaccessible (XDG_CONFIG_HOME fix)
+- Credential form submit not firing in modal contexts — switched to
+  button click handler
+
 ## v0.2.0
 
 ### System LLM Config-File-Only
