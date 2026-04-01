@@ -52,10 +52,10 @@
                         <span class="dropdown-arrow">&#9662;</span>
                     </button>
                     <div class="user-dropdown-menu" id="user-dropdown-menu" hidden>
-                        <button class="user-dropdown-item nav-admin-only" id="system-llm-btn" hidden>System LLM</button>
                         <button class="user-dropdown-item nav-admin-only" id="webhook-config-btn" hidden>Webhook</button>
                         <button class="user-dropdown-item nav-admin-only" id="system-skill-repos-btn" hidden>Skill Repos (System)</button>
                         <div class="user-dropdown-separator nav-admin-only" hidden></div>
+                        <button class="user-dropdown-item" id="system-info-btn">System Info</button>
                         <button class="user-dropdown-item" id="user-skill-repos-btn">My Skill Repos</button>
                         <button class="user-dropdown-item nav-admin-only" id="system-task-repos-btn" hidden>Task Repos (System)</button>
                         <button class="user-dropdown-item" id="user-task-repos-btn">My Task Repos</button>
@@ -654,14 +654,13 @@
         </div>
     </div>
 
-    <!-- System LLM Modal -->
-    <div id="system-llm-modal" class="modal-overlay" hidden>
+    <!-- System Info Modal -->
+    <div id="system-info-modal" class="modal-overlay" hidden>
         <div class="modal-card modal-card-wide">
-            <h3>System LLM</h3>
-            <p class="form-help">The LLM used by Alcove for AI features (profile builder). Configured in alcove.yaml.</p>
-            <div id="modal-llm-status"></div>
+            <h3>System Info</h3>
+            <div id="system-info-content"></div>
             <div style="display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;">
-                <button type="button" id="system-llm-close" class="btn btn-outline">Close</button>
+                <button type="button" id="system-info-close" class="btn btn-outline">Close</button>
             </div>
         </div>
     </div>

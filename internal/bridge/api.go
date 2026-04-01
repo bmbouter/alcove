@@ -100,6 +100,7 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/task-templates", a.handleTaskTemplates)
 	mux.HandleFunc("/api/v1/webhooks/github", a.handleWebhookGitHub)
 	mux.HandleFunc("/api/v1/admin/settings/webhook", a.handleAdminSettingsWebhook)
+	mux.HandleFunc("/api/v1/system-info", a.handleSystemInfo)
 }
 
 // --- Health ---
@@ -130,6 +131,30 @@ func (a *API) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"status":  status,
 		"runtime": a.cfg.RuntimeType,
 		"db":      dbOK,
+	})
+}
+
+// --- System Info ---
+
+func (a *API) handleSystemInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	eff := ResolveEffectiveLLM(a.cfg)
+	llmStatus := map[string]interface{}{
+		"configured": eff.Configured,
+	}
+	if eff.Configured {
+		llmStatus["provider"] = eff.Provider
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"version":      a.cfg.Version,
+		"runtime":      a.cfg.RuntimeType,
+		"auth_backend": a.cfg.AuthBackend,
+		"system_llm":   llmStatus,
 	})
 }
 

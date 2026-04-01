@@ -35,6 +35,7 @@ type Config struct {
 	DebugMode     bool
 	DatabaseEncryptionKey string
 	AuthBackend           string
+	Version               string // set programmatically, not from config file
 
 	LLMCredentials map[string]string // provider name -> API key
 

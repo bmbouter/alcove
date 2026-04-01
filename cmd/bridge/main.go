@@ -44,6 +44,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("configuration error: %v", err)
 	}
+	cfg.Version = Version
 	log.Printf("runtime=%s port=%s", cfg.RuntimeType, cfg.Port)
 
 	// Connect to NATS (Hail).

@@ -206,18 +206,18 @@
         if (e.target === e.currentTarget) hide($('#change-password-modal'));
     });
 
-    // System LLM modal
-    $('#system-llm-btn').addEventListener('click', function() {
+    // System Info modal
+    $('#system-info-btn').addEventListener('click', function() {
         hide($('#user-dropdown-menu'));
-        show($('#system-llm-modal'));
-        loadSystemLLMModal();
+        show($('#system-info-modal'));
+        loadSystemInfo();
     });
 
-    $('#system-llm-close').addEventListener('click', function() {
-        hide($('#system-llm-modal'));
+    $('#system-info-close').addEventListener('click', function() {
+        hide($('#system-info-modal'));
     });
 
-    $('#system-llm-modal').addEventListener('click', function(e) {
+    $('#system-info-modal').addEventListener('click', function(e) {
         if (e.target === e.currentTarget) hide(e.currentTarget);
     });
 
@@ -3230,7 +3230,7 @@
             var resp = await api('POST', '/api/v1/profiles/build', { description: desc });
             if (resp.status === 503) {
                 var errEl = $('#profile-ai-error');
-                errEl.textContent = 'AI generation not available -- configure system_llm in alcove.yaml and restart Bridge, or configure manually';
+                errEl.textContent = 'AI Builder requires a system LLM. Ask your administrator to configure system_llm in alcove.yaml.';
                 show(errEl);
                 return;
             }
@@ -4216,38 +4216,28 @@
     }
 
     // ---------------------
-    // System LLM modal
+    // System Info modal
     // ---------------------
-    async function loadSystemLLMModal() {
+    async function loadSystemInfo() {
+        var el = $('#system-info-content');
+        el.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Loading...</p></div>';
         try {
-            var resp = await api('GET', '/api/v1/admin/settings/llm');
-            var eff = await resp.json();
-            renderSystemLLMStatus(eff);
+            var resp = await api('GET', '/api/v1/system-info');
+            var info = await resp.json();
+
+            var llmText = info.system_llm && info.system_llm.configured
+                ? 'Configured (' + escapeHtml(info.system_llm.provider) + ')'
+                : '<span style="color:var(--text-muted)">Not configured</span>';
+
+            el.innerHTML = '<div class="session-meta-grid">' +
+                '<div class="meta-card"><div class="meta-label">Version</div><div class="meta-value">' + escapeHtml(info.version || 'dev') + '</div></div>' +
+                '<div class="meta-card"><div class="meta-label">Runtime</div><div class="meta-value">' + escapeHtml(info.runtime || '-') + '</div></div>' +
+                '<div class="meta-card"><div class="meta-label">Auth Backend</div><div class="meta-value">' + escapeHtml(info.auth_backend || '-') + '</div></div>' +
+                '<div class="meta-card"><div class="meta-label">System LLM</div><div class="meta-value">' + llmText + '</div></div>' +
+                '</div>';
         } catch(err) {
-            $('#modal-llm-status').innerHTML = '<p style="color:var(--status-error)">Failed to load settings.</p>';
+            el.innerHTML = '<p style="color:var(--status-error)">Failed to load system info.</p>';
         }
-    }
-
-    function renderSystemLLMStatus(eff) {
-        var el = $('#modal-llm-status');
-        if (!eff.configured) {
-            el.innerHTML = '<p style="color:var(--text-muted)">System LLM is not configured. To enable AI features (profile builder), add a system_llm section to alcove.yaml and restart Bridge.</p>';
-            return;
-        }
-
-        function srcBadge(src) {
-            if (src === 'env') return '<span class="badge" style="font-size:10px;margin-left:4px;">ENV</span>';
-            if (src === 'config') return '<span class="badge badge-running" style="font-size:10px;margin-left:4px;">CONFIG</span>';
-            if (src === 'database') return '<span class="badge badge-running" style="font-size:10px;margin-left:4px;">DB</span>';
-            return '<span class="badge" style="font-size:10px;margin-left:4px;">default</span>';
-        }
-
-        el.innerHTML = '<div class="session-meta-grid">' +
-            '<div class="meta-card"><div class="meta-label">Provider</div><div class="meta-value">' + escapeHtml(eff.provider || '-') + srcBadge(eff.provider_source) + '</div></div>' +
-            '<div class="meta-card"><div class="meta-label">Model</div><div class="meta-value">' + escapeHtml(eff.model || '-') + srcBadge(eff.model_source) + '</div></div>' +
-            '<div class="meta-card"><div class="meta-label">Region</div><div class="meta-value">' + escapeHtml(eff.region || '-') + srcBadge(eff.region_source) + '</div></div>' +
-            '<div class="meta-card"><div class="meta-label">Project ID</div><div class="meta-value">' + escapeHtml(eff.project_id || '-') + srcBadge(eff.project_id_source) + '</div></div>' +
-            '</div>';
     }
 
     // ---------------------
