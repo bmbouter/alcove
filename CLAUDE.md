@@ -91,6 +91,6 @@ ALCOVE_EXTERNAL_NETWORK="alcove-external" \
 - **Podman + k8s** dual runtime via `Runtime` interface in `internal/runtime/`
 - **Credential management via Bridge** — Bridge pre-fetches OAuth2 tokens, Gate receives only short-lived tokens
 - **Dual auth backends** — `AUTH_BACKEND=memory` (default) or `postgres`, explicit selection
-- **SCM API proxied through Gate** — `/github/` and `/gitlab/` endpoints with dummy tokens, operation-level scope enforcement, real credentials never enter Skiff
+- **SCM and tool APIs proxied through Gate** — `/github/`, `/gitlab/`, and `/jira/` endpoints with dummy tokens, operation-level scope enforcement, real credentials never enter Skiff
 - **Custom migration runner** — embedded SQL files, advisory locking, no external dependencies
 - **`alcove.yaml` for infrastructure settings** — config file search order: `ALCOVE_CONFIG_FILE` env var → `./alcove.yaml` → `/etc/alcove/alcove.yaml`; env vars always override; `database_encryption_key` is required (Bridge refuses to start without it); `make up` auto-generates the file for local dev; file is gitignored

@@ -208,10 +208,10 @@ the internal and external (`alcove-external`) networks, proxying all external
 traffic and injecting LLM credentials. When the task finishes, both containers
 are destroyed.
 
-## GitHub/GitLab Integration
+## GitHub/GitLab/JIRA Integration
 
-Alcove can interact with GitHub and GitLab on behalf of your coding agent.
-Register a credential, then include SCM services in your task scope:
+Alcove can interact with GitHub, GitLab, and JIRA on behalf of your coding agent.
+Register a credential, then include services in your task scope:
 
 ```bash
 # Register a GitHub PAT
@@ -225,6 +225,18 @@ curl -X POST http://localhost:8080/api/v1/tasks \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"prompt":"Fix the typo in README.md and open a PR","provider":"vertex","scope":{"services":{"github":{"repos":["org/repo"],"operations":["clone","push_branch","create_pr_draft"]}}}}'
+
+# Register a JIRA Cloud credential (email:api_token)
+curl -X POST http://localhost:8080/api/v1/credentials \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"jira","provider":"jira","auth_type":"basic","credential":"user@example.com:your-api-token"}'
+
+# Submit a task with JIRA scope
+curl -X POST http://localhost:8080/api/v1/tasks \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"Triage new issues in PROJ","scope":{"services":{"jira":{"repos":["PROJ"],"operations":["read_issues","search_issues","add_comment"]}}}}'
 ```
 
 See [SCM Authorization Design](docs/design/gate-scm-authorization.md) for the

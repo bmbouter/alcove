@@ -158,6 +158,8 @@ and `glab` CLIs and the git credential helper inside the Skiff container.
 | `GITLAB_PERSONAL_ACCESS_TOKEN` | string | _(injected)_ | Alias recognized by some GitLab tooling. |
 | `GITLAB_API_URL` | string | _(injected)_ | Points to Gate's `/gitlab/` proxy endpoint (e.g., `http://gate-<taskID>:8443/gitlab`). |
 | `GLAB_HOST` | string | _(injected)_ | GitLab host for `glab` CLI (e.g., `gitlab.com`). |
+| `JIRA_TOKEN` | string | _(injected)_ | Dummy JIRA token. Routed through Gate which swaps it for real credentials (Basic auth). |
+| `JIRA_API_URL` | string | _(injected)_ | Points to Gate's `/jira/` proxy endpoint (e.g., `http://gate-<taskID>:8443/jira`). |
 | `GATE_CREDENTIAL_URL` | string | _(injected)_ | Gate endpoint URL used by the git credential helper to acquire tokens. |
 | `GIT_SSH_COMMAND` | string | _(injected)_ | Set to disable SSH-based git operations (forces HTTPS through Gate). |
 

@@ -1376,11 +1376,18 @@
             });
         });
 
-        // Wire up form submit
+        // Wire up form save via button click (more reliable than form submit
+        // in modal/overlay contexts where the form element may not properly
+        // associate with its submit button after template cloning)
         var form = container.querySelector('form');
         var errorEl = q('credential-form-error');
+        var submitBtnEl = q('cred-submit');
 
-        form.addEventListener('submit', async function(e) {
+        if (form) {
+            form.addEventListener('submit', function(e) { e.preventDefault(); });
+        }
+
+        (submitBtnEl || form).addEventListener('click', async function(e) {
             e.preventDefault();
             if (errorEl) hide(errorEl);
 
@@ -1455,7 +1462,7 @@
             try {
                 await options.onSubmit(payload);
                 form.reset();
-                if (options.showName) container.hidden = true;
+                container.hidden = true;
             } catch(err) {
                 if (errorEl) { errorEl.textContent = err.message || 'Failed to save.'; show(errorEl); }
             } finally {
@@ -4209,10 +4216,16 @@
 
     function renderSystemLLMStatus(eff) {
         var el = $('#modal-llm-status');
+        var configBtn = $('#modal-llm-configure');
+        var deleteBtn = $('#modal-llm-delete');
         if (!eff.configured) {
             el.innerHTML = '<p style="color:var(--text-muted)">System LLM is not configured. AI features (like the profile builder) are disabled.</p>';
+            if (configBtn) configBtn.textContent = 'Configure';
+            if (deleteBtn) deleteBtn.hidden = true;
             return;
         }
+        if (configBtn) configBtn.textContent = 'Reconfigure';
+        if (deleteBtn) deleteBtn.hidden = false;
 
         function srcBadge(src) {
             if (src === 'env') return '<span class="badge" style="font-size:10px;margin-left:4px;">ENV</span>';
@@ -4249,11 +4262,32 @@
                 });
                 if (!settingsResp.ok) throw new Error((await settingsResp.json().catch(function() { return {}; })).error || 'Failed');
 
-                hide(container);
-                loadSystemLLMModal();
+                await loadSystemLLMModal();
+                var modalCard = document.querySelector('#system-llm-modal .modal-card-wide');
+                if (modalCard) modalCard.scrollTop = 0;
             },
             onCancel: function() { hide(container); }
         });
+        // Remove SCM options — only LLM providers
+        var llmSelect = container.querySelector('[data-role="cred-provider"]');
+        if (llmSelect) {
+            llmSelect.querySelectorAll('option[value="github"], option[value="gitlab"], option[value="jira"]').forEach(function(opt) {
+                opt.remove();
+            });
+        }
+    });
+
+    // Delete System LLM
+    $('#modal-llm-delete').addEventListener('click', async function() {
+        if (!confirm('Delete the System LLM configuration? AI features will be disabled.')) return;
+        try {
+            var resp = await api('PUT', '/api/v1/admin/settings/llm', {provider: '', model: '', region: '', project_id: ''});
+            if (!resp.ok) throw new Error('Failed to delete');
+            hide($('#modal-llm-form-container'));
+            await loadSystemLLMModal();
+        } catch(err) {
+            alert(err.message || 'Failed to delete System LLM configuration.');
+        }
     });
 
     // ---------------------

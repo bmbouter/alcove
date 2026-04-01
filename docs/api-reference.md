@@ -98,6 +98,10 @@ The submitter is read from the `X-Alcove-User` header (set automatically by the 
       "github": {
         "repos": ["example/myproject"],
         "operations": ["clone", "create_pr_draft", "read_prs"]
+      },
+      "jira": {
+        "repos": ["MYPROJECT"],
+        "operations": ["read_issues", "search_issues", "add_comment"]
       }
     }
   }
@@ -621,8 +625,8 @@ Create a new credential.
 | Field        | Type   | Required | Description |
 |--------------|--------|----------|-------------|
 | `name`       | string | yes      | Display name (used for provider lookup) |
-| `provider`   | string | yes      | Provider type: `anthropic`, `google-vertex`, `github`, or `gitlab` |
-| `auth_type`  | string | yes      | One of: `api_key`, `service_account`, `adc`, `pat` |
+| `provider`   | string | yes      | Provider type: `anthropic`, `google-vertex`, `github`, `gitlab`, or `jira` |
+| `auth_type`  | string | yes      | One of: `api_key`, `service_account`, `adc`, `pat`, `basic` |
 | `credential` | string | yes      | Raw credential material (API key or JSON service account key) |
 | `project_id` | string | no       | GCP project ID (Vertex only) |
 | `region`     | string | no       | GCP region (Vertex only) |
@@ -673,6 +677,17 @@ curl -X POST http://localhost:8080/api/v1/credentials \
     "provider": "github",
     "auth_type": "pat",
     "credential": "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  }'
+
+# Create a JIRA Cloud credential (email:api_token for Basic auth)
+curl -X POST http://localhost:8080/api/v1/credentials \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "jira",
+    "provider": "jira",
+    "auth_type": "basic",
+    "credential": "user@example.com:your-jira-api-token"
   }'
 ```
 
@@ -1117,7 +1132,7 @@ curl http://localhost:8080/api/v1/health
 
 ## Tools
 
-Manage the MCP tool registry. Builtin tools (`github`, `gitlab`) are read-only and cannot be modified or deleted.
+Manage the MCP tool registry. Builtin tools (`github`, `gitlab`, `jira`) are read-only and cannot be modified or deleted.
 
 ### GET /api/v1/tools
 

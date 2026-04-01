@@ -5,6 +5,20 @@ All notable changes to Alcove are documented here. This project uses
 
 ## v0.2.0
 
+### JIRA/Atlassian Integration
+- Gate proxies JIRA REST API via `/jira/` endpoint with full operation classification
+- 12 builtin JIRA operations: read_issues, search_issues, read_comments, read_transitions,
+  create_issue, update_issue, add_comment, assign_issue, transition_issue, add_worklog,
+  move_to_sprint, delete_issue (plus read_projects, read_boards, read_sprints, read_metadata)
+- Credential form accepts JIRA Cloud credentials (email + API token for Basic auth)
+- Builtin "jira" tool seeded with operations and security profile support
+- Project-key extraction from issue keys for per-project scope enforcement
+
+### NetworkPolicy
+- All policies scoped to `app.kubernetes.io/part-of: alcove` pods only to avoid
+  affecting other applications in a shared namespace
+- Policies renamed to `alcove-default-deny`, `alcove-allow-internal`, `alcove-bridge-egress`
+
 ### Kubernetes Runtime
 - Kubernetes/OpenShift deployment support — Bridge creates k8s Jobs with Gate as
   a native sidecar (KEP-753), no operator or CRDs needed
@@ -38,7 +52,9 @@ All notable changes to Alcove are documented here. This project uses
 
 ### Dashboard
 - Logo: nested waves design (favicon, login page, README)
-- System LLM settings moved from dedicated tab to user dropdown modal
+- System LLM settings moved from Settings tab to user dropdown modal; shows
+  "Configure" when not set, "Reconfigure" + "Delete" when configured
+- SCM options (GitHub/GitLab/Jira) filtered out of the system LLM provider dropdown
 - Task Definitions section on Schedules page with source badges
 - Skill Repos and Task Repos configuration modals
 - Webhook configuration modal with setup instructions

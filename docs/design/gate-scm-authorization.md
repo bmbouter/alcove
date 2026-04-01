@@ -1,12 +1,13 @@
 # Gate SCM Authorization Design
 
-## Status: Implemented (Phase 1-3)
+## Status: Implemented (Phase 1-3 + JIRA)
 
-Phases 1-3 (core SCM proxy, git transport, CLI tools) are implemented.
+Phases 1-3 (core SCM proxy, git transport, CLI tools) are implemented. JIRA/Atlassian
+support is implemented with full operation classification and security profile support.
 Deferred: Phase 4 (draft PR enforcement), Phase 5 (dashboard scope builder),
 Phase 6 (alias expansion).
 
-This document describes how Gate handles GitHub and GitLab operations with
+This document describes how Gate handles GitHub, GitLab, and JIRA operations with
 operation-level authorization, credential injection, and dummy-token isolation.
 
 ---
@@ -84,6 +85,38 @@ grouped into tiers to simplify common configurations.
 | `push_branch`    | `git push` to non-default branch                        |
 | `push_main`      | `git push` to default/protected branch                  |
 
+**JIRA/Atlassian operations** (matched against `*.atlassian.net` hosts):
+
+Gate proxies JIRA REST API requests via the `/jira/` endpoint. The scope uses
+service name `"jira"` (also accepts `"atlassian"` for backward compatibility).
+The `repos` field specifies allowed JIRA project keys (e.g., `["PROJ"]` or
+`["*"]` for all). Project keys are extracted from issue keys in the URL path
+(e.g., `PROJ-123` maps to project `PROJ`).
+
+| Operation          | JIRA REST API pattern                              | Risk   |
+|--------------------|----------------------------------------------------|--------|
+| `read_issues`      | `GET rest/api/*/issue/**`                          | read   |
+| `search_issues`    | `GET/POST rest/api/*/search/**`                    | read   |
+| `read_comments`    | `GET rest/api/*/issue/ISSUE/comment**`             | read   |
+| `read_transitions` | `GET rest/api/*/issue/ISSUE/transitions`            | read   |
+| `read_projects`    | `GET rest/api/*/project**`                         | read   |
+| `read_boards`      | `GET rest/agile/*/board**`                         | read   |
+| `read_sprints`     | `GET rest/agile/*/sprint**`                        | read   |
+| `read_metadata`    | `GET rest/api/*/issuetype,priority,status,field,label,myself,user**` | read |
+| `create_issue`     | `POST rest/api/*/issue`                            | write  |
+| `update_issue`     | `PUT rest/api/*/issue/ISSUE`                       | write  |
+| `add_comment`      | `POST rest/api/*/issue/ISSUE/comment`              | write  |
+| `update_comment`   | `PUT rest/api/*/issue/ISSUE/comment/*`             | write  |
+| `delete_comment`   | `DELETE rest/api/*/issue/ISSUE/comment/*`          | danger |
+| `assign_issue`     | `PUT rest/api/*/issue/ISSUE/assignee`              | write  |
+| `transition_issue` | `POST rest/api/*/issue/ISSUE/transitions`          | write  |
+| `add_worklog`      | `POST rest/api/*/issue/ISSUE/worklog`              | write  |
+| `move_to_sprint`   | `POST rest/agile/*/sprint/N/issue`                 | write  |
+| `delete_issue`     | `DELETE rest/api/*/issue/ISSUE`                    | danger |
+
+JIRA Cloud credentials use Basic auth (`email:api_token`). Gate base64-encodes
+the credential and sends it as `Authorization: Basic <encoded>`.
+
 **Convenience aliases** (expanded by Bridge before passing to Gate):
 
 | Alias            | Expands to                                                        |
@@ -105,6 +138,10 @@ grouped into tiers to simplify common configurations.
     "gitlab": {
       "repos": ["myorg/*"],
       "operations": ["clone", "read_all", "create_mr_draft", "create_comment"]
+    },
+    "jira": {
+      "repos": ["PULP", "PULPRPM"],
+      "operations": ["read_issues", "search_issues", "add_comment", "transition_issue"]
     }
   }
 }
@@ -123,6 +160,7 @@ API base URL (see Section 4).
 ```
 /github/   -->  https://api.github.com/
 /gitlab/   -->  https://gitlab.com/    (or self-hosted, from GATE_GITLAB_HOST)
+/jira/     -->  https://<instance>.atlassian.net/
 ```
 
 These work identically to the existing `/v1/` LLM proxy pattern:
@@ -642,6 +680,20 @@ Content-Type: application/json
 }
 ```
 
+**Create a JIRA Cloud credential (Basic auth with email + API token):**
+
+```http
+POST /api/v1/credentials
+Content-Type: application/json
+
+{
+    "name": "jira-prod",
+    "provider": "jira",
+    "auth_type": "basic",
+    "credential": "user@example.com:your-jira-api-token"
+}
+```
+
 ### 6.2 Task submission with scope
 
 The existing `POST /api/v1/tasks` endpoint accepts a `scope` field. No API
@@ -669,7 +721,7 @@ Content-Type: application/json
 
 The dashboard needs a UI component for building scopes. This is a form with:
 
-1. **Service selector:** checkboxes for GitHub, GitLab.
+1. **Service selector:** checkboxes for GitHub, GitLab, JIRA.
 2. **Repository list:** text inputs for repo patterns (with autocomplete from
    the credential's accessible repos, fetched via Gate test endpoint).
 3. **Operation picker:** grouped checkboxes (Read / Write / Dangerous) with
