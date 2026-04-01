@@ -101,7 +101,7 @@ func (s *RHIdentityStore) UpsertUser(ctx context.Context, id *RHIdentity) (strin
 	_, err = s.db.Exec(ctx,
 		`INSERT INTO auth_users (username, password, external_id, display_name, auth_source, is_admin, created_at, updated_at)
 		 VALUES ($1, NULL, $2, $3, 'rh-identity', false, NOW(), NOW())
-		 ON CONFLICT (external_id) DO UPDATE SET display_name = $3, updated_at = NOW()`,
+		 ON CONFLICT (external_id) WHERE external_id IS NOT NULL DO UPDATE SET display_name = $3, updated_at = NOW()`,
 		assoc.Email, assoc.RhatUUID, displayName)
 	if err != nil {
 		return "", fmt.Errorf("creating user: %w", err)
