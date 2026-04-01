@@ -401,13 +401,16 @@
                         <div class="form-group">
                             <label>Build Mode</label>
                             <div style="display:flex;gap:8px;margin-bottom:12px;">
-                                <button type="button" class="btn btn-small profile-mode-btn active" data-profile-mode="ai">AI Builder</button>
+                                <button type="button" class="btn btn-small btn-outline profile-mode-btn" data-profile-mode="ai">AI Builder</button>
                                 <button type="button" class="btn btn-small btn-outline profile-mode-btn" data-profile-mode="manual">Manual</button>
                             </div>
                         </div>
 
-                        <!-- AI Builder mode -->
-                        <div id="profile-ai-mode">
+                        <!-- AI Builder mode (hidden until system-info check determines default) -->
+                        <div id="profile-ai-mode" hidden>
+                            <p id="ai-builder-hint" style="color: var(--status-error); margin-bottom: 16px;" hidden>
+                                System LLM not configured — AI Builder is disabled.
+                            </p>
                             <div class="form-group">
                                 <label for="profile-ai-description">Describe the profile you need</label>
                                 <textarea id="profile-ai-description" class="input" rows="3" placeholder="e.g., A profile for a contributor who can read and create PRs on GitHub, but not merge or delete branches"></textarea>

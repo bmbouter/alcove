@@ -2,6 +2,17 @@
 (function () {
     'use strict';
 
+    // Detect base path for subpath deployments (e.g., /app/alcove/)
+    // When served at /, basePath is empty. When at /app/alcove/, basePath is '/app/alcove'.
+    var basePath = (function() {
+        var path = window.location.pathname;
+        // If the pathname ends with index.html, strip it
+        path = path.replace(/\/index\.html$/, '');
+        // Strip trailing slash
+        path = path.replace(/\/$/, '');
+        return path;
+    })();
+
     // ---------------------
     // API helper
     // ---------------------
@@ -13,7 +24,7 @@
         }
         const opts = { method, headers };
         if (body) opts.body = JSON.stringify(body);
-        const resp = await fetch(path, opts);
+        const resp = await fetch(basePath + path, opts);
         if (resp.status === 401 && !rhIdentityMode) {
             showLogin();
             throw new Error('unauthorized');
@@ -49,6 +60,7 @@
     let scheduleFromSession = null;
     let selectedProfiles = [];
     let allProfiles = [];
+    let systemLLMConfigured = false;
     let editingProfileId = null;
     let cachedCredentials = [];  // cached from last fetch for prerequisite checks
     let setupChecklistDismissed = localStorage.getItem('alcove_setup_dismissed') === 'true';
@@ -133,7 +145,7 @@
         }
 
         try {
-            const resp = await fetch('/api/v1/auth/login', {
+            const resp = await fetch(basePath + '/api/v1/auth/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password })
@@ -227,7 +239,7 @@
     $('#webhook-config-btn').addEventListener('click', function() {
         hide($('#user-dropdown-menu'));
         show($('#webhook-modal'));
-        $('#webhook-url').textContent = window.location.origin + '/api/v1/webhooks/github';
+        $('#webhook-url').textContent = window.location.origin + basePath + '/api/v1/webhooks/github';
         // Fetch current webhook settings
         api('GET', '/api/v1/admin/settings/webhook').then(function(resp) {
             return resp.json();
@@ -1757,7 +1769,7 @@
             stopSSE();
             try {
                 const token = localStorage.getItem('alcove_token');
-                sseSource = new EventSource('/api/v1/sessions/' + id + '/transcript?stream=true&token=' + encodeURIComponent(token));
+                sseSource = new EventSource(basePath + '/api/v1/sessions/' + id + '/transcript?stream=true&token=' + encodeURIComponent(token));
 
                 // Safety timeout: if SSE hasn't connected in 5s, hide spinner and fall back
                 let sseConnected = false;
@@ -3024,6 +3036,35 @@
                 builtinContainer.innerHTML = '<p style="color:var(--status-error);font-size:13px;">Failed to load profiles. Check your connection and try again.</p>';
             }
         }
+
+        // Check system LLM status and disable AI Builder if not configured
+        try {
+            var sysResp = await api('GET', '/api/v1/system-info');
+            var sysInfo = await sysResp.json();
+            var generateBtn = $('#profile-ai-generate');
+            var aiHint = $('#ai-builder-hint');
+            if (generateBtn) {
+                if (!sysInfo.system_llm || !sysInfo.system_llm.configured) {
+                    systemLLMConfigured = false;
+                    generateBtn.disabled = true;
+                    generateBtn.title = 'AI Builder requires a system LLM. Ask your administrator to configure system_llm in alcove.yaml.';
+                    generateBtn.style.opacity = '0.5';
+                    generateBtn.style.cursor = 'not-allowed';
+                    if (aiHint) show(aiHint);
+                    setProfileMode('manual');
+                } else {
+                    systemLLMConfigured = true;
+                    generateBtn.disabled = false;
+                    generateBtn.title = '';
+                    generateBtn.style.opacity = '';
+                    generateBtn.style.cursor = '';
+                    if (aiHint) hide(aiHint);
+                    setProfileMode('ai');
+                }
+            }
+        } catch (e) {
+            // Silently ignore — the 503 fallback on the generate click still works
+        }
     }
 
     function renderProfileCard(p, isBuiltin) {
@@ -3205,7 +3246,7 @@
     // Show create profile form
     $('#show-create-profile').addEventListener('click', function () {
         openProfileForm();
-        setProfileMode('ai');
+        setProfileMode(systemLLMConfigured ? 'ai' : 'manual');
     });
 
     // Cancel create profile
@@ -4586,7 +4627,7 @@
     (async function init() {
         if (!localStorage.getItem('alcove_token')) {
             try {
-                const resp = await fetch('/api/v1/auth/me', {
+                const resp = await fetch(basePath + '/api/v1/auth/me', {
                     headers: { 'Content-Type': 'application/json' }
                 });
                 if (resp.ok) {
