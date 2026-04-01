@@ -1,7 +1,6 @@
 ---
 name: deploy-staging
 description: Deploy a new Alcove version to the OpenShift staging environment via app-interface MR
-allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent
 user-invocable: true
 argument-hint: "[version] (e.g., 0.3.1 — omit to use latest release)"
 ---

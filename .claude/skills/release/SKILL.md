@@ -1,7 +1,6 @@
 ---
 name: release
 description: Create a new Alcove release — changelog, tag, build, publish, and verify containers
-allowed-tools: Read, Write, Edit, Bash, Glob, Grep, Agent
 user-invocable: true
 argument-hint: "[version] (e.g., 0.4.0 — omit to auto-detect from semver)"
 ---
