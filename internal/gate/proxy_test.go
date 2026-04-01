@@ -845,3 +845,369 @@ func TestMultiServiceScope(t *testing.T) {
 		t.Errorf("gitlab read_prs should be denied (not in gitlab ops), got %d", code)
 	}
 }
+
+// --------------------------------------------------------------------
+// JIRA / Atlassian tests
+// --------------------------------------------------------------------
+
+// jiraScope returns a scope allowing jira with the specified operations.
+func jiraScope(ops []string) internal.Scope {
+	return internal.Scope{
+		Services: map[string]internal.ServiceScope{
+			"jira": {Repos: []string{"*"}, Operations: ops},
+		},
+	}
+}
+
+// newJiraTestProxy creates a Gate proxy configured for JIRA with the given scope
+// and optional credential override. It registers a "jira" ToolConfig so that
+// the /jira/ prefix is routed correctly.
+func newJiraTestProxy(t *testing.T, scope internal.Scope, creds map[string]string) (*Proxy, *httptest.Server) {
+	t.Helper()
+	cfg := Config{
+		SessionID:   "test-session",
+		Scope:       scope,
+		Credentials: creds,
+		ToolConfigs: map[string]ToolConfig{
+			"jira": {
+				APIHost:    "company.atlassian.net",
+				AuthHeader: "Authorization",
+				AuthFormat: "basic",
+			},
+		},
+		SessionToken: "session-tok",
+		LLMToken:     "llm-secret-key",
+		LLMProvider:  "anthropic",
+		LLMTokenType: "api_key",
+	}
+	p := NewProxy(cfg)
+	ts := httptest.NewServer(p.Handler())
+	t.Cleanup(func() { ts.Close(); p.Stop() })
+	return p, ts
+}
+
+// --------------------------------------------------------------------
+// Test 1: JIRA operation mapping
+// --------------------------------------------------------------------
+
+func TestJiraOperationMapping(t *testing.T) {
+	tests := []struct {
+		method   string
+		path     string
+		expected string
+	}{
+		{"GET", "rest/api/3/issue/PROJ-123", "read_issues"},
+		{"GET", "rest/api/3/search", "search_issues"},
+		{"POST", "rest/api/3/search/jql", "search_issues"},
+		{"GET", "rest/api/3/issue/PROJ-123/comment", "read_comments"},
+		{"GET", "rest/api/3/project", "read_projects"},
+		{"GET", "rest/api/3/project/PROJ", "read_projects"},
+		{"POST", "rest/api/3/issue", "create_issue"},
+		{"PUT", "rest/api/3/issue/PROJ-123", "update_issue"},
+		{"POST", "rest/api/3/issue/PROJ-123/comment", "add_comment"},
+		{"PUT", "rest/api/3/issue/PROJ-123/comment/12345", "update_comment"},
+		{"POST", "rest/api/3/issue/PROJ-123/transitions", "transition_issue"},
+		{"PUT", "rest/api/3/issue/PROJ-123/assignee", "assign_issue"},
+		{"DELETE", "rest/api/3/issue/PROJ-123", "delete_issue"},
+		{"DELETE", "rest/api/3/issue/PROJ-123/comment/456", "delete_comment"},
+		{"GET", "rest/api/3/issuetype", "read_metadata"},
+		{"GET", "rest/agile/1.0/board", "read_boards"},
+		{"GET", "rest/agile/1.0/sprint/5", "read_sprints"},
+		{"POST", "rest/agile/1.0/sprint/5/issue", "move_to_sprint"},
+		{"GET", "rest/api/3/issue/PROJ-123/transitions", "read_transitions"},
+		{"POST", "rest/api/3/issue/PROJ-123/worklog", "add_worklog"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method+"_"+tt.path, func(t *testing.T) {
+			got := mapJiraOperation(tt.method, tt.path)
+			if got != tt.expected {
+				t.Errorf("mapJiraOperation(%q, %q) = %q, want %q", tt.method, tt.path, got, tt.expected)
+			}
+		})
+	}
+}
+
+// --------------------------------------------------------------------
+// Test 2: JIRA scope enforcement — total blocking
+// --------------------------------------------------------------------
+
+func TestJiraScopeEnforcement_TotalBlocking(t *testing.T) {
+	// No jira service in scope at all
+	scope := internal.Scope{
+		Services: map[string]internal.ServiceScope{},
+	}
+	_, ts := newJiraTestProxy(t, scope, map[string]string{"jira": "user:token"})
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"GET issue", "GET", "/jira/rest/api/3/issue/PROJ-123"},
+		{"POST issue", "POST", "/jira/rest/api/3/issue"},
+		{"GET search", "GET", "/jira/rest/api/3/search?jql=project=PROJ"},
+		{"GET project", "GET", "/jira/rest/api/3/project"},
+		{"PUT issue", "PUT", "/jira/rest/api/3/issue/PROJ-123"},
+		{"DELETE issue", "DELETE", "/jira/rest/api/3/issue/PROJ-123"},
+		{"GET boards", "GET", "/jira/rest/agile/1.0/board"},
+		{"POST comment", "POST", "/jira/rest/api/3/issue/PROJ-123/comment"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code, _ := doRequest(t, tt.method, ts.URL+tt.path, "")
+			if code != http.StatusForbidden {
+				t.Errorf("expected 403 Forbidden (no jira in scope) but got %d", code)
+			}
+		})
+	}
+}
+
+// --------------------------------------------------------------------
+// Test 3: JIRA scope enforcement — read only
+// --------------------------------------------------------------------
+
+func TestJiraScopeEnforcement_ReadOnly(t *testing.T) {
+	scope := jiraScope([]string{
+		"read_issues", "search_issues", "read_projects",
+		"read_comments", "read_metadata", "read_boards",
+		"read_sprints", "read_transitions",
+	})
+	_, ts := newJiraTestProxy(t, scope, map[string]string{"jira": "user:token"})
+
+	// Read operations should pass
+	readTests := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"read issue", "GET", "/jira/rest/api/3/issue/PROJ-123"},
+		{"search issues", "GET", "/jira/rest/api/3/search?jql=project=PROJ"},
+		{"read project", "GET", "/jira/rest/api/3/project"},
+		{"read comments", "GET", "/jira/rest/api/3/issue/PROJ-123/comment"},
+		{"read boards", "GET", "/jira/rest/agile/1.0/board"},
+		{"read sprints", "GET", "/jira/rest/agile/1.0/sprint/5"},
+		{"read transitions", "GET", "/jira/rest/api/3/issue/PROJ-123/transitions"},
+	}
+
+	for _, tt := range readTests {
+		t.Run("allowed_"+tt.name, func(t *testing.T) {
+			code, body := doRequest(t, tt.method, ts.URL+tt.path, "")
+			if code == http.StatusForbidden {
+				t.Errorf("expected allowed (non-403) but got 403: %s", body)
+			}
+		})
+	}
+
+	// Write operations should be denied
+	writeTests := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"create issue", "POST", "/jira/rest/api/3/issue"},
+		{"update issue", "PUT", "/jira/rest/api/3/issue/PROJ-123"},
+		{"delete issue", "DELETE", "/jira/rest/api/3/issue/PROJ-123"},
+		{"add comment", "POST", "/jira/rest/api/3/issue/PROJ-123/comment"},
+		{"transition issue", "POST", "/jira/rest/api/3/issue/PROJ-123/transitions"},
+		{"assign issue", "PUT", "/jira/rest/api/3/issue/PROJ-123/assignee"},
+	}
+
+	for _, tt := range writeTests {
+		t.Run("denied_"+tt.name, func(t *testing.T) {
+			code, _ := doRequest(t, tt.method, ts.URL+tt.path, "")
+			if code != http.StatusForbidden {
+				t.Errorf("expected 403 Forbidden but got %d", code)
+			}
+		})
+	}
+}
+
+// --------------------------------------------------------------------
+// Test 4: JIRA scope enforcement — full access
+// --------------------------------------------------------------------
+
+func TestJiraScopeEnforcement_FullAccess(t *testing.T) {
+	scope := jiraScope([]string{"*"})
+	_, ts := newJiraTestProxy(t, scope, map[string]string{"jira": "user:token"})
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"read issue", "GET", "/jira/rest/api/3/issue/PROJ-123"},
+		{"search issues", "GET", "/jira/rest/api/3/search?jql=project=PROJ"},
+		{"read project", "GET", "/jira/rest/api/3/project"},
+		{"create issue", "POST", "/jira/rest/api/3/issue"},
+		{"update issue", "PUT", "/jira/rest/api/3/issue/PROJ-123"},
+		{"delete issue", "DELETE", "/jira/rest/api/3/issue/PROJ-123"},
+		{"add comment", "POST", "/jira/rest/api/3/issue/PROJ-123/comment"},
+		{"update comment", "PUT", "/jira/rest/api/3/issue/PROJ-123/comment/12345"},
+		{"delete comment", "DELETE", "/jira/rest/api/3/issue/PROJ-123/comment/456"},
+		{"transition issue", "POST", "/jira/rest/api/3/issue/PROJ-123/transitions"},
+		{"assign issue", "PUT", "/jira/rest/api/3/issue/PROJ-123/assignee"},
+		{"read boards", "GET", "/jira/rest/agile/1.0/board"},
+		{"read sprints", "GET", "/jira/rest/agile/1.0/sprint/5"},
+		{"move to sprint", "POST", "/jira/rest/agile/1.0/sprint/5/issue"},
+		{"add worklog", "POST", "/jira/rest/api/3/issue/PROJ-123/worklog"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code, body := doRequest(t, tt.method, ts.URL+tt.path, "")
+			if code == http.StatusForbidden {
+				t.Errorf("expected allowed with * wildcard but got 403: %s", body)
+			}
+		})
+	}
+}
+
+// --------------------------------------------------------------------
+// Test 5: JIRA scope enforcement — reduced write
+// --------------------------------------------------------------------
+
+func TestJiraScopeEnforcement_ReducedWrite(t *testing.T) {
+	scope := jiraScope([]string{
+		"read_issues", "search_issues", "read_projects", "read_comments",
+		"create_issue", "add_comment",
+	})
+	_, ts := newJiraTestProxy(t, scope, map[string]string{"jira": "user:token"})
+
+	// Allowed operations
+	allowedTests := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"read issue", "GET", "/jira/rest/api/3/issue/PROJ-123"},
+		{"search issues", "GET", "/jira/rest/api/3/search?jql=project=PROJ"},
+		{"read project", "GET", "/jira/rest/api/3/project"},
+		{"read comments", "GET", "/jira/rest/api/3/issue/PROJ-123/comment"},
+		{"create issue", "POST", "/jira/rest/api/3/issue"},
+		{"add comment", "POST", "/jira/rest/api/3/issue/PROJ-123/comment"},
+	}
+
+	for _, tt := range allowedTests {
+		t.Run("allowed_"+tt.name, func(t *testing.T) {
+			code, body := doRequest(t, tt.method, ts.URL+tt.path, "")
+			if code == http.StatusForbidden {
+				t.Errorf("expected allowed but got 403: %s", body)
+			}
+		})
+	}
+
+	// Denied operations
+	deniedTests := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"delete issue", "DELETE", "/jira/rest/api/3/issue/PROJ-123"},
+		{"update issue", "PUT", "/jira/rest/api/3/issue/PROJ-123"},
+		{"transition issue", "POST", "/jira/rest/api/3/issue/PROJ-123/transitions"},
+		{"assign issue", "PUT", "/jira/rest/api/3/issue/PROJ-123/assignee"},
+		{"delete comment", "DELETE", "/jira/rest/api/3/issue/PROJ-123/comment/456"},
+	}
+
+	for _, tt := range deniedTests {
+		t.Run("denied_"+tt.name, func(t *testing.T) {
+			code, _ := doRequest(t, tt.method, ts.URL+tt.path, "")
+			if code != http.StatusForbidden {
+				t.Errorf("expected 403 Forbidden but got %d", code)
+			}
+		})
+	}
+}
+
+// --------------------------------------------------------------------
+// Test 6: JIRA credential injection — Basic auth
+// --------------------------------------------------------------------
+
+func TestJiraCredentialInjection_Basic(t *testing.T) {
+	p := &Proxy{config: Config{
+		Credentials: map[string]string{"jira": "user@example.com:api-token-123"},
+	}}
+
+	req := httptest.NewRequest("GET", "https://company.atlassian.net/rest/api/3/issue/PROJ-1", nil)
+	p.injectToolCredential(req, "jira", "Authorization", "basic")
+
+	got := req.Header.Get("Authorization")
+	expected := "Basic " + base64.StdEncoding.EncodeToString([]byte("user@example.com:api-token-123"))
+	if got != expected {
+		t.Errorf("expected %q, got %q", expected, got)
+	}
+}
+
+// --------------------------------------------------------------------
+// Test 7: JIRA credential isolation — cross-service
+// --------------------------------------------------------------------
+
+func TestJiraCredentialIsolation(t *testing.T) {
+	// Scope only allows jira, NOT github or gitlab
+	scope := internal.Scope{
+		Services: map[string]internal.ServiceScope{
+			"jira": {Repos: []string{"*"}, Operations: []string{"*"}},
+		},
+	}
+
+	cfg := Config{
+		SessionID: "test-session",
+		Scope:     scope,
+		Credentials: map[string]string{
+			"jira":   "user@example.com:jira-token",
+			"github": "ghp_github_secret",
+			"gitlab": "glpat_gitlab_secret",
+		},
+		ToolConfigs: map[string]ToolConfig{
+			"jira": {
+				APIHost:    "company.atlassian.net",
+				AuthHeader: "Authorization",
+				AuthFormat: "basic",
+			},
+		},
+		SessionToken: "session-tok",
+		LLMToken:     "llm-secret-key",
+		LLMProvider:  "anthropic",
+		LLMTokenType: "api_key",
+	}
+	p := NewProxy(cfg)
+	ts := httptest.NewServer(p.Handler())
+	t.Cleanup(func() { ts.Close(); p.Stop() })
+
+	// JIRA request should be allowed (jira is in scope)
+	code, _ := doRequest(t, "GET", ts.URL+"/jira/rest/api/3/issue/PROJ-123", "")
+	if code == http.StatusForbidden {
+		t.Errorf("expected jira request to be allowed, got 403")
+	}
+
+	// GitHub request should be denied (github not in scope)
+	code, _ = doRequest(t, "GET", ts.URL+"/github/repos/pulp/pulpcore/pulls", "")
+	if code != http.StatusForbidden {
+		t.Errorf("expected 403 for github (not in scope), got %d", code)
+	}
+
+	// GitLab request should be denied (gitlab not in scope)
+	code, _ = doRequest(t, "GET", ts.URL+"/gitlab/api/v4/projects/12345/merge_requests", "")
+	if code != http.StatusForbidden {
+		t.Errorf("expected 403 for gitlab (not in scope), got %d", code)
+	}
+
+	// Now test the reverse: scope only allows github, jira should be denied
+	scope2 := internal.Scope{
+		Services: map[string]internal.ServiceScope{
+			"github": {Repos: []string{"*"}, Operations: []string{"*"}},
+		},
+	}
+	cfg2 := cfg
+	cfg2.Scope = scope2
+	p2 := NewProxy(cfg2)
+	ts2 := httptest.NewServer(p2.Handler())
+	t.Cleanup(func() { ts2.Close(); p2.Stop() })
+
+	code, _ = doRequest(t, "GET", ts2.URL+"/jira/rest/api/3/issue/PROJ-123", "")
+	if code != http.StatusForbidden {
+		t.Errorf("expected 403 for jira (not in scope when only github allowed), got %d", code)
+	}
+}

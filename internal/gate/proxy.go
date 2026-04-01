@@ -629,8 +629,8 @@ func (p *Proxy) injectServiceCredential(req *http.Request, service string) {
 		req.Header.Set("Authorization", "Bearer "+cred)
 	case "gitlab":
 		req.Header.Set("PRIVATE-TOKEN", cred)
-	case "atlassian":
-		req.Header.Set("Authorization", "Bearer "+cred)
+	case "jira":
+		req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(cred)))
 	}
 }
 
@@ -788,7 +788,7 @@ func identifyService(host string) string {
 	case strings.Contains(host, "gitlab"):
 		return "gitlab"
 	case strings.HasSuffix(host, ".atlassian.net"):
-		return "atlassian"
+		return "jira"
 	default:
 		return "unknown"
 	}

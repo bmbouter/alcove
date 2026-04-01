@@ -315,7 +315,7 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 	scmDummyTokens := make(map[string]string)
 	scmAPIHosts := make(map[string]string) // service -> custom api_host from credential
 	for service := range scope.Services {
-		if service == "github" || service == "gitlab" {
+		if service == "github" || service == "gitlab" || service == "jira" {
 			realToken, apiHost, err := d.credStore.AcquireSCMTokenWithHost(ctx, service)
 			if err != nil {
 				log.Printf("warning: no credential for %s: %v", service, err)
@@ -507,6 +507,10 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		skiffEnv["GITLAB_PERSONAL_ACCESS_TOKEN"] = token
 		skiffEnv["GITLAB_API_URL"] = fmt.Sprintf("http://%s:8443/gitlab/api/v4", gateName)
 		skiffEnv["GLAB_HOST"] = fmt.Sprintf("http://%s:8443/gitlab", gateName)
+	}
+	if token, ok := scmDummyTokens["jira"]; ok {
+		skiffEnv["JIRA_TOKEN"] = token
+		skiffEnv["JIRA_API_URL"] = fmt.Sprintf("http://%s:8443/jira", gateName)
 	}
 
 	// Resolve skill repos for this task.

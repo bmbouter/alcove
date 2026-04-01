@@ -259,6 +259,24 @@ func (ts *ToolStore) SeedBuiltinTools(ctx context.Context) error {
 		return fmt.Errorf("marshaling gitlab operations: %w", err)
 	}
 
+	jiraOps, err := json.Marshal([]ToolOperation{
+		{Name: "read_issues", Description: "Read issues", Risk: "read"},
+		{Name: "search_issues", Description: "Search issues with JQL", Risk: "read"},
+		{Name: "read_comments", Description: "Read issue comments", Risk: "read"},
+		{Name: "read_projects", Description: "Read projects", Risk: "read"},
+		{Name: "read_boards", Description: "Read agile boards", Risk: "read"},
+		{Name: "read_sprints", Description: "Read sprints", Risk: "read"},
+		{Name: "read_metadata", Description: "Read issue types, priorities, statuses, fields", Risk: "read"},
+		{Name: "create_issue", Description: "Create new issue", Risk: "write"},
+		{Name: "update_issue", Description: "Update existing issue", Risk: "write"},
+		{Name: "add_comment", Description: "Add comment to issue", Risk: "write"},
+		{Name: "transition_issue", Description: "Transition issue status", Risk: "write"},
+		{Name: "delete_issue", Description: "Delete issue", Risk: "danger"},
+	})
+	if err != nil {
+		return fmt.Errorf("marshaling jira operations: %w", err)
+	}
+
 	builtins := []struct {
 		name        string
 		displayName string
@@ -288,6 +306,16 @@ func (ts *ToolStore) SeedBuiltinTools(ctx context.Context) error {
 			authHeader:  "PRIVATE-TOKEN",
 			authFormat:  "header",
 			operations:  string(gitlabOps),
+		},
+		{
+			name:        "jira",
+			displayName: "Jira",
+			mcpCommand:  "",
+			mcpArgs:     `[]`,
+			apiHost:     "",
+			authHeader:  "Authorization",
+			authFormat:  "basic",
+			operations:  string(jiraOps),
 		},
 	}
 

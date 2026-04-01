@@ -87,7 +87,7 @@
                         </li>
                         <li id="setup-item-scm" class="setup-item">
                             <span class="setup-check">&#10007;</span>
-                            <span class="setup-label">Add a GitHub or GitLab credential <span class="setup-optional">(optional, for repository access)</span></span>
+                            <span class="setup-label">Add a GitHub, GitLab, or Jira credential <span class="setup-optional">(optional, for platform access)</span></span>
                             <a href="#credentials" class="btn btn-small btn-outline setup-action">Add Credential</a>
                         </li>
                         <li id="setup-item-profile" class="setup-item">
@@ -803,6 +803,7 @@
                         <option value="google-vertex">Google Vertex AI</option>
                         <option value="github">GitHub</option>
                         <option value="gitlab">GitLab</option>
+                        <option value="jira">Jira</option>
                     </select>
                 </div>
             </div>
@@ -905,13 +906,24 @@ cat ~/.config/gcloud/application_default_credentials.json   # or just cat and co
                     <input type="password" data-role="cred-pat" class="input mono" placeholder="ghp_... or glpat-...">
                     <small class="form-help">
                         <strong>GitHub:</strong> Create at <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">github.com/settings/tokens</a>. Use a fine-grained token scoped to specific repos.<br>
-                        <strong>GitLab:</strong> Create at Settings → Access Tokens. Use a project or personal access token.
+                        <strong>GitLab:</strong> Create at Settings → Access Tokens. Use a project or personal access token.<br>
+                        <strong>Jira:</strong> Create at <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noopener">Atlassian API tokens</a>. Used with your email for Basic auth.
                     </small>
                 </div>
                 <div class="form-group" data-role="cred-gitlab-host-group" hidden>
                     <label>GitLab Host</label>
                     <input type="text" data-role="cred-gitlab-host" class="input" placeholder="gitlab.com (default, or your self-hosted URL)">
                     <small class="form-help">Leave empty for gitlab.com. For self-hosted GitLab, enter the hostname (e.g., gitlab.mycompany.com).</small>
+                </div>
+                <div class="form-group" data-role="jira-host-group" hidden>
+                    <label>Jira Instance URL <span class="required">*</span></label>
+                    <input type="text" data-role="cred-jira-host" class="input" placeholder="https://mycompany.atlassian.net">
+                    <small class="form-help">Your Jira Cloud or Server URL.</small>
+                </div>
+                <div class="form-group" data-role="jira-email-group" hidden>
+                    <label>Email <span class="required">*</span></label>
+                    <input type="text" data-role="cred-jira-email" class="input" placeholder="user@example.com">
+                    <small class="form-help">Your Atlassian account email (for API token auth).</small>
                 </div>
             </div>
             <div data-role="credential-form-error" class="error-message" role="alert" hidden></div>

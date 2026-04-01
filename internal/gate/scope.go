@@ -22,10 +22,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/bmbouter/alcove/internal"
 )
+
+// issueKeyRegexp matches JIRA issue keys like PROJ-123, ABC-1, MYPROJECT-999.
+var issueKeyRegexp = regexp.MustCompile(`^[A-Z][A-Z0-9]+-\d+$`)
 
 // ParseScope deserializes a JSON-encoded Scope.
 func ParseScope(data string) (internal.Scope, error) {
@@ -335,28 +339,235 @@ func mapGitLabOperation(method, subpath string) string {
 
 // checkAtlassian handles Jira/Confluence API requests.
 func checkAtlassian(method, path string, scope internal.Scope) AccessResult {
-	svcScope, ok := scope.Services["atlassian"]
+	// Check both "jira" and "atlassian" service names for backward compat.
+	svcScope, ok := scope.Services["jira"]
+	serviceName := "jira"
 	if !ok {
-		return AccessResult{Allowed: false, Service: "atlassian", Reason: "atlassian not in scope"}
+		svcScope, ok = scope.Services["atlassian"]
+		serviceName = "atlassian"
+	}
+	if !ok {
+		return AccessResult{Allowed: false, Service: "jira", Reason: "jira not in scope"}
 	}
 
 	method = strings.ToUpper(method)
-	var op string
-	if method == "GET" || method == "HEAD" {
-		op = "read"
-	} else {
-		op = "write"
+	op := mapJiraOperation(method, strings.TrimPrefix(path, "/"))
+
+	// Extract project key from issue keys in the path and check against allowed repos/projects.
+	if len(svcScope.Repos) > 0 {
+		if projectKey := extractJiraProjectKey(path); projectKey != "" {
+			if !repoAllowed(projectKey, svcScope.Repos) {
+				return AccessResult{
+					Allowed: false,
+					Service: serviceName,
+					Reason:  fmt.Sprintf("project %q not in scope", projectKey),
+				}
+			}
+		}
 	}
 
 	if !operationAllowed(op, svcScope.Operations) {
 		return AccessResult{
 			Allowed:   false,
-			Service:   "atlassian",
+			Service:   serviceName,
 			Operation: op,
 			Reason:    fmt.Sprintf("operation %q not permitted", op),
 		}
 	}
-	return AccessResult{Allowed: true, Service: "atlassian", Operation: op}
+	return AccessResult{Allowed: true, Service: serviceName, Operation: op}
+}
+
+// mapJiraOperation maps an HTTP method + API path to a JIRA operation name.
+// The path should be the API path without leading slash (e.g., "rest/api/3/issue/PROJ-123").
+func mapJiraOperation(method, path string) string {
+	method = strings.ToUpper(method)
+	path = strings.TrimSuffix(path, "/")
+	normalized := normalizeJiraPath(path)
+
+	switch {
+	// Read operations — more specific patterns first
+
+	// Transitions: GET rest/api/*/issue/ISSUE/transitions
+	case matchJiraPath(normalized, "rest/api/*/issue/ISSUE/transitions") && method == "GET":
+		return "read_transitions"
+
+	// Comments: GET rest/api/*/issue/ISSUE/comment*
+	case matchJiraPath(normalized, "rest/api/*/issue/ISSUE/comment") && method == "GET":
+		return "read_comments"
+	case matchJiraPathPrefix(normalized, "rest/api/*/issue/ISSUE/comment/") && method == "GET":
+		return "read_comments"
+
+	// Issues: GET rest/api/*/issue or rest/api/*/issue/*
+	case matchJiraPath(normalized, "rest/api/*/issue") && method == "GET":
+		return "read_issues"
+	case matchJiraPathPrefix(normalized, "rest/api/*/issue/ISSUE") && method == "GET":
+		return "read_issues"
+
+	// Search: GET or POST rest/api/*/search*
+	case matchJiraPathPrefix(normalized, "rest/api/*/search") && (method == "GET" || method == "POST"):
+		return "search_issues"
+
+	// Projects: GET rest/api/*/project*
+	case matchJiraPathPrefix(normalized, "rest/api/*/project") && method == "GET":
+		return "read_projects"
+
+	// Boards: GET rest/agile/*/board*
+	case matchJiraPathPrefix(normalized, "rest/agile/*/board") && method == "GET":
+		return "read_boards"
+
+	// Sprints: GET rest/agile/*/sprint*
+	case matchJiraPathPrefix(normalized, "rest/agile/*/sprint") && method == "GET":
+		return "read_sprints"
+
+	// Metadata: GET rest/api/*/issuetype, priority, status, field, label, myself, user*
+	case matchJiraPathPrefix(normalized, "rest/api/*/issuetype") && method == "GET":
+		return "read_metadata"
+	case matchJiraPathPrefix(normalized, "rest/api/*/priority") && method == "GET":
+		return "read_metadata"
+	case matchJiraPathPrefix(normalized, "rest/api/*/status") && method == "GET":
+		return "read_metadata"
+	case matchJiraPathPrefix(normalized, "rest/api/*/field") && method == "GET":
+		return "read_metadata"
+	case matchJiraPathPrefix(normalized, "rest/api/*/label") && method == "GET":
+		return "read_metadata"
+	case matchJiraPathPrefix(normalized, "rest/api/*/myself") && method == "GET":
+		return "read_metadata"
+	case matchJiraPathPrefix(normalized, "rest/api/*/user") && method == "GET":
+		return "read_metadata"
+
+	// Write operations — more specific patterns first
+
+	// Transition issue: POST rest/api/*/issue/ISSUE/transitions
+	case matchJiraPath(normalized, "rest/api/*/issue/ISSUE/transitions") && method == "POST":
+		return "transition_issue"
+
+	// Add comment: POST rest/api/*/issue/ISSUE/comment
+	case matchJiraPath(normalized, "rest/api/*/issue/ISSUE/comment") && method == "POST":
+		return "add_comment"
+
+	// Update comment: PUT rest/api/*/issue/ISSUE/comment/*
+	case matchJiraPathPrefix(normalized, "rest/api/*/issue/ISSUE/comment/") && method == "PUT":
+		return "update_comment"
+
+	// Delete comment: DELETE rest/api/*/issue/ISSUE/comment/*
+	case matchJiraPathPrefix(normalized, "rest/api/*/issue/ISSUE/comment/") && method == "DELETE":
+		return "delete_comment"
+
+	// Assign issue: PUT rest/api/*/issue/ISSUE/assignee
+	case matchJiraPath(normalized, "rest/api/*/issue/ISSUE/assignee") && method == "PUT":
+		return "assign_issue"
+
+	// Add worklog: POST rest/api/*/issue/ISSUE/worklog
+	case matchJiraPath(normalized, "rest/api/*/issue/ISSUE/worklog") && method == "POST":
+		return "add_worklog"
+
+	// Create issue: POST rest/api/*/issue (not /issue/SOMETHING)
+	case matchJiraPath(normalized, "rest/api/*/issue") && method == "POST":
+		return "create_issue"
+
+	// Delete issue: DELETE rest/api/*/issue/*
+	case matchJiraPathPrefix(normalized, "rest/api/*/issue/ISSUE") && method == "DELETE":
+		return "delete_issue"
+
+	// Update issue: PUT rest/api/*/issue/ISSUE (not /issue/ISSUE/comment etc.)
+	case matchJiraPath(normalized, "rest/api/*/issue/ISSUE") && method == "PUT":
+		return "update_issue"
+
+	// Move to sprint: POST rest/agile/*/sprint/N/issue
+	case matchJiraPathSprint(normalized) && method == "POST":
+		return "move_to_sprint"
+
+	// Read catch-all for any rest/* path
+	case strings.HasPrefix(normalized, "rest/") && (method == "GET" || method == "HEAD"):
+		return "read"
+
+	// Write catch-all
+	default:
+		if method == "GET" || method == "HEAD" {
+			return "read"
+		}
+		return "write"
+	}
+}
+
+// normalizeJiraPath replaces JIRA issue keys (e.g., PROJ-123) with "ISSUE"
+// for pattern matching, and numeric segments with "N".
+func normalizeJiraPath(path string) string {
+	parts := strings.Split(path, "/")
+	for i, p := range parts {
+		if issueKeyRegexp.MatchString(p) {
+			parts[i] = "ISSUE"
+		} else if isNumeric(p) {
+			parts[i] = "N"
+		}
+	}
+	return strings.Join(parts, "/")
+}
+
+// matchJiraPath checks if a normalized path matches a pattern with wildcard
+// support. The pattern uses "*" to match a single path segment (e.g., API version).
+func matchJiraPath(normalized, pattern string) bool {
+	nParts := strings.Split(normalized, "/")
+	pParts := strings.Split(pattern, "/")
+	if len(nParts) != len(pParts) {
+		return false
+	}
+	for i, pp := range pParts {
+		if pp == "*" {
+			continue
+		}
+		if nParts[i] != pp {
+			return false
+		}
+	}
+	return true
+}
+
+// matchJiraPathPrefix checks if a normalized path starts with a pattern prefix.
+// The pattern uses "*" to match a single path segment.
+func matchJiraPathPrefix(normalized, pattern string) bool {
+	// For prefix matching, the normalized path must have at least as many segments
+	// as the pattern, and all pattern segments must match.
+	pattern = strings.TrimSuffix(pattern, "/")
+	nParts := strings.Split(normalized, "/")
+	pParts := strings.Split(pattern, "/")
+	if len(nParts) < len(pParts) {
+		return false
+	}
+	for i, pp := range pParts {
+		if pp == "*" {
+			continue
+		}
+		if nParts[i] != pp {
+			return false
+		}
+	}
+	return true
+}
+
+// matchJiraPathSprint matches rest/agile/*/sprint/N/issue pattern.
+func matchJiraPathSprint(normalized string) bool {
+	parts := strings.Split(normalized, "/")
+	// rest/agile/{version}/sprint/{id}/issue = 6 parts
+	if len(parts) != 6 {
+		return false
+	}
+	return parts[0] == "rest" && parts[1] == "agile" && parts[3] == "sprint" && parts[5] == "issue"
+}
+
+// extractJiraProjectKey extracts a JIRA project key from issue keys in the path.
+// For example, "rest/api/3/issue/PROJ-123" returns "PROJ".
+func extractJiraProjectKey(path string) string {
+	parts := strings.Split(path, "/")
+	for _, p := range parts {
+		if issueKeyRegexp.MatchString(p) {
+			idx := strings.LastIndex(p, "-")
+			if idx > 0 {
+				return p[:idx]
+			}
+		}
+	}
+	return ""
 }
 
 // repoAllowed checks if a repo is in the allowed list. Supports wildcard "*".
