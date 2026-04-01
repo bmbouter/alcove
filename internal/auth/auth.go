@@ -22,6 +22,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -176,7 +177,7 @@ func AuthMiddleware(store Authenticator, mgr UserManager) func(http.Handler) htt
 			path := r.URL.Path
 
 			// Public and internal routes.
-			if path == "/api/v1/auth/login" || path == "/api/v1/auth/me" ||
+			if path == "/api/v1/auth/login" ||
 				path == "/api/v1/health" || path == "/api/v1/system-info" ||
 				strings.HasPrefix(path, "/api/v1/internal/") ||
 				strings.HasPrefix(path, "/api/v1/webhooks/") ||
@@ -195,19 +196,31 @@ func AuthMiddleware(store Authenticator, mgr UserManager) func(http.Handler) htt
 			if rhStore, ok := store.(*RHIdentityStore); ok {
 				headerVal := r.Header.Get("X-RH-Identity")
 				if headerVal == "" {
+					// For /api/v1/auth/me without a header, return auth_backend
+					// so the frontend can detect rh-identity mode.
+					if path == "/api/v1/auth/me" {
+						log.Printf("auth: /api/v1/auth/me without X-RH-Identity — returning auth_backend only")
+						next.ServeHTTP(w, r)
+						return
+					}
+					log.Printf("auth: rejected %s %s — missing X-RH-Identity header", r.Method, path)
 					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "missing X-RH-Identity header"})
 					return
 				}
+				log.Printf("auth: rh-identity header present for %s %s", r.Method, path)
 				identity, err := ParseRHIdentity(headerVal)
 				if err != nil {
+					log.Printf("auth: invalid X-RH-Identity for %s %s: %v", r.Method, path, err)
 					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid X-RH-Identity header"})
 					return
 				}
 				username, err := rhStore.UpsertUser(r.Context(), identity)
 				if err != nil {
+					log.Printf("auth: user provisioning failed for %s %s: %v", r.Method, path, err)
 					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "user provisioning failed"})
 					return
 				}
+				log.Printf("auth: rh-identity user=%s admin=%v for %s %s", username, false, r.Method, path)
 				r.Header.Set("X-Alcove-User", username)
 				if mgr != nil {
 					if admin, err := mgr.IsAdmin(r.Context(), username); err == nil && admin {

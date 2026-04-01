@@ -4632,10 +4632,12 @@
                 });
                 if (resp.ok) {
                     const data = await resp.json();
-                    if (data.auth_backend === 'rh-identity' && data.username) {
+                    if (data.auth_backend === 'rh-identity') {
                         rhIdentityMode = true;
-                        localStorage.setItem('alcove_user', data.username);
-                        localStorage.setItem('alcove_is_admin', data.is_admin ? 'true' : 'false');
+                        if (data.username) {
+                            localStorage.setItem('alcove_user', data.username);
+                            localStorage.setItem('alcove_is_admin', data.is_admin ? 'true' : 'false');
+                        }
                     }
                 }
             } catch (e) {
