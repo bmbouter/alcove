@@ -19,6 +19,12 @@ parameters:
   value: "postgres"
 - name: RH_IDENTITY_ADMINS
   value: ""
+- name: BRIDGE_LLM_PROVIDER
+  value: ""
+- name: BRIDGE_LLM_PROJECT
+  value: ""
+- name: BRIDGE_LLM_REGION
+  value: ""
 - name: NAMESPACE
   value: ${NAMESPACE}
 objects:
@@ -135,6 +141,18 @@ objects:
               secretKeyRef:
                 name: alcove-config
                 key: database-encryption-key
+          - name: BRIDGE_LLM_PROVIDER
+            value: ${BRIDGE_LLM_PROVIDER}
+          - name: BRIDGE_LLM_PROJECT
+            value: ${BRIDGE_LLM_PROJECT}
+          - name: BRIDGE_LLM_REGION
+            value: ${BRIDGE_LLM_REGION}
+          - name: BRIDGE_LLM_SERVICE_ACCOUNT_JSON
+            valueFrom:
+              secretKeyRef:
+                name: alcove-vertex-ai
+                key: service-account-json
+                optional: true
           livenessProbe:
             httpGet:
               path: /api/v1/health
