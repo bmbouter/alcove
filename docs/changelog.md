@@ -3,6 +3,13 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.3.4
+
+### Bug Fixes
+- Fix rh-identity: handle users created by BootstrapAdmins (by username) that
+  have no external_id. UpsertUser now falls back to username lookup and
+  backfills external_id from the identity header on first login.
+
 ## v0.3.3
 
 ### Bug Fixes
