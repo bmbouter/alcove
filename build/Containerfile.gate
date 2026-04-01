@@ -25,7 +25,7 @@ LABEL org.opencontainers.image.title="alcove-gate" \
 COPY --from=builder /out/gate /usr/local/bin/gate
 
 RUN microdnf install -y shadow-utils && \
-    useradd -r -u 1001 -s /sbin/nologin alcove && \
+    useradd -m -u 1001 -s /sbin/nologin alcove && \
     microdnf clean all
 
 USER 1001

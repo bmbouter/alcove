@@ -402,7 +402,7 @@ func (cs *CredentialStore) FirstAvailableProvider(ctx context.Context) (*Credent
 		`SELECT id, name, provider, auth_type, project_id, region, api_host, created_at, updated_at, owner
 		FROM provider_credentials
 		WHERE owner != '_system'
-		AND provider NOT IN ('github', 'gitlab')
+		AND provider NOT IN ('github', 'gitlab', 'jira')
 		ORDER BY created_at ASC LIMIT 1`,
 	).Scan(&c.ID, &c.Name, &c.Provider, &c.AuthType,
 		&c.ProjectID, &c.Region, &c.APIHost, &c.CreatedAt, &c.UpdatedAt, &c.Owner)
@@ -437,7 +437,7 @@ func (cs *CredentialStore) ListDistinctProviders(ctx context.Context) ([]Credent
 		`SELECT DISTINCT ON (provider) id, name, provider, auth_type, project_id, region, api_host, created_at, updated_at, owner
 		FROM provider_credentials
 		WHERE owner != '_system'
-		AND provider NOT IN ('github', 'gitlab')
+		AND provider NOT IN ('github', 'gitlab', 'jira')
 		ORDER BY provider, created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("querying distinct providers: %w", err)

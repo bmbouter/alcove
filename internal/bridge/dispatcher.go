@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -325,7 +326,7 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 			dummyToken := "alcove-session-" + uuid.New().String()
 			scmDummyTokens[service] = dummyToken
 			if apiHost != "" {
-				scmAPIHosts[service] = apiHost
+				scmAPIHosts[service] = stripURLToHost(apiHost)
 			}
 		}
 	}
@@ -378,7 +379,7 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 
 			// If credential has a custom API host, track it for overriding tool config.
 			if apiHost != "" {
-				scmAPIHosts[toolName] = apiHost
+				scmAPIHosts[toolName] = stripURLToHost(apiHost)
 			}
 
 			// Build MCP server config for Skiff.
@@ -471,6 +472,12 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 						"api_host":    apiHost,
 						"auth_header": "Authorization",
 						"auth_format": "bearer",
+					}
+				case "jira":
+					gateToolConfigs[service] = map[string]string{
+						"api_host":    apiHost,
+						"auth_header": "Authorization",
+						"auth_format": "basic",
 					}
 				}
 			}
@@ -632,6 +639,21 @@ func (d *Dispatcher) updateSessionStatus(ctx context.Context, sessionID, status 
 	if err != nil {
 		log.Printf("error: updating session %s status: %v", sessionID, err)
 	}
+}
+
+// stripURLToHost extracts the hostname from a value that may be a full URL
+// (e.g., "https://redhat.atlassian.net/") or just a hostname. Returns just
+// the host without scheme, port path, or trailing slash.
+func stripURLToHost(apiHost string) string {
+	h := apiHost
+	h = strings.TrimPrefix(h, "https://")
+	h = strings.TrimPrefix(h, "http://")
+	h = strings.TrimRight(h, "/")
+	// Strip port if present but keep hostname.
+	if idx := strings.Index(h, "/"); idx != -1 {
+		h = h[:idx]
+	}
+	return h
 }
 
 func (d *Dispatcher) updateSessionArtifacts(ctx context.Context, sessionID string, artifacts []internal.Artifact) {
