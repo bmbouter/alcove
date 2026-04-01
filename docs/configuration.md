@@ -67,7 +67,8 @@ can also be set in `alcove.yaml` (see [alcove.yaml](#alcoveyaml) above).
 | `LEDGER_DATABASE_URL` | string | `postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable` | PostgreSQL connection string for the Ledger session store. |
 | `BRIDGE_PORT` | string | `8080` | HTTP listen port for the Bridge API and dashboard. |
 | `RUNTIME` | string | `podman` | Container runtime. Must be `podman` or `kubernetes`. |
-| `AUTH_BACKEND` | string | `memory` | Authentication backend. Must be `memory` or `postgres`. See [Auth Backend Selection](#auth-backend-selection). |
+| `AUTH_BACKEND` | string | `memory` | Authentication backend. Must be `memory`, `postgres`, or `rh-identity`. See [Auth Backend Selection](#auth-backend-selection). |
+| `RH_IDENTITY_ADMINS` | string | _(unset)_ | Comma-separated list of usernames (emails) to bootstrap as admins when using `rh-identity` backend. |
 | `ALCOVE_DATABASE_ENCRYPTION_KEY` | string | _(required)_ | Encryption key for the credential store. **Bridge refuses to start without this.** For local dev, `make up` generates it automatically. |
 | `ALCOVE_DEBUG` | string | _(unset)_ | Any non-empty value enables debug mode (keeps worker containers after exit). |
 | `ALCOVE_WEB_DIR` | string | `web` | Directory containing dashboard static files. |
@@ -268,6 +269,32 @@ management REST API at `/api/v1/users`.
 - Supports creating, listing, and deleting users via the API.
 - Change the default password after first login via the dashboard.
 
+### `rh-identity`
+
+Users are authenticated via the `X-RH-Identity` header set by Red Hat's
+Turnpike gateway. Intended for Red Hat internal deployments behind Turnpike.
+
+- No login form, no passwords, no session tokens — identity comes from the
+  trusted header.
+- Users are auto-provisioned (JIT) on first request. Identity fields are
+  extracted from the base64-decoded SAML identity: `username` (email),
+  `external_id` (rhatUUID), `display_name` (givenName + surname).
+- Users are stored in PostgreSQL (same `auth_users` table) without passwords.
+- Bootstrap admins via `rh_identity_admins` in `alcove.yaml` or the
+  `RH_IDENTITY_ADMINS` environment variable (comma-separated list of
+  usernames/emails).
+- After bootstrap, existing admins can promote or demote users from the
+  dashboard.
+
+Example `alcove.yaml`:
+
+```yaml
+auth_backend: rh-identity
+rh_identity_admins: alice@redhat.com,bob@redhat.com
+database_url: postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable
+database_encryption_key: your-aes-256-key-here
+```
+
 ---
 
 ## Kubernetes
@@ -373,7 +400,7 @@ export HAIL_URL=nats://localhost:4222
 export LEDGER_DATABASE_URL=postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable
 export BRIDGE_PORT=8080
 export RUNTIME=podman
-export AUTH_BACKEND=memory
+export AUTH_BACKEND=memory          # or postgres, rh-identity
 
 # ── Security ──────────────────────────────────────────────────
 export ALCOVE_DATABASE_ENCRYPTION_KEY=change-me-to-a-random-32-byte-string

@@ -39,7 +39,7 @@ Read these for full context:
 3. `docs/design/architecture-decisions.md` — 18 resolved decisions, CLI design, config format, repo layout
 4. `docs/design/problem-statement.md` — why ephemeral agents
 5. `docs/design/credential-management.md` — credential storage, encryption, OAuth2 token flow
-6. `docs/design/auth-backends.md` — dual auth backend design (memory vs postgres)
+6. `docs/design/auth-backends.md` — auth backend design (memory, postgres, rh-identity)
 7. `docs/design/gate-scm-authorization.md` — SCM proxy endpoints, operation taxonomy, security model
 
 ## Quick Commands
@@ -90,7 +90,7 @@ ALCOVE_EXTERNAL_NETWORK="alcove-external" \
 - **PostgreSQL only** for Ledger (no S3 in Phase 1)
 - **Podman + k8s** dual runtime via `Runtime` interface in `internal/runtime/`
 - **Credential management via Bridge** — Bridge pre-fetches OAuth2 tokens, Gate receives only short-lived tokens
-- **Dual auth backends** — `AUTH_BACKEND=memory` (default) or `postgres`, explicit selection
+- **Three auth backends** — `AUTH_BACKEND=memory` (default), `postgres`, or `rh-identity` (trusted `X-RH-Identity` header from Red Hat Turnpike, JIT user provisioning, no passwords)
 - **SCM and tool APIs proxied through Gate** — `/github/`, `/gitlab/`, and `/jira/` endpoints with dummy tokens, operation-level scope enforcement, real credentials never enter Skiff
 - **Custom migration runner** — embedded SQL files, advisory locking, no external dependencies
 - **`alcove.yaml` for infrastructure settings** — config file search order: `ALCOVE_CONFIG_FILE` env var → `./alcove.yaml` → `/etc/alcove/alcove.yaml`; env vars always override; `database_encryption_key` is required (Bridge refuses to start without it); `make up` auto-generates the file for local dev; file is gitignored

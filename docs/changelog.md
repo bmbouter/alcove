@@ -5,6 +5,14 @@ All notable changes to Alcove are documented here. This project uses
 
 ## v0.2.0
 
+### Red Hat Identity Auth Backend
+- New `rh-identity` auth backend (`AUTH_BACKEND=rh-identity`) for Red Hat
+  deployments behind Turnpike gateway
+- Trusts `X-RH-Identity` header for authentication (no login form or passwords)
+- JIT user provisioning from SAML identity (username, external_id, display_name)
+- Admin bootstrap via `rh_identity_admins` in alcove.yaml or `RH_IDENTITY_ADMINS`
+  env var
+
 ### JIRA/Atlassian Integration
 - Gate proxies JIRA REST API via `/jira/` endpoint with full operation classification
 - 12 builtin JIRA operations: read_issues, search_issues, read_comments, read_transitions,

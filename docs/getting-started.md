@@ -74,6 +74,11 @@ Go to http://localhost:8080 in your browser. Log in with:
 
 Change the default password after first login.
 
+> **Red Hat deployments:** If running behind Turnpike, set
+> `AUTH_BACKEND=rh-identity` to authenticate via the `X-RH-Identity` header.
+> No login form is needed -- users are auto-provisioned on first request.
+> See `docs/configuration.md` for details.
+
 > **Note:** The database is ephemeral. Each `make down` + `make up` cycle wipes
 > all data (containers run with `--rm`).
 

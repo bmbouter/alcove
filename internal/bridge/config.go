@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/bmbouter/alcove/internal"
 	"gopkg.in/yaml.v3"
@@ -39,6 +40,10 @@ type Config struct {
 
 	// System LLM configuration (for AI-powered Bridge features).
 	SystemLLM SystemLLMConfig
+
+	// RHIdentityAdmins is a list of email addresses to bootstrap as admins
+	// when using the rh-identity auth backend.
+	RHIdentityAdmins []string
 }
 
 // SystemLLMConfig holds configuration for the Bridge system LLM.
@@ -130,11 +135,29 @@ For Kubernetes:
 		cfg.LLMCredentials["vertex"] = v
 	}
 
+	// RH Identity admin bootstrap from environment (comma-separated emails).
+	if v := os.Getenv("RH_IDENTITY_ADMINS"); v != "" {
+		cfg.RHIdentityAdmins = splitAndTrim(v)
+	}
+
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
 
 	return cfg, nil
+}
+
+// splitAndTrim splits a comma-separated string and trims whitespace from each element.
+func splitAndTrim(s string) []string {
+	parts := strings.Split(s, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
 }
 
 // loadConfigFile reads configuration from a config file.
@@ -159,12 +182,13 @@ func (c *Config) loadConfigFile() {
 
 // configFile represents the YAML configuration file structure.
 type configFile struct {
-	DatabaseEncryptionKey string `yaml:"database_encryption_key"`
-	DatabaseURL           string `yaml:"database_url"`
-	NatsURL               string `yaml:"nats_url"`
-	AuthBackend           string `yaml:"auth_backend"`
-	Port                  string `yaml:"port"`
-	Runtime               string `yaml:"runtime"`
+	DatabaseEncryptionKey string   `yaml:"database_encryption_key"`
+	DatabaseURL           string   `yaml:"database_url"`
+	NatsURL               string   `yaml:"nats_url"`
+	AuthBackend           string   `yaml:"auth_backend"`
+	Port                  string   `yaml:"port"`
+	Runtime               string   `yaml:"runtime"`
+	RHIdentityAdmins      []string `yaml:"rh_identity_admins"`
 }
 
 // parseConfigFile reads and parses a YAML config file.
@@ -197,6 +221,9 @@ func (c *Config) parseConfigFile(path string) error {
 	if cf.Runtime != "" {
 		c.RuntimeType = cf.Runtime
 	}
+	if len(cf.RHIdentityAdmins) > 0 {
+		c.RHIdentityAdmins = cf.RHIdentityAdmins
+	}
 	return nil
 }
 
@@ -204,8 +231,8 @@ func (c *Config) validate() error {
 	if c.RuntimeType != "podman" && c.RuntimeType != "kubernetes" {
 		return fmt.Errorf("invalid runtime %q: must be \"podman\" or \"kubernetes\"", c.RuntimeType)
 	}
-	if c.AuthBackend != "memory" && c.AuthBackend != "postgres" {
-		return fmt.Errorf("invalid AUTH_BACKEND %q: must be \"memory\" or \"postgres\"", c.AuthBackend)
+	if c.AuthBackend != "memory" && c.AuthBackend != "postgres" && c.AuthBackend != "rh-identity" {
+		return fmt.Errorf("invalid AUTH_BACKEND %q: must be \"memory\", \"postgres\", or \"rh-identity\"", c.AuthBackend)
 	}
 	return nil
 }

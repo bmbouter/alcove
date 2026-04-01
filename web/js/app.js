@@ -7,16 +7,14 @@
     // ---------------------
     async function api(method, path, body) {
         const token = localStorage.getItem('alcove_token');
-        const opts = {
-            method,
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + (token || '')
-            }
-        };
+        const headers = { 'Content-Type': 'application/json' };
+        if (token && !rhIdentityMode) {
+            headers['Authorization'] = 'Bearer ' + token;
+        }
+        const opts = { method, headers };
         if (body) opts.body = JSON.stringify(body);
         const resp = await fetch(path, opts);
-        if (resp.status === 401) {
+        if (resp.status === 401 && !rhIdentityMode) {
             showLogin();
             throw new Error('unauthorized');
         }
@@ -54,6 +52,7 @@
     let editingProfileId = null;
     let cachedCredentials = [];  // cached from last fetch for prerequisite checks
     let setupChecklistDismissed = localStorage.getItem('alcove_setup_dismissed') === 'true';
+    let rhIdentityMode = false;
 
     // ---------------------
     // Auth
@@ -84,13 +83,28 @@
         // Refresh admin status from server and update UI
         api('GET', '/api/v1/auth/me').then(r => r.json()).then(data => {
             localStorage.setItem('alcove_is_admin', data.is_admin ? 'true' : 'false');
+            if (data.auth_backend === 'rh-identity') {
+                rhIdentityMode = true;
+                localStorage.setItem('alcove_user', data.username);
+                $('#user-info').textContent = data.username;
+            }
             updateAdminUI();
+            updateRHIdentityUI();
         }).catch(() => {});
         updateAdminUI(); // also call immediately with cached value
+        updateRHIdentityUI();
+    }
+
+    function updateRHIdentityUI() {
+        // Hide password change and logout buttons in rh-identity mode
+        var changePassBtn = $('#change-password-btn');
+        var logoutBtn = $('#logout-btn');
+        if (changePassBtn) changePassBtn.hidden = rhIdentityMode;
+        if (logoutBtn) logoutBtn.hidden = rhIdentityMode;
     }
 
     function isLoggedIn() {
-        return !!localStorage.getItem('alcove_token');
+        return rhIdentityMode || !!localStorage.getItem('alcove_token');
     }
 
     function isAdmin() {
@@ -4630,5 +4644,27 @@
     // ---------------------
     // Init
     // ---------------------
-    handleRoute();
+    // Try to detect rh-identity mode by calling /api/v1/auth/me without a token.
+    // If the backend is rh-identity, Turnpike will have set the X-RH-Identity header
+    // and the middleware will authenticate automatically.
+    (async function init() {
+        if (!localStorage.getItem('alcove_token')) {
+            try {
+                const resp = await fetch('/api/v1/auth/me', {
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data.auth_backend === 'rh-identity' && data.username) {
+                        rhIdentityMode = true;
+                        localStorage.setItem('alcove_user', data.username);
+                        localStorage.setItem('alcove_is_admin', data.is_admin ? 'true' : 'false');
+                    }
+                }
+            } catch (e) {
+                // Network error — fall through to normal login flow
+            }
+        }
+        handleRoute();
+    })();
 })();

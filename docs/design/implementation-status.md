@@ -74,6 +74,7 @@ alcove/
 │       ├── auth.go             ✅ Authenticator + UserManager interfaces, Argon2id passwords, LoginHandler, AuthMiddleware, admin role checks, SSE query-param token fallback
 │       ├── memory.go           ✅ MemoryStore: in-memory auth backend with rate limiting
 │       ├── postgres.go         ✅ PgStore: PostgreSQL-backed auth with user CRUD, admin flag, session persistence, expired session cleanup, password change
+│       ├── rh_identity.go      ✅ RHIdentityStore: X-RH-Identity header auth, JIT user provisioning, admin bootstrap
 │       └── users_api.go        ✅ User management HTTP handlers (list, create, delete, change password, set admin role)
 ├── web/
 │   ├── index.html              ✅ Dashboard SPA shell with all page views, setup checklist
@@ -113,7 +114,7 @@ alcove/
 - `make up` ✅ — builds all images and starts the full environment
 - Bridge starts, connects to NATS + PostgreSQL ✅
 - Database migrations run automatically on startup ✅
-- Auth works (login, token, rate limiting) with both memory and postgres backends ✅
+- Auth works (login, token, rate limiting) with memory, postgres, and rh-identity backends ✅
 - `POST /api/v1/tasks` creates session in DB, publishes to NATS, starts Gate + Skiff containers ✅
 - Skiff containers boot, read task from env vars, attempt to run Claude Code ✅
 - LLM credential flow works end-to-end: Bridge acquires tokens, Gate injects headers ✅
@@ -157,11 +158,16 @@ alcove/
    system credentials (`_system` owner) for Bridge-level LLM features, custom
    `api_host` field for GitLab private server support.
 
-6. **Dual Auth Backends** — `AUTH_BACKEND=memory` (default, in-memory) or
-   `AUTH_BACKEND=postgres` (persistent users/sessions in PostgreSQL). Both support
-   Argon2id passwords and rate limiting. Postgres backend adds user CRUD API,
-   admin role management, self-service password change, and session persistence
-   with hourly cleanup.
+6. **Three Auth Backends** — `AUTH_BACKEND=memory` (default, in-memory),
+   `AUTH_BACKEND=postgres` (persistent users/sessions in PostgreSQL), or
+   `AUTH_BACKEND=rh-identity` (trusted `X-RH-Identity` header from Red Hat
+   Turnpike). Memory and postgres backends support Argon2id passwords and rate
+   limiting. Postgres backend adds user CRUD API, admin role management,
+   self-service password change, and session persistence with hourly cleanup.
+   The rh-identity backend auto-provisions users on first request (JIT) from
+   SAML identity fields, stores users in PostgreSQL without passwords, and
+   bootstraps admins via `rh_identity_admins` config or `RH_IDENTITY_ADMINS`
+   env var.
 
 7. **Database Migrations** — Custom migration runner using embedded SQL files with
    PostgreSQL advisory locking to prevent concurrent startup races. Schema versioning
@@ -355,7 +361,7 @@ See the full roadmap in [architecture-decisions.md](architecture-decisions.md#ro
 - [architecture-decisions.md](architecture-decisions.md) — 18 resolved decisions, CLI design, config format, repo layout, revised roadmap
 - [problem-statement.md](problem-statement.md) — why ephemeral agents (context contamination, credential drift, filesystem poisoning, credential exposure)
 - [credential-management.md](credential-management.md) — credential storage, encryption, OAuth2 token flow, token refresh design
-- [auth-backends.md](auth-backends.md) — dual auth backend design (memory vs postgres)
+- [auth-backends.md](auth-backends.md) — auth backend design (memory, postgres, rh-identity)
 - [podman-network-isolation.md](podman-network-isolation.md) — dual-network isolation design with `--internal` flag on podman
 - [gate-scm-authorization.md](gate-scm-authorization.md) — SCM authorization design: Gate proxy endpoints, scope checking, credential resolution, git credential helper
 - [mcp-tool-gateway.md](mcp-tool-gateway.md) — MCP tool gateway design
@@ -387,7 +393,8 @@ See the full roadmap in [architecture-decisions.md](architecture-decisions.md#ro
 | `GATE_IMAGE` | `localhost/alcove-gate:dev` | Gate container image |
 | `ALCOVE_NETWORK` | `alcove-internal` | Podman internal network name |
 | `ALCOVE_EXTERNAL_NETWORK` | `alcove-external` | Podman external network name (Gate egress) |
-| `AUTH_BACKEND` | `memory` | Auth backend: `memory` or `postgres` |
+| `AUTH_BACKEND` | `memory` | Auth backend: `memory`, `postgres`, or `rh-identity` |
+| `RH_IDENTITY_ADMINS` | (unset) | Comma-separated admin usernames for `rh-identity` backend |
 | `ALCOVE_DATABASE_ENCRYPTION_KEY` | (insecure default) | Master key for credential encryption (AES-256) |
 | `ALCOVE_DEBUG` | (unset) | Set to any value to enable debug mode (keep containers after exit) |
 | `ALCOVE_WEB_DIR` | `web` | Path to dashboard static files |

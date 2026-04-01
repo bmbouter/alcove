@@ -126,6 +126,17 @@ func main() {
 			mgr = m
 		}
 		log.Printf("auth backend: postgres (%d user(s) in database)", len(users))
+
+	case "rh-identity":
+		rhStore := auth.NewRHIdentityStore(dbpool)
+		if err := rhStore.BootstrapAdmins(context.Background(), cfg.RHIdentityAdmins); err != nil {
+			log.Fatalf("bootstrapping rh-identity admins: %v", err)
+		}
+		store = rhStore
+		if m, ok := store.(auth.UserManager); ok {
+			mgr = m
+		}
+		log.Printf("auth backend: rh-identity (trusted header)")
 	}
 
 	// Create credential store and migrate env-based credentials.
@@ -185,7 +196,7 @@ func main() {
 
 	// Auth routes.
 	mux.HandleFunc("/api/v1/auth/login", auth.LoginHandler(store, mgr))
-	mux.HandleFunc("/api/v1/auth/me", auth.MeHandler())
+	mux.HandleFunc("/api/v1/auth/me", auth.MeHandler(cfg.AuthBackend))
 
 	// User management API (only available with backends that support it).
 	if mgr, ok := store.(auth.UserManager); ok {

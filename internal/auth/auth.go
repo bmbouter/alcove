@@ -134,6 +134,12 @@ func LoginHandler(store Authenticator, mgr UserManager) http.HandlerFunc {
 			return
 		}
 
+		// Login is not supported with the rh-identity backend.
+		if _, ok := store.(*RHIdentityStore); ok {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "login not supported with rh-identity backend"})
+			return
+		}
+
 		var req loginRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
@@ -162,6 +168,8 @@ func LoginHandler(store Authenticator, mgr UserManager) http.HandlerFunc {
 
 // AuthMiddleware returns middleware that validates session tokens on
 // protected routes. It skips /api/v1/auth/login and /api/v1/health.
+// When the auth backend is rh-identity, it reads the X-RH-Identity header
+// instead of requiring Bearer tokens.
 func AuthMiddleware(store Authenticator, mgr UserManager) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -178,6 +186,33 @@ func AuthMiddleware(store Authenticator, mgr UserManager) func(http.Handler) htt
 
 			// Non-API routes (dashboard static files) are not protected.
 			if !strings.HasPrefix(path, "/api/") {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// RH Identity mode: trust the X-RH-Identity header from Turnpike.
+			if rhStore, ok := store.(*RHIdentityStore); ok {
+				headerVal := r.Header.Get("X-RH-Identity")
+				if headerVal == "" {
+					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "missing X-RH-Identity header"})
+					return
+				}
+				identity, err := ParseRHIdentity(headerVal)
+				if err != nil {
+					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid X-RH-Identity header"})
+					return
+				}
+				username, err := rhStore.UpsertUser(r.Context(), identity)
+				if err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "user provisioning failed"})
+					return
+				}
+				r.Header.Set("X-Alcove-User", username)
+				if mgr != nil {
+					if admin, err := mgr.IsAdmin(r.Context(), username); err == nil && admin {
+						r.Header.Set("X-Alcove-Admin", "true")
+					}
+				}
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -222,7 +257,9 @@ func AuthMiddleware(store Authenticator, mgr UserManager) func(http.Handler) htt
 }
 
 // MeHandler returns an HTTP handler for GET /api/v1/auth/me.
-func MeHandler() http.HandlerFunc {
+// The authBackend parameter is included in the response so the frontend
+// can adapt its UI (e.g., hide login form for rh-identity).
+func MeHandler(authBackend string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
@@ -231,8 +268,9 @@ func MeHandler() http.HandlerFunc {
 		username := r.Header.Get("X-Alcove-User")
 		isAdmin := r.Header.Get("X-Alcove-Admin") == "true"
 		writeJSON(w, http.StatusOK, map[string]any{
-			"username": username,
-			"is_admin": isAdmin,
+			"username":     username,
+			"is_admin":     isAdmin,
+			"auth_backend": authBackend,
 		})
 	}
 }
