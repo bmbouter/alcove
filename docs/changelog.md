@@ -3,6 +3,15 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.3.1
+
+### Bug Fixes
+- Fix rh-identity login: `/api/v1/auth/me` and `/api/v1/system-info` added to
+  public routes so frontend can detect the auth backend without authentication.
+  Previously, the middleware rejected these requests with 401 when no
+  X-RH-Identity header was present (client-side fetch), causing the login form
+  to show instead of auto-detecting rh-identity mode.
+
 ## v0.3.0
 
 ### JIRA/Atlassian Integration
