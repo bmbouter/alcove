@@ -433,15 +433,19 @@ func TestRunTask_CreatesNetworkPolicy(t *testing.T) {
 
 	// Rule 2: Internal Alcove services by label.
 	internalRule := np.Spec.Egress[2]
-	if len(internalRule.To) != 1 {
-		t.Fatalf("internal rule: expected 1 peer, got %d", len(internalRule.To))
+	if len(internalRule.To) != 2 {
+		t.Fatalf("internal rule: expected 2 peers (part-of + managed-by), got %d", len(internalRule.To))
 	}
 	if internalRule.To[0].PodSelector == nil {
-		t.Fatal("internal rule: podSelector is nil")
+		t.Fatal("internal rule: first podSelector is nil")
 	}
-	if internalRule.To[0].PodSelector.MatchLabels["app.kubernetes.io/managed-by"] != "alcove" {
+	if internalRule.To[0].PodSelector.MatchLabels["app.kubernetes.io/part-of"] != "alcove" {
+		t.Errorf("internal rule part-of = %q, want %q",
+			internalRule.To[0].PodSelector.MatchLabels["app.kubernetes.io/part-of"], "alcove")
+	}
+	if internalRule.To[1].PodSelector.MatchLabels["app.kubernetes.io/managed-by"] != "alcove" {
 		t.Errorf("internal rule managed-by = %q, want %q",
-			internalRule.To[0].PodSelector.MatchLabels["app.kubernetes.io/managed-by"], "alcove")
+			internalRule.To[1].PodSelector.MatchLabels["app.kubernetes.io/managed-by"], "alcove")
 	}
 
 	// Verify the pod selector targets the task's labels.

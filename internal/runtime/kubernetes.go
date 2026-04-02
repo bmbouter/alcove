@@ -109,6 +109,7 @@ func jobName(taskID string) string {
 func taskLabels(taskID string) map[string]string {
 	return map[string]string{
 		"app.kubernetes.io/managed-by": managedByLabel,
+		"app.kubernetes.io/part-of":    "alcove",
 		"alcove.dev/task-id":           taskID,
 	}
 }
@@ -306,9 +307,17 @@ func (k *KubernetesRuntime) createNetworkPolicy(ctx context.Context, taskID stri
 						},
 					},
 				},
-				// Allow egress to internal Alcove services by label.
+				// Allow egress to Alcove infrastructure (Bridge, NATS)
+				// and other task pods.
 				{
 					To: []networkingv1.NetworkPolicyPeer{
+						{
+							PodSelector: &metav1.LabelSelector{
+								MatchLabels: map[string]string{
+									"app.kubernetes.io/part-of": "alcove",
+								},
+							},
+						},
 						{
 							PodSelector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{
