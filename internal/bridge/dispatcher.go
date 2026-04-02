@@ -570,8 +570,13 @@ func (d *Dispatcher) CancelSession(ctx context.Context, sessionID string) error 
 	d.mu.Lock()
 	handle, ok := d.handles[sessionID]
 	d.mu.Unlock()
+
 	if !ok {
-		return fmt.Errorf("session %s not found or not running", sessionID)
+		// Session not tracked in memory (e.g., Bridge restarted while task was
+		// running). Update DB status to cancelled — the container is already gone.
+		now := time.Now().UTC()
+		d.updateSessionStatus(ctx, sessionID, "cancelled", nil, &now)
+		return nil
 	}
 
 	// Send cancel via NATS.

@@ -147,12 +147,11 @@ objects:
             value: ${BRIDGE_LLM_PROJECT}
           - name: BRIDGE_LLM_REGION
             value: ${BRIDGE_LLM_REGION}
-          - name: BRIDGE_LLM_SERVICE_ACCOUNT_JSON
-            valueFrom:
-              secretKeyRef:
-                name: alcove-vertex-ai
-                key: service-account-json
-                optional: true
+          - name: GOOGLE_APPLICATION_CREDENTIALS
+            value: "/etc/alcove/gcloud/service-account-json"
+          volumeMounts:
+          - name: vertex-ai-credentials
+            mountPath: "/etc/alcove/gcloud/"
           livenessProbe:
             httpGet:
               path: /api/v1/health
@@ -172,6 +171,11 @@ objects:
             limits:
               cpu: 500m
               memory: 512Mi
+        volumes:
+        - name: vertex-ai-credentials
+          secret:
+            secretName: alcove-vertex-ai
+            optional: true
 
 # --- NATS (Hail) Deployment ---
 - apiVersion: apps/v1
@@ -262,20 +266,8 @@ objects:
 # --- NetworkPolicies ---
 # All policies are scoped to Alcove pods only (app.kubernetes.io/part-of: alcove)
 # to avoid affecting other applications in the shared namespace.
-- apiVersion: networking.k8s.io/v1
-  kind: NetworkPolicy
-  metadata:
-    name: alcove-default-deny
-    labels:
-      app.kubernetes.io/part-of: alcove
-  spec:
-    podSelector:
-      matchLabels:
-        app.kubernetes.io/part-of: alcove
-    policyTypes:
-    - Ingress
-    - Egress
-
+# Note: alcove-allow-internal declares both Ingress and Egress policyTypes,
+# so anything not explicitly allowed is implicitly denied.
 - apiVersion: networking.k8s.io/v1
   kind: NetworkPolicy
   metadata:
