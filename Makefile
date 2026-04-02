@@ -80,7 +80,7 @@ dev-up: dev-config ## Start full containerized environment
 	@echo "Starting bridge on internal network..."
 	$(PODMAN) run -d --rm --replace \
 		--name alcove-bridge \
-		--network $(INTERNAL_NET) \
+		--network $(INTERNAL_NET)$(comma)$(EXTERNAL_NET) \
 		-p 8080:8080 \
 		--user $$(id -u):$$(id -g) \
 		-v $${XDG_RUNTIME_DIR}/podman/podman.sock:/run/podman/podman.sock:z \

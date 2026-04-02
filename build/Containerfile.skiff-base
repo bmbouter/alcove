@@ -57,8 +57,15 @@ RUN curl -sL "https://gitlab.com/gitlab-org/cli/-/releases/permalink/latest/down
 # Install Claude Code CLI via npm
 RUN npm install -g @anthropic-ai/claude-code
 
-# Install lola (AI skill/module manager)
-RUN pip3 install git+https://github.com/RedHatProductSecurity/lola.git
+# Install uv and lola as root, then make accessible to all users.
+# Lola requires Python >= 3.13; uv manages its own Python runtime.
+ENV UV_INSTALL_DIR=/usr/local/bin
+ENV UV_TOOL_DIR=/opt/uv-tools
+ENV UV_TOOL_BIN_DIR=/usr/local/bin
+ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    uv tool install git+https://github.com/RedHatProductSecurity/lola.git && \
+    chmod -R a+rX /opt/uv-tools /opt/uv-python
 
 # Copy the skiff-init binary from the build stage
 COPY --from=builder /out/skiff-init /usr/local/bin/skiff-init
