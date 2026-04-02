@@ -3,6 +3,16 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.3.6
+
+### Bug Fixes
+- Remove alcove-default-deny NetworkPolicy — was causing DNS timeouts for Job
+  pods. alcove-allow-internal already provides implicit deny via policyTypes.
+- Mount Vertex AI credentials as volume (GOOGLE_APPLICATION_CREDENTIALS) instead
+  of secretKeyRef, matching the pattern used by pulp-service.
+- Allow cancelling stale "running" sessions after Bridge restart — sessions not
+  tracked in memory now get marked as cancelled in the DB directly.
+
 ## v0.3.5
 
 ### Bug Fixes
