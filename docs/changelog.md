@@ -3,6 +3,15 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.3.9
+
+### Bug Fixes
+- Fix NetworkPolicy DNS: `namespaceSelector: {}` does not cover cluster DNS
+  service IPs on OVN-Kubernetes/OpenShift. Changed to ports-only DNS egress
+  rule (no `to` selector) which allows DNS to all destinations.
+  Root cause confirmed via diagnostic logs: `net.LookupHost("alcove-hail")`
+  hangs indefinitely with the namespaceSelector approach.
+
 ## v0.3.8
 
 ### Diagnostics
