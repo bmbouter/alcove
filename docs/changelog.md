@@ -3,13 +3,15 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## v0.3.5
 
-### Enhancements
-- Skill repos now support lola modules in addition to Claude Code plugins.
-  Repos are auto-detected at startup based on their structure
-  (`.claude-plugin/plugin.json` for plugins, `module/` directory for lola
-  modules). Users just add a repo URL.
+### Bug Fixes
+- Fix k8s NetworkPolicy: Job pods couldn't reach Bridge or NATS because the
+  per-task egress rule matched `managed-by=alcove` but Bridge/NATS use
+  `part-of=alcove`. Added `part-of=alcove` label to Job pods and both
+  label selectors to the egress rule.
+- Add lola support: auto-detect lola modules vs Claude Code plugins in skill
+  repos. Install lola in Skiff container via uv.
 
 ## v0.3.4
 
