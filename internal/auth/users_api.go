@@ -121,6 +121,10 @@ func (a *UserAPI) HandleUsers(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "username and password are required"})
 			return
 		}
+		if len(req.Password) < 8 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password must be at least 8 characters"})
+			return
+		}
 		if err := a.mgr.CreateUser(r.Context(), req.Username, req.Password, req.IsAdmin); err != nil {
 			log.Printf("error: creating user: %v", err)
 			writeJSON(w, http.StatusConflict, map[string]string{"error": "failed to create user: " + err.Error()})
@@ -164,6 +168,10 @@ func (a *UserAPI) HandleUserByID(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Password == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password is required"})
+			return
+		}
+		if len(req.Password) < 8 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "password must be at least 8 characters"})
 			return
 		}
 		if err := a.mgr.ChangePassword(r.Context(), username, req.Password); err != nil {

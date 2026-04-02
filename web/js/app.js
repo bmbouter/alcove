@@ -2405,22 +2405,16 @@
 
             // Reset password click handlers
             tbody.querySelectorAll('.reset-pw-btn').forEach((btn) => {
-                btn.addEventListener('click', async () => {
+                btn.addEventListener('click', () => {
                     const username = btn.dataset.username;
-                    const newPw = prompt('Enter new password for "' + username + '" (min 8 characters):');
-                    if (!newPw) return;
-                    if (newPw.length < 8) { alert('Password must be at least 8 characters.'); return; }
-                    try {
-                        const resp = await api('PUT', '/api/v1/users/' + encodeURIComponent(username) + '/password', {password: newPw});
-                        if (!resp.ok) {
-                            const data = await resp.json().catch(() => ({}));
-                            alert(data.error || 'Failed to reset password.');
-                        } else {
-                            alert('Password reset for "' + username + '".');
-                        }
-                    } catch (err) {
-                        if (err.message !== 'unauthorized') alert('Failed to reset password.');
-                    }
+                    const modal = $('#admin-reset-password-modal');
+                    $('#reset-pw-username').textContent = username;
+                    $('#reset-pw-new').value = '';
+                    $('#reset-pw-confirm').value = '';
+                    hide($('#reset-pw-error'));
+                    modal.dataset.username = username;
+                    show(modal);
+                    $('#reset-pw-new').focus();
                 });
             });
         } catch (err) {
@@ -2452,10 +2446,23 @@
 
         const username = $('#new-user-username').value.trim();
         const password = $('#new-user-password').value;
+        const confirmPassword = $('#new-user-password-confirm').value;
         const isAdminChecked = $('#new-user-admin').checked;
 
         if (!username || !password) {
             errEl.textContent = 'Username and password are required.';
+            show(errEl);
+            return;
+        }
+
+        if (password.length < 8) {
+            errEl.textContent = 'Password must be at least 8 characters.';
+            show(errEl);
+            return;
+        }
+
+        if (password !== confirmPassword) {
+            errEl.textContent = 'Passwords do not match.';
             show(errEl);
             return;
         }
@@ -2487,6 +2494,56 @@
         } finally {
             btn.disabled = false;
             btn.textContent = 'Create User';
+        }
+    });
+
+    // Admin reset password modal
+    $('#reset-pw-cancel').addEventListener('click', () => {
+        hide($('#admin-reset-password-modal'));
+    });
+
+    $('#admin-reset-password-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const errEl = $('#reset-pw-error');
+        hide(errEl);
+
+        const modal = $('#admin-reset-password-modal');
+        const username = modal.dataset.username;
+        const newPw = $('#reset-pw-new').value;
+        const confirmPw = $('#reset-pw-confirm').value;
+
+        if (newPw.length < 8) {
+            errEl.textContent = 'Password must be at least 8 characters.';
+            show(errEl);
+            return;
+        }
+
+        if (newPw !== confirmPw) {
+            errEl.textContent = 'Passwords do not match.';
+            show(errEl);
+            return;
+        }
+
+        const btn = e.target.querySelector('button[type="submit"]');
+        btn.disabled = true;
+        btn.textContent = 'Resetting...';
+
+        try {
+            const resp = await api('PUT', '/api/v1/users/' + encodeURIComponent(username) + '/password', {password: newPw});
+            if (!resp.ok) {
+                const data = await resp.json().catch(() => ({}));
+                throw new Error(data.error || 'Failed to reset password.');
+            }
+            hide(modal);
+            loadUsers();
+        } catch (err) {
+            if (err.message !== 'unauthorized') {
+                errEl.textContent = err.message;
+                show(errEl);
+            }
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Reset Password';
         }
     });
 
