@@ -141,7 +141,7 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 		skiffEnv["HTTPS_PROXY"] = "http://localhost:8443"
 	}
 	if _, ok := skiffEnv["NO_PROXY"]; !ok {
-		skiffEnv["NO_PROXY"] = "localhost,127.0.0.1"
+		skiffEnv["NO_PROXY"] = "localhost,127.0.0.1,alcove-hail,alcove-bridge,alcove-ledger,.svc,.svc.cluster.local"
 	}
 	// Override ANTHROPIC_BASE_URL to use localhost since Gate is a sidecar.
 	skiffEnv["ANTHROPIC_BASE_URL"] = "http://localhost:8443"
@@ -239,18 +239,14 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 		job.Spec.TTLSecondsAfterFinished = &ttl
 	}
 
-	// Create the NetworkPolicy to restrict pod egress.
-	if err := k.createNetworkPolicy(ctx, spec.TaskID, labels); err != nil {
-		return TaskHandle{}, fmt.Errorf("creating network policy: %w", err)
-	}
+	// NOTE: Per-task NetworkPolicy creation is disabled for now.
+	// The static alcove-allow-internal policy provides sufficient restriction.
+	// Per-task policies caused DNS resolution failures on OVN-Kubernetes.
+	// TODO: Re-enable once the root cause of DNS blocking is identified.
 
 	// Create the Job.
 	created, err := k.clientset.BatchV1().Jobs(k.namespace).Create(ctx, job, metav1.CreateOptions{})
 	if err != nil {
-		// Clean up the NetworkPolicy if Job creation fails.
-		if delErr := k.deleteNetworkPolicy(ctx, spec.TaskID); delErr != nil {
-			log.Printf("warning: failed to clean up network policy after job creation failure: %v", delErr)
-		}
 		return TaskHandle{}, fmt.Errorf("creating job %s: %w", name, err)
 	}
 

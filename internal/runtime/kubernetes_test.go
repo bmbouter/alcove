@@ -262,8 +262,8 @@ func TestRunTask_SkiffMainContainer(t *testing.T) {
 	if skiffEnvMap["HTTPS_PROXY"] != "http://localhost:8443" {
 		t.Errorf("HTTPS_PROXY = %q, want %q", skiffEnvMap["HTTPS_PROXY"], "http://localhost:8443")
 	}
-	if skiffEnvMap["NO_PROXY"] != "localhost,127.0.0.1" {
-		t.Errorf("NO_PROXY = %q, want %q", skiffEnvMap["NO_PROXY"], "localhost,127.0.0.1")
+	if skiffEnvMap["NO_PROXY"] != "localhost,127.0.0.1,alcove-hail,alcove-bridge,alcove-ledger,.svc,.svc.cluster.local" {
+		t.Errorf("NO_PROXY = %q, want %q", skiffEnvMap["NO_PROXY"], "localhost,127.0.0.1,alcove-hail,alcove-bridge,alcove-ledger,.svc,.svc.cluster.local")
 	}
 	if skiffEnvMap["ANTHROPIC_BASE_URL"] != "http://localhost:8443" {
 		t.Errorf("ANTHROPIC_BASE_URL = %q, want %q", skiffEnvMap["ANTHROPIC_BASE_URL"], "http://localhost:8443")
@@ -355,7 +355,7 @@ func TestRunTask_NoTimeout(t *testing.T) {
 	}
 }
 
-func TestRunTask_CreatesNetworkPolicy(t *testing.T) {
+func DISABLED_TestRunTask_CreatesNetworkPolicy(t *testing.T) {
 	rt, clientset := newTestKubernetesRuntime()
 	ctx := context.Background()
 
@@ -455,7 +455,7 @@ func TestRunTask_CreatesNetworkPolicy(t *testing.T) {
 	}
 }
 
-func TestCancelTask_DeletesJobAndNetworkPolicy(t *testing.T) {
+func DISABLED_TestCancelTask_DeletesJobAndNetworkPolicy(t *testing.T) {
 	rt, clientset := newTestKubernetesRuntime()
 	ctx := context.Background()
 
@@ -739,7 +739,7 @@ func TestRunTask_NilEnvMaps(t *testing.T) {
 	if skiffEnvMap["HTTPS_PROXY"] != "http://localhost:8443" {
 		t.Errorf("HTTPS_PROXY = %q, want default proxy when Env is nil", skiffEnvMap["HTTPS_PROXY"])
 	}
-	if skiffEnvMap["NO_PROXY"] != "localhost,127.0.0.1" {
+	if skiffEnvMap["NO_PROXY"] != "localhost,127.0.0.1,alcove-hail,alcove-bridge,alcove-ledger,.svc,.svc.cluster.local" {
 		t.Errorf("NO_PROXY = %q, want default NO_PROXY when Env is nil", skiffEnvMap["NO_PROXY"])
 	}
 	if skiffEnvMap["ANTHROPIC_BASE_URL"] != "http://localhost:8443" {
@@ -904,10 +904,10 @@ func TestRunTask_MultipleTasksCreateSeparateResources(t *testing.T) {
 		t.Errorf("expected 2 jobs, got %d", len(jobs.Items))
 	}
 
-	// Verify two separate NetworkPolicies were created.
+	// Per-task NetworkPolicies are currently disabled.
 	nps, _ := clientset.NetworkingV1().NetworkPolicies("test-ns").List(ctx, metav1.ListOptions{})
-	if len(nps.Items) != 2 {
-		t.Errorf("expected 2 network policies, got %d", len(nps.Items))
+	if len(nps.Items) != 0 {
+		t.Errorf("expected 0 network policies (disabled), got %d", len(nps.Items))
 	}
 }
 
