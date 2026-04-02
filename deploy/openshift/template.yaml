@@ -291,9 +291,10 @@ objects:
       - podSelector:
           matchLabels:
             app.kubernetes.io/part-of: alcove
-    - to:
-      - namespaceSelector: {}
-      ports:
+    # DNS — allow to any destination (CoreDNS may be in any namespace).
+    # Using empty "to" (no selector) allows DNS to all IPs including
+    # cluster DNS service IPs which namespaceSelector may not cover.
+    - ports:
       - protocol: UDP
         port: 53
       - protocol: TCP
