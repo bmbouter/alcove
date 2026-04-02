@@ -42,6 +42,11 @@ var Version = "dev"
 // skillPluginDirs holds paths to cloned skill/agent repos for --plugin-dir flags.
 var skillPluginDirs []string
 
+// lolaModuleDirs holds paths to cloned lola module repos for deferred installation.
+// Lola modules are installed after the project repo is cloned so that lola writes
+// skills/agents/commands into the correct project directory.
+var lolaModuleDirs []string
+
 const (
 	defaultHeartbeatTimeout = 10 * time.Minute
 	walBatchSize            = 50
@@ -138,6 +143,9 @@ func main() {
 			log.Printf("warning: repo clone failed: %v", err)
 		}
 	}
+
+	// --- Install lola modules (must run after cloneRepo so cwd is correct) ---
+	installLolaModules()
 
 	// --- Build context with hard timeout ---
 	ctx, cancel := context.WithTimeout(context.Background(), task.Timeout)
@@ -431,8 +439,22 @@ type skillRepo struct {
 	Name string `json:"name,omitempty"`
 }
 
-// loadSkillRepos reads ALCOVE_SKILL_REPOS, clones each repo, and populates
-// skillPluginDirs so that runClaude() can pass --plugin-dir flags.
+// isLolaModule returns true if the given directory looks like a lola module
+// (contains module/, skills/, or agents/ directories).
+func isLolaModule(dir string) bool {
+	for _, sub := range []string{"module", "skills", "agents"} {
+		info, err := os.Stat(filepath.Join(dir, sub))
+		if err == nil && info.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+// loadSkillRepos reads ALCOVE_SKILL_REPOS, clones each repo, and classifies it
+// as either a lola module or a Claude Code plugin. Plugins are added to
+// skillPluginDirs immediately; lola modules are added to lolaModuleDirs for
+// deferred installation (after the project repo is cloned).
 func loadSkillRepos() {
 	reposJSON := os.Getenv("ALCOVE_SKILL_REPOS")
 	if reposJSON == "" {
@@ -489,12 +511,62 @@ func loadSkillRepos() {
 		}
 
 		log.Printf("cloned skill repo %s to %s", repo.URL, cloneDir)
-		skillPluginDirs = append(skillPluginDirs, cloneDir)
+
+		// Classify as lola module or Claude Code plugin
+		if isLolaModule(cloneDir) {
+			// Remove mcps.json to prevent lola from injecting MCP configs.
+			// Alcove uses Gate for all external API access.
+			os.Remove(filepath.Join(cloneDir, "module", "mcps.json"))
+
+			lolaModuleDirs = append(lolaModuleDirs, cloneDir)
+			log.Printf("detected lola module: %s", dirName)
+		} else {
+			skillPluginDirs = append(skillPluginDirs, cloneDir)
+			log.Printf("loaded plugin: %s", dirName)
+		}
 	}
 
 	if len(skillPluginDirs) > 0 {
-		log.Printf("loaded %d skill repo(s)", len(skillPluginDirs))
+		log.Printf("loaded %d plugin(s)", len(skillPluginDirs))
 	}
+	if len(lolaModuleDirs) > 0 {
+		log.Printf("detected %d lola module(s) (will install after repo clone)", len(lolaModuleDirs))
+	}
+}
+
+// installLolaModules runs "lola mod add" and "lola install" for each detected
+// lola module. This must be called after cloneRepo so that the current working
+// directory is the project directory where Claude Code will run.
+func installLolaModules() {
+	if len(lolaModuleDirs) == 0 {
+		return
+	}
+
+	for _, dir := range lolaModuleDirs {
+		name := filepath.Base(dir)
+
+		// Register the module from the local path
+		addCmd := exec.Command("lola", "mod", "add", dir)
+		addCmd.Stdout = os.Stdout
+		addCmd.Stderr = os.Stderr
+		if err := addCmd.Run(); err != nil {
+			log.Printf("warning: failed to register lola module %s: %v", name, err)
+			continue
+		}
+
+		// Install targeting claude-code
+		installCmd := exec.Command("lola", "install", name, "-a", "claude-code")
+		installCmd.Stdout = os.Stdout
+		installCmd.Stderr = os.Stderr
+		if err := installCmd.Run(); err != nil {
+			log.Printf("warning: failed to install lola module %s: %v", name, err)
+			continue
+		}
+
+		log.Printf("loaded lola module: %s", name)
+	}
+
+	log.Printf("installed %d lola module(s)", len(lolaModuleDirs))
 }
 
 // cloneRepo performs a shallow clone of the given repo.

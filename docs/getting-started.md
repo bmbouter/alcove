@@ -183,13 +183,15 @@ task definitions to extend and automate your workflow.
 
 ### Skill Repos
 
-Skill repos are git repositories containing Claude Code plugins that add
-custom skills and agents to every task. Configure them in the dashboard under
-the user menu (or under admin settings for system-wide repos).
+Skill repos are git repositories containing Claude Code plugins or lola modules
+that add custom skills and agents to every task. Configure them in the dashboard
+under the user menu (or under admin settings for system-wide repos).
 
-Each skill repo should contain a `.claude-plugin/plugin.json` file with skill
-and agent definitions. At task dispatch time, all configured repos are cloned
-into the Skiff container and loaded via `--plugin-dir`.
+Repos are auto-detected: if a repo contains a `.claude-plugin/plugin.json` file
+it is loaded as a Claude Code plugin; if it contains a `module/` directory it is
+loaded as a lola module. You just add a repo URL and Skiff figures out the
+format automatically. At task dispatch time, all configured repos are cloned
+into the Skiff container and loaded accordingly.
 
 ### Task Definitions
 

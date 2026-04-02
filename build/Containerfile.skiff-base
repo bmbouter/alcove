@@ -57,6 +57,9 @@ RUN curl -sL "https://gitlab.com/gitlab-org/cli/-/releases/permalink/latest/down
 # Install Claude Code CLI via npm
 RUN npm install -g @anthropic-ai/claude-code
 
+# Install lola (AI skill/module manager)
+RUN pip3 install git+https://github.com/RedHatProductSecurity/lola.git
+
 # Copy the skiff-init binary from the build stage
 COPY --from=builder /out/skiff-init /usr/local/bin/skiff-init
 

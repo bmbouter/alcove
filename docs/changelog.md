@@ -3,6 +3,14 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Enhancements
+- Skill repos now support lola modules in addition to Claude Code plugins.
+  Repos are auto-detected at startup based on their structure
+  (`.claude-plugin/plugin.json` for plugins, `module/` directory for lola
+  modules). Users just add a repo URL.
+
 ## v0.3.4
 
 ### Bug Fixes

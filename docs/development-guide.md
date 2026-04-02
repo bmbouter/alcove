@@ -445,8 +445,10 @@ To add a new runtime:
 
 ### Skill Repos
 
-Skill repos are git repositories containing Claude Code plugins. The plugin
-structure expected by Skiff:
+Skill repos are git repositories containing Claude Code plugins or lola
+modules. Skiff auto-detects the format based on the repo structure:
+
+**Claude Code plugin** (detected by `.claude-plugin/plugin.json`):
 
 ```
 my-skills-repo/
@@ -455,6 +457,16 @@ my-skills-repo/
   skills/             # Skill definitions
   agents/             # Agent definitions
 ```
+
+**Lola module** (detected by `module/` directory):
+
+```
+my-lola-repo/
+  module/             # Lola module definitions
+```
+
+Users do not need to specify the format. Skiff checks for each structure
+and loads the repo accordingly.
 
 At dispatch time, Bridge reads system-wide and per-user skill repos from the
 settings store, merges them, and passes the JSON to Skiff as

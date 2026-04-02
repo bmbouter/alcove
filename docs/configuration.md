@@ -379,10 +379,12 @@ env:
 
 ## Skill Repos
 
-Skill repos are git repositories containing Claude Code plugins (skills and
-agents) that extend what Claude Code can do inside Skiff containers. Each repo
-should have a `.claude-plugin/plugin.json` file with skill and agent
-definitions under `skills/` and `agents/` directories.
+Skill repos are git repositories containing Claude Code plugins or lola modules
+that extend what Claude Code can do inside Skiff containers. Repos are
+auto-detected at startup: if a repo contains a `.claude-plugin/plugin.json`
+file it is loaded as a Claude Code plugin; if it contains a `module/` directory
+it is loaded as a lola module. Users just add a repo URL and Skiff figures out
+the format automatically.
 
 Configure skill repos in the dashboard under **Settings** or via the API:
 
