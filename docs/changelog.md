@@ -3,6 +3,15 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.3.10
+
+### Bug Fixes
+- Fix k8s task DNS: resolve HAIL_URL and LEDGER_URL to ClusterIPs in Bridge
+  before passing to Skiff. OVN-Kubernetes blocks UDP DNS from task pods
+  despite NetworkPolicy allowing port 53. Bridge resolves hostnames (where
+  DNS works) and Skiff connects via IP directly.
+- Remove temporary diagnostic logging from skiff-init.
+
 ## v0.3.9
 
 ### Bug Fixes
