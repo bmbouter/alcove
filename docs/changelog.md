@@ -3,6 +3,18 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.3.8
+
+### Diagnostics
+- Add network diagnostic logging to skiff-init: DNS resolution, raw TCP
+  connection test, proxy env vars. Temporary — for debugging staging
+  connectivity issues.
+
+### Improvements
+- Password security UX: confirm password on user creation and admin reset,
+  8-char minimum enforced on all password endpoints, admin reset uses
+  proper modal instead of prompt().
+
 ## v0.3.7
 
 ### Bug Fixes
