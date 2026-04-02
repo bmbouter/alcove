@@ -3,6 +3,16 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.3.7
+
+### Bug Fixes
+- Fix k8s task execution: NO_PROXY was missing internal service names
+  (alcove-hail, alcove-bridge, alcove-ledger), causing all Skiff traffic
+  to route through Gate's HTTP proxy which rejected it with 403. NATS
+  connections timed out and status updates failed.
+- Disable per-task NetworkPolicy creation — static alcove-allow-internal
+  provides sufficient restriction.
+
 ## v0.3.6
 
 ### Bug Fixes
