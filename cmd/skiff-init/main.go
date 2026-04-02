@@ -23,7 +23,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -94,68 +93,6 @@ func main() {
 	}
 
 	log.Printf("task %s received: prompt=%q repo=%s", task.ID, truncate(task.Prompt, 60), task.Repo)
-
-	// --- Network diagnostics ---
-	log.Printf("DEBUG: HTTP_PROXY=%s", os.Getenv("HTTP_PROXY"))
-	log.Printf("DEBUG: HTTPS_PROXY=%s", os.Getenv("HTTPS_PROXY"))
-	log.Printf("DEBUG: NO_PROXY=%s", os.Getenv("NO_PROXY"))
-	log.Printf("DEBUG: HAIL_URL=%s", envOrDefault("HAIL_URL", "nats://localhost:4222"))
-	log.Printf("DEBUG: LEDGER_URL=%s", os.Getenv("LEDGER_URL"))
-
-	// Read resolv.conf to see what DNS servers are configured
-	if resolvData, err := os.ReadFile("/etc/resolv.conf"); err == nil {
-		log.Printf("DEBUG: /etc/resolv.conf:\n%s", string(resolvData))
-	} else {
-		log.Printf("DEBUG: cannot read /etc/resolv.conf: %v", err)
-	}
-
-	// DNS resolution test with timeout using a custom resolver
-	resolver := &net.Resolver{}
-	dnsCtx, dnsCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer dnsCancel()
-
-	hailHost := "alcove-hail"
-	log.Printf("DEBUG: resolving DNS for %s (5s timeout)...", hailHost)
-	addrs, dnsErr := resolver.LookupHost(dnsCtx, hailHost)
-	if dnsErr != nil {
-		log.Printf("DEBUG: DNS lookup FAILED for %s: %v", hailHost, dnsErr)
-	} else {
-		log.Printf("DEBUG: DNS resolved %s → %v", hailHost, addrs)
-	}
-
-	// Also try the FQDN
-	hailFQDN := "alcove-hail.pulp-stage.svc.cluster.local"
-	dnsCtx2, dnsCancel2 := context.WithTimeout(context.Background(), 5*time.Second)
-	defer dnsCancel2()
-	log.Printf("DEBUG: resolving FQDN %s (5s timeout)...", hailFQDN)
-	addrs2, dnsErr2 := resolver.LookupHost(dnsCtx2, hailFQDN)
-	if dnsErr2 != nil {
-		log.Printf("DEBUG: DNS lookup FAILED for %s: %v", hailFQDN, dnsErr2)
-	} else {
-		log.Printf("DEBUG: DNS resolved %s → %v", hailFQDN, addrs2)
-	}
-
-	// TCP connection test (only if DNS succeeded)
-	if len(addrs) > 0 {
-		log.Printf("DEBUG: attempting TCP connect to %s:4222 (3s timeout)...", addrs[0])
-		tcpConn, tcpErr := net.DialTimeout("tcp", addrs[0]+":4222", 3*time.Second)
-		if tcpErr != nil {
-			log.Printf("DEBUG: TCP connect FAILED: %v", tcpErr)
-		} else {
-			log.Printf("DEBUG: TCP connect SUCCEEDED (remote=%s)", tcpConn.RemoteAddr())
-			tcpConn.Close()
-		}
-	}
-
-	// Also try direct IP connect to the NATS service ClusterIP (bypass DNS entirely)
-	log.Printf("DEBUG: attempting TCP connect to ClusterIP 172.30.21.112:4222 (3s timeout)...")
-	tcpConn2, tcpErr2 := net.DialTimeout("tcp", "172.30.21.112:4222", 3*time.Second)
-	if tcpErr2 != nil {
-		log.Printf("DEBUG: direct IP TCP connect FAILED: %v", tcpErr2)
-	} else {
-		log.Printf("DEBUG: direct IP TCP connect SUCCEEDED")
-		tcpConn2.Close()
-	}
 
 	// --- Connect to NATS (Hail) for status updates and cancellation ---
 	hailURL := envOrDefault("HAIL_URL", "nats://localhost:4222")

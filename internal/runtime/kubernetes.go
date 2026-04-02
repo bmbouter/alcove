@@ -18,6 +18,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
+	"net/url"
 	"os"
 
 	"strings"
@@ -145,6 +147,48 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 	}
 	// Override ANTHROPIC_BASE_URL to use localhost since Gate is a sidecar.
 	skiffEnv["ANTHROPIC_BASE_URL"] = "http://localhost:8443"
+
+	// Resolve service hostnames to IPs to bypass DNS issues in task pods.
+	// OVN-Kubernetes may block UDP DNS from pods with restrictive egress policies.
+	if hailURL, ok := skiffEnv["HAIL_URL"]; ok {
+		resolved := resolveServiceURL(hailURL)
+		if resolved != hailURL {
+			log.Printf("resolved HAIL_URL: %s → %s", hailURL, resolved)
+			skiffEnv["HAIL_URL"] = resolved
+		}
+	}
+	if ledgerURL, ok := skiffEnv["LEDGER_URL"]; ok {
+		resolved := resolveServiceURL(ledgerURL)
+		if resolved != ledgerURL {
+			log.Printf("resolved LEDGER_URL: %s → %s", ledgerURL, resolved)
+			skiffEnv["LEDGER_URL"] = resolved
+		}
+	}
+
+	// Add resolved IPs to NO_PROXY so direct-IP connections bypass the proxy.
+	if noProxy, ok := skiffEnv["NO_PROXY"]; ok {
+		var extraHosts []string
+		if hailURL, ok := skiffEnv["HAIL_URL"]; ok {
+			if u, err := url.Parse(hailURL); err == nil {
+				if h := u.Hostname(); h != "" {
+					extraHosts = append(extraHosts, h)
+				}
+			}
+		}
+		if ledgerURL, ok := skiffEnv["LEDGER_URL"]; ok {
+			if u, err := url.Parse(ledgerURL); err == nil {
+				if h := u.Hostname(); h != "" {
+					extraHosts = append(extraHosts, h)
+				}
+			}
+		}
+		for _, h := range extraHosts {
+			if !strings.Contains(noProxy, h) {
+				noProxy += "," + h
+			}
+		}
+		skiffEnv["NO_PROXY"] = noProxy
+	}
 
 	skiffEnvVars := envMapToVars(skiffEnv)
 
@@ -438,6 +482,26 @@ func envMapToVars(env map[string]string) []corev1.EnvVar {
 		vars = append(vars, corev1.EnvVar{Name: k, Value: v})
 	}
 	return vars
+}
+
+// resolveServiceURL resolves the hostname in a service URL to an IP address.
+// For example, nats://alcove-hail:4222 becomes nats://10.x.x.x:4222.
+// Returns the original URL unchanged if resolution fails.
+func resolveServiceURL(serviceURL string) string {
+	u, err := url.Parse(serviceURL)
+	if err != nil {
+		return serviceURL
+	}
+	host := u.Hostname()
+	if host == "" {
+		return serviceURL
+	}
+	addrs, err := net.LookupHost(host)
+	if err != nil || len(addrs) == 0 {
+		return serviceURL
+	}
+	u.Host = net.JoinHostPort(addrs[0], u.Port())
+	return u.String()
 }
 
 // boolPtr returns a pointer to a bool value.
