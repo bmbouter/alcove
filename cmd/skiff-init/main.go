@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -93,6 +94,43 @@ func main() {
 	}
 
 	log.Printf("task %s received: prompt=%q repo=%s", task.ID, truncate(task.Prompt, 60), task.Repo)
+
+	// --- Network diagnostics ---
+	log.Printf("DEBUG: HTTP_PROXY=%s", os.Getenv("HTTP_PROXY"))
+	log.Printf("DEBUG: HTTPS_PROXY=%s", os.Getenv("HTTPS_PROXY"))
+	log.Printf("DEBUG: NO_PROXY=%s", os.Getenv("NO_PROXY"))
+	log.Printf("DEBUG: HAIL_URL=%s", envOrDefault("HAIL_URL", "nats://localhost:4222"))
+	log.Printf("DEBUG: LEDGER_URL=%s", os.Getenv("LEDGER_URL"))
+
+	// DNS resolution test for alcove-hail
+	hailHost := "alcove-hail"
+	log.Printf("DEBUG: resolving DNS for %s ...", hailHost)
+	addrs, dnsErr := net.LookupHost(hailHost)
+	if dnsErr != nil {
+		log.Printf("DEBUG: DNS lookup failed for %s: %v", hailHost, dnsErr)
+	} else {
+		log.Printf("DEBUG: DNS resolved %s → %v", hailHost, addrs)
+	}
+
+	// TCP connection test to alcove-hail:4222
+	log.Printf("DEBUG: attempting raw TCP connect to %s:4222 (3s timeout)...", hailHost)
+	tcpConn, tcpErr := net.DialTimeout("tcp", hailHost+":4222", 3*time.Second)
+	if tcpErr != nil {
+		log.Printf("DEBUG: TCP connect to %s:4222 FAILED: %v", hailHost, tcpErr)
+	} else {
+		log.Printf("DEBUG: TCP connect to %s:4222 SUCCEEDED (remote=%s)", hailHost, tcpConn.RemoteAddr())
+		tcpConn.Close()
+	}
+
+	// DNS resolution test for alcove-bridge
+	bridgeHost := "alcove-bridge"
+	log.Printf("DEBUG: resolving DNS for %s ...", bridgeHost)
+	addrs2, dnsErr2 := net.LookupHost(bridgeHost)
+	if dnsErr2 != nil {
+		log.Printf("DEBUG: DNS lookup failed for %s: %v", bridgeHost, dnsErr2)
+	} else {
+		log.Printf("DEBUG: DNS resolved %s → %v", bridgeHost, addrs2)
+	}
 
 	// --- Connect to NATS (Hail) for status updates and cancellation ---
 	hailURL := envOrDefault("HAIL_URL", "nats://localhost:4222")
