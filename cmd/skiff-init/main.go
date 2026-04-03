@@ -19,9 +19,11 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -206,8 +208,23 @@ func runClaude(
 	}
 	args = append(args, task.Prompt)
 
+	log.Printf("DEBUG: running claude with args: %v", args)
+	log.Printf("DEBUG: HOME=%s", os.Getenv("HOME"))
+	log.Printf("DEBUG: PATH=%s", os.Getenv("PATH"))
+
+	// Check if claude exists
+	claudePath, pathErr := exec.LookPath("claude")
+	if pathErr != nil {
+		log.Printf("DEBUG: claude not found in PATH: %v", pathErr)
+	} else {
+		log.Printf("DEBUG: claude found at: %s", claudePath)
+	}
+
 	cmd := exec.CommandContext(ctx, "claude", args...)
-	cmd.Stderr = os.Stderr
+
+	// Capture stderr to a buffer so we can log it
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -330,6 +347,14 @@ func runClaude(
 			exitCode = 1
 		}
 	}
+
+	// Log stderr from Claude for debugging
+	if stderrStr := stderrBuf.String(); stderrStr != "" {
+		log.Printf("DEBUG: claude stderr:\n%s", stderrStr)
+	} else {
+		log.Printf("DEBUG: claude stderr: (empty)")
+	}
+	log.Printf("DEBUG: claude exit code: %d", exitCode)
 
 	if ctx.Err() != nil {
 		outcome = "timeout"
