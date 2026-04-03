@@ -136,6 +136,11 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 	for k, v := range spec.Env {
 		skiffEnv[k] = v
 	}
+	// Ensure HOME is set — OpenShift assigns random UIDs that don't exist in
+	// /etc/passwd, so HOME defaults to "/" which is not writable.
+	if _, ok := skiffEnv["HOME"]; !ok {
+		skiffEnv["HOME"] = "/home/skiff"
+	}
 	if _, ok := skiffEnv["HTTP_PROXY"]; !ok {
 		skiffEnv["HTTP_PROXY"] = "http://localhost:8443"
 	}
