@@ -83,7 +83,8 @@ RUN git config --system credential.helper '/usr/local/bin/alcove-credential-help
     git config --system url."https://gitlab.com/".insteadOf "ssh://git@gitlab.com/"
 
 # Create a non-root user for running tasks
-RUN useradd -m -u 1001 -s /bin/bash skiff
+RUN useradd -m -u 1001 -s /bin/bash skiff && \
+    chmod 777 /home/skiff
 USER 1001
 WORKDIR /home/skiff
 
