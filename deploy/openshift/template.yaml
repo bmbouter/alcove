@@ -314,3 +314,20 @@ objects:
     - Egress
     egress:
     - {}
+
+# Allow task pods (Skiff+Gate) full egress — Gate needs to reach external
+# LLM APIs (Vertex AI, Anthropic) and SCM APIs (GitHub, GitLab, JIRA).
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    name: alcove-task-egress
+    labels:
+      app.kubernetes.io/part-of: alcove
+  spec:
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/managed-by: alcove
+    policyTypes:
+    - Egress
+    egress:
+    - {}
