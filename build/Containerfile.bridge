@@ -30,7 +30,7 @@ COPY --from=builder /out/bridge /usr/local/bin/bridge
 COPY web/ /web/
 
 # Install podman for container management (Bridge creates Skiff+Gate containers)
-RUN dnf install -y podman && \
+RUN dnf install -y podman git && \
     useradd -m -u 1001 -s /sbin/nologin alcove && \
     mkdir -p /tmp/podman-config /tmp/podman-data && \
     chmod 777 /tmp/podman-config /tmp/podman-data && \
