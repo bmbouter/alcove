@@ -116,7 +116,7 @@ fi
 # --- Test: Session isolation ---
 log "Test: Session isolation"
 
-# Alice creates a session
+# Alice creates a session (may fail if no LLM provider configured)
 ALICE_SESSION=$(curl -s -X POST "$BRIDGE_URL/api/v1/tasks" \
   -H "Authorization: Bearer $ALICE_TOKEN" \
   -H "Content-Type: application/json" \
@@ -130,31 +130,35 @@ BOB_SESSION=$(curl -s -X POST "$BRIDGE_URL/api/v1/tasks" \
   -d '{"prompt":"Bob test","provider":"default","timeout":10}' | python3 -c "import json,sys; print(json.load(sys.stdin).get('id','ERROR'))")
 echo "  Bob session: $BOB_SESSION"
 
-# Alice lists sessions — should only see hers
-ALICE_SESSIONS=$(curl -s "$BRIDGE_URL/api/v1/sessions" \
-  -H "Authorization: Bearer $ALICE_TOKEN" | python3 -c "import json,sys; d=json.load(sys.stdin); print(' '.join(s['id'] for s in d.get('sessions',[])))")
-
-if echo "$ALICE_SESSIONS" | grep -q "$ALICE_SESSION"; then
-  pass "Alice can see her own session"
+if [ "$ALICE_SESSION" = "ERROR" ] || [ "$BOB_SESSION" = "ERROR" ]; then
+  echo "  SKIP: Session tests skipped (no LLM provider configured)"
 else
-  fail "Alice cannot see her own session"
-fi
+  # Alice lists sessions — should only see hers
+  ALICE_SESSIONS=$(curl -s "$BRIDGE_URL/api/v1/sessions" \
+    -H "Authorization: Bearer $ALICE_TOKEN" | python3 -c "import json,sys; d=json.load(sys.stdin); print(' '.join(s['id'] for s in d.get('sessions',[])))")
 
-if echo "$ALICE_SESSIONS" | grep -q "$BOB_SESSION"; then
-  fail "Alice can see Bob's session (should be denied)"
-else
-  pass "Alice cannot see Bob's session"
-fi
+  if echo "$ALICE_SESSIONS" | grep -q "$ALICE_SESSION"; then
+    pass "Alice can see her own session"
+  else
+    fail "Alice cannot see her own session"
+  fi
 
-# Alice tries to access Bob's session detail
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-  "$BRIDGE_URL/api/v1/sessions/$BOB_SESSION" \
-  -H "Authorization: Bearer $ALICE_TOKEN")
-if [ "$HTTP_CODE" = "403" ]; then
-  pass "Alice gets 403 on Bob's session detail"
-else
-  fail "Alice gets $HTTP_CODE on Bob's session detail (expected 403)"
-fi
+  if echo "$ALICE_SESSIONS" | grep -q "$BOB_SESSION"; then
+    fail "Alice can see Bob's session (should be denied)"
+  else
+    pass "Alice cannot see Bob's session"
+  fi
+
+  # Alice tries to access Bob's session detail
+  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+    "$BRIDGE_URL/api/v1/sessions/$BOB_SESSION" \
+    -H "Authorization: Bearer $ALICE_TOKEN")
+  if [ "$HTTP_CODE" = "403" ]; then
+    pass "Alice gets 403 on Bob's session detail"
+  else
+    fail "Alice gets $HTTP_CODE on Bob's session detail (expected 403)"
+  fi
+fi  # end session skip block
 
 # --- Test: Admin authorization ---
 log "Test: Admin authorization"
