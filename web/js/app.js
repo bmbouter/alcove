@@ -1769,7 +1769,11 @@
             stopSSE();
             try {
                 const token = localStorage.getItem('alcove_token');
-                sseSource = new EventSource(basePath + '/api/v1/sessions/' + id + '/transcript?stream=true&token=' + encodeURIComponent(token));
+                var sseUrl = basePath + '/api/v1/sessions/' + id + '/transcript?stream=true';
+                if (token) {
+                    sseUrl += '&token=' + encodeURIComponent(token);
+                }
+                sseSource = new EventSource(sseUrl);
 
                 // Safety timeout: if SSE hasn't connected in 5s, hide spinner and fall back
                 let sseConnected = false;
