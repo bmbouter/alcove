@@ -31,28 +31,29 @@ fail() { echo "  FAIL: $*"; FAIL=$((FAIL+1)); }
 
 # --- Setup ---
 log "Setting up..."
-ADMIN_TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" \
+ADMIN_LOGIN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" \
   -H "Content-Type: application/json" \
-  -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASSWORD}\"}" | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+  -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASSWORD}\"}")
+ADMIN_TOKEN=$(echo "$ADMIN_LOGIN" | python3 -c "import json,sys; d=json.load(sys.stdin); t=d.get('token',''); print(t) if t else sys.exit('Login failed: ' + json.dumps(d))")
 
 # Create alice if needed
 curl -s -X POST "$BRIDGE_URL/api/v1/users" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"alice","password":"alice123","is_admin":false}' > /dev/null 2>&1 || true
+  -d '{"username":"sched-alice","password":"schedalice123","is_admin":false}' > /dev/null 2>&1 || true
 
 curl -s -X POST "$BRIDGE_URL/api/v1/users" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"bob","password":"bob123","is_admin":false}' > /dev/null 2>&1 || true
+  -d '{"username":"sched-bob","password":"schedbob1234","is_admin":false}' > /dev/null 2>&1 || true
 
 ALICE_TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"alice","password":"alice123"}' | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+  -d '{"username":"sched-alice","password":"schedalice123"}' | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('token',''))")
 
 BOB_TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"bob","password":"bob123"}' | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+  -d '{"username":"sched-bob","password":"schedbob1234"}' | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('token',''))")
 
 # --- Test 1: Create schedule ---
 log "Test 1: Create schedule"

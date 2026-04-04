@@ -40,7 +40,7 @@ fail() { echo "  FAIL: $*"; FAIL=$((FAIL+1)); }
 log "Setting up..."
 ADMIN_TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" \
   -H "Content-Type: application/json" \
-  -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASSWORD}\"}" | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+  -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASSWORD}\"}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('token',''))")
 
 ALCOVE_TESTING_URL="https://github.com/bmbouter/alcove-testing.git"
 

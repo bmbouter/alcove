@@ -34,27 +34,27 @@ log "Setting up test environment..."
 # Login as admin
 ADMIN_TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" \
   -H "Content-Type: application/json" \
-  -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASSWORD}\"}" | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+  -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASSWORD}\"}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('token',''))")
 
 # Create alice and bob (ignore errors if they exist)
 curl -s -X POST "$BRIDGE_URL/api/v1/users" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"alice","password":"alice123","is_admin":false}' > /dev/null 2>&1 || true
+  -d '{"username":"iso-alice","password":"isoalice12","is_admin":false}' > /dev/null 2>&1 || true
 
 curl -s -X POST "$BRIDGE_URL/api/v1/users" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"bob","password":"bob123","is_admin":false}' > /dev/null 2>&1 || true
+  -d '{"username":"iso-bob","password":"isobob123","is_admin":false}' > /dev/null 2>&1 || true
 
 # Login as alice and bob
 ALICE_TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"alice","password":"alice123"}' | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+  -d '{"username":"iso-alice","password":"isoalice12"}' | python3 -c "import json,sys; print(json.load(sys.stdin).get('token',''))")
 
 BOB_TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"bob","password":"bob123"}' | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+  -d '{"username":"iso-bob","password":"isobob123"}' | python3 -c "import json,sys; print(json.load(sys.stdin).get('token',''))")
 
 echo "  Admin token: ${ADMIN_TOKEN:0:10}..."
 echo "  Alice token: ${ALICE_TOKEN:0:10}..."

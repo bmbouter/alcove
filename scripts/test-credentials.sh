@@ -34,7 +34,7 @@ fail() { echo "  FAIL: $*"; FAIL=$((FAIL+1)); }
 log "Setting up..."
 ADMIN_TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" \
   -H "Content-Type: application/json" \
-  -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASSWORD}\"}" | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+  -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASSWORD}\"}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('token',''))")
 
 # Create test users
 curl -s -X POST "$BRIDGE_URL/api/v1/users" -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
@@ -43,9 +43,9 @@ curl -s -X POST "$BRIDGE_URL/api/v1/users" -H "Authorization: Bearer $ADMIN_TOKE
   -d '{"username":"credtest2","password":"credtest234","is_admin":false}' > /dev/null 2>&1 || true
 
 USER1_TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" -H "Content-Type: application/json" \
-  -d '{"username":"credtest1","password":"credtest123"}' | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+  -d '{"username":"credtest1","password":"credtest123"}' | python3 -c "import json,sys; print(json.load(sys.stdin).get('token',''))")
 USER2_TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" -H "Content-Type: application/json" \
-  -d '{"username":"credtest2","password":"credtest234"}' | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+  -d '{"username":"credtest2","password":"credtest234"}' | python3 -c "import json,sys; print(json.load(sys.stdin).get('token',''))")
 
 # Test 1: Create Anthropic API key credential
 log "Test 1: Create Anthropic credential"

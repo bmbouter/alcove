@@ -35,27 +35,27 @@ log "Setting up test users..."
 # Login as admin (assumes bootstrap password is known)
 ADMIN_TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"'"$ADMIN_PASSWORD"'"}' | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+  -d '{"username":"admin","password":"'"$ADMIN_PASSWORD"'"}' | python3 -c "import json,sys; print(json.load(sys.stdin).get('token',''))")
 
 # Create two test users
 curl -s -X POST "$BRIDGE_URL/api/v1/users" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"alice","password":"alice123"}' > /dev/null 2>&1 || true
+  -d '{"username":"ledger-alice","password":"ledgeralice1"}' > /dev/null 2>&1 || true
 
 curl -s -X POST "$BRIDGE_URL/api/v1/users" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"bob","password":"bob123"}' > /dev/null 2>&1 || true
+  -d '{"username":"ledger-bob","password":"ledgerbob12"}' > /dev/null 2>&1 || true
 
 # Login as alice and bob
 ALICE_TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"alice","password":"alice123"}' | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+  -d '{"username":"ledger-alice","password":"ledgeralice1"}' | python3 -c "import json,sys; print(json.load(sys.stdin).get('token',''))")
 
 BOB_TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"bob","password":"bob123"}' | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+  -d '{"username":"ledger-bob","password":"ledgerbob12"}' | python3 -c "import json,sys; print(json.load(sys.stdin).get('token',''))")
 
 # --- Test 1: Create sessions as different users ---
 log "Test 1: Creating sessions as alice and bob..."
