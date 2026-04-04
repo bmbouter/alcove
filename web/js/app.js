@@ -459,10 +459,19 @@
         listEl.innerHTML = html;
 
         listEl.querySelectorAll('.task-repo-delete').forEach(function(btn) {
-            btn.addEventListener('click', function() {
+            btn.addEventListener('click', async function() {
                 var idx = parseInt(btn.getAttribute('data-index'), 10);
+                var removed = taskReposList[idx];
                 taskReposList.splice(idx, 1);
-                saveTaskRepos();
+                await saveTaskRepos();
+                var statusEl = $('#task-repo-add-status');
+                if (statusEl) {
+                    statusEl.removeAttribute('hidden');
+                    statusEl.style.color = 'var(--text-muted)';
+                    statusEl.textContent = 'Removed ' + (removed.name || removed.url) + '. Task definitions from this repo have been deleted.';
+                }
+                // Reload task definitions after sync cleans up (2s delay for background sync)
+                setTimeout(function() { loadTaskDefinitions(); }, 2000);
             });
         });
     }
@@ -529,7 +538,9 @@
             $('#task-repo-name').value = '';
             statusEl.style.color = 'var(--status-running)';
             statusEl.textContent = 'Found ' + data.task_count + ' task definition(s): ' + data.tasks.join(', ');
-            saveTaskRepos();
+            await saveTaskRepos();
+            // Reload task definitions after sync completes (auto-triggered by save)
+            setTimeout(function() { loadTaskDefinitions(); }, 2000);
         } catch (err) {
             statusEl.style.color = 'var(--status-error)';
             statusEl.textContent = 'Validation error: ' + err.message;
@@ -563,7 +574,7 @@
                 return;
             }
             var data = await resp.json();
-            var defs = Array.isArray(data) ? data : (data.definitions || data.items || []);
+            var defs = Array.isArray(data) ? data : (data.task_definitions || data.definitions || data.items || []);
             renderTaskDefinitions(defs);
         } catch (err) {
             if (err.message !== 'unauthorized') {
@@ -611,7 +622,7 @@
             html += '</div>';
             html += '<div class="task-def-actions">';
             html += '<button class="btn btn-small btn-primary task-def-run" data-id="' + escapeHtml(id) + '">Run Now</button>';
-            html += '<button class="btn btn-small btn-outline task-def-yaml" data-id="' + escapeHtml(id) + '">View YAML</button>';
+            html += '<button class="btn btn-small btn-outline task-def-yaml" data-repo="' + escapeHtml(d.source_repo || '') + '" data-file="' + escapeHtml(d.source_file || '') + '">View YAML</button>';
             html += '</div>';
             html += '</div>';
         }
@@ -647,7 +658,16 @@
 
         listEl.querySelectorAll('.task-def-yaml').forEach(function(btn) {
             btn.addEventListener('click', function() {
-                showYaml(btn.getAttribute('data-id'));
+                var repo = btn.getAttribute('data-repo') || '';
+                var file = btn.getAttribute('data-file') || '';
+                // Convert git URL to GitHub web URL
+                // https://github.com/bmbouter/alcove.git → https://github.com/bmbouter/alcove
+                var webUrl = repo.replace(/\.git$/, '');
+                if (webUrl && file) {
+                    window.open(webUrl + '/blob/main/.alcove/tasks/' + file, '_blank');
+                } else {
+                    showYaml(btn.closest('.task-def-card').querySelector('.task-def-run').getAttribute('data-id'));
+                }
             });
         });
     }

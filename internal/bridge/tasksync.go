@@ -41,6 +41,7 @@ type TaskRepoSyncer struct {
 	interval      time.Duration
 	stopCh        chan struct{}
 	wg            sync.WaitGroup
+	syncMu        sync.Mutex // prevents concurrent SyncAll calls
 }
 
 // NewTaskRepoSyncer creates a TaskRepoSyncer with the given dependencies.
@@ -100,6 +101,8 @@ func (s *TaskRepoSyncer) Stop() {
 
 // SyncAll collects all task repos (system + all users) and syncs each.
 func (s *TaskRepoSyncer) SyncAll(ctx context.Context) error {
+	s.syncMu.Lock()
+	defer s.syncMu.Unlock()
 	var repos []SkillRepo
 
 	// System task repos.
@@ -118,6 +121,21 @@ func (s *TaskRepoSyncer) SyncAll(ctx context.Context) error {
 			}
 			if userRepos, err := s.settingsStore.GetUserTaskRepos(ctx, username); err == nil {
 				repos = append(repos, userRepos...)
+			}
+		}
+	}
+
+	// Clean up task definitions from repos that are no longer configured.
+	configuredURLs := make(map[string]bool)
+	for _, repo := range repos {
+		configuredURLs[repo.URL] = true
+	}
+	allDefs, err := s.defStore.ListTaskDefinitions(ctx)
+	if err == nil {
+		for _, def := range allDefs {
+			if !configuredURLs[def.SourceRepo] {
+				log.Printf("task-repo-syncer: removing task %q (repo %s no longer configured)", def.Name, def.SourceRepo)
+				_ = s.defStore.DeleteTaskDefinitionsByRepo(ctx, def.SourceRepo)
 			}
 		}
 	}
@@ -168,6 +186,10 @@ func (s *TaskRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo) error {
 			return fmt.Errorf("cloning %s: %s: %w", repo.URL, string(out), err)
 		}
 	} else {
+		// Remove stale lock files that can be left behind by interrupted git operations.
+		for _, lockFile := range []string{"shallow.lock", "index.lock"} {
+			os.Remove(filepath.Join(cloneDir, ".git", lockFile))
+		}
 		// Pull latest.
 		cmd := exec.CommandContext(ctx, "git", "-C", cloneDir, "fetch", "--depth=1", "origin", ref)
 		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
