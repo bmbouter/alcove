@@ -1,0 +1,33 @@
+name: Issue Triage
+description: |
+  Analyze newly opened GitHub issues and provide an initial triage assessment
+  including severity, component, and suggested labels.
+
+prompt: |
+  A new issue was opened on the Alcove GitHub repository. Read the issue
+  and provide a triage assessment:
+
+  1. Summarize the issue in 1-2 sentences
+  2. Suggest a severity level (critical, high, medium, low)
+  3. Identify which component(s) are affected (Bridge, Skiff, Gate, Hail,
+     Ledger, Dashboard, CLI, Docs)
+  4. Suggest appropriate labels
+  5. If the issue is a bug, suggest initial debugging steps
+  6. If the issue is a feature request, note any related existing features
+
+  Be concise and actionable. Focus on helping maintainers prioritize.
+
+repo: https://github.com/bmbouter/alcove.git
+
+profiles:
+  - github-readonly
+
+schedule:
+  cron: "*/15 * * * *"
+  enabled: false
+
+trigger:
+  github:
+    events: [issues]
+    actions: [opened]
+    repos: [bmbouter/alcove]
