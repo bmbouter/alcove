@@ -94,6 +94,7 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/admin/settings/task-repos", a.handleAdminSettingsTaskRepos)
 	mux.HandleFunc("/api/v1/user/settings/skill-repos", a.handleUserSettingsSkillRepos)
 	mux.HandleFunc("/api/v1/user/settings/task-repos", a.handleUserSettingsTaskRepos)
+	mux.HandleFunc("/api/v1/task-repos/validate", a.handleTaskRepoValidate)
 	mux.HandleFunc("/api/v1/task-definitions", a.handleTaskDefinitions)
 	mux.HandleFunc("/api/v1/task-definitions/sync", a.handleTaskDefinitionsSync)
 	mux.HandleFunc("/api/v1/task-definitions/", a.handleTaskDefinitionByID)
@@ -1446,6 +1447,7 @@ func (a *API) handleAdminSettingsTaskRepos(w http.ResponseWriter, r *http.Reques
 			respondError(w, http.StatusInternalServerError, "failed to save task repos")
 			return
 		}
+		go a.syncer.SyncAll(context.Background())
 		respondJSON(w, http.StatusOK, map[string]any{"repos": req.Repos})
 	default:
 		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -1481,10 +1483,36 @@ func (a *API) handleUserSettingsTaskRepos(w http.ResponseWriter, r *http.Request
 			respondError(w, http.StatusInternalServerError, "failed to save task repos")
 			return
 		}
+		go a.syncer.SyncAll(context.Background())
 		respondJSON(w, http.StatusOK, map[string]any{"repos": req.Repos})
 	default:
 		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+// --- Task Repo Validation ---
+
+func (a *API) handleTaskRepoValidate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var repo SkillRepo
+	if err := json.NewDecoder(r.Body).Decode(&repo); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if repo.URL == "" {
+		respondError(w, http.StatusBadRequest, "url is required")
+		return
+	}
+
+	names, err := a.syncer.ValidateRepo(r.Context(), repo)
+	if err != nil {
+		respondJSON(w, http.StatusBadRequest, map[string]any{"valid": false, "error": err.Error()})
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"valid": true, "task_count": len(names), "tasks": names})
 }
 
 // --- Task Definitions ---

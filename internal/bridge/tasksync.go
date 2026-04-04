@@ -264,6 +264,53 @@ func (s *TaskRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo) error {
 	return nil
 }
 
+// ValidateRepo clones a repo to a temp directory, checks for .alcove/tasks/*.yml,
+// parses each task definition, and returns the task names or an error.
+func (s *TaskRepoSyncer) ValidateRepo(ctx context.Context, repo SkillRepo) ([]string, error) {
+	dir, err := os.MkdirTemp("", "alcove-validate-*")
+	if err != nil {
+		return nil, fmt.Errorf("creating temp dir: %w", err)
+	}
+	defer os.RemoveAll(dir)
+
+	args := []string{"clone", "--depth=1"}
+	if repo.Ref != "" {
+		args = append(args, "--branch", repo.Ref)
+	}
+	args = append(args, repo.URL, dir)
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("cloning: %s", string(out))
+	}
+
+	tasksDir := filepath.Join(dir, ".alcove", "tasks")
+	entries, err := os.ReadDir(tasksDir)
+	if err != nil {
+		return nil, fmt.Errorf("no .alcove/tasks/ directory found")
+	}
+
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() || (!strings.HasSuffix(e.Name(), ".yml") && !strings.HasSuffix(e.Name(), ".yaml")) {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(tasksDir, e.Name()))
+		if err != nil {
+			continue
+		}
+		def, err := ParseTaskDefinition(data)
+		if err != nil {
+			return nil, fmt.Errorf("invalid task %s: %w", e.Name(), err)
+		}
+		names = append(names, def.Name)
+	}
+	if len(names) == 0 {
+		return nil, fmt.Errorf("no valid task definitions found in .alcove/tasks/")
+	}
+	return names, nil
+}
+
 // reconcileSchedule creates, updates, or removes a schedule for a task definition.
 func (s *TaskRepoSyncer) reconcileSchedule(ctx context.Context, td *TaskDefinition, repoURL string) error {
 	hasCron := td.Schedule != nil

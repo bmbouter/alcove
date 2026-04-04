@@ -495,7 +495,7 @@
         loadTaskRepos();
     });
 
-    $('#task-repo-add-btn').addEventListener('click', function() {
+    $('#task-repo-add-btn').addEventListener('click', async function() {
         var url = $('#task-repo-url').value.trim();
         if (!url) return;
         var ref = $('#task-repo-ref').value.trim() || 'main';
@@ -504,11 +504,39 @@
             var parts = url.replace(/\.git$/, '').split('/');
             name = parts[parts.length - 1] || 'repo';
         }
-        taskReposList.push({ url: url, ref: ref, name: name });
-        $('#task-repo-url').value = '';
-        $('#task-repo-ref').value = '';
-        $('#task-repo-name').value = '';
-        saveTaskRepos();
+
+        var btn = $('#task-repo-add-btn');
+        var statusEl = $('#task-repo-add-status');
+        btn.disabled = true;
+        btn.textContent = 'Validating...';
+        statusEl.removeAttribute('hidden');
+        statusEl.style.color = 'var(--text-muted)';
+        statusEl.textContent = 'Cloning and validating repository...';
+
+        try {
+            var resp = await api('POST', '/api/v1/task-repos/validate', { url: url, ref: ref, name: name });
+            var data = await resp.json();
+            if (!data.valid) {
+                statusEl.style.color = 'var(--status-error)';
+                statusEl.textContent = 'Validation failed: ' + (data.error || 'unknown error');
+                btn.disabled = false;
+                btn.textContent = 'Add';
+                return;
+            }
+            taskReposList.push({ url: url, ref: ref, name: name });
+            $('#task-repo-url').value = '';
+            $('#task-repo-ref').value = '';
+            $('#task-repo-name').value = '';
+            statusEl.style.color = 'var(--status-running)';
+            statusEl.textContent = 'Found ' + data.task_count + ' task definition(s): ' + data.tasks.join(', ');
+            saveTaskRepos();
+        } catch (err) {
+            statusEl.style.color = 'var(--status-error)';
+            statusEl.textContent = 'Validation error: ' + err.message;
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Add';
+        }
     });
 
     $('#task-repos-close').addEventListener('click', function() {
@@ -2674,6 +2702,16 @@
                         }
                         $('#sched-event-repos').value = (s.event_config && s.event_config.repos) ? s.event_config.repos.join(', ') : '';
                         $('#sched-event-branches').value = (s.event_config && s.event_config.branches) ? s.event_config.branches.join(', ') : '';
+                        var dm = s.event_config && s.event_config.delivery_mode;
+                        document.querySelectorAll('input[name="sched-delivery-mode"]').forEach(function(r) {
+                            r.checked = (r.value === (dm || 'polling'));
+                        });
+                        // Show/hide info panels
+                        $('#delivery-polling-info').hidden = (dm === 'webhook');
+                        $('#delivery-webhook-info').hidden = (dm !== 'webhook');
+                        if (dm === 'webhook') {
+                            $('#schedule-webhook-url').textContent = window.location.origin + basePath + '/api/v1/webhooks/github';
+                        }
                         $('#schedule-submit-btn').textContent = 'Update Schedule';
                         show($('#schedule-form-container'));
                         $('#sched-name').focus();
@@ -2896,6 +2934,11 @@
         document.querySelectorAll('.event-checkbox').forEach(function(cb) { cb.checked = false; });
         $('#sched-event-repos').value = '';
         $('#sched-event-branches').value = '';
+        document.querySelectorAll('input[name="sched-delivery-mode"]').forEach(function(r) {
+            r.checked = (r.value === 'polling');
+        });
+        $('#delivery-polling-info').hidden = false;
+        $('#delivery-webhook-info').hidden = true;
         if (prefill) {
             $('#sched-prompt').value = prefill.prompt || '';
             $('#sched-provider').value = prefill.provider || '';
@@ -2961,6 +3004,18 @@
         }
     });
 
+    // Delivery mode toggle (polling vs webhook)
+    document.addEventListener('change', function(e) {
+        if (e.target.name === 'sched-delivery-mode') {
+            var isPolling = e.target.value === 'polling';
+            $('#delivery-polling-info').hidden = !isPolling;
+            $('#delivery-webhook-info').hidden = isPolling;
+            if (!isPolling) {
+                $('#schedule-webhook-url').textContent = window.location.origin + basePath + '/api/v1/webhooks/github';
+            }
+        }
+    });
+
     // Submit schedule form
     $('#schedule-form').addEventListener('submit', async function (e) {
         e.preventDefault();
@@ -3009,6 +3064,10 @@
                 repos: eventRepos ? eventRepos.split(',').map(function(s) { return s.trim(); }) : undefined,
                 branches: eventBranches ? eventBranches.split(',').map(function(s) { return s.trim(); }) : undefined
             };
+            var deliveryMode = document.querySelector('input[name="sched-delivery-mode"]:checked');
+            if (deliveryMode) {
+                payload.event_config.delivery_mode = deliveryMode.value;
+            }
             // Clean undefined fields from event_config
             Object.keys(payload.event_config).forEach(function(k) {
                 if (payload.event_config[k] === undefined) delete payload.event_config[k];

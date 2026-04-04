@@ -255,6 +255,25 @@
                                     <label class="checkbox-label checkbox-label-inline"><input type="checkbox" value="release" class="event-checkbox"> Release</label>
                                 </div>
                             </div>
+                            <div class="form-group">
+                                <label>Delivery Mode</label>
+                                <div class="checkbox-group">
+                                    <label class="checkbox-label checkbox-label-inline"><input type="radio" name="sched-delivery-mode" value="polling" checked> Polling (checks GitHub API periodically)</label>
+                                    <label class="checkbox-label checkbox-label-inline"><input type="radio" name="sched-delivery-mode" value="webhook"> Webhook (GitHub sends events to Alcove)</label>
+                                </div>
+                            </div>
+                            <div id="delivery-polling-info" class="form-help" style="margin-bottom:12px;">
+                                Alcove checks the GitHub API every 5 minutes for new events. Requires a GitHub credential to be configured.
+                            </div>
+                            <div id="delivery-webhook-info" style="margin-bottom:12px;" hidden>
+                                <p class="form-help">Configure a webhook in your GitHub repository settings:</p>
+                                <div style="background:var(--bg-secondary);padding:12px;border-radius:8px;margin:8px 0;">
+                                    <p style="margin:0 0 4px;font-size:12px;color:var(--text-muted);">Payload URL:</p>
+                                    <code id="schedule-webhook-url" style="font-size:13px;"></code>
+                                    <p style="margin:8px 0 4px;font-size:12px;color:var(--text-muted);">Content type: <code>application/json</code></p>
+                                    <p style="margin:4px 0 0;font-size:12px;color:var(--text-muted);">Secret: Configure in the Webhook settings (user dropdown)</p>
+                                </div>
+                            </div>
                             <div class="form-row">
                                 <div class="form-group form-group-half">
                                     <label>Repository Filter</label>
@@ -755,6 +774,7 @@
                     </div>
                 </div>
                 <button id="task-repo-add-btn" class="btn btn-small btn-primary">Add</button>
+                <div id="task-repo-add-status" style="margin-top:8px;" hidden></div>
             </div>
 
             <div style="display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;">

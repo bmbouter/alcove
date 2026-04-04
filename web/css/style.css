@@ -1054,6 +1054,18 @@ select.input {
     accent-color: var(--accent);
 }
 
+.checkbox-label-inline input[type="radio"] {
+    accent-color: var(--accent);
+}
+
+.radio-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
 /* Trigger badge */
 .trigger-badge {
     font-size: 11px;

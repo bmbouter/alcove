@@ -26,10 +26,11 @@ type EventTrigger struct {
 
 // GitHubTrigger defines GitHub webhook event matching criteria.
 type GitHubTrigger struct {
-	Events   []string `json:"events" yaml:"events"`               // push, pull_request, issue_comment, release
-	Actions  []string `json:"actions,omitempty" yaml:"actions"`    // opened, synchronize, created, published
-	Repos    []string `json:"repos,omitempty" yaml:"repos"`        // org/repo filters (empty = all)
-	Branches []string `json:"branches,omitempty" yaml:"branches"`  // branch filters (empty = all)
+	Events       []string `json:"events" yaml:"events"`                              // push, pull_request, issue_comment, release
+	Actions      []string `json:"actions,omitempty" yaml:"actions"`                   // opened, synchronize, created, published
+	Repos        []string `json:"repos,omitempty" yaml:"repos"`                       // org/repo filters (empty = all)
+	Branches     []string `json:"branches,omitempty" yaml:"branches"`                 // branch filters (empty = all)
+	DeliveryMode string   `json:"delivery_mode,omitempty" yaml:"delivery_mode"`       // "polling" or "webhook", default "polling"
 }
 
 // Matches checks if an incoming webhook event matches this trigger config.
