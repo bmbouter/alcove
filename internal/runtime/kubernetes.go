@@ -126,9 +126,6 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 		log.Printf("debug mode: job %s will not have ttlSecondsAfterFinished set", name)
 	}
 
-	// Build environment variables for Gate (init sidecar).
-	gateEnvVars := envMapToVars(spec.GateEnv)
-
 	// Build environment variables for Skiff (main container).
 	// Merge spec env with proxy configuration pointing to Gate on localhost
 	// (Gate and Skiff share the pod's network namespace).
@@ -211,6 +208,8 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 	}
 	spec.GateEnv = gateEnv
 
+	// Build final env var slices AFTER all resolution is done.
+	gateEnvVars := envMapToVars(spec.GateEnv)
 	skiffEnvVars := envMapToVars(skiffEnv)
 
 	// Security context: run as non-root with minimal capabilities.
