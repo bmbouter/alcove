@@ -1507,7 +1507,9 @@ func (a *API) handleTaskRepoValidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	names, err := a.syncer.ValidateRepo(r.Context(), repo)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	names, err := a.syncer.ValidateRepo(ctx, repo)
 	if err != nil {
 		respondJSON(w, http.StatusBadRequest, map[string]any{"valid": false, "error": err.Error()})
 		return
