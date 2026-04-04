@@ -126,10 +126,10 @@ fi
 LLM_SET_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$BRIDGE_URL/api/v1/admin/settings/llm" \
   -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
   -d "{\"provider\":\"anthropic\",\"model\":\"claude-sonnet-4-20250514\",\"credential_id\":\"$SYSTEM_CRED_ID\"}")
-if [ "$LLM_SET_CODE" = "200" ]; then
-  pass "Admin configured system LLM with credential"
+if [ "$LLM_SET_CODE" = "405" ]; then
+  pass "System LLM PUT correctly returns 405 (config-file-only)"
 else
-  fail "Admin system LLM PUT returned $LLM_SET_CODE (expected 200)"
+  fail "Admin system LLM PUT returned $LLM_SET_CODE (expected 405)"
 fi
 
 # User1 lists credentials — should NOT see the system credential (it belongs to admin)
