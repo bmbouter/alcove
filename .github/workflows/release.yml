@@ -24,6 +24,9 @@ jobs:
       - name: Run tests
         run: go test ./...
 
+      - name: Run go vet
+        run: go vet ./...
+
       - name: Extract version
         id: version
         run: |

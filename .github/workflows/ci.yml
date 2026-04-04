@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  unit-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -16,8 +16,149 @@ jobs:
         with:
           go-version: '1.25'
 
-      - name: Run tests
-        run: go test ./...
+      - run: go test ./...
 
-      - name: Run go vet
-        run: go vet ./...
+      - run: go vet ./...
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+
+      - run: make build
+
+  functional-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+
+      - name: Detect version
+        id: version
+        run: echo "tag=$(git describe --tags --always --dirty 2>/dev/null || echo dev)" >> "$GITHUB_OUTPUT"
+
+      - name: Build binaries and container images
+        run: make build && make build-images
+        env:
+          VERSION: ${{ steps.version.outputs.tag }}
+
+      - name: Start podman socket
+        run: systemctl --user start podman.socket
+
+      - name: Create networks
+        run: |
+          podman network create --internal alcove-internal
+          podman network create alcove-external
+
+      - name: Start PostgreSQL
+        run: |
+          podman run -d --rm \
+            --name alcove-ledger \
+            --network alcove-internal \
+            -e POSTGRES_USER=alcove \
+            -e POSTGRES_PASSWORD=alcove \
+            -e POSTGRES_DB=alcove \
+            -p 5432:5432 \
+            docker.io/library/postgres:16
+
+      - name: Start NATS
+        run: |
+          podman run -d --rm \
+            --name alcove-hail \
+            --network alcove-internal \
+            -p 4222:4222 \
+            -p 8222:8222 \
+            docker.io/library/nats:latest
+
+      - name: Generate alcove.yaml
+        run: sed "s/change-me-to-a-strong-secret/$(openssl rand -hex 32)/" alcove.yaml.example > alcove.yaml
+
+      - name: Wait for PostgreSQL
+        run: |
+          for i in $(seq 1 30); do
+            if pg_isready -h localhost -p 5432 -U alcove; then
+              echo "PostgreSQL is ready"
+              exit 0
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 1
+          done
+          echo "PostgreSQL did not become ready in time"
+          exit 1
+
+      - name: Start Bridge container
+        run: |
+          podman run -d --rm \
+            --name alcove-bridge \
+            --network alcove-internal,alcove-external \
+            -p 8080:8080 \
+            -v ${XDG_RUNTIME_DIR}/podman/podman.sock:/run/podman/podman.sock \
+            -v ${{ github.workspace }}/web:/web:ro \
+            -v ${{ github.workspace }}/alcove.yaml:/etc/alcove/alcove.yaml:ro \
+            -e CONTAINER_HOST=unix:///run/podman/podman.sock \
+            -e LEDGER_DATABASE_URL=postgres://alcove:alcove@alcove-ledger:5432/alcove?sslmode=disable \
+            -e HAIL_URL=nats://alcove-hail:4222 \
+            -e RUNTIME=podman \
+            -e VERSION=${{ steps.version.outputs.tag }} \
+            -e ALCOVE_WEB_DIR=/web \
+            -e ALCOVE_NETWORK=alcove-internal \
+            -e ALCOVE_EXTERNAL_NETWORK=alcove-external \
+            -e SKIFF_IMAGE=localhost/alcove-skiff-base:${{ steps.version.outputs.tag }} \
+            -e GATE_IMAGE=localhost/alcove-gate:${{ steps.version.outputs.tag }} \
+            localhost/alcove-bridge:${{ steps.version.outputs.tag }}
+
+      - name: Wait for Bridge health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/api/v1/health; then
+              echo ""
+              echo "Bridge is healthy"
+              exit 0
+            fi
+            echo "Waiting for Bridge... ($i/30)"
+            sleep 2
+          done
+          echo "Bridge did not become healthy in time"
+          podman logs alcove-bridge
+          exit 1
+
+      - name: Test credentials
+        run: ADMIN_PASSWORD=admin ./scripts/test-credentials.sh
+
+      - name: Test schedules
+        run: ADMIN_PASSWORD=admin ./scripts/test-schedules.sh
+
+      - name: Test task repos
+        run: ADMIN_PASSWORD=admin ./scripts/test-task-repos.sh
+
+      - name: Test user isolation
+        run: ADMIN_PASSWORD=admin ./scripts/test-user-isolation.sh
+
+      - name: Test ledger access
+        run: ADMIN_PASSWORD=admin ./scripts/test-ledger-access.sh
+
+      - name: Collect container logs
+        if: failure()
+        run: |
+          echo "=== Bridge ==="
+          podman logs alcove-bridge 2>&1 || true
+          echo "=== Ledger ==="
+          podman logs alcove-ledger 2>&1 || true
+          echo "=== Hail ==="
+          podman logs alcove-hail 2>&1 || true
+
+      - name: Teardown
+        if: always()
+        run: |
+          podman stop alcove-bridge 2>/dev/null || true
+          podman stop alcove-hail 2>/dev/null || true
+          podman stop alcove-ledger 2>/dev/null || true
+          podman network rm alcove-internal 2>/dev/null || true
+          podman network rm alcove-external 2>/dev/null || true
