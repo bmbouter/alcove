@@ -195,6 +195,22 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 		skiffEnv["NO_PROXY"] = noProxy
 	}
 
+	// Also resolve Gate env vars that reference internal services.
+	gateEnv := spec.GateEnv
+	if gateEnv == nil {
+		gateEnv = make(map[string]string)
+	}
+	for _, key := range []string{"GATE_LEDGER_URL", "GATE_TOKEN_REFRESH_URL"} {
+		if val, ok := gateEnv[key]; ok {
+			resolved := resolveServiceURL(val)
+			if resolved != val {
+				log.Printf("resolved %s: %s → %s", key, val, resolved)
+				gateEnv[key] = resolved
+			}
+		}
+	}
+	spec.GateEnv = gateEnv
+
 	skiffEnvVars := envMapToVars(skiffEnv)
 
 	// Security context: run as non-root with minimal capabilities.
