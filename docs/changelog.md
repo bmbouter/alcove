@@ -3,6 +3,17 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.4.1
+
+### Bug Fixes
+- Add diagnostic logging for Gate proxy log delivery to investigate empty
+  proxy logs on OpenShift staging. Gate now logs the target URL at startup
+  and includes full URL and response body on POST failures.
+
+### Features
+- Add autonomous developer task definition and alcove-developer security profile
+  for fully autonomous software development lifecycle.
+
 ## v0.4.0
 
 ### Features
