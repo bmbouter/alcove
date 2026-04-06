@@ -384,10 +384,17 @@ func (a *API) streamTranscriptSSE(w http.ResponseWriter, r *http.Request, sessio
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no") // Disable reverse proxy buffering (nginx/Turnpike)
+	w.Header().Set("X-Accel-Buffering", "no")     // Disable nginx buffering
+	w.Header().Set("Transfer-Encoding", "chunked") // Force chunked encoding through proxies
 	w.WriteHeader(http.StatusOK)
+
+	// Send a padding block to force proxy buffers to flush. Many reverse proxies
+	// (haproxy, 3scale/Turnpike) buffer the first ~4-8KB before forwarding.
+	// A 4KB SSE comment block pushes past typical buffer thresholds.
+	padding := ": " + strings.Repeat(" ", 4096) + "\n\n"
+	fmt.Fprint(w, padding)
 	flusher.Flush()
-	log.Printf("sse: streaming transcript for session %s (client: %s)", sessionID, r.RemoteAddr)
+	log.Printf("sse: streaming transcript for session %s (client: %s, sent %d-byte padding)", sessionID, r.RemoteAddr, len(padding))
 
 	// Phase 1: Catch-up — send persisted events from database
 	var transcript json.RawMessage
