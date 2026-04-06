@@ -695,7 +695,6 @@ func (p *Proxy) Stop() {
 // SendLogs sends proxy log entries to the Ledger service.
 func (p *Proxy) SendLogs(entries []internal.ProxyLogEntry) {
 	if p.config.LedgerURL == "" {
-		log.Printf("gate: GATE_LEDGER_URL is empty — cannot send %d proxy log entries", len(entries))
 		return
 	}
 
