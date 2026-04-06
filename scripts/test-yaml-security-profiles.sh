@@ -39,7 +39,7 @@ ADMIN_TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" \
 ALCOVE_TESTING_URL="https://github.com/bmbouter/alcove-testing.git"
 
 # Clear any existing repos first to start clean
-curl -s -X PUT "$BRIDGE_URL/api/v1/admin/settings/task-repos" \
+curl -s -X PUT "$BRIDGE_URL/api/v1/user/settings/task-repos" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"repos":[]}' > /dev/null
@@ -54,7 +54,7 @@ log "=== Group 1: Add repo and sync ==="
 
 # Test 1.1: Add alcove-testing repo
 log "Test 1.1: Add alcove-testing repo"
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$BRIDGE_URL/api/v1/admin/settings/task-repos" \
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$BRIDGE_URL/api/v1/user/settings/task-repos" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"repos\":[{\"url\":\"$ALCOVE_TESTING_URL\",\"name\":\"alcove-testing\"}]}")
@@ -188,7 +188,7 @@ log "=== Group 4: Cleanup ==="
 
 # Test 4.1: Remove task repos
 log "Test 4.1: Remove task repos"
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$BRIDGE_URL/api/v1/admin/settings/task-repos" \
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$BRIDGE_URL/api/v1/user/settings/task-repos" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"repos":[]}')
