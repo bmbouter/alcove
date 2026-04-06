@@ -5,5 +5,3 @@ prompt: |
   Check against public vulnerability databases. Report findings as
   a markdown summary with severity levels and recommended updates.
 timeout: 1800
-profiles:
-  - github-readonly

@@ -66,9 +66,9 @@ cleanup() {
 
     # Delete test profiles
     if [[ -n "${TOKEN:-}" ]]; then
-        curl -s -X DELETE "${BRIDGE_URL}/api/v1/profiles/${PROFILE_BLOCKED}" \
+        curl -s -X DELETE "${BRIDGE_URL}/api/v1/security-profiles/${PROFILE_BLOCKED}" \
             -H "Authorization: Bearer ${TOKEN}" > /dev/null 2>&1 || true
-        curl -s -X DELETE "${BRIDGE_URL}/api/v1/profiles/${PROFILE_READONLY}" \
+        curl -s -X DELETE "${BRIDGE_URL}/api/v1/security-profiles/${PROFILE_READONLY}" \
             -H "Authorization: Bearer ${TOKEN}" > /dev/null 2>&1 || true
     fi
 
@@ -100,7 +100,7 @@ log "================================================================"
 
 # Create a profile with only github (no jira)
 log "Creating profile '${PROFILE_BLOCKED}' (github only, no jira)..."
-PROFILE_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BRIDGE_URL}/api/v1/profiles" \
+PROFILE_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BRIDGE_URL}/api/v1/security-profiles" \
     -H "Authorization: Bearer ${TOKEN}" \
     -H "Content-Type: application/json" \
     -d "{
@@ -296,7 +296,7 @@ log "================================================================"
 
 # Create a read-only profile for JIRA
 log "Creating profile '${PROFILE_READONLY}' (jira read-only)..."
-PROFILE_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BRIDGE_URL}/api/v1/profiles" \
+PROFILE_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BRIDGE_URL}/api/v1/security-profiles" \
     -H "Authorization: Bearer ${TOKEN}" \
     -H "Content-Type: application/json" \
     -d "{

@@ -441,9 +441,9 @@ To add a new runtime:
    shared networking and proxy configuration.
 3. Wire it into Bridge startup based on the `RUNTIME` environment variable.
 
-## Skill Repos and Task Definitions
+## Skill / Agent Repos and Task Definitions
 
-### Skill Repos
+### Skill / Agent Repos
 
 Skill repos are git repositories containing Claude Code plugins or lola
 modules. Skiff auto-detects the format based on the repo structure:

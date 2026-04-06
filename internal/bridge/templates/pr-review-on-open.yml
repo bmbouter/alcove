@@ -1,0 +1,14 @@
+name: PR Review on Open
+description: Automatically review pull requests when opened
+prompt: |
+  A pull request has been opened. Review the changes for potential bugs,
+  security vulnerabilities, and code style issues. Provide specific,
+  actionable feedback with file and line references.
+timeout: 900
+trigger:
+  github:
+    events:
+      - pull_request
+    actions:
+      - opened
+    delivery_mode: polling

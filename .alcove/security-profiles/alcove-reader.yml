@@ -1,0 +1,16 @@
+name: alcove-reader
+display_name: Alcove Reader
+description: Read-only access to bmbouter/alcove code, issues, PRs, releases, and actions
+tools:
+  github:
+    rules:
+      - repos: ["bmbouter/alcove"]
+        operations:
+          - clone
+          - read_prs
+          - read_issues
+          - read_contents
+          - read_actions
+          - read_releases
+          - read_commits
+          - read_branches

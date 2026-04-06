@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -228,22 +229,31 @@ func contains(vals []int, v int) bool {
 	return false
 }
 
-// Scheduler runs recurring tasks based on cron schedules stored in PostgreSQL.
+// Scheduler runs recurring tasks based on cron schedules stored in PostgreSQL
+// and polls GitHub Events API for event-triggered schedules.
 type Scheduler struct {
 	db         *pgxpool.Pool
 	dispatcher *Dispatcher
 	cfg        *Config
+	poller     *GitHubPoller
 	stopCh     chan struct{}
 	wg         sync.WaitGroup
 }
 
 // NewScheduler creates a Scheduler with the given dependencies.
-func NewScheduler(db *pgxpool.Pool, dispatcher *Dispatcher, cfg *Config) *Scheduler {
+func NewScheduler(db *pgxpool.Pool, dispatcher *Dispatcher, cfg *Config, credStore *CredentialStore, defStore *TaskDefStore) *Scheduler {
 	return &Scheduler{
 		db:         db,
 		dispatcher: dispatcher,
 		cfg:        cfg,
-		stopCh:     make(chan struct{}),
+		poller: &GitHubPoller{
+			db:         db,
+			dispatcher: dispatcher,
+			credStore:  credStore,
+			defStore:   defStore,
+			client:     &http.Client{Timeout: 30 * time.Second},
+		},
+		stopCh: make(chan struct{}),
 	}
 }
 
@@ -360,6 +370,9 @@ func (s *Scheduler) tick(ctx context.Context) {
 			log.Printf("scheduler: error updating schedule %s: %v", sched.ID, err)
 		}
 	}
+
+	// Poll GitHub Events API for polling-mode event schedules.
+	s.poller.PollAll(ctx)
 }
 
 // CreateSchedule inserts a new schedule into the database. It generates a UUID

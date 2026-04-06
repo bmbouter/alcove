@@ -323,7 +323,7 @@ The CLI stores its Bridge URL in `~/.config/alcove/config.yaml` (set by
 - PostgreSQL for Ledger (append-only writes)
 - Built-in auth (argon2id, rate limiting, CSRF)
 - CLI: `run`, `list`, `logs`, `status`, `cancel`, `login`
-- Dashboard: session list, new task, scope approval, live monitor, session review
+- Dashboard: task list, new task, scope approval, live monitor, task review
 - Vertex AI provider (key in Gate, not in Skiff)
 - Manual scope configuration (no AI resolution)
 - k8s Secrets + env vars for credentials
@@ -345,9 +345,9 @@ The CLI stores its Bridge URL in `~/.config/alcove/config.yaml` (set by
 - Scope escalation notifications (dashboard modal + CLI prompt)
 
 ### Phase 3: Human-in-the-Loop + Review
-- Session review workflow (approve/reject/follow-up/rerun)
+- Task review workflow (approve/reject/follow-up/rerun)
 - Proxy log correlation with transcripts
-- Session annotation sidebar in dashboard
+- Task annotation sidebar in dashboard
 - Follow-up task chaining (linked sessions)
 - Claude Pro/Max account support
 - Notification webhooks (Slack, email) for scheduled task approvals

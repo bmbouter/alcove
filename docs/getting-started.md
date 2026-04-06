@@ -133,7 +133,7 @@ make down
 
 ### System LLM
 
-The system LLM (used for AI-powered features like the profile builder) is
+The system LLM (used for AI-powered features like the security profile builder) is
 configured in `alcove.yaml` or via environment variables -- not through the
 dashboard. Add one of these to your `alcove.yaml`:
 
@@ -176,12 +176,12 @@ ALCOVE_DEBUG=true
 
 See `docs/configuration.md` for the complete list.
 
-## Skill Repos and Task Definitions
+## Skill / Agent Repos and Task Definitions
 
 After configuring your LLM provider, you can optionally set up skill repos and
 task definitions to extend and automate your workflow.
 
-### Skill Repos
+### Skill / Agent Repos
 
 Skill repos are git repositories containing Claude Code plugins or lola modules
 that add custom skills and agents to every task. Configure them in the dashboard

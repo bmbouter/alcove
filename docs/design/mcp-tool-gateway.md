@@ -1150,9 +1150,9 @@ A new "Tools" page in the dashboard for managing the tool registry:
 3. **Register form**: for adding custom tools
 4. **Credential status**: shows which tools have credentials configured
 
-### 10.3 Session Detail Enhancements
+### 10.3 Task Detail Enhancements
 
-The session detail page shows:
+The task detail page shows:
 - Which tools were enabled for the task
 - Proxy log filtered by tool
 - Operation counts by tool (N reads, N writes, N denials)
@@ -1231,7 +1231,7 @@ the env var contract). Can be done in parallel with Phase 2 and 3.
 | 5.2 | `web/static/` | Operation picker with tier grouping and presets | 5.1 |
 | 5.3 | `web/static/` | Tool registry management page | Phase 1 (API) |
 | 5.4 | `web/static/` | Scope preview JSON viewer | 5.2 |
-| 5.5 | `web/static/` | Session detail tool/proxy-log enhancements | -- |
+| 5.5 | `web/static/` | Task detail tool/proxy-log enhancements | -- |
 
 **Parallelism:** 5.1 and 5.3 can be done in parallel. 5.2 and 5.4 depend on
 5.1. 5.5 is independent.

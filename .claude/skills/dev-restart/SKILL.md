@@ -53,7 +53,20 @@ podman run -d --replace --name alcove-bridge \
 ### 6. Wait for health
 Poll `curl http://localhost:8080/api/v1/health` until healthy.
 
-### 7. Report
+### 7. Ensure credentials exist
+After health check passes, verify credentials are configured. If the DB was reset (no credentials), configure them:
+
+```bash
+TOKEN=$(curl -s http://localhost:8080/api/v1/auth/login -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin"}' | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))")
+CRED_COUNT=$(curl -s http://localhost:8080/api/v1/credentials -H "Authorization: Bearer $TOKEN" | python3 -c "import sys,json; print(json.load(sys.stdin).get('count',0))")
+```
+
+If `CRED_COUNT` is 0, configure both Vertex AI and GitHub credentials:
+- **Vertex AI**: Read service_account_json from alcove.yaml, POST to `/api/v1/credentials` with provider=google-vertex
+- **GitHub**: Read PAT from `~/.config/alcove-github-token`, POST to `/api/v1/credentials` with provider=github
+
+### 8. Report
 ```
 Dashboard: http://localhost:8080
 Login: admin / admin (or existing credentials from DB)

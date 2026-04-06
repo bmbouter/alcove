@@ -52,7 +52,7 @@ cleanup() {
 
     # Delete the test profile.
     if [[ -n "${TOKEN:-}" ]]; then
-        curl -s -X DELETE "${BRIDGE_URL}/api/v1/profiles/${PROFILE_NAME}" \
+        curl -s -X DELETE "${BRIDGE_URL}/api/v1/security-profiles/${PROFILE_NAME}" \
             -H "Authorization: Bearer ${TOKEN}" > /dev/null 2>&1 || true
     fi
 
@@ -79,7 +79,7 @@ log "Logged in successfully."
 # ---------------------------------------------------------------------------
 log "Creating read-only security profile '${PROFILE_NAME}'..."
 
-PROFILE_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BRIDGE_URL}/api/v1/profiles" \
+PROFILE_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BRIDGE_URL}/api/v1/security-profiles" \
     -H "Authorization: Bearer ${TOKEN}" \
     -H "Content-Type: application/json" \
     -d "{

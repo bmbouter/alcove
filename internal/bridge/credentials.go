@@ -381,6 +381,27 @@ func (cs *CredentialStore) AcquireSCMTokenWithHost(ctx context.Context, service 
 	return string(raw), host, nil
 }
 
+// AcquireSCMTokenForOwner looks up an SCM credential for a specific owner and returns
+// the token and API host. Falls back to AcquireSCMTokenWithHost if no owner-specific credential exists.
+func (cs *CredentialStore) AcquireSCMTokenForOwner(ctx context.Context, service, owner string) (token string, apiHost string, err error) {
+	var encrypted []byte
+	var host string
+	err = cs.db.QueryRow(ctx,
+		`SELECT credential, COALESCE(api_host, '') FROM provider_credentials
+		WHERE (provider = $1 OR name = $1) AND owner = $2
+		ORDER BY created_at DESC LIMIT 1`,
+		service, owner).Scan(&encrypted, &host)
+	if err != nil {
+		// Fall back to any available credential for this service.
+		return cs.AcquireSCMTokenWithHost(ctx, service)
+	}
+	raw, err := decrypt(cs.key, encrypted)
+	if err != nil {
+		return "", "", fmt.Errorf("decrypting credential for %q: %w", service, err)
+	}
+	return string(raw), host, nil
+}
+
 // AcquireTokenBySessionID looks up the provider for a session and acquires a token.
 func (cs *CredentialStore) AcquireTokenBySessionID(ctx context.Context, sessionID string) (*TokenResult, error) {
 	var provider string

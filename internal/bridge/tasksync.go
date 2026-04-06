@@ -31,13 +31,14 @@ import (
 )
 
 // TaskRepoSyncer periodically clones/pulls task repos and syncs YAML task
-// definitions into the database, reconciling schedules as needed.
+// definitions and security profiles into the database, reconciling schedules as needed.
 type TaskRepoSyncer struct {
 	db            *pgxpool.Pool
 	settingsStore *SettingsStore
 	scheduler     *Scheduler
 	defStore      *TaskDefStore
 	dispatcher    *Dispatcher
+	profileStore  *ProfileStore
 	interval      time.Duration
 	stopCh        chan struct{}
 	wg            sync.WaitGroup
@@ -45,7 +46,7 @@ type TaskRepoSyncer struct {
 }
 
 // NewTaskRepoSyncer creates a TaskRepoSyncer with the given dependencies.
-func NewTaskRepoSyncer(db *pgxpool.Pool, settingsStore *SettingsStore, scheduler *Scheduler, defStore *TaskDefStore, dispatcher *Dispatcher) *TaskRepoSyncer {
+func NewTaskRepoSyncer(db *pgxpool.Pool, settingsStore *SettingsStore, scheduler *Scheduler, defStore *TaskDefStore, dispatcher *Dispatcher, profileStore *ProfileStore) *TaskRepoSyncer {
 	interval := 5 * time.Minute
 	if v := os.Getenv("TASK_REPO_SYNC_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
@@ -59,6 +60,7 @@ func NewTaskRepoSyncer(db *pgxpool.Pool, settingsStore *SettingsStore, scheduler
 		scheduler:     scheduler,
 		defStore:      defStore,
 		dispatcher:    dispatcher,
+		profileStore:  profileStore,
 		interval:      interval,
 		stopCh:        make(chan struct{}),
 	}
@@ -99,18 +101,19 @@ func (s *TaskRepoSyncer) Stop() {
 	s.wg.Wait()
 }
 
-// SyncAll collects all task repos (system + all users) and syncs each.
+// SyncAll collects all user task repos and syncs each per-user.
 func (s *TaskRepoSyncer) SyncAll(ctx context.Context) error {
 	s.syncMu.Lock()
 	defer s.syncMu.Unlock()
-	var repos []SkillRepo
 
-	// System task repos.
-	if systemRepos, err := s.settingsStore.GetSystemTaskRepos(ctx); err == nil {
-		repos = append(repos, systemRepos...)
+	// Collect per-user task repos.
+	type userRepoSet struct {
+		username string
+		repos    []SkillRepo
 	}
+	var userRepoSets []userRepoSet
+	totalRepos := 0
 
-	// User task repos from all users.
 	rows, err := s.db.Query(ctx, `SELECT DISTINCT username FROM user_settings WHERE key = 'task_repos'`)
 	if err == nil {
 		defer rows.Close()
@@ -119,37 +122,45 @@ func (s *TaskRepoSyncer) SyncAll(ctx context.Context) error {
 			if err := rows.Scan(&username); err != nil {
 				continue
 			}
-			if userRepos, err := s.settingsStore.GetUserTaskRepos(ctx, username); err == nil {
-				repos = append(repos, userRepos...)
+			if userRepos, err := s.settingsStore.GetUserTaskRepos(ctx, username); err == nil && len(userRepos) > 0 {
+				userRepoSets = append(userRepoSets, userRepoSet{username: username, repos: userRepos})
+				totalRepos += len(userRepos)
 			}
 		}
 	}
 
-	// Clean up task definitions from repos that are no longer configured.
-	configuredURLs := make(map[string]bool)
-	for _, repo := range repos {
-		configuredURLs[repo.URL] = true
-	}
-	allDefs, err := s.defStore.ListTaskDefinitions(ctx)
-	if err == nil {
-		for _, def := range allDefs {
-			if !configuredURLs[def.SourceRepo] {
-				log.Printf("task-repo-syncer: removing task %q (repo %s no longer configured)", def.Name, def.SourceRepo)
-				_ = s.defStore.DeleteTaskDefinitionsByRepo(ctx, def.SourceRepo)
+	// Per-user cleanup: remove definitions/profiles for repos the user no longer has configured.
+	for _, urs := range userRepoSets {
+		configuredURLs := make(map[string]bool)
+		for _, repo := range urs.repos {
+			configuredURLs[repo.URL] = true
+		}
+		userDefs, err := s.defStore.ListTaskDefinitions(ctx, urs.username)
+		if err == nil {
+			removedRepos := make(map[string]bool)
+			for _, def := range userDefs {
+				if !configuredURLs[def.SourceRepo] && !removedRepos[def.SourceRepo] {
+					log.Printf("task-repo-syncer: removing tasks and profiles from %s for user %s (no longer configured)", def.SourceRepo, urs.username)
+					_ = s.defStore.DeleteTaskDefinitionsByRepo(ctx, def.SourceRepo, urs.username)
+					_ = s.profileStore.DeleteYAMLProfilesByRepo(ctx, def.SourceRepo, urs.username)
+					removedRepos[def.SourceRepo] = true
+				}
 			}
 		}
 	}
 
-	if len(repos) == 0 {
+	if totalRepos == 0 {
 		return nil
 	}
 
-	log.Printf("task-repo-syncer: syncing %d task repo(s)", len(repos))
+	log.Printf("task-repo-syncer: syncing %d task repo(s) across %d user(s)", totalRepos, len(userRepoSets))
 
 	var errs []string
-	for _, repo := range repos {
-		if err := s.syncRepo(ctx, repo); err != nil {
-			errs = append(errs, fmt.Sprintf("%s: %v", repo.URL, err))
+	for _, urs := range userRepoSets {
+		for _, repo := range urs.repos {
+			if err := s.syncRepo(ctx, repo, urs.username); err != nil {
+				errs = append(errs, fmt.Sprintf("%s (user %s): %v", repo.URL, urs.username, err))
+			}
 		}
 	}
 
@@ -159,8 +170,8 @@ func (s *TaskRepoSyncer) SyncAll(ctx context.Context) error {
 	return nil
 }
 
-// syncRepo clones or pulls a single repo and syncs its task definitions.
-func (s *TaskRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo) error {
+// syncRepo clones or pulls a single repo and syncs its task definitions for the given user.
+func (s *TaskRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo, username string) error {
 	// Determine local clone directory.
 	name := repo.Name
 	if name == "" {
@@ -202,6 +213,9 @@ func (s *TaskRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo) error {
 		}
 	}
 
+	// Sync security profiles from .alcove/security-profiles/*.yml.
+	s.syncSecurityProfiles(ctx, cloneDir, repo, username)
+
 	// Read all .alcove/tasks/*.yml files.
 	tasksDir := filepath.Join(cloneDir, ".alcove", "tasks")
 	entries, err := os.ReadDir(tasksDir)
@@ -209,7 +223,7 @@ func (s *TaskRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo) error {
 		if os.IsNotExist(err) {
 			log.Printf("task-repo-syncer: no .alcove/tasks/ directory in %s", repo.URL)
 			// Remove any previously synced definitions from this repo.
-			return s.defStore.DeleteTaskDefinitionsByRepo(ctx, repo.URL)
+			return s.defStore.DeleteTaskDefinitionsByRepo(ctx, repo.URL, username)
 		}
 		return fmt.Errorf("reading tasks dir: %w", err)
 	}
@@ -229,7 +243,7 @@ func (s *TaskRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo) error {
 			continue
 		}
 
-		sourceKey := fmt.Sprintf("%s::%s", repo.URL, entry.Name())
+		sourceKey := fmt.Sprintf("%s::%s::%s", username, repo.URL, entry.Name())
 		seenKeys[sourceKey] = true
 
 		td, err := ParseTaskDefinition(data)
@@ -244,6 +258,7 @@ func (s *TaskRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo) error {
 				SourceKey:  sourceKey,
 				RawYAML:    string(data),
 				SyncError:  err.Error(),
+				Owner:      username,
 			}
 			_ = s.defStore.UpsertTaskDefinition(ctx, errDef)
 			continue
@@ -253,6 +268,7 @@ func (s *TaskRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo) error {
 		td.SourceFile = entry.Name()
 		td.SourceKey = sourceKey
 		td.RawYAML = string(data)
+		td.Owner = username
 
 		if err := s.defStore.UpsertTaskDefinition(ctx, td); err != nil {
 			log.Printf("task-repo-syncer: upsert error for %s: %v", sourceKey, err)
@@ -260,13 +276,13 @@ func (s *TaskRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo) error {
 		}
 
 		// Reconcile schedule.
-		if err := s.reconcileSchedule(ctx, td, repo.URL); err != nil {
+		if err := s.reconcileSchedule(ctx, td, repo.URL, username); err != nil {
 			log.Printf("task-repo-syncer: schedule reconcile error for %s: %v", sourceKey, err)
 		}
 	}
 
 	// Delete definitions that no longer exist in the repo.
-	existing, err := s.defStore.ListTaskDefinitionsByRepo(ctx, repo.URL)
+	existing, err := s.defStore.ListTaskDefinitionsByRepo(ctx, repo.URL, username)
 	if err != nil {
 		return fmt.Errorf("listing existing definitions: %w", err)
 	}
@@ -283,7 +299,122 @@ func (s *TaskRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo) error {
 	}
 
 	log.Printf("task-repo-syncer: synced %d task(s) from %s", len(seenKeys), repo.URL)
+
+	// Validate profile references in task definitions.
+	s.validateProfileReferences(ctx, repo.URL, username)
+
 	return nil
+}
+
+// syncSecurityProfiles syncs .alcove/security-profiles/*.yml from a cloned repo for the given user.
+func (s *TaskRepoSyncer) syncSecurityProfiles(ctx context.Context, cloneDir string, repo SkillRepo, username string) {
+	profilesDir := filepath.Join(cloneDir, ".alcove", "security-profiles")
+	entries, err := os.ReadDir(profilesDir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("task-repo-syncer: error reading security-profiles dir: %v", err)
+		}
+		// No profiles dir — clean up any previously synced profiles from this repo.
+		_ = s.profileStore.DeleteYAMLProfilesByRepo(ctx, repo.URL, username)
+		return
+	}
+
+	seenKeys := make(map[string]bool)
+
+	for _, entry := range entries {
+		if entry.IsDir() || (!strings.HasSuffix(entry.Name(), ".yml") && !strings.HasSuffix(entry.Name(), ".yaml")) {
+			continue
+		}
+
+		filePath := filepath.Join(profilesDir, entry.Name())
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			log.Printf("task-repo-syncer: error reading %s: %v", filePath, err)
+			continue
+		}
+
+		sourceKey := fmt.Sprintf("%s::%s::security-profiles/%s", username, repo.URL, entry.Name())
+		seenKeys[sourceKey] = true
+
+		profile, err := ParseSecurityProfile(data)
+		if err != nil {
+			log.Printf("task-repo-syncer: profile parse error in %s/%s: %v", repo.URL, entry.Name(), err)
+			continue
+		}
+
+		profile.Source = "yaml"
+		profile.SourceRepo = repo.URL
+		profile.SourceKey = sourceKey
+		profile.Owner = username
+
+		if err := s.profileStore.UpsertYAMLProfile(ctx, profile); err != nil {
+			log.Printf("task-repo-syncer: profile upsert error for %s: %v", sourceKey, err)
+		}
+	}
+
+	// Delete stale YAML profiles from this repo.
+	existingKeys, err := s.profileStore.ListYAMLProfileKeysByRepo(ctx, repo.URL, username)
+	if err != nil {
+		log.Printf("task-repo-syncer: error listing existing profile keys: %v", err)
+		return
+	}
+	for _, key := range existingKeys {
+		if !seenKeys[key] {
+			if _, err := s.db.Exec(ctx, `DELETE FROM security_profiles WHERE source_key = $1`, key); err != nil {
+				log.Printf("task-repo-syncer: error deleting stale profile %s: %v", key, err)
+			}
+		}
+	}
+
+	log.Printf("task-repo-syncer: synced %d security profile(s) from %s", len(seenKeys), repo.URL)
+}
+
+// validateProfileReferences checks that all profile references in task definitions
+// from the given repo resolve to known profiles. Sets sync_error on definitions
+// with unknown profile references.
+func (s *TaskRepoSyncer) validateProfileReferences(ctx context.Context, repoURL string, username string) {
+	defs, err := s.defStore.ListTaskDefinitionsByRepo(ctx, repoURL, username)
+	if err != nil {
+		log.Printf("task-repo-syncer: error listing definitions for validation: %v", err)
+		return
+	}
+
+	for _, def := range defs {
+		def.Owner = username // Ensure owner is set for any upserts below.
+		if def.SyncError != "" && !strings.HasPrefix(def.SyncError, "unknown security profile:") {
+			// Definition has a parse error (not a profile error) — skip validation.
+			continue
+		}
+		if len(def.Profiles) == 0 {
+			// No profiles referenced — clear any previous profile error.
+			if strings.HasPrefix(def.SyncError, "unknown security profile:") {
+				def.SyncError = ""
+				_ = s.defStore.UpsertTaskDefinition(ctx, &def)
+			}
+			continue
+		}
+
+		// Check each referenced profile.
+		var missing []string
+		for _, profileName := range def.Profiles {
+			if _, err := s.profileStore.GetProfile(ctx, profileName, username); err != nil {
+				missing = append(missing, profileName)
+			}
+		}
+
+		if len(missing) > 0 {
+			syncErr := fmt.Sprintf("unknown security profile: %s", strings.Join(missing, ", "))
+			if def.SyncError != syncErr {
+				def.SyncError = syncErr
+				_ = s.defStore.UpsertTaskDefinition(ctx, &def)
+				log.Printf("task-repo-syncer: %s in %s/%s", syncErr, repoURL, def.SourceFile)
+			}
+		} else if strings.HasPrefix(def.SyncError, "unknown security profile:") {
+			// All profiles now exist — clear the error.
+			def.SyncError = ""
+			_ = s.defStore.UpsertTaskDefinition(ctx, &def)
+		}
+	}
 }
 
 // ValidateRepo clones a repo to a temp directory, checks for .alcove/tasks/*.yml,
@@ -334,7 +465,7 @@ func (s *TaskRepoSyncer) ValidateRepo(ctx context.Context, repo SkillRepo) ([]st
 }
 
 // reconcileSchedule creates, updates, or removes a schedule for a task definition.
-func (s *TaskRepoSyncer) reconcileSchedule(ctx context.Context, td *TaskDefinition, repoURL string) error {
+func (s *TaskRepoSyncer) reconcileSchedule(ctx context.Context, td *TaskDefinition, repoURL string, username string) error {
 	hasCron := td.Schedule != nil
 	hasTrigger := td.Trigger != nil
 
@@ -391,9 +522,9 @@ func (s *TaskRepoSyncer) reconcileSchedule(ctx context.Context, td *TaskDefiniti
 		now := time.Now().UTC()
 		_, err = s.db.Exec(ctx, `
 			INSERT INTO schedules (id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, next_run, created_at, owner, debug, source, source_key, trigger_type, event_config)
-			VALUES ($1, $2, $3, $4, $5, $6, '', $7, $8, $9, $10, '_system', $11, 'yaml', $12, $13, $14)
+			VALUES ($1, $2, $3, $4, $5, $6, '', $7, $8, $9, $10, $15, $11, 'yaml', $12, $13, $14)
 		`, uuid.New().String(), td.Name, cronExpr, td.Prompt, td.Repo, td.Provider,
-			td.Timeout, enabled, nextRun, now, td.Debug, td.SourceKey, triggerType, eventConfigJSON)
+			td.Timeout, enabled, nextRun, now, td.Debug, td.SourceKey, triggerType, eventConfigJSON, username)
 		return err
 	}
 

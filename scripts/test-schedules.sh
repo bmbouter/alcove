@@ -40,7 +40,7 @@ ADMIN_TOKEN=$(echo "$ADMIN_LOGIN" | python3 -c "import json,sys; d=json.load(sys
 curl -s -X POST "$BRIDGE_URL/api/v1/users" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"sched-alice","password":"schedalice123","is_admin":false}' > /dev/null 2>&1 || true
+  -d '{"username":"sched-alice","password":"schedalice123","is_admin":false}' > /dev/null 2>&1 || true # notsecret
 
 curl -s -X POST "$BRIDGE_URL/api/v1/users" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
@@ -49,7 +49,7 @@ curl -s -X POST "$BRIDGE_URL/api/v1/users" \
 
 ALICE_TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" \
   -H "Content-Type: application/json" \
-  -d '{"username":"sched-alice","password":"schedalice123"}' | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('token',''))")
+  -d '{"username":"sched-alice","password":"schedalice123"}' | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('token',''))") # notsecret
 
 BOB_TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" \
   -H "Content-Type: application/json" \

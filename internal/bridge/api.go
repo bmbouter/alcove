@@ -85,13 +85,12 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/credentials/", a.handleCredentialByID)
 	mux.HandleFunc("/api/v1/tools", a.handleTools)
 	mux.HandleFunc("/api/v1/tools/", a.handleToolByID)
-	mux.HandleFunc("/api/v1/profiles", a.handleProfiles)
-	mux.HandleFunc("/api/v1/profiles/build", a.handleProfileBuild)
-	mux.HandleFunc("/api/v1/profiles/", a.handleProfileByID)
+	mux.HandleFunc("/api/v1/security-profiles", a.handleSecurityProfiles)
+	mux.HandleFunc("/api/v1/security-profiles/build", a.handleSecurityProfileBuild)
+	mux.HandleFunc("/api/v1/security-profiles/", a.handleSecurityProfileByID)
 	mux.HandleFunc("/api/v1/internal/token-refresh", a.handleTokenRefresh)
 	mux.HandleFunc("/api/v1/admin/settings/llm", a.handleAdminSettingsLLM)
 	mux.HandleFunc("/api/v1/admin/settings/skill-repos", a.handleAdminSettingsSkillRepos)
-	mux.HandleFunc("/api/v1/admin/settings/task-repos", a.handleAdminSettingsTaskRepos)
 	mux.HandleFunc("/api/v1/user/settings/skill-repos", a.handleUserSettingsSkillRepos)
 	mux.HandleFunc("/api/v1/user/settings/task-repos", a.handleUserSettingsTaskRepos)
 	mux.HandleFunc("/api/v1/task-repos/validate", a.handleTaskRepoValidate)
@@ -1126,9 +1125,9 @@ func (a *API) handleToolByID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// --- Profile Builder ---
+// --- Security Profile Builder ---
 
-func (a *API) handleProfileBuild(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleSecurityProfileBuild(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -1227,9 +1226,9 @@ Respond with ONLY a JSON object (no markdown, no explanation):
 	})
 }
 
-// --- Profiles ---
+// --- Security Profiles ---
 
-func (a *API) handleProfiles(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleSecurityProfiles(w http.ResponseWriter, r *http.Request) {
 	user := r.Header.Get("X-Alcove-User")
 
 	switch r.Method {
@@ -1269,8 +1268,8 @@ func (a *API) handleProfiles(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *API) handleProfileByID(w http.ResponseWriter, r *http.Request) {
-	name := strings.TrimPrefix(r.URL.Path, "/api/v1/profiles/")
+func (a *API) handleSecurityProfileByID(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/api/v1/security-profiles/")
 	if name == "" {
 		respondError(w, http.StatusBadRequest, "profile name required")
 		return
@@ -1295,25 +1294,11 @@ func (a *API) handleProfileByID(w http.ResponseWriter, r *http.Request) {
 		profile.Name = name
 		if err := a.profileStore.UpdateProfile(r.Context(), &profile, user); err != nil {
 			log.Printf("error: updating profile %s: %v", name, err)
-			if strings.Contains(err.Error(), "builtin") {
-				respondError(w, http.StatusForbidden, "builtin profiles cannot be modified")
-			} else {
-				respondError(w, http.StatusNotFound, "profile not found or cannot be updated")
-			}
+			respondError(w, http.StatusNotFound, "profile not found or cannot be updated")
 			return
 		}
 		respondJSON(w, http.StatusOK, profile)
 	case http.MethodDelete:
-		// Check if it's a builtin profile first.
-		existing, err := a.profileStore.GetProfile(r.Context(), name, user)
-		if err != nil {
-			respondError(w, http.StatusNotFound, "profile not found")
-			return
-		}
-		if existing.IsBuiltin {
-			respondError(w, http.StatusForbidden, "builtin profiles cannot be deleted")
-			return
-		}
 		if err := a.profileStore.DeleteProfile(r.Context(), name, user); err != nil {
 			log.Printf("error: deleting profile %s: %v", name, err)
 			respondError(w, http.StatusNotFound, "profile not found")
@@ -1419,41 +1404,6 @@ func (a *API) handleUserSettingsSkillRepos(w http.ResponseWriter, r *http.Reques
 
 // --- Task Repos Settings ---
 
-func (a *API) handleAdminSettingsTaskRepos(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("X-Alcove-Admin") != "true" {
-		respondError(w, http.StatusForbidden, "admin access required")
-		return
-	}
-
-	switch r.Method {
-	case http.MethodGet:
-		repos, err := a.settingsStore.GetSystemTaskRepos(r.Context())
-		if err != nil {
-			repos = []SkillRepo{}
-		}
-		respondJSON(w, http.StatusOK, map[string]any{"repos": repos})
-	case http.MethodPut:
-		var req struct {
-			Repos []SkillRepo `json:"repos"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
-			return
-		}
-		if req.Repos == nil {
-			req.Repos = []SkillRepo{}
-		}
-		if err := a.settingsStore.SetSystemTaskRepos(r.Context(), req.Repos); err != nil {
-			respondError(w, http.StatusInternalServerError, "failed to save task repos")
-			return
-		}
-		go a.syncer.SyncAll(context.Background())
-		respondJSON(w, http.StatusOK, map[string]any{"repos": req.Repos})
-	default:
-		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
-	}
-}
-
 func (a *API) handleUserSettingsTaskRepos(w http.ResponseWriter, r *http.Request) {
 	username := r.Header.Get("X-Alcove-User")
 	if username == "" {
@@ -1525,7 +1475,8 @@ func (a *API) handleTaskDefinitions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defs, err := a.defStore.ListTaskDefinitions(r.Context())
+	user := r.Header.Get("X-Alcove-User")
+	defs, err := a.defStore.ListTaskDefinitions(r.Context(), user)
 	if err != nil {
 		log.Printf("error: listing task definitions: %v", err)
 		respondError(w, http.StatusInternalServerError, "failed to list task definitions")
@@ -1583,7 +1534,8 @@ func (a *API) handleTaskDefinitionByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	def, err := a.defStore.GetTaskDefinition(r.Context(), id)
+	user := r.Header.Get("X-Alcove-User")
+	def, err := a.defStore.GetTaskDefinition(r.Context(), id, user)
 	if err != nil {
 		respondError(w, http.StatusNotFound, "task definition not found")
 		return
@@ -1593,15 +1545,20 @@ func (a *API) handleTaskDefinitionByID(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleTaskDefinitionRun(w http.ResponseWriter, r *http.Request, id string) {
-	def, err := a.defStore.GetTaskDefinition(r.Context(), id)
+	submitter := r.Header.Get("X-Alcove-User")
+	if submitter == "" {
+		submitter = "anonymous"
+	}
+
+	def, err := a.defStore.GetTaskDefinition(r.Context(), id, submitter)
 	if err != nil {
 		respondError(w, http.StatusNotFound, "task definition not found")
 		return
 	}
 
-	submitter := r.Header.Get("X-Alcove-User")
-	if submitter == "" {
-		submitter = "anonymous"
+	if def.SyncError != "" {
+		respondError(w, http.StatusBadRequest, "task definition has sync error: "+def.SyncError)
+		return
 	}
 
 	req := def.ToTaskRequest()
@@ -1629,12 +1586,13 @@ func (a *API) handleTaskTemplates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type template struct {
-		Filename string `json:"filename"`
-		Content  string `json:"content"`
+	type tmpl struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		RawYAML     string `json:"raw_yaml"`
 	}
 
-	var templates []template
+	var templates []tmpl
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yml") {
 			continue
@@ -1643,9 +1601,19 @@ func (a *API) handleTaskTemplates(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		templates = append(templates, template{
-			Filename: entry.Name(),
-			Content:  string(data),
+		td, err := ParseTaskDefinition(data)
+		if err != nil {
+			// Include unparseable templates with filename as name.
+			templates = append(templates, tmpl{
+				Name:    entry.Name(),
+				RawYAML: string(data),
+			})
+			continue
+		}
+		templates = append(templates, tmpl{
+			Name:        td.Name,
+			Description: td.Description,
+			RawYAML:     string(data),
 		})
 	}
 

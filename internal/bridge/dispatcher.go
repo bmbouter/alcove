@@ -506,6 +506,7 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		skiffEnv["GITHUB_PERSONAL_ACCESS_TOKEN"] = token
 		skiffEnv["GITHUB_API_URL"] = fmt.Sprintf("http://%s:8443/github", gateName)
 		skiffEnv["GH_HOST"] = fmt.Sprintf("%s:8443", gateName)
+		skiffEnv["GH_PROTOCOL"] = "http"
 		skiffEnv["GH_PROMPT_DISABLED"] = "1"
 		skiffEnv["GH_NO_UPDATE_NOTIFIER"] = "1"
 	}

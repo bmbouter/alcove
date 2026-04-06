@@ -55,7 +55,7 @@
     let sseSource = null;
     let currentSessionId = null;
     let currentPage = 1;
-    const perPage = 50;
+    const perPage = 15;
     let editingScheduleId = null;
     let scheduleFromSession = null;
     let selectedProfiles = [];
@@ -65,6 +65,9 @@
     let cachedCredentials = [];  // cached from last fetch for prerequisite checks
     let setupChecklistDismissed = localStorage.getItem('alcove_setup_dismissed') === 'true';
     let rhIdentityMode = false;
+    let proxyLogData = [];
+    let proxyLogSortField = 'timestamp';
+    let proxyLogSortAsc = true;
 
     // ---------------------
     // Auth
@@ -86,10 +89,10 @@
         $('#user-info').textContent = user;
         // Reset loading states to prevent stale spinners after re-login
         hide($('#sessions-loading'));
-        hide($('#schedules-loading'));
+        hide($('#unified-schedules-loading'));
         hide($('#credentials-loading'));
         hide($('#tools-loading'));
-        hide($('#profiles-loading'));
+        hide($('#security-loading'));
         hide($('#transcript-loading'));
         hide($('#proxy-log-loading'));
         // Refresh admin status from server and update UI
@@ -294,22 +297,16 @@
     });
 
     // ---------------------
-    // Skill Repos modal
+    // Skill / Agent Repos (inline on Repos page)
     // ---------------------
-    var skillReposMode = 'system';
     var skillReposList = [];
 
-    function skillReposEndpoint() {
-        return skillReposMode === 'system'
-            ? '/api/v1/admin/settings/skill-repos'
-            : '/api/v1/user/settings/skill-repos';
-    }
-
     async function loadSkillRepos() {
-        var listEl = $('#skill-repos-list');
+        var listEl = $('#skill-repos-inline-list');
+        if (!listEl) return;
         listEl.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Loading...</p></div>';
         try {
-            var resp = await api('GET', skillReposEndpoint());
+            var resp = await api('GET', '/api/v1/user/settings/skill-repos');
             if (!resp.ok) {
                 listEl.innerHTML = '<p class="error-message">Failed to load skill repos.</p>';
                 return;
@@ -323,32 +320,27 @@
     }
 
     function renderSkillRepos() {
-        var listEl = $('#skill-repos-list');
+        var listEl = $('#skill-repos-inline-list');
+        if (!listEl) return;
         if (skillReposList.length === 0) {
-            listEl.innerHTML = '<p class="skill-repos-empty">No skill repos configured.</p>';
+            listEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">No skill repos configured.</p>';
             return;
         }
         var html = '';
         for (var i = 0; i < skillReposList.length; i++) {
-            var repo = skillReposList[i];
-            html += '<div class="skill-repo-item">';
-            html += '<span class="skill-repo-url">' + escapeHtml(repo.url) + '</span>';
-            if (repo.ref) {
-                html += '<span class="skill-repo-ref">' + escapeHtml(repo.ref) + '</span>';
-            }
-            if (repo.name) {
-                html += '<span class="skill-repo-name">' + escapeHtml(repo.name) + '</span>';
-            }
-            html += '<button class="skill-repo-delete" data-index="' + i + '" title="Remove">&#x2715;</button>';
+            var r = skillReposList[i];
+            var displayUrl = (r.url || '').replace(/^https?:\/\//, '').replace(/\.git$/, '');
+            html += '<div class="repo-item">';
+            html += '<span class="repo-item-url">' + escapeHtml(displayUrl) + '</span>';
+            if (r.ref && r.ref !== 'main') html += ' <span class="repo-item-ref">' + escapeHtml(r.ref) + '</span>';
+            html += ' <button class="btn btn-small btn-outline repo-item-remove" data-index="' + i + '" style="color:var(--status-error);border-color:var(--status-error);padding:2px 8px;font-size:11px;">Remove</button>';
             html += '</div>';
         }
         listEl.innerHTML = html;
 
-        // Attach delete handlers
-        listEl.querySelectorAll('.skill-repo-delete').forEach(function(btn) {
+        listEl.querySelectorAll('.repo-item-remove').forEach(function(btn) {
             btn.addEventListener('click', function() {
-                var idx = parseInt(btn.getAttribute('data-index'), 10);
-                skillReposList.splice(idx, 1);
+                skillReposList.splice(parseInt(btn.getAttribute('data-index'), 10), 1);
                 saveSkillRepos();
             });
         });
@@ -356,7 +348,7 @@
 
     async function saveSkillRepos() {
         try {
-            var resp = await api('PUT', skillReposEndpoint(), { repos: skillReposList });
+            var resp = await api('PUT', '/api/v1/user/settings/skill-repos', { repos: skillReposList });
             if (!resp.ok) {
                 alert('Failed to save skill repos.');
             }
@@ -366,64 +358,31 @@
         }
     }
 
-    $('#system-skill-repos-btn').addEventListener('click', function() {
-        hide($('#user-dropdown-menu'));
-        skillReposMode = 'system';
-        $('#skill-repos-title').textContent = 'Skill Repos (System)';
-        show($('#skill-repos-modal'));
-        loadSkillRepos();
-    });
-
-    $('#user-skill-repos-btn').addEventListener('click', function() {
-        hide($('#user-dropdown-menu'));
-        skillReposMode = 'user';
-        $('#skill-repos-title').textContent = 'My Skill Repos';
-        show($('#skill-repos-modal'));
-        loadSkillRepos();
-    });
-
-    $('#skill-repo-add-btn').addEventListener('click', function() {
-        var url = $('#skill-repo-url').value.trim();
+    $('#skill-repo-add-inline').addEventListener('click', function() {
+        var url = $('#skill-repo-url-inline').value.trim();
         if (!url) return;
-        var ref = $('#skill-repo-ref').value.trim() || 'main';
-        var name = $('#skill-repo-name').value.trim();
-        if (!name) {
-            // Derive name from URL: last path segment without .git
-            var parts = url.replace(/\.git$/, '').split('/');
-            name = parts[parts.length - 1] || 'repo';
-        }
+        var ref = $('#skill-repo-ref-inline').value.trim() || 'main';
+        var name = '';
+        // Derive name from URL: last path segment without .git
+        var parts = url.replace(/\.git$/, '').split('/');
+        name = parts[parts.length - 1] || 'repo';
         skillReposList.push({ url: url, ref: ref, name: name });
-        $('#skill-repo-url').value = '';
-        $('#skill-repo-ref').value = '';
-        $('#skill-repo-name').value = '';
+        $('#skill-repo-url-inline').value = '';
+        $('#skill-repo-ref-inline').value = '';
         saveSkillRepos();
     });
 
-    $('#skill-repos-close').addEventListener('click', function() {
-        hide($('#skill-repos-modal'));
-    });
-
-    $('#skill-repos-modal').addEventListener('click', function(e) {
-        if (e.target === e.currentTarget) hide(e.currentTarget);
-    });
-
     // ---------------------
-    // Task Repos modal
+    // Task Repos (inline on Schedules page)
     // ---------------------
-    var taskReposMode = 'system';
     var taskReposList = [];
 
-    function taskReposEndpoint() {
-        return taskReposMode === 'system'
-            ? '/api/v1/admin/settings/task-repos'
-            : '/api/v1/user/settings/task-repos';
-    }
-
     async function loadTaskRepos() {
-        var listEl = $('#task-repos-list');
+        var listEl = $('#task-repos-inline-list');
+        if (!listEl) return;
         listEl.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Loading...</p></div>';
         try {
-            var resp = await api('GET', taskReposEndpoint());
+            var resp = await api('GET', '/api/v1/user/settings/task-repos');
             if (!resp.ok) {
                 listEl.innerHTML = '<p class="error-message">Failed to load task repos.</p>';
                 return;
@@ -437,48 +396,45 @@
     }
 
     function renderTaskRepos() {
-        var listEl = $('#task-repos-list');
+        var listEl = $('#task-repos-inline-list');
+        if (!listEl) return;
         if (taskReposList.length === 0) {
-            listEl.innerHTML = '<p class="task-repos-empty">No task repos configured.</p>';
+            listEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">No task repos configured.</p>';
             return;
         }
         var html = '';
         for (var i = 0; i < taskReposList.length; i++) {
-            var repo = taskReposList[i];
-            html += '<div class="task-repo-item">';
-            html += '<span class="task-repo-url">' + escapeHtml(repo.url) + '</span>';
-            if (repo.ref) {
-                html += '<span class="task-repo-ref">' + escapeHtml(repo.ref) + '</span>';
-            }
-            if (repo.name) {
-                html += '<span class="task-repo-name">' + escapeHtml(repo.name) + '</span>';
-            }
-            html += '<button class="task-repo-delete" data-index="' + i + '" title="Remove">&#x2715;</button>';
+            var r = taskReposList[i];
+            var displayUrl = (r.url || '').replace(/^https?:\/\//, '').replace(/\.git$/, '');
+            html += '<div class="repo-item">';
+            html += '<span class="repo-item-url">' + escapeHtml(displayUrl) + '</span>';
+            if (r.ref && r.ref !== 'main') html += ' <span class="repo-item-ref">' + escapeHtml(r.ref) + '</span>';
+            html += ' <button class="btn btn-small btn-outline repo-item-remove" data-index="' + i + '" style="color:var(--status-error);border-color:var(--status-error);padding:2px 8px;font-size:11px;">Remove</button>';
             html += '</div>';
         }
         listEl.innerHTML = html;
 
-        listEl.querySelectorAll('.task-repo-delete').forEach(function(btn) {
+        listEl.querySelectorAll('.repo-item-remove').forEach(function(btn) {
             btn.addEventListener('click', async function() {
                 var idx = parseInt(btn.getAttribute('data-index'), 10);
                 var removed = taskReposList[idx];
                 taskReposList.splice(idx, 1);
                 await saveTaskRepos();
-                var statusEl = $('#task-repo-add-status');
+                var statusEl = $('#task-repo-add-status-inline');
                 if (statusEl) {
                     statusEl.removeAttribute('hidden');
                     statusEl.style.color = 'var(--text-muted)';
                     statusEl.textContent = 'Removed ' + (removed.name || removed.url) + '. Task definitions from this repo have been deleted.';
                 }
                 // Reload task definitions after sync cleans up (2s delay for background sync)
-                setTimeout(function() { loadTaskDefinitions(); }, 2000);
+                setTimeout(function() { loadUnifiedSchedules(); }, 2000);
             });
         });
     }
 
     async function saveTaskRepos() {
         try {
-            var resp = await api('PUT', taskReposEndpoint(), { repos: taskReposList });
+            var resp = await api('PUT', '/api/v1/user/settings/task-repos', { repos: taskReposList });
             if (!resp.ok) {
                 alert('Failed to save task repos.');
             }
@@ -488,34 +444,16 @@
         }
     }
 
-    $('#system-task-repos-btn').addEventListener('click', function() {
-        hide($('#user-dropdown-menu'));
-        taskReposMode = 'system';
-        $('#task-repos-title').textContent = 'Task Repos (System)';
-        show($('#task-repos-modal'));
-        loadTaskRepos();
-    });
-
-    $('#user-task-repos-btn').addEventListener('click', function() {
-        hide($('#user-dropdown-menu'));
-        taskReposMode = 'user';
-        $('#task-repos-title').textContent = 'My Task Repos';
-        show($('#task-repos-modal'));
-        loadTaskRepos();
-    });
-
-    $('#task-repo-add-btn').addEventListener('click', async function() {
-        var url = $('#task-repo-url').value.trim();
+    $('#task-repo-add-inline').addEventListener('click', async function() {
+        var url = $('#task-repo-url-inline').value.trim();
         if (!url) return;
-        var ref = $('#task-repo-ref').value.trim() || 'main';
-        var name = $('#task-repo-name').value.trim();
-        if (!name) {
-            var parts = url.replace(/\.git$/, '').split('/');
-            name = parts[parts.length - 1] || 'repo';
-        }
+        var ref = $('#task-repo-ref-inline').value.trim() || 'main';
+        var name = '';
+        var parts = url.replace(/\.git$/, '').split('/');
+        name = parts[parts.length - 1] || 'repo';
 
-        var btn = $('#task-repo-add-btn');
-        var statusEl = $('#task-repo-add-status');
+        var btn = $('#task-repo-add-inline');
+        var statusEl = $('#task-repo-add-status-inline');
         btn.disabled = true;
         btn.textContent = 'Validating...';
         statusEl.removeAttribute('hidden');
@@ -533,14 +471,13 @@
                 return;
             }
             taskReposList.push({ url: url, ref: ref, name: name });
-            $('#task-repo-url').value = '';
-            $('#task-repo-ref').value = '';
-            $('#task-repo-name').value = '';
+            $('#task-repo-url-inline').value = '';
+            $('#task-repo-ref-inline').value = '';
             statusEl.style.color = 'var(--status-running)';
             statusEl.textContent = 'Found ' + data.task_count + ' task definition(s): ' + data.tasks.join(', ');
             await saveTaskRepos();
             // Reload task definitions after sync completes (auto-triggered by save)
-            setTimeout(function() { loadTaskDefinitions(); }, 2000);
+            setTimeout(function() { loadUnifiedSchedules(); }, 2000);
         } catch (err) {
             statusEl.style.color = 'var(--status-error)';
             statusEl.textContent = 'Validation error: ' + err.message;
@@ -550,84 +487,100 @@
         }
     });
 
-    $('#task-repos-close').addEventListener('click', function() {
-        hide($('#task-repos-modal'));
-    });
-
-    $('#task-repos-modal').addEventListener('click', function(e) {
-        if (e.target === e.currentTarget) hide(e.currentTarget);
-    });
-
     // ---------------------
-    // Task Definitions
+    // Unified Schedules (task definitions + manual schedules)
     // ---------------------
-    async function loadTaskDefinitions() {
-        var listEl = $('#task-definitions-list');
-        var emptyEl = $('#task-definitions-empty');
-        listEl.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Loading task definitions...</p></div>';
-        hide(emptyEl);
+    function formatRelativeTime(dateStr) {
+        if (!dateStr) return '';
+        var d = new Date(dateStr);
+        if (isNaN(d.getTime())) return '';
+        var now = new Date();
+        var diffMs = d - now;
+        var absDiff = Math.abs(diffMs);
+        var isPast = diffMs < 0;
 
-        try {
-            var resp = await api('GET', '/api/v1/task-definitions');
-            if (!resp.ok) {
-                listEl.innerHTML = '<p class="error-message">Failed to load task definitions.</p>';
-                return;
-            }
-            var data = await resp.json();
-            var defs = Array.isArray(data) ? data : (data.task_definitions || data.definitions || data.items || []);
-            renderTaskDefinitions(defs);
-        } catch (err) {
-            if (err.message !== 'unauthorized') {
-                listEl.innerHTML = '<p class="error-message">Failed to load task definitions.</p>';
-            }
+        if (absDiff < 60000) return isPast ? 'just now' : 'in a moment';
+        if (absDiff < 3600000) {
+            var mins = Math.round(absDiff / 60000);
+            return isPast ? mins + 'm ago' : 'in ' + mins + 'm';
         }
+        if (absDiff < 86400000) {
+            var hrs = Math.round(absDiff / 3600000);
+            return isPast ? hrs + 'h ago' : 'in ' + hrs + 'h';
+        }
+        var days = Math.round(absDiff / 86400000);
+        return isPast ? days + 'd ago' : 'in ' + days + 'd';
     }
 
-    function renderTaskDefinitions(defs) {
-        var listEl = $('#task-definitions-list');
-        var emptyEl = $('#task-definitions-empty');
+    async function loadUnifiedSchedules() {
+        var listEl = $('#unified-schedules-list');
+        var emptyEl = $('#unified-schedules-empty');
+        var loadingEl = $('#unified-schedules-loading');
 
-        if (defs.length === 0) {
-            listEl.innerHTML = '';
+        listEl.innerHTML = '';
+        hide(emptyEl);
+        show(loadingEl);
+
+        var allItems = [];
+
+        try {
+            var results = await Promise.allSettled([
+                api('GET', '/api/v1/task-definitions'),
+                api('GET', '/api/v1/schedules')
+            ]);
+
+            // Process task definitions
+            if (results[0].status === 'fulfilled' && results[0].value.ok) {
+                var data = await results[0].value.json();
+                var defs = Array.isArray(data) ? data : (data.task_definitions || data.definitions || data.items || []);
+                defs.forEach(function(d) {
+                    allItems.push({ _type: 'task-def', _name: (d.name || 'Unnamed').toLowerCase(), data: d });
+                });
+            }
+
+            // Process schedules
+            if (results[1].status === 'fulfilled' && results[1].value.ok) {
+                var data2 = await results[1].value.json();
+                var schedules = Array.isArray(data2) ? data2 : (data2.schedules || data2.items || []);
+                schedules.forEach(function(s) {
+                    // Skip YAML-sourced schedules — they're already shown as task definition cards.
+                    if (s.source === 'yaml') return;
+                    allItems.push({ _type: 'schedule', _name: (s.name || '').toLowerCase(), data: s });
+                });
+            }
+        } catch (err) {
+            if (err.message === 'unauthorized') {
+                hide(loadingEl);
+                return;
+            }
+        }
+
+        hide(loadingEl);
+
+        if (allItems.length === 0) {
             show(emptyEl);
             return;
         }
 
-        hide(emptyEl);
-        var html = '';
-        for (var i = 0; i < defs.length; i++) {
-            var d = defs[i];
-            var name = d.name || 'Unnamed';
-            var desc = d.description || '';
-            var repo = d.source_repo || d.repo || '';
-            var schedule = d.schedule || d.cron || '';
-            var id = d.id || '';
+        // Sort alphabetically by name
+        allItems.sort(function(a, b) {
+            if (a._name < b._name) return -1;
+            if (a._name > b._name) return 1;
+            return 0;
+        });
 
-            html += '<div class="task-def-card">';
-            html += '<div class="task-def-info">';
-            html += '<div class="task-def-name">' + escapeHtml(name) + '</div>';
-            if (desc) {
-                html += '<div class="task-def-meta">' + escapeHtml(desc) + '</div>';
+        var html = '';
+        for (var i = 0; i < allItems.length; i++) {
+            var item = allItems[i];
+            if (item._type === 'task-def') {
+                html += renderTaskDefCard(item.data);
+            } else {
+                html += renderScheduleCard(item.data);
             }
-            var triggerType = d.trigger_type || '';
-            var triggerEvents = (d.trigger && d.trigger.events) || (d.event_config && d.event_config.events) || [];
-            var metaParts = [];
-            if (repo) metaParts.push('Repo: ' + repo);
-            if (schedule) metaParts.push('Schedule: ' + schedule);
-            if (triggerType) metaParts.push('Trigger: ' + triggerType);
-            if (triggerEvents.length > 0) metaParts.push('Events: ' + triggerEvents.join(', '));
-            if (metaParts.length > 0) {
-                html += '<div class="task-def-meta">' + escapeHtml(metaParts.join(' | ')) + '</div>';
-            }
-            html += '</div>';
-            html += '<div class="task-def-actions">';
-            html += '<button class="btn btn-small btn-primary task-def-run" data-id="' + escapeHtml(id) + '">Run Now</button>';
-            html += '<button class="btn btn-small btn-outline task-def-yaml" data-repo="' + escapeHtml(d.source_repo || '') + '" data-file="' + escapeHtml(d.source_file || '') + '">View YAML</button>';
-            html += '</div>';
-            html += '</div>';
         }
         listEl.innerHTML = html;
 
+        // Attach event handlers for task definition cards
         listEl.querySelectorAll('.task-def-run').forEach(function(btn) {
             btn.addEventListener('click', async function() {
                 var defId = btn.getAttribute('data-id');
@@ -639,11 +592,18 @@
                         var data = await resp.json().catch(function() { return {}; });
                         alert(data.error || data.message || 'Failed to run task.');
                     } else {
-                        btn.textContent = 'Started';
-                        setTimeout(function() {
-                            btn.textContent = 'Run Now';
-                            btn.disabled = false;
-                        }, 2000);
+                        var session = await resp.json();
+                        var sessionId = session.id || session.session_id || '';
+                        // Replace button with a "View Session" link
+                        var link = document.createElement('a');
+                        link.href = '#session/' + sessionId;
+                        link.className = 'btn btn-small btn-outline';
+                        link.textContent = 'View Task';
+                        link.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            navigate('session/' + sessionId);
+                        });
+                        btn.replaceWith(link);
                         return;
                     }
                 } catch (err) {
@@ -660,8 +620,6 @@
             btn.addEventListener('click', function() {
                 var repo = btn.getAttribute('data-repo') || '';
                 var file = btn.getAttribute('data-file') || '';
-                // Convert git URL to GitHub web URL
-                // https://github.com/bmbouter/alcove.git → https://github.com/bmbouter/alcove
                 var webUrl = repo.replace(/\.git$/, '');
                 if (webUrl && file) {
                     window.open(webUrl + '/blob/main/.alcove/tasks/' + file, '_blank');
@@ -670,6 +628,240 @@
                 }
             });
         });
+
+        // Attach event handlers for schedule cards
+        listEl.querySelectorAll('.edit-schedule-btn').forEach(function(btn) {
+            btn.addEventListener('click', async function() {
+                var id = btn.dataset.id;
+                try {
+                    var resp = await api('GET', '/api/v1/schedules/' + id);
+                    var s = await resp.json();
+                    editingScheduleId = id;
+                    $('#sched-name').value = s.name || '';
+                    $('#sched-cron').value = s.cron || s.cron_expression || '';
+                    $('#sched-prompt').value = s.prompt || '';
+                    $('#sched-provider').value = s.provider || '';
+                    $('#sched-repo').value = s.repo || '';
+                    var timeout = s.timeout ? Math.round(s.timeout / 60) : 60;
+                    $('#sched-timeout').value = timeout;
+                    $('#sched-timeout-value').textContent = timeout;
+                    $('#sched-debug').checked = s.debug || false;
+                    $('#sched-enabled').checked = s.enabled !== false;
+                    var tt = s.trigger_type || 'cron';
+                    $('#sched-trigger-type').value = tt;
+                    $('#sched-trigger-type').dispatchEvent(new Event('change'));
+                    document.querySelectorAll('.event-checkbox').forEach(function(cb) { cb.checked = false; });
+                    if (s.event_config && s.event_config.events) {
+                        s.event_config.events.forEach(function(evt) {
+                            var cb = document.querySelector('.event-checkbox[value="' + evt + '"]');
+                            if (cb) cb.checked = true;
+                        });
+                    }
+                    $('#sched-event-repos').value = (s.event_config && s.event_config.repos) ? s.event_config.repos.join(', ') : '';
+                    $('#sched-event-branches').value = (s.event_config && s.event_config.branches) ? s.event_config.branches.join(', ') : '';
+                    var dm = s.event_config && s.event_config.delivery_mode;
+                    document.querySelectorAll('input[name="sched-delivery-mode"]').forEach(function(r) {
+                        r.checked = (r.value === (dm || 'polling'));
+                    });
+                    $('#delivery-polling-info').hidden = (dm === 'webhook');
+                    $('#delivery-webhook-info').hidden = (dm !== 'webhook');
+                    if (dm === 'webhook') {
+                        $('#schedule-webhook-url').textContent = window.location.origin + basePath + '/api/v1/webhooks/github';
+                    }
+                    $('#schedule-submit-btn').textContent = 'Update Schedule';
+                    show($('#schedule-form-container'));
+                    $('#sched-name').focus();
+                } catch (err) {
+                    if (err.message !== 'unauthorized') {
+                        alert('Failed to load schedule.');
+                    }
+                }
+            });
+        });
+
+        listEl.querySelectorAll('.delete-schedule-btn').forEach(function(btn) {
+            btn.addEventListener('click', async function() {
+                var id = btn.dataset.id;
+                if (!confirm('Are you sure you want to delete this schedule?')) return;
+                btn.disabled = true;
+                try {
+                    var resp = await api('DELETE', '/api/v1/schedules/' + id);
+                    if (!resp.ok) {
+                        var data = await resp.json().catch(function() { return {}; });
+                        alert(data.error || data.message || 'Failed to delete schedule.');
+                        btn.disabled = false;
+                    } else {
+                        loadUnifiedSchedules();
+                    }
+                } catch (err) {
+                    if (err.message !== 'unauthorized') {
+                        alert('Failed to delete schedule.');
+                    }
+                    btn.disabled = false;
+                }
+            });
+        });
+
+        listEl.querySelectorAll('.view-schedule-yaml-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var id = btn.dataset.id;
+                showYaml(id);
+            });
+        });
+    }
+
+    function renderTaskDefCard(d) {
+        var name = d.name || 'Unnamed';
+        var desc = d.description || '';
+        var repo = d.source_repo || d.repo || '';
+        var id = d.id || '';
+
+        var html = '<div class="task-def-card">';
+
+        // Header row: name + actions
+        html += '<div class="task-def-header">';
+        html += '<div class="task-def-name">' + escapeHtml(name) + '</div>';
+        html += '<div class="task-def-actions">';
+        if (d.sync_error) {
+            html += '<button class="btn btn-small btn-primary task-def-run" data-id="' + escapeHtml(id) + '" disabled title="' + escapeHtml(d.sync_error) + '">Run Now</button>';
+        } else {
+            html += '<button class="btn btn-small btn-primary task-def-run" data-id="' + escapeHtml(id) + '">Run Now</button>';
+        }
+        html += '<button class="btn btn-small btn-outline task-def-yaml" data-repo="' + escapeHtml(d.source_repo || '') + '" data-file="' + escapeHtml(d.source_file || '') + '">View YAML</button>';
+        html += '</div>';
+        html += '</div>';
+
+        // Description
+        if (desc) {
+            html += '<div class="task-def-desc">' + escapeHtml(desc) + '</div>';
+        }
+
+        // Tags row: yaml tag, profiles, repo
+        var tags = [];
+        tags.push('<span class="task-def-tag task-def-tag-yaml">yaml</span>');
+        if (d.profiles && d.profiles.length > 0) {
+            d.profiles.forEach(function(p) {
+                tags.push('<span class="task-def-tag task-def-tag-profile">' + escapeHtml(p) + '</span>');
+            });
+        }
+        if (repo) {
+            var shortRepo = repo.replace(/^https?:\/\//, '').replace(/\.git$/, '');
+            tags.push('<span class="task-def-tag task-def-tag-repo">' + escapeHtml(shortRepo) + '</span>');
+        }
+        html += '<div class="task-def-tags">' + tags.join('') + '</div>';
+
+        // Schedule and trigger details
+        var details = [];
+        if (d.schedule && d.schedule.cron) {
+            var schedParts = ['<code>' + escapeHtml(d.schedule.cron) + '</code>'];
+            if (!d.schedule.enabled) {
+                schedParts.push('<span class="task-def-dim">disabled</span>');
+            } else if (d.next_run) {
+                schedParts.push('next ' + formatRelativeTime(d.next_run));
+            }
+            if (d.last_run) {
+                schedParts.push('last ran ' + formatRelativeTime(d.last_run));
+            }
+            details.push('<span class="task-def-detail-item"><span class="task-def-label">Schedule</span> ' + schedParts.join(' &middot; ') + '</span>');
+        }
+        if (d.trigger && d.trigger.github) {
+            var gh = d.trigger.github;
+            var evts = (gh.events || []).join(', ');
+            var acts = (gh.actions || []).length > 0 ? ' (' + gh.actions.join(', ') + ')' : '';
+            details.push('<span class="task-def-detail-item"><span class="task-def-label">Trigger</span> ' + escapeHtml(evts + acts) + '</span>');
+        }
+        if (details.length > 0) {
+            html += '<div class="task-def-details">' + details.join('') + '</div>';
+        }
+
+        // Sync error
+        if (d.sync_error) {
+            html += '<div class="task-def-error">Sync error: ' + escapeHtml(d.sync_error) + '</div>';
+        }
+
+        html += '</div>';
+        return html;
+    }
+
+    function renderScheduleCard(s) {
+        var name = s.name || 'Unnamed';
+        var id = s.id || '';
+        var source = s.source || 'manual';
+        var isYaml = source === 'yaml';
+        var cron = s.cron || s.cron_expression || '';
+        var enabled = s.enabled !== false;
+        var triggerType = s.trigger_type || 'cron';
+
+        var html = '<div class="task-def-card">';
+
+        // Header row: name + actions
+        html += '<div class="task-def-header">';
+        html += '<div class="task-def-name">' + escapeHtml(name) + '</div>';
+        html += '<div class="task-def-actions">';
+        if (isYaml) {
+            html += '<button class="btn btn-small btn-outline view-schedule-yaml-btn" data-id="' + escapeHtml(id) + '">View</button>';
+        } else {
+            html += '<button class="btn btn-small btn-outline edit-schedule-btn" data-id="' + escapeHtml(id) + '">Edit</button>';
+            html += '<button class="btn btn-small btn-outline delete-schedule-btn" data-id="' + escapeHtml(id) + '" style="color:var(--status-error);border-color:var(--status-error);">Delete</button>';
+        }
+        html += '</div>';
+        html += '</div>';
+
+        // Tags row: source tag, repo
+        var tags = [];
+        if (isYaml) {
+            tags.push('<span class="task-def-tag task-def-tag-yaml">yaml</span>');
+        } else {
+            tags.push('<span class="task-def-tag task-def-tag-manual">manual</span>');
+        }
+        if (s.repo) {
+            var shortRepo = s.repo.replace(/^https?:\/\//, '').replace(/\.git$/, '');
+            tags.push('<span class="task-def-tag task-def-tag-repo">' + escapeHtml(shortRepo) + '</span>');
+        }
+        html += '<div class="task-def-tags">' + tags.join('') + '</div>';
+
+        // Details: cron, trigger type, next run, last run, enabled/disabled
+        var details = [];
+        if (cron) {
+            var cronDesc = describeCron(cron);
+            details.push('<span class="task-def-detail-item"><span class="task-def-label">Cron</span> <code>' + escapeHtml(cron) + '</code> <small>' + escapeHtml(cronDesc) + '</small></span>');
+        }
+
+        // Trigger type
+        if (triggerType === 'event') {
+            var triggerLabel = 'event';
+            if (s.event_config && s.event_config.events && s.event_config.events.length > 0) {
+                triggerLabel += ' (' + s.event_config.events.join(', ') + ')';
+            }
+            details.push('<span class="task-def-detail-item"><span class="task-def-label">Trigger</span> ' + escapeHtml(triggerLabel) + '</span>');
+        } else if (triggerType === 'cron-and-event') {
+            var triggerLabel2 = 'cron + event';
+            if (s.event_config && s.event_config.events && s.event_config.events.length > 0) {
+                triggerLabel2 += ' (' + s.event_config.events.join(', ') + ')';
+            }
+            details.push('<span class="task-def-detail-item"><span class="task-def-label">Trigger</span> ' + escapeHtml(triggerLabel2) + '</span>');
+        }
+
+        var nextRun = s.next_run || s.next_run_at;
+        var lastRun = s.last_run || s.last_run_at;
+        if (nextRun) {
+            details.push('<span class="task-def-detail-item"><span class="task-def-label">Next</span> ' + formatRelativeTime(nextRun) + '</span>');
+        }
+        if (lastRun) {
+            details.push('<span class="task-def-detail-item"><span class="task-def-label">Last</span> ' + formatRelativeTime(lastRun) + '</span>');
+        }
+
+        // Enabled/disabled
+        if (!enabled) {
+            details.push('<span class="task-def-detail-item"><span class="task-def-dim">disabled</span></span>');
+        }
+
+        if (details.length > 0) {
+            html += '<div class="task-def-details">' + details.join('') + '</div>';
+        }
+
+        html += '</div>';
+        return html;
     }
 
     // Sync task definitions
@@ -690,7 +882,7 @@
         }
         btn.textContent = 'Sync Now';
         btn.disabled = false;
-        loadTaskDefinitions();
+        loadUnifiedSchedules();
     });
 
     // ---------------------
@@ -888,12 +1080,12 @@
         stopSSE();
 
         const route = getRoute();
-        const pages = ['sessions', 'task-new', 'schedules', 'credentials', 'profiles', 'tools', 'session-detail', 'users'];
+        const pages = ['sessions', 'task-new', 'schedules', 'repos', 'credentials', 'security', 'tools', 'session-detail', 'users'];
         pages.forEach((p) => hide($('#page-' + p)));
 
         // Update active nav tab
         var navRoute = route.startsWith('session/') ? 'sessions' : route;
-        if (navRoute === 'tools' || navRoute === 'tools-admin') navRoute = 'profiles';
+        if (navRoute === 'tools' || navRoute === 'tools-admin') navRoute = 'security';
         $$('.nav-tab').forEach((tab) => {
             tab.classList.toggle('active', tab.dataset.tab === navRoute);
         });
@@ -911,19 +1103,22 @@
             loadTaskProfiles();
         } else if (route === 'schedules') {
             show($('#page-schedules'));
-            loadSchedules();
-            loadTaskDefinitions();
+            loadUnifiedSchedules();
             loadScheduleProviders();
             if (scheduleFromSession) {
                 openScheduleForm(scheduleFromSession);
                 scheduleFromSession = null;
             }
+        } else if (route === 'repos') {
+            show($('#page-repos'));
+            loadTaskRepos();
+            loadSkillRepos();
         } else if (route === 'credentials') {
             show($('#page-credentials'));
             loadCredentials();
-        } else if (route === 'profiles') {
-            show($('#page-profiles'));
-            loadProfilesPage();
+        } else if (route === 'security') {
+            show($('#page-security'));
+            loadSecurityPage();
         } else if (route === 'tools' || route === 'tools-admin') {
             show($('#page-tools'));
             loadToolsPage();
@@ -975,7 +1170,7 @@
         } catch (err) {
             hide(loading);
             if (err.message !== 'unauthorized') {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--status-error);">Failed to load sessions. Check your connection and try again.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--status-error);">Failed to load tasks. Check your connection and try again.</td></tr>';
             }
         }
     }
@@ -1009,11 +1204,13 @@
             const provider = s.provider || '-';
             const duration = formatDuration(s.started_at, s.finished_at, s.duration);
             const prompt = truncate(s.prompt || s.task_prompt || '-', 80);
+            const when = formatRelativeTime(s.started_at);
 
             return '<tr class="clickable" data-session-id="' + escapeHtml(s.id) + '" tabindex="0" role="link">' +
                 '<td class="mono" title="' + escapeHtml(s.id) + '">' + escapeHtml(idShort) + '</td>' +
                 '<td>' + escapeHtml(submitter) + '</td>' +
                 '<td><span class="badge badge-' + escapeHtml(status) + '">' + escapeHtml(status) + '</span></td>' +
+                '<td>' + escapeHtml(when) + '</td>' +
                 '<td>' + escapeHtml(provider) + '</td>' +
                 '<td class="mono">' + escapeHtml(duration) + '</td>' +
                 '<td class="truncate">' + escapeHtml(prompt) + '</td>' +
@@ -1045,7 +1242,7 @@
             tableContainer.parentNode.insertBefore(paginationEl, tableContainer.nextSibling);
         }
         if (pages <= 1) {
-            paginationEl.innerHTML = '<span>' + total + ' session' + (total !== 1 ? 's' : '') + '</span>';
+            paginationEl.innerHTML = '<span>' + total + ' task' + (total !== 1 ? 's' : '') + '</span>';
             return;
         }
         paginationEl.innerHTML =
@@ -1170,7 +1367,7 @@
             const data = await resp.json();
             const sessionId = data.session_id || data.id || '';
 
-            successEl.innerHTML = 'Task submitted! Session ID: <span class="mono">' +
+            successEl.innerHTML = 'Task submitted! Task ID: <span class="mono">' +
                 escapeHtml(sessionId) + '</span> &mdash; ' +
                 '<a href="#session/' + escapeHtml(sessionId) + '" style="color:var(--status-running)">Watch live</a>';
             show(successEl);
@@ -1599,6 +1796,12 @@
             loadTranscript(id, session.status);
             loadProxyLog(id);
 
+            // Hide live indicator for completed sessions
+            if (session.status !== 'running') {
+                hideLiveIndicator();
+                stopSSE();
+            }
+
             // Auto-refresh while running
             if (session.status === 'running') {
                 stopRefresh();
@@ -1629,7 +1832,7 @@
             hide($('#transcript-loading'));
             hide($('#proxy-log-loading'));
             if (err.message !== 'unauthorized') {
-                $('#session-meta').innerHTML = '<div class="meta-card"><div class="meta-value" style="color:var(--status-error)">Failed to load session.</div></div>';
+                $('#session-meta').innerHTML = '<div class="meta-card"><div class="meta-value" style="color:var(--status-error)">Failed to load task.</div></div>';
             }
         }
     }
@@ -1673,9 +1876,9 @@
             const cancelBtn = document.createElement('button');
             cancelBtn.className = 'btn btn-small btn-outline';
             cancelBtn.style.cssText = 'margin-left: 1rem; color: var(--status-error); border-color: var(--status-error);';
-            cancelBtn.textContent = 'Cancel Session';
+            cancelBtn.textContent = 'Cancel Task';
             cancelBtn.addEventListener('click', async () => {
-                if (!confirm('Are you sure you want to cancel this session? The running task will be terminated.')) return;
+                if (!confirm('Are you sure you want to cancel this task? The running task will be terminated.')) return;
                 cancelBtn.disabled = true;
                 cancelBtn.textContent = 'Cancelling...';
                 try {
@@ -1684,15 +1887,15 @@
                         loadSessionDetail(s.id);
                     } else {
                         const data = await resp.json().catch(() => ({}));
-                        alert(data.error || data.message || 'Failed to cancel session.');
+                        alert(data.error || data.message || 'Failed to cancel task.');
                         cancelBtn.disabled = false;
-                        cancelBtn.textContent = 'Cancel Session';
+                        cancelBtn.textContent = 'Cancel Task';
                     }
                 } catch (err) {
                     if (err.message !== 'unauthorized') {
-                        alert('Failed to cancel session.');
+                        alert('Failed to cancel task.');
                         cancelBtn.disabled = false;
-                        cancelBtn.textContent = 'Cancel Session';
+                        cancelBtn.textContent = 'Cancel Task';
                     }
                 }
             });
@@ -1896,7 +2099,7 @@
                         if (content) {
                             var notice = document.createElement('div');
                             notice.className = 'tx-system';
-                            notice.innerHTML = '<span class="tx-system-icon">&#10003;</span> Session ' + escapeHtml(finalStatus);
+                            notice.innerHTML = '<span class="tx-system-icon">&#10003;</span> Task ' + escapeHtml(finalStatus);
                             content.appendChild(notice);
                             content.scrollTop = content.scrollHeight;
                         }
@@ -2023,7 +2226,7 @@
             if (!model && ev.message) model = ev.message;
             var div = document.createElement('div');
             div.className = 'tx-system';
-            div.innerHTML = '<span class="tx-system-icon">&#9654;</span> Session started' +
+            div.innerHTML = '<span class="tx-system-icon">&#9654;</span> Task started' +
                 (model ? ' &middot; <span class="tx-system-model">' + escapeHtml(String(model)) + '</span>' : '') +
                 (toolCount ? ' &middot; ' + toolCount + ' tools available' : '');
             container.appendChild(div);
@@ -2313,6 +2516,11 @@
         if (!silent) {
             tbody.innerHTML = '';
             show(loading);
+            // Reset sort/filter state on fresh load
+            proxyLogSortField = 'timestamp';
+            proxyLogSortAsc = true;
+            $('#proxy-log-filter-service').value = '';
+            $('#proxy-log-filter-decision').value = '';
         }
 
         try {
@@ -2320,39 +2528,143 @@
             hide(loading);
 
             if (!resp.ok) {
+                proxyLogData = [];
+                hide($('#proxy-log-filters'));
                 tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">No proxy log available.</td></tr>';
                 return;
             }
 
             const data = await resp.json();
             const entries = Array.isArray(data) ? data : (data.proxy_log || data.entries || data.logs || []);
-
-            if (entries.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">No proxy log entries.</td></tr>';
-                return;
-            }
-
-            tbody.innerHTML = entries.map((e) => {
-                const decision = (e.decision || e.action || '').toLowerCase();
-                const decisionClass = decision === 'allow' ? 'decision-allow' : (decision === 'deny' ? 'decision-deny' : '');
-                const statusCode = e.status_code !== undefined && e.status_code !== null ? String(e.status_code) : '-';
-                return '<tr>' +
-                    '<td class="mono">' + escapeHtml(formatTime(e.timestamp)) + '</td>' +
-                    '<td>' + escapeHtml(e.method || '-') + '</td>' +
-                    '<td class="mono truncate">' + escapeHtml(e.url || e.path || '-') + '</td>' +
-                    '<td>' + escapeHtml(e.operation || '-') + '</td>' +
-                    '<td>' + escapeHtml((e.service || '-').toUpperCase()) + '</td>' +
-                    '<td class="mono">' + escapeHtml(statusCode) + '</td>' +
-                    '<td class="' + decisionClass + '">' + escapeHtml(e.decision || e.action || '-') + '</td>' +
-                    '</tr>';
-            }).join('');
+            proxyLogData = entries;
+            renderProxyLog();
         } catch (err) {
             hide(loading);
             if (err.message !== 'unauthorized') {
+                proxyLogData = [];
+                hide($('#proxy-log-filters'));
                 tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--status-error)">Failed to load proxy log.</td></tr>';
             }
         }
     }
+
+    function renderProxyLog() {
+        const tbody = $('#proxy-log-tbody');
+        const filtersBar = $('#proxy-log-filters');
+        const summaryEl = $('#proxy-log-summary');
+        const serviceFilter = $('#proxy-log-filter-service');
+        const decisionFilter = $('#proxy-log-filter-decision');
+
+        if (proxyLogData.length === 0) {
+            hide(filtersBar);
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">No proxy log entries.</td></tr>';
+            return;
+        }
+
+        // Populate service filter dropdown (preserve current selection)
+        const currentService = serviceFilter.value;
+        const uniqueServices = [...new Set(proxyLogData.map(e => (e.service || '').toUpperCase()).filter(s => s))].sort();
+        serviceFilter.innerHTML = '<option value="">All Services</option>' +
+            uniqueServices.map(s => '<option value="' + escapeHtml(s) + '"' + (s === currentService ? ' selected' : '') + '>' + escapeHtml(s) + '</option>').join('');
+
+        // Filter
+        const svcVal = serviceFilter.value;
+        const decVal = decisionFilter.value;
+        let filtered = proxyLogData;
+        if (svcVal) {
+            filtered = filtered.filter(e => (e.service || '').toUpperCase() === svcVal);
+        }
+        if (decVal) {
+            filtered = filtered.filter(e => (e.decision || e.action || '').toLowerCase() === decVal);
+        }
+
+        // Sort
+        const sortField = proxyLogSortField;
+        const sortAsc = proxyLogSortAsc;
+        filtered = filtered.slice().sort((a, b) => {
+            let va, vb;
+            if (sortField === 'timestamp') {
+                va = new Date(a.timestamp || 0).getTime();
+                vb = new Date(b.timestamp || 0).getTime();
+            } else if (sortField === 'status_code') {
+                va = a.status_code !== undefined && a.status_code !== null ? Number(a.status_code) : -1;
+                vb = b.status_code !== undefined && b.status_code !== null ? Number(b.status_code) : -1;
+            } else if (sortField === 'url') {
+                va = (a.url || a.path || '').toLowerCase();
+                vb = (b.url || b.path || '').toLowerCase();
+            } else if (sortField === 'decision') {
+                va = (a.decision || a.action || '').toLowerCase();
+                vb = (b.decision || b.action || '').toLowerCase();
+            } else if (sortField === 'service') {
+                va = (a.service || '').toLowerCase();
+                vb = (b.service || '').toLowerCase();
+            } else {
+                va = (a[sortField] || '').toString().toLowerCase();
+                vb = (b[sortField] || '').toString().toLowerCase();
+            }
+            if (va < vb) return sortAsc ? -1 : 1;
+            if (va > vb) return sortAsc ? 1 : -1;
+            return 0;
+        });
+
+        // Render rows
+        tbody.innerHTML = filtered.map(function(e) {
+            const decision = (e.decision || e.action || '').toLowerCase();
+            const decisionClass = decision === 'allow' ? 'decision-allow' : (decision === 'deny' ? 'decision-deny' : '');
+            const statusCode = e.status_code !== undefined && e.status_code !== null ? String(e.status_code) : '-';
+            return '<tr>' +
+                '<td class="mono">' + escapeHtml(formatTime(e.timestamp)) + '</td>' +
+                '<td>' + escapeHtml(e.method || '-') + '</td>' +
+                '<td class="mono truncate">' + escapeHtml(e.url || e.path || '-') + '</td>' +
+                '<td>' + escapeHtml(e.operation || '-') + '</td>' +
+                '<td>' + escapeHtml((e.service || '-').toUpperCase()) + '</td>' +
+                '<td class="mono">' + escapeHtml(statusCode) + '</td>' +
+                '<td class="' + decisionClass + '">' + escapeHtml(e.decision || e.action || '-') + '</td>' +
+                '</tr>';
+        }).join('');
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted)">No entries match filters.</td></tr>';
+        }
+
+        // Summary counts
+        const allowCount = filtered.filter(e => (e.decision || e.action || '').toLowerCase() === 'allow').length;
+        const denyCount = filtered.filter(e => (e.decision || e.action || '').toLowerCase() === 'deny').length;
+        summaryEl.textContent = filtered.length + ' entries (' + allowCount + ' allow, ' + denyCount + ' deny)';
+
+        // Update sort indicators
+        $$('#detail-proxy-log .sortable').forEach(function(th) {
+            const indicator = th.querySelector('.sort-indicator');
+            if (th.dataset.sort === proxyLogSortField) {
+                indicator.textContent = proxyLogSortAsc ? '\u25B2' : '\u25BC';
+                indicator.classList.add('active');
+            } else {
+                indicator.textContent = '';
+                indicator.classList.remove('active');
+            }
+        });
+
+        // Show filter bar
+        show(filtersBar);
+    }
+
+    // Sort click handlers
+    $$('#detail-proxy-log .sortable').forEach(function(th) {
+        th.addEventListener('click', function() {
+            const field = th.dataset.sort;
+            if (proxyLogSortField === field) {
+                proxyLogSortAsc = !proxyLogSortAsc;
+            } else {
+                proxyLogSortField = field;
+                proxyLogSortAsc = true;
+            }
+            renderProxyLog();
+        });
+    });
+
+    // Filter change handlers
+    $('#proxy-log-filter-service').addEventListener('change', function() { renderProxyLog(); });
+    $('#proxy-log-filter-decision').addEventListener('change', function() { renderProxyLog(); });
 
     // ---------------------
     // Users
@@ -2614,172 +2926,6 @@
         if (dom === '*' && mon === '*' && dow === '0') return 'Sundays at ' + hr + ':' + min.padStart(2, '0');
         if (mon === '*' && dow === '*') return 'Monthly on day ' + dom + ' at ' + hr + ':' + min.padStart(2, '0');
         return expr;
-    }
-
-    async function loadSchedules() {
-        const tbody = $('#schedules-tbody');
-        const loading = $('#schedules-loading');
-        const empty = $('#schedules-empty');
-
-        tbody.innerHTML = '';
-        show(loading);
-        hide(empty);
-
-        try {
-            const resp = await api('GET', '/api/v1/schedules');
-            const data = await resp.json();
-            hide(loading);
-
-            const schedules = Array.isArray(data) ? data : (data.schedules || data.items || []);
-            if (schedules.length === 0) {
-                show(empty);
-                return;
-            }
-
-            tbody.innerHTML = schedules.map(function (s) {
-                const name = s.name || '-';
-                const cron = s.cron || s.cron_expression || '-';
-                const cronDesc = cron !== '-' ? describeCron(cron) : '-';
-                const nextRun = formatTime(s.next_run || s.next_run_at);
-                const lastRun = formatTime(s.last_run || s.last_run_at);
-                const enabled = s.enabled !== false;
-                const enabledBadge = enabled
-                    ? '<span class="badge badge-completed">enabled</span>'
-                    : '<span class="badge badge-cancelled">disabled</span>';
-                const id = s.id || '';
-                const source = s.source || 'manual';
-                const sourceBadge = source === 'yaml'
-                    ? '<span class="badge badge-completed">yaml</span>'
-                    : '<span class="badge">manual</span>';
-                const isYaml = source === 'yaml';
-
-                // Trigger column
-                var triggerType = s.trigger_type || 'cron';
-                var triggerHtml;
-                if (triggerType === 'event') {
-                    triggerHtml = '<span class="trigger-badge trigger-badge-event">event</span>';
-                    if (s.event_config && s.event_config.events && s.event_config.events.length > 0) {
-                        triggerHtml += '<br><small style="color:var(--text-muted)">' + escapeHtml(s.event_config.events.join(', ')) + '</small>';
-                    }
-                } else if (triggerType === 'cron-and-event') {
-                    triggerHtml = '<span class="trigger-badge trigger-badge-both">both</span>';
-                    if (s.event_config && s.event_config.events && s.event_config.events.length > 0) {
-                        triggerHtml += '<br><small style="color:var(--text-muted)">' + escapeHtml(s.event_config.events.join(', ')) + '</small>';
-                    }
-                } else {
-                    triggerHtml = '<span class="trigger-badge">cron</span>';
-                }
-
-                var actionsHtml;
-                if (isYaml) {
-                    actionsHtml = '<button class="btn btn-small btn-outline view-schedule-yaml-btn" data-id="' + escapeHtml(id) + '">View</button>';
-                } else {
-                    actionsHtml = '<button class="btn btn-small btn-outline edit-schedule-btn" data-id="' + escapeHtml(id) + '">Edit</button> ' +
-                        '<button class="btn btn-small btn-outline delete-schedule-btn" data-id="' + escapeHtml(id) + '" style="color:var(--status-error);border-color:var(--status-error);">Delete</button>';
-                }
-
-                return '<tr>' +
-                    '<td>' + escapeHtml(name) + '</td>' +
-                    '<td>' + triggerHtml + '</td>' +
-                    '<td><span class="mono">' + escapeHtml(cron) + '</span><br><small style="color:var(--text-muted)">' + escapeHtml(cronDesc) + '</small></td>' +
-                    '<td>' + sourceBadge + '</td>' +
-                    '<td>' + escapeHtml(nextRun) + '</td>' +
-                    '<td>' + escapeHtml(lastRun) + '</td>' +
-                    '<td>' + enabledBadge + '</td>' +
-                    '<td>' + actionsHtml + '</td>' +
-                    '</tr>';
-            }).join('');
-
-            // Edit handlers
-            tbody.querySelectorAll('.edit-schedule-btn').forEach(function (btn) {
-                btn.addEventListener('click', async function () {
-                    const id = btn.dataset.id;
-                    try {
-                        const resp = await api('GET', '/api/v1/schedules/' + id);
-                        const s = await resp.json();
-                        editingScheduleId = id;
-                        $('#sched-name').value = s.name || '';
-                        $('#sched-cron').value = s.cron || s.cron_expression || '';
-                        $('#sched-prompt').value = s.prompt || '';
-                        $('#sched-provider').value = s.provider || '';
-                        $('#sched-repo').value = s.repo || '';
-                        const timeout = s.timeout ? Math.round(s.timeout / 60) : 60;
-                        $('#sched-timeout').value = timeout;
-                        $('#sched-timeout-value').textContent = timeout;
-                        $('#sched-debug').checked = s.debug || false;
-                        $('#sched-enabled').checked = s.enabled !== false;
-                        // Populate trigger type and event config
-                        var tt = s.trigger_type || 'cron';
-                        $('#sched-trigger-type').value = tt;
-                        $('#sched-trigger-type').dispatchEvent(new Event('change'));
-                        // Clear and set event checkboxes
-                        document.querySelectorAll('.event-checkbox').forEach(function(cb) { cb.checked = false; });
-                        if (s.event_config && s.event_config.events) {
-                            s.event_config.events.forEach(function(evt) {
-                                var cb = document.querySelector('.event-checkbox[value="' + evt + '"]');
-                                if (cb) cb.checked = true;
-                            });
-                        }
-                        $('#sched-event-repos').value = (s.event_config && s.event_config.repos) ? s.event_config.repos.join(', ') : '';
-                        $('#sched-event-branches').value = (s.event_config && s.event_config.branches) ? s.event_config.branches.join(', ') : '';
-                        var dm = s.event_config && s.event_config.delivery_mode;
-                        document.querySelectorAll('input[name="sched-delivery-mode"]').forEach(function(r) {
-                            r.checked = (r.value === (dm || 'polling'));
-                        });
-                        // Show/hide info panels
-                        $('#delivery-polling-info').hidden = (dm === 'webhook');
-                        $('#delivery-webhook-info').hidden = (dm !== 'webhook');
-                        if (dm === 'webhook') {
-                            $('#schedule-webhook-url').textContent = window.location.origin + basePath + '/api/v1/webhooks/github';
-                        }
-                        $('#schedule-submit-btn').textContent = 'Update Schedule';
-                        show($('#schedule-form-container'));
-                        $('#sched-name').focus();
-                    } catch (err) {
-                        if (err.message !== 'unauthorized') {
-                            alert('Failed to load schedule.');
-                        }
-                    }
-                });
-            });
-
-            // Delete handlers
-            tbody.querySelectorAll('.delete-schedule-btn').forEach(function (btn) {
-                btn.addEventListener('click', async function () {
-                    const id = btn.dataset.id;
-                    if (!confirm('Are you sure you want to delete this schedule?')) return;
-                    btn.disabled = true;
-                    try {
-                        const resp = await api('DELETE', '/api/v1/schedules/' + id);
-                        if (!resp.ok) {
-                            const data = await resp.json().catch(function () { return {}; });
-                            alert(data.error || data.message || 'Failed to delete schedule.');
-                            btn.disabled = false;
-                        } else {
-                            loadSchedules();
-                        }
-                    } catch (err) {
-                        if (err.message !== 'unauthorized') {
-                            alert('Failed to delete schedule.');
-                        }
-                        btn.disabled = false;
-                    }
-                });
-            });
-
-            // View YAML handlers for yaml-sourced schedules
-            tbody.querySelectorAll('.view-schedule-yaml-btn').forEach(function (btn) {
-                btn.addEventListener('click', function () {
-                    var id = btn.dataset.id;
-                    showYaml(id);
-                });
-            });
-        } catch (err) {
-            hide(loading);
-            if (err.message !== 'unauthorized') {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--status-error);">Failed to load schedules.</td></tr>';
-            }
-        }
     }
 
     async function loadScheduleProviders() {
@@ -3119,7 +3265,7 @@
             hide($('#schedule-form-container'));
             $('#schedule-form').reset();
             editingScheduleId = null;
-            loadSchedules();
+            loadUnifiedSchedules();
         } catch (err) {
             if (err.message !== 'unauthorized') {
                 errEl.textContent = err.message;
@@ -3132,48 +3278,45 @@
     });
 
     // ---------------------
-    // Profiles page
+    // Security page
     // ---------------------
-    async function loadProfilesPage() {
-        var builtinContainer = $('#profiles-builtin');
-        var userContainer = $('#profiles-user');
-        var loading = $('#profiles-loading');
-        var empty = $('#profiles-empty');
+    async function loadSecurityPage() {
+        var container = $('#security-profiles-list');
+        var loading = $('#security-loading');
+        var empty = $('#security-empty');
 
-        builtinContainer.innerHTML = '';
-        userContainer.innerHTML = '';
+        container.innerHTML = '';
         show(loading);
         hide(empty);
 
         try {
-            var resp = await api('GET', '/api/v1/profiles');
+            var resp = await api('GET', '/api/v1/security-profiles');
             var data = await resp.json();
             hide(loading);
 
             var profiles = Array.isArray(data) ? data : (data.profiles || data.items || []);
             allProfiles = profiles;
 
-            var builtinProfiles = profiles.filter(function (p) { return p.builtin === true || p.type === 'builtin'; });
-            var userProfiles = profiles.filter(function (p) { return p.builtin !== true && p.type !== 'builtin'; });
+            // Sort: YAML profiles first, then user profiles, alphabetical within each group
+            profiles.sort(function (a, b) {
+                var aIsYaml = a.source === 'yaml' ? 0 : 1;
+                var bIsYaml = b.source === 'yaml' ? 0 : 1;
+                if (aIsYaml !== bIsYaml) return aIsYaml - bIsYaml;
+                return (a.name || '').localeCompare(b.name || '');
+            });
 
-            if (builtinProfiles.length === 0) {
-                builtinContainer.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">No starter profiles available.</p>';
-            } else {
-                builtinContainer.innerHTML = builtinProfiles.map(function (p) { return renderProfileCard(p, true); }).join('');
-            }
-
-            if (userProfiles.length === 0) {
+            if (profiles.length === 0) {
                 show(empty);
             } else {
                 hide(empty);
-                userContainer.innerHTML = userProfiles.map(function (p) { return renderProfileCard(p, false); }).join('');
+                container.innerHTML = profiles.map(function (p) { return renderProfileCard(p, p.source === 'yaml'); }).join('');
             }
 
             attachProfileCardHandlers();
         } catch (err) {
             hide(loading);
             if (err.message !== 'unauthorized') {
-                builtinContainer.innerHTML = '<p style="color:var(--status-error);font-size:13px;">Failed to load profiles. Check your connection and try again.</p>';
+                container.innerHTML = '<p style="color:var(--status-error);font-size:13px;">Failed to load profiles. Check your connection and try again.</p>';
             }
         }
 
@@ -3247,13 +3390,17 @@
             }).join('');
         }
 
-        var typeBadge = isBuiltin
-            ? '<span class="badge badge-builtin">builtin</span>'
-            : '<span class="badge badge-custom">custom</span>';
+        var typeBadge;
+        var isReadOnly = p.source === 'yaml';
+        if (p.source === 'yaml') {
+            typeBadge = '<span class="badge badge-yaml">yaml</span>';
+        } else {
+            typeBadge = '<span class="badge badge-custom">custom</span>';
+        }
 
         var actions = '<button class="btn btn-small btn-primary profile-use-btn" data-name="' + escapeHtml(name) + '">Use in New Task</button> ';
         actions += '<button class="btn btn-small btn-outline profile-duplicate-btn" data-name="' + escapeHtml(name) + '">Duplicate</button>';
-        if (!isBuiltin) {
+        if (!isReadOnly) {
             actions += ' <button class="btn btn-small btn-outline profile-edit-btn" data-name="' + escapeHtml(name) + '">Edit</button>';
             actions += ' <button class="btn btn-small btn-outline profile-delete-btn" data-name="' + escapeHtml(name) + '" style="color:var(--status-error);border-color:var(--status-error);">Delete</button>';
         }
@@ -3285,7 +3432,7 @@
             btn.addEventListener('click', async function () {
                 var name = btn.dataset.name;
                 try {
-                    var resp = await api('GET', '/api/v1/profiles/' + encodeURIComponent(name));
+                    var resp = await api('GET', '/api/v1/security-profiles/' + encodeURIComponent(name));
                     var p = await resp.json();
                     openProfileForm();
                     setProfileMode('manual');
@@ -3306,7 +3453,7 @@
             btn.addEventListener('click', async function () {
                 var name = btn.dataset.name;
                 try {
-                    var resp = await api('GET', '/api/v1/profiles/' + encodeURIComponent(name));
+                    var resp = await api('GET', '/api/v1/security-profiles/' + encodeURIComponent(name));
                     var p = await resp.json();
                     openProfileForm();
                     setProfileMode('manual');
@@ -3330,13 +3477,13 @@
                 if (!confirm('Delete profile "' + name + '"? This cannot be undone.')) return;
                 btn.disabled = true;
                 try {
-                    var resp = await api('DELETE', '/api/v1/profiles/' + encodeURIComponent(name));
+                    var resp = await api('DELETE', '/api/v1/security-profiles/' + encodeURIComponent(name));
                     if (!resp.ok) {
                         var data = await resp.json().catch(function () { return {}; });
                         alert(data.error || data.message || 'Failed to delete profile.');
                         btn.disabled = false;
                     } else {
-                        loadProfilesPage();
+                        loadSecurityPage();
                     }
                 } catch (err) {
                     if (err.message !== 'unauthorized') alert('Failed to delete profile.');
@@ -3408,7 +3555,7 @@
         hide($('#profile-ai-result'));
 
         try {
-            var resp = await api('POST', '/api/v1/profiles/build', { description: desc });
+            var resp = await api('POST', '/api/v1/security-profiles/build', { description: desc });
             if (resp.status === 503) {
                 var errEl = $('#profile-ai-error');
                 errEl.textContent = 'AI Builder requires a system LLM. Ask your administrator to configure system_llm in alcove.yaml.';
@@ -3833,9 +3980,9 @@
         try {
             var resp;
             if (editingProfileId) {
-                resp = await api('PUT', '/api/v1/profiles/' + encodeURIComponent(editingProfileId), payload);
+                resp = await api('PUT', '/api/v1/security-profiles/' + encodeURIComponent(editingProfileId), payload);
             } else {
-                resp = await api('POST', '/api/v1/profiles', payload);
+                resp = await api('POST', '/api/v1/security-profiles', payload);
             }
 
             if (!resp.ok) {
@@ -3846,7 +3993,7 @@
             hide($('#profile-form-container'));
             $('#profile-form').reset();
             editingProfileId = null;
-            loadProfilesPage();
+            loadSecurityPage();
         } catch (err) {
             if (err.message !== 'unauthorized') {
                 errEl.textContent = err.message;
@@ -3858,13 +4005,13 @@
         }
     });
 
-    // Back to profiles from tools admin
+    // Back to Security from tools admin
     $('#back-to-profiles').addEventListener('click', function () {
-        navigate('profiles');
+        navigate('security');
     });
 
-    // Tools admin link from profiles page
-    $('#profiles-tools-admin-link').addEventListener('click', function (e) {
+    // Tools admin link from Security page
+    $('#security-tools-admin-link').addEventListener('click', function (e) {
         e.preventDefault();
         navigate('tools-admin');
     });
@@ -3877,7 +4024,7 @@
         select.innerHTML = '<option value="">+ Add profile...</option>';
 
         try {
-            var resp = await api('GET', '/api/v1/profiles');
+            var resp = await api('GET', '/api/v1/security-profiles');
             var data = await resp.json();
             var profiles = Array.isArray(data) ? data : (data.profiles || data.items || []);
             allProfiles = profiles;
@@ -4680,7 +4827,7 @@
             var allCreds = credData.credentials || [];
             cachedCredentials = allCreds;
 
-            var profileResp = await api('GET', '/api/v1/profiles');
+            var profileResp = await api('GET', '/api/v1/security-profiles');
             var profileData = await profileResp.json();
             var profiles = Array.isArray(profileData) ? profileData : (profileData.profiles || profileData.items || []);
 
@@ -4706,10 +4853,6 @@
                 return;
             }
 
-            // Update username
-            var usernameEl = $('#setup-username');
-            if (usernameEl) usernameEl.textContent = localStorage.getItem('alcove_user') || 'user';
-
             // Update each item
             updateChecklistItem('setup-item-llm', hasLlm);
             updateChecklistItem('setup-item-scm', hasScm);
@@ -4728,20 +4871,18 @@
     function updateChecklistItem(itemId, isDone) {
         var el = $('#' + itemId);
         if (!el) return;
-        var check = el.querySelector('.setup-check');
-        var action = el.querySelector('.setup-action');
 
+        // Hide completed items entirely — only show what's left to do
         if (isDone) {
-            el.classList.add('setup-item-done');
-            check.innerHTML = '&#10003;';
-            if (action) action.style.display = 'none';
+            el.hidden = true;
         } else {
+            el.hidden = false;
             el.classList.remove('setup-item-done');
-            if (itemId === 'setup-item-task') {
-                check.innerHTML = '&#9675;';
-            } else {
-                check.innerHTML = '&#10007;';
+            var check = el.querySelector('.setup-check');
+            if (check) {
+                check.innerHTML = itemId === 'setup-item-task' ? '&#9675;' : '&#10007;';
             }
+            var action = el.querySelector('.setup-action');
             if (action) action.style.display = '';
         }
     }

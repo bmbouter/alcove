@@ -64,10 +64,21 @@ curl -s -X POST http://localhost:8080/api/v1/credentials \
   -d '{"name":"Vertex AI","provider":"google-vertex","auth_type":"service_account","credential":"<SA_JSON>","project_id":"<PROJECT_ID>","region":"<REGION>"}'
 ```
 
-### 5. Report
+### 5. Configure admin GitHub credential
+Read the GitHub PAT from `~/.config/alcove-github-token` and POST it:
+```bash
+GH_PAT=$(cat ~/.config/alcove-github-token)
+curl -s -X POST http://localhost:8080/api/v1/credentials \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"github\",\"provider\":\"github\",\"auth_type\":\"api_key\",\"credential\":\"$GH_PAT\"}"
+```
+
+### 6. Report
 ```
 Dashboard: http://localhost:8080
 Login: admin / admin
 Vertex AI credential: configured
+GitHub credential: configured
 System LLM: configured (from alcove.yaml)
 ```
