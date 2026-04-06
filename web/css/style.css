@@ -895,6 +895,40 @@ select.input {
     font-weight: 600;
 }
 
+/* === Proxy Log Filters & Sorting === */
+.proxy-log-filters {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 0;
+    margin-bottom: 8px;
+}
+
+.proxy-log-summary {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-left: auto;
+}
+
+.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.sortable:hover {
+    color: var(--text);
+}
+
+.sort-indicator {
+    font-size: 10px;
+    margin-left: 4px;
+    opacity: 0.5;
+}
+
+.sort-indicator.active {
+    opacity: 1;
+}
+
 /* === Providers Grid === */
 .providers-grid {
     display: grid;
@@ -1129,6 +1163,7 @@ select.input {
 .tool-preset { max-width: 200px; }
 .tool-repos { flex: 1; min-width: 200px; }
 .badge-builtin { background: rgba(52, 152, 219, 0.2); color: var(--status-running); }
+.badge-yaml { background: rgba(46, 204, 113, 0.2); color: #2ecc71; }
 .badge-custom { background: rgba(243, 156, 18, 0.2); color: var(--status-cancelled); }
 
 /* Debug checkbox help text */
@@ -1290,9 +1325,6 @@ select.input {
 .profile-effective .eff-source { font-size: 10px; color: var(--text-muted); opacity: 0.7; margin-left: 4px; }
 .profile-stacking-hint { background: rgba(0,0,0,0.15); border-radius: 6px; padding: 10px 12px; margin-top: 8px; font-size: 12px; color: var(--text-muted); line-height: 1.5; }
 .profile-stacking-hint strong { color: var(--text); }
-
-/* Profile sections */
-.profile-section-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin: 20px 0 10px; }
 
 /* AI builder */
 .ai-builder-result { background: rgba(0,0,0,0.2); border-radius: 6px; padding: 16px; margin: 12px 0; }
@@ -1510,7 +1542,20 @@ select.input {
     text-decoration: underline;
 }
 
-/* Skill Repos */
+/* Repo items (inline on Schedules page) */
+.repo-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+}
+.repo-item:last-child { border-bottom: none; }
+.repo-item-url { flex: 1; }
+.repo-item-ref { color: var(--text-muted); font-size: 12px; }
+
+/* Skill / Agent Repos */
 .skill-repo-item {
     display: flex;
     align-items: center;
@@ -1618,29 +1663,104 @@ select.input {
     border-radius: 8px;
     padding: 16px;
     margin-bottom: 12px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
     border: 1px solid var(--border);
 }
 
-.task-def-info {
-    flex: 1;
+.task-def-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
 }
 
 .task-def-name {
     font-weight: 600;
-    margin-bottom: 4px;
-}
-
-.task-def-meta {
-    font-size: 12px;
-    color: var(--text-muted);
+    font-size: 15px;
 }
 
 .task-def-actions {
     display: flex;
     gap: 8px;
+    flex-shrink: 0;
+}
+
+.task-def-desc {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+.task-def-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.task-def-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.task-def-tag-profile {
+    background: rgba(46, 204, 113, 0.15);
+    color: #2ecc71;
+}
+
+.task-def-tag-repo {
+    background: rgba(52, 152, 219, 0.15);
+    color: var(--status-running);
+}
+
+.task-def-tag-yaml {
+    background: rgba(46, 204, 113, 0.15);
+    color: #2ecc71;
+}
+
+.task-def-tag-manual {
+    background: rgba(243, 156, 18, 0.15);
+    color: var(--status-cancelled);
+}
+
+.task-def-details {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.task-def-detail-item code {
+    background: var(--bg-input);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+.task-def-label {
+    color: var(--text-secondary);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.3px;
+    margin-right: 4px;
+}
+
+.task-def-dim {
+    opacity: 0.6;
+}
+
+.task-def-error {
+    color: var(--status-error);
+    font-size: 12px;
+    margin-top: 8px;
+    padding: 6px 10px;
+    background: rgba(231, 76, 60, 0.1);
+    border-radius: 4px;
 }
 
 /* Template Cards */

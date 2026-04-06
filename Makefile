@@ -17,7 +17,7 @@ PODMAN   := podman
 
 CMDS     := bridge gate skiff-init alcove
 
-.PHONY: all build build-images test test-network test-ledger test-isolation test-schedules test-credentials test-profiles test-gate-real lint clean \
+.PHONY: all build build-images test test-network test-ledger test-isolation test-schedules test-credentials test-security-profiles test-yaml-security-profiles test-gate-real lint clean \
         up down logs dev-config dev-up dev-down dev-logs dev-reset dev-infra help \
         login-registry push pull up-pull
 
@@ -176,8 +176,11 @@ test-schedules: ## Test schedule CRUD and isolation
 test-credentials: ## Test credential CRUD and isolation
 	ADMIN_PASSWORD=$${ADMIN_PASSWORD:-alcove-admin-2026} ./scripts/test-credentials.sh
 
-test-profiles: ## Test AI profile builder (requires system LLM configured)
+test-security-profiles: ## Test AI security profile builder (requires system LLM configured)
 	ADMIN_PASSWORD=$${ADMIN_PASSWORD:-alcove-admin-2026} ./scripts/test-profile-builder.sh
+
+test-yaml-security-profiles: ## Test YAML security profile sync from task repos
+	ADMIN_PASSWORD=$${ADMIN_PASSWORD:-alcove-admin-2026} ./scripts/test-yaml-security-profiles.sh
 
 test-gate-real: ## Test Gate scope enforcement with real GitHub API (requires running Bridge + GitHub credential)
 	ADMIN_PASSWORD=$${ADMIN_PASSWORD:-admin123} ./scripts/test-gate-real.sh

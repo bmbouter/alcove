@@ -1294,11 +1294,24 @@ curl -X DELETE http://localhost:8080/api/v1/tools/my-tool \
 
 ---
 
-## Security Profiles
+## Security
 
-Manage security profiles that define per-tool access rules for tasks. Builtin profiles are read-only and cannot be modified or deleted.
+Manage security profiles that define per-tool access rules for tasks. YAML-sourced profiles are read-only and cannot be modified or deleted.
 
-### GET /api/v1/profiles
+Each profile includes a `source` field indicating its origin:
+
+| Source    | Description |
+|-----------|-------------|
+| `user`    | Created via the API or dashboard |
+| `yaml`    | Loaded from a `.alcove/security-profiles/*.yml` file in a task repo |
+
+YAML-sourced profiles also include `source_repo` (the task repo URL) and
+`source_key` (the file path within the repo, e.g.
+`.alcove/security-profiles/my-profile.yml`).
+
+`PUT` and `DELETE` requests are rejected with **403** for YAML-sourced profiles.
+
+### GET /api/v1/security-profiles
 
 List all security profiles.
 
@@ -1312,6 +1325,7 @@ List all security profiles.
       "name": "read-only-github",
       "display_name": "Read-Only GitHub",
       "description": "Clone and read GitHub repos, no write access",
+      "source": "user",
       "tools": {
         "github": {
           "rules": [
@@ -1319,23 +1333,40 @@ List all security profiles.
           ]
         }
       },
-      "is_builtin": false,
+      "created_at": "2026-03-20T10:00:00Z",
+      "updated_at": "2026-03-20T10:00:00Z"
+    },
+    {
+      "id": "c2d3e4f5-a6b7-8901-bcde-f12345678901",
+      "name": "repo-reader",
+      "display_name": "Repo Reader",
+      "description": "Read-only access to a specific repo",
+      "source": "yaml",
+      "source_repo": "https://github.com/org/task-definitions.git",
+      "source_key": ".alcove/security-profiles/repo-reader.yml",
+      "tools": {
+        "github": {
+          "rules": [
+            { "repos": ["org/myproject"], "operations": ["clone", "read_prs", "read_contents"] }
+          ]
+        }
+      },
       "created_at": "2026-03-20T10:00:00Z",
       "updated_at": "2026-03-20T10:00:00Z"
     }
   ],
-  "count": 1
+  "count": 2
 }
 ```
 
 **curl example:**
 
 ```bash
-curl http://localhost:8080/api/v1/profiles \
+curl http://localhost:8080/api/v1/security-profiles \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-### POST /api/v1/profiles
+### POST /api/v1/security-profiles
 
 Create a new security profile.
 
@@ -1384,7 +1415,7 @@ Each `ProfileToolConfig` contains a `rules` array. Each rule specifies:
 **curl example:**
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/profiles \
+curl -X POST http://localhost:8080/api/v1/security-profiles \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1400,7 +1431,7 @@ curl -X POST http://localhost:8080/api/v1/profiles \
   }'
 ```
 
-### GET /api/v1/profiles/{name}
+### GET /api/v1/security-profiles/{name}
 
 Get a single profile by name.
 
@@ -1413,9 +1444,9 @@ Get a single profile by name.
 | 200  | Profile found |
 | 404  | Profile not found |
 
-### PUT /api/v1/profiles/{name}
+### PUT /api/v1/security-profiles/{name}
 
-Update a custom profile. Builtin profiles cannot be modified (returns 403).
+Update a custom profile. YAML-sourced profiles cannot be modified (returns 403).
 
 **Request body:** same fields as POST (the `name` in the URL takes precedence).
 
@@ -1427,12 +1458,12 @@ Update a custom profile. Builtin profiles cannot be modified (returns 403).
 |------|---------|
 | 200  | Profile updated |
 | 400  | Invalid body |
-| 403  | Builtin profiles cannot be modified |
+| 403  | YAML-sourced profiles cannot be modified |
 | 404  | Profile not found |
 
-### DELETE /api/v1/profiles/{name}
+### DELETE /api/v1/security-profiles/{name}
 
-Delete a custom profile. Builtin profiles cannot be deleted (returns 403).
+Delete a custom profile. YAML-sourced profiles cannot be deleted (returns 403).
 
 **Response (200):**
 
@@ -1447,17 +1478,17 @@ Delete a custom profile. Builtin profiles cannot be deleted (returns 403).
 | Code | Meaning |
 |------|---------|
 | 200  | Profile deleted |
-| 403  | Builtin profiles cannot be deleted |
+| 403  | YAML-sourced profiles cannot be deleted |
 | 404  | Profile not found |
 
 **curl example:**
 
 ```bash
-curl -X DELETE http://localhost:8080/api/v1/profiles/my-profile \
+curl -X DELETE http://localhost:8080/api/v1/security-profiles/my-profile \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-### POST /api/v1/profiles/build
+### POST /api/v1/security-profiles/build
 
 Use AI to generate a security profile from a natural language description. Requires a system LLM to be configured (see Admin Settings).
 
@@ -1489,7 +1520,7 @@ Use AI to generate a security profile from a natural language description. Requi
 }
 ```
 
-The returned profile is not saved automatically. Submit it to `POST /api/v1/profiles` to persist it.
+The returned profile is not saved automatically. Submit it to `POST /api/v1/security-profiles` to persist it.
 
 **Status codes:**
 
@@ -1503,7 +1534,7 @@ The returned profile is not saved automatically. Submit it to `POST /api/v1/prof
 **curl example:**
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/profiles/build \
+curl -X POST http://localhost:8080/api/v1/security-profiles/build \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"description": "Read any GitHub repo and create draft PRs on example/myproject"}'
@@ -1511,7 +1542,7 @@ curl -X POST http://localhost:8080/api/v1/profiles/build \
 
 ---
 
-## Skill Repos
+## Skill / Agent Repos
 
 Configure git repositories containing Claude Code plugins (skills and agents) that are loaded into every Skiff container via `--plugin-dir`.
 
@@ -1692,6 +1723,15 @@ Trigger an immediate sync of all task repos (normally happens every 5 minutes).
   "synced": true
 }
 ```
+
+### Event Trigger Delivery Modes
+
+Task definitions with event triggers (e.g., GitHub `issues.opened`) support two delivery modes via the `delivery_mode` field in the trigger configuration:
+
+- **`polling`** (default) — Alcove polls the GitHub Events API every 60 seconds. No webhook setup required. Suitable for local development and environments without a public URL.
+- **`webhook`** — GitHub pushes events to `POST /api/v1/webhooks/github`. Requires a publicly accessible Bridge URL and a configured webhook secret.
+
+See [Configuration Reference](configuration.md#event-delivery-mode) for YAML syntax and details.
 
 ---
 

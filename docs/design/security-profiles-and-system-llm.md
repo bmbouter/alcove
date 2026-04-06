@@ -127,7 +127,7 @@ func (ps *ProfileStore) DeleteProfile(ctx, name, owner) error
 ```
 
 `ListProfiles` returns both the user's own profiles AND system profiles
-(owner=''), similar to how `ListTools` returns builtins + user tools:
+(owner=''):
 
 ```sql
 SELECT ... FROM security_profiles
@@ -249,13 +249,13 @@ func (d *Dispatcher) resolveEffectiveTools(ctx context.Context, req TaskRequest,
 ### 1.8 API Endpoints
 
 ```
-GET    /api/v1/profiles              -- list profiles (user's + system)
-GET    /api/v1/profiles/{name}       -- get profile details
-POST   /api/v1/profiles              -- create profile
-PUT    /api/v1/profiles/{name}       -- update profile
-DELETE /api/v1/profiles/{name}       -- delete profile (own only; cannot delete system)
-POST   /api/v1/profiles/build        -- AI-assisted profile builder (Feature 2)
-POST   /api/v1/profiles/preview      -- preview merged scope from profile names
+GET    /api/v1/security-profiles              -- list profiles (user's + system)
+GET    /api/v1/security-profiles/{name}       -- get profile details
+POST   /api/v1/security-profiles              -- create profile
+PUT    /api/v1/security-profiles/{name}       -- update profile
+DELETE /api/v1/security-profiles/{name}       -- delete profile (own only; cannot delete system)
+POST   /api/v1/security-profiles/build        -- AI-assisted security profile builder (Feature 2)
+POST   /api/v1/security-profiles/preview      -- preview merged scope from profile names
 ```
 
 **Create profile request:**
@@ -310,52 +310,6 @@ POST   /api/v1/profiles/preview      -- preview merged scope from profile names
         }
     },
     "profiles_resolved": ["pulp-contributor", "code-reader"]
-}
-```
-
-### 1.9 Seeded System Profiles
-
-Bridge seeds common profiles on startup (owner=''):
-
-```go
-var systemProfiles = []SecurityProfile{
-    {
-        Name:        "code-reader",
-        DisplayName: "Code Reader",
-        Description: "Read-only access to all repositories on all configured services",
-        Tools: map[string]ToolConfig{
-            "github": {Enabled: true, Repos: []string{"*"}, Operations: []string{
-                "clone", "read_prs", "read_issues", "read_contents", "read_actions",
-            }},
-            "gitlab": {Enabled: true, Repos: []string{"*"}, Operations: []string{
-                "clone", "read_mrs", "read_issues", "read_contents", "read_pipelines",
-            }},
-        },
-    },
-    {
-        Name:        "contributor",
-        DisplayName: "Contributor",
-        Description: "Read access plus branch push and draft PR creation on all repos",
-        Tools: map[string]ToolConfig{
-            "github": {Enabled: true, Repos: []string{"*"}, Operations: []string{
-                "clone", "read_prs", "read_issues", "read_contents", "read_actions",
-                "push_branch", "create_pr_draft", "create_comment",
-            }},
-            "gitlab": {Enabled: true, Repos: []string{"*"}, Operations: []string{
-                "clone", "read_mrs", "read_issues", "read_contents", "read_pipelines",
-                "push_branch", "create_mr_draft", "create_comment",
-            }},
-        },
-    },
-    {
-        Name:        "maintainer",
-        DisplayName: "Maintainer",
-        Description: "Full access including PR merge and branch deletion on all repos",
-        Tools: map[string]ToolConfig{
-            "github": {Enabled: true, Repos: []string{"*"}, Operations: []string{"*"}},
-            "gitlab": {Enabled: true, Repos: []string{"*"}, Operations: []string{"*"}},
-        },
-    },
 }
 ```
 
@@ -486,7 +440,7 @@ no tool use. System LLM calls are short-lived and low-volume.
 
 ### 2.5 Profile Builder
 
-**Endpoint: `POST /api/v1/profiles/build`**
+**Endpoint: `POST /api/v1/security-profiles/build`**
 
 Uses the system LLM to convert a natural language description into a
 structured security profile.
@@ -893,24 +847,23 @@ All changes are additive:
    Omitting it defaults to the standard host (github.com/gitlab.com).
    Existing credentials continue to work.
 
-3. **New endpoints** (`/api/v1/profiles/*`, `/api/v1/profiles/build`,
+3. **New endpoints** (`/api/v1/security-profiles/*`, `/api/v1/security-profiles/build`,
    `/api/v1/admin/system-llm`) do not conflict with existing routes.
 
 4. **Gate**: `ToolConfigs` with custom `api_host` values is already supported.
    The only change is that Bridge now populates `api_host` from the credential
    rather than only from the tool definition.
 
-### 5.3 System Profile Seeding
+### 5.3 Profile Storage
 
-System profiles are seeded on startup using INSERT ... ON CONFLICT DO UPDATE,
-identical to how builtin tools are seeded. Existing system profiles are
-updated; user-created profiles are never modified.
+User-created and YAML-sourced profiles are stored in the database.
+User-created profiles are never modified by the system.
 
 ---
 
 ## 6. File-by-File Implementation Plan
 
-### Phase A: Security Profiles (Core)
+### Phase A: Security (Core)
 
 | # | File | Change |
 |---|------|--------|
@@ -921,7 +874,7 @@ updated; user-created profiles are never modified.
 | A5 | `internal/bridge/api.go` | Profile preview endpoint |
 | A6 | `internal/bridge/dispatcher.go` | Add `Profiles` field, `resolveEffectiveTools` |
 | A7 | `internal/bridge/dispatcher.go` | Wire `profileStore` into Dispatcher |
-| A8 | `cmd/bridge/main.go` | Create ProfileStore, pass to API + Dispatcher, seed system profiles |
+| A8 | `cmd/bridge/main.go` | Create ProfileStore, pass to API + Dispatcher |
 
 **Dependencies:** A1 before A2. A2 before A3-A8. A4 and A6 can parallel.
 
@@ -932,7 +885,7 @@ updated; user-created profiles are never modified.
 | B1 | `internal/bridge/config.go` | Add `SystemLLMConfig`, env var loading |
 | B2 | `internal/bridge/llm.go` | `BridgeLLM` client (Complete method) |
 | B3 | `internal/bridge/llm_test.go` | Unit tests (mock HTTP) |
-| B4 | `internal/bridge/api.go` | Profile builder endpoint (`/api/v1/profiles/build`) |
+| B4 | `internal/bridge/api.go` | Security profile builder endpoint (`/api/v1/security-profiles/build`) |
 | B5 | `internal/bridge/api.go` | Admin system LLM config endpoint |
 | B6 | `cmd/bridge/main.go` | Create BridgeLLM, pass to API |
 
@@ -965,7 +918,7 @@ updated; user-created profiles are never modified.
 ### Dependency Graph
 
 ```
-Phase A (Profiles Core)
+Phase A (Security Core)
     |
     +---> Phase B (System LLM)  -- B4 depends on A4
     |

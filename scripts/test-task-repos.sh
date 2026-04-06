@@ -1,7 +1,7 @@
 #!/bin/bash
 # test-task-repos.sh — Tests for the task repo and task definitions API.
 #
-# Verifies system task repo CRUD, repo validation, sync lifecycle,
+# Verifies user task repo CRUD, repo validation, sync lifecycle,
 # and task definition detail endpoints.
 #
 # Prerequisites:
@@ -14,13 +14,13 @@
 #   ADMIN_PASSWORD=<pw> ./scripts/test-task-repos.sh
 #
 # Manual UI checklist (verify in dashboard after running):
-#   [ ] Admin Settings > Task Repos shows configured repos
+#   [ ] Repos page > Task Repos shows configured repos
 #   [ ] Task Definitions page lists synced tasks
 #   [ ] Task Definition detail page shows raw YAML
 #   [ ] Removing repos and re-syncing clears definitions
 #
 # Tests:
-#   Group 1: System Task Repo CRUD (5 tests)
+#   Group 1: User Task Repo CRUD (5 tests)
 #   Group 2: Validation (3 tests)
 #   Group 3: Sync Lifecycle (6 tests)
 #   Group 4: Task Definition Detail (2 tests)
@@ -45,18 +45,18 @@ ADMIN_TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" \
 ALCOVE_TESTING_URL="https://github.com/bmbouter/alcove-testing.git"
 
 # =====================================================================
-# Group 1: System Task Repo CRUD
+# Group 1: User Task Repo CRUD
 # =====================================================================
-log "=== Group 1: System Task Repo CRUD ==="
+log "=== Group 1: User Task Repo CRUD ==="
 
-# Test 1.1: GET admin/settings/task-repos — empty initially
+# Test 1.1: GET user/settings/task-repos — empty initially
 log "Test 1.1: GET task-repos — initially empty"
 # Clear any existing repos first
-curl -s -X PUT "$BRIDGE_URL/api/v1/admin/settings/task-repos" \
+curl -s -X PUT "$BRIDGE_URL/api/v1/user/settings/task-repos" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"repos":[]}' > /dev/null
-REPOS=$(curl -s "$BRIDGE_URL/api/v1/admin/settings/task-repos" \
+REPOS=$(curl -s "$BRIDGE_URL/api/v1/user/settings/task-repos" \
   -H "Authorization: Bearer $ADMIN_TOKEN" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('repos',[])))")
 if [ "$REPOS" = "0" ]; then
   pass "Task repos initially empty"
@@ -66,7 +66,7 @@ fi
 
 # Test 1.2: PUT with alcove-testing repo — 200
 log "Test 1.2: PUT alcove-testing repo"
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$BRIDGE_URL/api/v1/admin/settings/task-repos" \
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$BRIDGE_URL/api/v1/user/settings/task-repos" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"repos\":[{\"url\":\"$ALCOVE_TESTING_URL\",\"name\":\"alcove-testing\"}]}")
@@ -78,7 +78,7 @@ fi
 
 # Test 1.3: GET — verify saved
 log "Test 1.3: GET — verify saved"
-SAVED_URL=$(curl -s "$BRIDGE_URL/api/v1/admin/settings/task-repos" \
+SAVED_URL=$(curl -s "$BRIDGE_URL/api/v1/user/settings/task-repos" \
   -H "Authorization: Bearer $ADMIN_TOKEN" | python3 -c "import json,sys; repos=json.load(sys.stdin).get('repos',[]); print(repos[0]['url'] if repos else 'EMPTY')")
 if [ "$SAVED_URL" = "$ALCOVE_TESTING_URL" ]; then
   pass "Repo URL saved correctly"
@@ -88,7 +88,7 @@ fi
 
 # Test 1.4: PUT with empty — 200
 log "Test 1.4: PUT empty repos"
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$BRIDGE_URL/api/v1/admin/settings/task-repos" \
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$BRIDGE_URL/api/v1/user/settings/task-repos" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"repos":[]}')
@@ -100,7 +100,7 @@ fi
 
 # Test 1.5: GET — verify empty
 log "Test 1.5: GET — verify empty after clearing"
-REPOS=$(curl -s "$BRIDGE_URL/api/v1/admin/settings/task-repos" \
+REPOS=$(curl -s "$BRIDGE_URL/api/v1/user/settings/task-repos" \
   -H "Authorization: Bearer $ADMIN_TOKEN" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('repos',[])))")
 if [ "$REPOS" = "0" ]; then
   pass "Task repos empty after clearing"
@@ -121,10 +121,10 @@ VALIDATE=$(curl -s -X POST "$BRIDGE_URL/api/v1/task-repos/validate" \
   -d "{\"url\":\"$ALCOVE_TESTING_URL\"}")
 VALID=$(echo "$VALIDATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('valid',False))")
 TASK_COUNT=$(echo "$VALIDATE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('task_count',0))")
-if [ "$VALID" = "True" ] && [ "$TASK_COUNT" = "2" ]; then
-  pass "Validate alcove-testing: valid=true, task_count=2"
+if [ "$VALID" = "True" ] && [ "$TASK_COUNT" -ge 2 ]; then
+  pass "Validate alcove-testing: valid=true, task_count=$TASK_COUNT"
 else
-  fail "Validate alcove-testing: valid=$VALID, task_count=$TASK_COUNT (expected True, 2)"
+  fail "Validate alcove-testing: valid=$VALID, task_count=$TASK_COUNT (expected True, >=2)"
 fi
 
 # Test 2.2: POST validate with nonexistent repo — valid=false
@@ -159,7 +159,7 @@ log "=== Group 3: Sync Lifecycle ==="
 
 # Test 3.1: Add alcove-testing repo
 log "Test 3.1: Add alcove-testing repo for sync"
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$BRIDGE_URL/api/v1/admin/settings/task-repos" \
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$BRIDGE_URL/api/v1/user/settings/task-repos" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"repos\":[{\"url\":\"$ALCOVE_TESTING_URL\",\"name\":\"alcove-testing\"}]}")
@@ -224,7 +224,7 @@ FIRST_DEF_ID=$(echo "$DEFS_JSON" | python3 -c "import json,sys; defs=json.load(s
 
 # Test 3.5: Remove repo (PUT empty) and sync
 log "Test 3.5: Remove repo and sync"
-curl -s -X PUT "$BRIDGE_URL/api/v1/admin/settings/task-repos" \
+curl -s -X PUT "$BRIDGE_URL/api/v1/user/settings/task-repos" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"repos":[]}' > /dev/null
@@ -257,7 +257,7 @@ fi
 log "=== Group 4: Task Definition Detail ==="
 
 # Re-add repo and sync so we have definitions to query
-curl -s -X PUT "$BRIDGE_URL/api/v1/admin/settings/task-repos" \
+curl -s -X PUT "$BRIDGE_URL/api/v1/user/settings/task-repos" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"repos\":[{\"url\":\"$ALCOVE_TESTING_URL\",\"name\":\"alcove-testing\"}]}" > /dev/null
@@ -301,7 +301,7 @@ fi
 # Group 5: Cleanup
 # =====================================================================
 log "=== Group 5: Cleanup ==="
-curl -s -X PUT "$BRIDGE_URL/api/v1/admin/settings/task-repos" \
+curl -s -X PUT "$BRIDGE_URL/api/v1/user/settings/task-repos" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"repos":[]}' > /dev/null

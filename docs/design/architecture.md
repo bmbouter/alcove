@@ -425,7 +425,7 @@ time. Skiff containers never hold LLM API keys.
 
 ### Phase 1: Foundation
 
-- Bridge with basic dashboard (submit prompt, view sessions)
+- Bridge with basic dashboard (submit prompt, view tasks)
 - Bridge REST API
 - Skiff pods as k8s Jobs / `podman run --rm`
 - Gate as sidecar with HTTP_PROXY + git credential helper + LLM API proxy
@@ -455,7 +455,7 @@ time. Skiff containers never hold LLM API keys.
 ### Phase 3: Human-in-the-Loop + Review
 
 - Scope escalation notifications (Gate block → Bridge notification → user approval)
-- Session review workflow (approve/reject/follow-up/rerun)
+- Task review workflow (approve/reject/follow-up/rerun)
 - Proxy log correlation with session transcripts in dashboard
 - Follow-up task chaining (linked sessions)
 - Claude Pro/Max account support

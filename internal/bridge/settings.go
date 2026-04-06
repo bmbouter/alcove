@@ -108,33 +108,6 @@ func (s *SettingsStore) SetUserSkillRepos(ctx context.Context, username string, 
 	return err
 }
 
-// GetSystemTaskRepos returns the system-wide task repos.
-func (s *SettingsStore) GetSystemTaskRepos(ctx context.Context) ([]SkillRepo, error) {
-	var value json.RawMessage
-	err := s.db.QueryRow(ctx, "SELECT value FROM system_settings WHERE key = 'task_repos'").Scan(&value)
-	if err != nil {
-		return nil, fmt.Errorf("system task repos not found: %w", err)
-	}
-	var repos []SkillRepo
-	if err := json.Unmarshal(value, &repos); err != nil {
-		return nil, fmt.Errorf("unmarshaling system task repos: %w", err)
-	}
-	return repos, nil
-}
-
-// SetSystemTaskRepos saves the system-wide task repos.
-func (s *SettingsStore) SetSystemTaskRepos(ctx context.Context, repos []SkillRepo) error {
-	value, err := json.Marshal(repos)
-	if err != nil {
-		return fmt.Errorf("marshaling system task repos: %w", err)
-	}
-	_, err = s.db.Exec(ctx, `
-		INSERT INTO system_settings (key, value, updated_at) VALUES ('task_repos', $1, $2)
-		ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = $2
-	`, value, time.Now().UTC())
-	return err
-}
-
 // GetUserTaskRepos returns a user's personal task repos.
 func (s *SettingsStore) GetUserTaskRepos(ctx context.Context, username string) ([]SkillRepo, error) {
 	var value json.RawMessage

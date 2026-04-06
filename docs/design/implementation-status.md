@@ -13,7 +13,7 @@ all resolved decisions.
 
 | Component | Name | Purpose |
 |-----------|------|---------|
-| Controller | **Bridge** | REST API, dashboard, task dispatch, scheduler, admin settings, profile builder |
+| Controller | **Bridge** | REST API, dashboard, task dispatch, scheduler, admin settings, security profile builder |
 | Worker | **Skiff** | Ephemeral Claude Code execution |
 | Auth Proxy | **Gate** | Sidecar proxy: token swap, LLM API proxy, SCM proxy (`/github/`, `/gitlab/`), scope enforcement, MCP tool configs |
 | Message Bus | **Hail** | NATS-based status, transcript streaming, cancellation |
@@ -47,10 +47,10 @@ alcove/
 │   │   ├── credentials.go      ✅ Credential CRUD, AES-256-GCM encryption, OAuth2 token acquisition, token refresh, AcquireSCMToken, AcquireSystemToken, owner scoping, system credentials
 │   │   ├── credentials_test.go ✅ Credential store tests
 │   │   ├── scheduler.go        ✅ Cron scheduler: parsing, next-run computation, schedule CRUD, background tick loop, per-schedule debug flag
-│   │   ├── profiles.go         ✅ Security profiles: multi-rule per-repo operation scoping, builtin profile seeding, profile CRUD with owner scoping
+│   │   ├── profiles.go         ✅ Security profiles: multi-rule per-repo operation scoping, profile CRUD with owner scoping
 │   │   ├── tools.go            ✅ MCP tool registry: tool CRUD, MCP command/args, tool configs passed to Gate/Skiff
 │   │   ├── settings.go         ✅ Admin settings: system LLM configuration, skill repos (system + per-user), env+DB+config resolution
-│   │   ├── llm.go              ✅ BridgeLLM: system LLM client for AI-powered features (Anthropic + Vertex AI), used by profile builder
+│   │   ├── llm.go              ✅ BridgeLLM: system LLM client for AI-powered features (Anthropic + Vertex AI), used by security profile builder
 │   │   ├── migrate.go          ✅ Embedded SQL migration runner with advisory locking
 │   │   └── migrations/
 │   │       ├── 001_initial_schema.sql  ✅ Sessions, provider_credentials, auth_users, auth_sessions, schedules tables
@@ -79,7 +79,7 @@ alcove/
 ├── web/
 │   ├── index.html              ✅ Dashboard SPA shell with all page views, setup checklist
 │   ├── css/style.css           ✅ Dark theme dashboard styles
-│   └── js/app.js               ✅ Full SPA: login, session list with pagination, new task form with profile selection, live transcript viewer (SSE with catch-up + live), proxy log viewer, providers page, security profiles page, MCP tools page, schedules with NLP cron input, admin settings, user management, guided setup checklist, contextual warnings
+│   └── js/app.js               ✅ Full SPA: login, task list with pagination, new task form with profile selection, live transcript viewer (SSE with catch-up + live), proxy log viewer, providers page, security profiles page, MCP tools page, schedules with NLP cron input, admin settings, user management, guided setup checklist, contextual warnings
 ├── build/
 │   ├── Containerfile.bridge    ✅ Multi-stage (golang:1.25 → ubi9/ubi)
 │   ├── Containerfile.gate      ✅ Multi-stage (golang:1.25 → ubi9-minimal)
@@ -131,9 +131,9 @@ alcove/
    Dispatcher injects `GATE_LLM_TOKEN`, `GATE_LLM_PROVIDER`, `GATE_LLM_TOKEN_TYPE`
    into Gate env and `ANTHROPIC_BASE_URL` into Skiff env pointing at the Gate sidecar.
 
-2. **Dashboard Frontend** — Full SPA in `web/` with login form, session list with
+2. **Dashboard Frontend** — Full SPA in `web/` with login form, task list with
    status filters, search, and pagination, new task form with provider and profile
-   selection and debug toggle, session detail view with live transcript streaming
+   selection and debug toggle, task detail view with live transcript streaming
    (SSE with catch-up + live) and proxy log tabs, providers page, security profiles
    page, MCP tools page, schedules page with NLP-style cron input, admin settings
    page (system LLM shown as read-only status), user management page, guided
@@ -202,11 +202,11 @@ alcove/
 
 12. **Security Profiles** — Named, reusable bundles of tool + repo + operation
     permissions. Supports multi-rule per-repo operation scoping (each rule specifies
-    repos and operations independently). Profiles have owner scoping and builtin
-    profiles are seeded on startup. Dispatcher resolves security profiles into scope
-    and tool configs at dispatch time. Profile CRUD API with owner isolation.
+    repos and operations independently). Profiles have owner scoping. Dispatcher
+    resolves security profiles into scope and tool configs at dispatch time.
+    Profile CRUD API with owner isolation.
 
-13. **AI-Powered Profile Builder** — `POST /api/v1/profiles/build` accepts a natural
+13. **AI-Powered Security Profile Builder** — `POST /api/v1/security-profiles/build` accepts a natural
     language description and uses the system LLM (BridgeLLM) to generate a JSON
     security profile. BridgeLLM supports both Anthropic and Vertex AI providers
     and acquires credentials from the credential store (including system credentials).
@@ -264,6 +264,24 @@ alcove/
 22. **CI/CD** — GitHub Actions workflows for testing (`ci.yml`) and releasing
     (`release.yml`). Container images published to `ghcr.io/bmbouter`.
     v0.1.0 released.
+
+23. **YAML Security Profiles** — Security profiles defined in
+    `.alcove/security-profiles/*.yml` files in task repos, synced alongside
+    YAML task definitions. Profiles specify tool/repo/operation rules in the
+    same format as API-created profiles. YAML profiles are read-only in the
+    UI and API (PUT/DELETE return 403). Each profile carries a `source` field
+    (`user` or `yaml`) plus `source_repo` and `source_key` for
+    traceability. Task definitions referencing unknown profiles receive sync
+    errors. Profile validation requires `name` and at least one tool entry.
+
+24. **GitHub Event Polling** — Task definitions with event triggers support a
+    `polling` delivery mode (default) that polls the GitHub Events API every
+    60 seconds for new events matching configured event types, actions, and
+    repos. Uses GitHub's conditional request support (ETags) to minimize API
+    usage. Event deduplication via the `webhook_deliveries` table prevents
+    duplicate task dispatches. On first poll, existing events are skipped to
+    avoid retroactive dispatches. Works in any environment including local
+    development with no webhook configuration required.
 
 ## What's NOT Working Yet
 

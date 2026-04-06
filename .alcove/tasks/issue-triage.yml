@@ -20,7 +20,7 @@ prompt: |
 repo: https://github.com/bmbouter/alcove.git
 
 profiles:
-  - github-readonly
+  - alcove-reader
 
 schedule:
   cron: "*/15 * * * *"

@@ -43,12 +43,15 @@ type TaskDefinition struct {
 	Trigger     *EventTrigger         `json:"trigger,omitempty" yaml:"trigger"`
 
 	// Metadata (not from YAML).
-	SourceRepo string    `json:"source_repo"`
-	SourceFile string    `json:"source_file"`
-	SourceKey  string    `json:"source_key"`
-	RawYAML    string    `json:"raw_yaml,omitempty"`
-	SyncError  string    `json:"sync_error,omitempty"`
-	LastSynced time.Time `json:"last_synced"`
+	Owner      string     `json:"owner,omitempty"`
+	SourceRepo string     `json:"source_repo"`
+	SourceFile string     `json:"source_file"`
+	SourceKey  string     `json:"source_key"`
+	RawYAML    string     `json:"raw_yaml,omitempty"`
+	SyncError  string     `json:"sync_error,omitempty"`
+	LastSynced time.Time  `json:"last_synced"`
+	NextRun    *time.Time `json:"next_run,omitempty"`
+	LastRun    *time.Time `json:"last_run,omitempty"`
 }
 
 // TaskDefSchedule defines an optional cron schedule for a task definition.
@@ -116,14 +119,18 @@ func NewTaskDefStore(db *pgxpool.Pool) *TaskDefStore {
 	return &TaskDefStore{db: db}
 }
 
-// ListTaskDefinitions returns all task definitions, excluding raw_yaml for brevity.
-func (s *TaskDefStore) ListTaskDefinitions(ctx context.Context) ([]TaskDefinition, error) {
+// ListTaskDefinitions returns task definitions owned by the given user, with parsed data and schedule info.
+func (s *TaskDefStore) ListTaskDefinitions(ctx context.Context, owner string) ([]TaskDefinition, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT id, name, description, source_repo, source_file, source_key,
-		       has_schedule, sync_error, last_synced, created_at, updated_at
-		FROM task_definitions
-		ORDER BY name ASC
-	`)
+		SELECT td.id, td.name, td.description, td.source_repo, td.source_file, td.source_key,
+		       td.parsed, td.has_schedule, td.sync_error, td.last_synced,
+		       td.created_at, td.updated_at,
+		       s.next_run, s.last_run
+		FROM task_definitions td
+		LEFT JOIN schedules s ON s.source_key = td.source_key AND s.source = 'yaml'
+		WHERE td.owner = $1
+		ORDER BY td.name ASC
+	`, owner)
 	if err != nil {
 		return nil, fmt.Errorf("querying task definitions: %w", err)
 	}
@@ -132,14 +139,16 @@ func (s *TaskDefStore) ListTaskDefinitions(ctx context.Context) ([]TaskDefinitio
 	var defs []TaskDefinition
 	for rows.Next() {
 		var td TaskDefinition
+		var parsedJSON []byte
 		var hasSchedule bool
 		var syncError *string
 		var createdAt, updatedAt time.Time
 
 		if err := rows.Scan(
 			&td.ID, &td.Name, &td.Description, &td.SourceRepo, &td.SourceFile,
-			&td.SourceKey, &hasSchedule, &syncError, &td.LastSynced,
+			&td.SourceKey, &parsedJSON, &hasSchedule, &syncError, &td.LastSynced,
 			&createdAt, &updatedAt,
+			&td.NextRun, &td.LastRun,
 		); err != nil {
 			return nil, fmt.Errorf("scanning task definition: %w", err)
 		}
@@ -147,6 +156,18 @@ func (s *TaskDefStore) ListTaskDefinitions(ctx context.Context) ([]TaskDefinitio
 		if syncError != nil {
 			td.SyncError = *syncError
 		}
+
+		// Deserialize parsed JSONB for profiles, schedule, and trigger data.
+		if parsedJSON != nil {
+			var parsed TaskDefinition
+			if err := json.Unmarshal(parsedJSON, &parsed); err == nil {
+				td.Profiles = parsed.Profiles
+				td.Schedule = parsed.Schedule
+				td.Trigger = parsed.Trigger
+				td.Repo = parsed.Repo
+			}
+		}
+
 		defs = append(defs, td)
 	}
 	if err := rows.Err(); err != nil {
@@ -159,8 +180,8 @@ func (s *TaskDefStore) ListTaskDefinitions(ctx context.Context) ([]TaskDefinitio
 	return defs, nil
 }
 
-// GetTaskDefinition retrieves a single task definition by ID, including raw_yaml.
-func (s *TaskDefStore) GetTaskDefinition(ctx context.Context, id string) (*TaskDefinition, error) {
+// GetTaskDefinition retrieves a single task definition by ID, scoped to the given owner.
+func (s *TaskDefStore) GetTaskDefinition(ctx context.Context, id, owner string) (*TaskDefinition, error) {
 	var td TaskDefinition
 	var parsedJSON []byte
 	var syncError *string
@@ -168,14 +189,18 @@ func (s *TaskDefStore) GetTaskDefinition(ctx context.Context, id string) (*TaskD
 	var createdAt, updatedAt time.Time
 
 	err := s.db.QueryRow(ctx, `
-		SELECT id, name, description, source_repo, source_file, source_key,
-		       raw_yaml, parsed, has_schedule, sync_error, last_synced,
-		       created_at, updated_at
-		FROM task_definitions WHERE id = $1
-	`, id).Scan(
+		SELECT td.id, td.name, td.description, td.source_repo, td.source_file, td.source_key,
+		       td.raw_yaml, td.parsed, td.has_schedule, td.sync_error, td.last_synced,
+		       td.created_at, td.updated_at,
+		       s.next_run, s.last_run
+		FROM task_definitions td
+		LEFT JOIN schedules s ON s.source_key = td.source_key AND s.source = 'yaml'
+		WHERE td.id = $1 AND td.owner = $2
+	`, id, owner).Scan(
 		&td.ID, &td.Name, &td.Description, &td.SourceRepo, &td.SourceFile,
 		&td.SourceKey, &td.RawYAML, &parsedJSON, &hasSchedule, &syncError,
 		&td.LastSynced, &createdAt, &updatedAt,
+		&td.NextRun, &td.LastRun,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("querying task definition %s: %w", id, err)
@@ -199,6 +224,7 @@ func (s *TaskDefStore) GetTaskDefinition(ctx context.Context, id string) (*TaskD
 			td.Profiles = parsed.Profiles
 			td.Tools = parsed.Tools
 			td.Schedule = parsed.Schedule
+			td.Trigger = parsed.Trigger
 		}
 	}
 
@@ -221,8 +247,8 @@ func (s *TaskDefStore) UpsertTaskDefinition(ctx context.Context, def *TaskDefini
 
 	_, err = s.db.Exec(ctx, `
 		INSERT INTO task_definitions (id, name, description, source_repo, source_file,
-		    source_key, raw_yaml, parsed, has_schedule, sync_error, last_synced, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		    source_key, raw_yaml, parsed, has_schedule, sync_error, last_synced, owner, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		ON CONFLICT (source_key) DO UPDATE SET
 		    name = EXCLUDED.name,
 		    description = EXCLUDED.description,
@@ -233,10 +259,11 @@ func (s *TaskDefStore) UpsertTaskDefinition(ctx context.Context, def *TaskDefini
 		    has_schedule = EXCLUDED.has_schedule,
 		    sync_error = EXCLUDED.sync_error,
 		    last_synced = EXCLUDED.last_synced,
+		    owner = EXCLUDED.owner,
 		    updated_at = EXCLUDED.updated_at
 	`, def.ID, def.Name, def.Description, def.SourceRepo, def.SourceFile,
 		def.SourceKey, def.RawYAML, parsedJSON, hasSchedule, nilIfEmpty(def.SyncError),
-		now, now, now,
+		now, def.Owner, now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("upserting task definition: %w", err)
@@ -245,23 +272,23 @@ func (s *TaskDefStore) UpsertTaskDefinition(ctx context.Context, def *TaskDefini
 	return nil
 }
 
-// DeleteTaskDefinitionsByRepo removes all task definitions from a given repo URL.
-func (s *TaskDefStore) DeleteTaskDefinitionsByRepo(ctx context.Context, repoURL string) error {
-	_, err := s.db.Exec(ctx, `DELETE FROM task_definitions WHERE source_repo = $1`, repoURL)
+// DeleteTaskDefinitionsByRepo removes all task definitions from a given repo URL and owner.
+func (s *TaskDefStore) DeleteTaskDefinitionsByRepo(ctx context.Context, repoURL, owner string) error {
+	_, err := s.db.Exec(ctx, `DELETE FROM task_definitions WHERE source_repo = $1 AND owner = $2`, repoURL, owner)
 	if err != nil {
 		return fmt.Errorf("deleting task definitions for repo %s: %w", repoURL, err)
 	}
 	return nil
 }
 
-// ListTaskDefinitionsByRepo returns all task definitions from a given repo URL.
-func (s *TaskDefStore) ListTaskDefinitionsByRepo(ctx context.Context, repoURL string) ([]TaskDefinition, error) {
+// ListTaskDefinitionsByRepo returns all task definitions from a given repo URL and owner.
+func (s *TaskDefStore) ListTaskDefinitionsByRepo(ctx context.Context, repoURL, owner string) ([]TaskDefinition, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, name, description, source_repo, source_file, source_key,
-		       has_schedule, sync_error, last_synced, created_at, updated_at
-		FROM task_definitions WHERE source_repo = $1
+		       has_schedule, sync_error, last_synced, created_at, updated_at, parsed
+		FROM task_definitions WHERE source_repo = $1 AND owner = $2
 		ORDER BY name ASC
-	`, repoURL)
+	`, repoURL, owner)
 	if err != nil {
 		return nil, fmt.Errorf("querying task definitions for repo %s: %w", repoURL, err)
 	}
@@ -273,17 +300,24 @@ func (s *TaskDefStore) ListTaskDefinitionsByRepo(ctx context.Context, repoURL st
 		var hasSchedule bool
 		var syncError *string
 		var createdAt, updatedAt time.Time
+		var parsedJSON []byte
 
 		if err := rows.Scan(
 			&td.ID, &td.Name, &td.Description, &td.SourceRepo, &td.SourceFile,
 			&td.SourceKey, &hasSchedule, &syncError, &td.LastSynced,
-			&createdAt, &updatedAt,
+			&createdAt, &updatedAt, &parsedJSON,
 		); err != nil {
 			return nil, fmt.Errorf("scanning task definition: %w", err)
 		}
 
 		if syncError != nil {
 			td.SyncError = *syncError
+		}
+		if parsedJSON != nil {
+			var parsed TaskDefinition
+			if err := json.Unmarshal(parsedJSON, &parsed); err == nil {
+				td.Profiles = parsed.Profiles
+			}
 		}
 		defs = append(defs, td)
 	}

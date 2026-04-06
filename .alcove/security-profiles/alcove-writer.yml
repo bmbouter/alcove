@@ -1,0 +1,20 @@
+name: alcove-writer
+display_name: Alcove Writer
+description: Push branches, open PRs, comment on issues, and manage issue labels on bmbouter/alcove
+tools:
+  github:
+    rules:
+      - repos: ["bmbouter/alcove"]
+        operations:
+          - clone
+          - read_prs
+          - read_issues
+          - read_contents
+          - read_actions
+          - read_releases
+          - read_commits
+          - read_branches
+          - push_branch
+          - create_pr_draft
+          - create_comment
+          - update_issue

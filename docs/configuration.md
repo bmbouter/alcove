@@ -235,7 +235,7 @@ The CLI resolves the Bridge URL in this order:
 ## System LLM Setup
 
 Alcove supports two LLM backends for the system LLM (used by AI-powered
-features like the profile builder). The system LLM is configured exclusively
+features like the security profile builder). The system LLM is configured exclusively
 in `alcove.yaml` or via environment variables -- it cannot be changed through
 the dashboard or API. The dashboard shows a read-only status indicating
 whether the system LLM is configured; edit `alcove.yaml` to change it.
@@ -377,7 +377,7 @@ env:
 
 ---
 
-## Skill Repos
+## Skill / Agent Repos
 
 Skill repos are git repositories containing Claude Code plugins or lola modules
 that extend what Claude Code can do inside Skiff containers. Repos are
@@ -443,9 +443,73 @@ schedule: "0 2 * * *"
 | `tools`     | string[] | no       | MCP tool names to enable |
 | `schedule`  | string   | no       | Cron expression for automatic execution |
 
+### Event Delivery Mode
+
+Task definitions with event triggers support two delivery modes:
+
+- **`polling`** (default) — Alcove polls the GitHub Events API every 60 seconds for new events. Works in any environment including local development. No GitHub webhook configuration required.
+- **`webhook`** — GitHub pushes events to Alcove's webhook endpoint (`/api/v1/webhooks/github`). Requires a publicly accessible URL and webhook secret configuration.
+
+Example with polling mode:
+
+```yaml
+trigger:
+  github:
+    events: [issues]
+    actions: [opened]
+    repos: [owner/repo]
+    delivery_mode: polling
+```
+
+Polling uses GitHub's conditional request support (ETags) to minimize API usage. On first poll, existing events are skipped to avoid a flood of retroactive task dispatches.
+
 Task definitions appear in the dashboard where users can run them directly or
 view the source YAML. Starter templates are also available via
 `GET /api/v1/task-templates`.
+
+---
+
+## YAML Security Profiles
+
+Security profiles can also be defined in YAML files inside task repos,
+alongside task definitions. Profile files live in `.alcove/security-profiles/*.yml`
+(parallel to `.alcove/tasks/`) and are synced from the same registered task repos.
+
+### Format
+
+```yaml
+name: my-profile
+display_name: My Profile
+description: Description of what this profile grants
+tools:
+  github:
+    rules:
+      - repos: ["owner/repo"]
+        operations: ["clone", "read_prs", "read_issues"]
+```
+
+### Fields
+
+| Field          | Type   | Required | Description |
+|----------------|--------|----------|-------------|
+| `name`         | string | yes      | Unique profile identifier |
+| `display_name` | string | no       | Human-readable name |
+| `description`  | string | no       | Profile description |
+| `tools`        | object | yes      | Map of tool name to rules (must contain at least one tool) |
+
+Each tool entry contains a `rules` array using the same format as API-created
+security profiles (see [API Reference](api-reference.md#security)).
+
+### Behavior
+
+- YAML security profiles are **read-only** in the dashboard and API. They
+  cannot be modified or deleted through the UI.
+- Profile names from YAML take precedence alongside user-created profiles.
+- Task definitions can reference YAML-defined profiles in their `profiles`
+  field. If a task definition references a profile name that does not exist
+  (as a user-created or YAML profile), a sync error is reported.
+- YAML profiles are synced on the same interval as task definitions
+  (configurable via `TASK_REPO_SYNC_INTERVAL`, default 5 minutes).
 
 ---
 

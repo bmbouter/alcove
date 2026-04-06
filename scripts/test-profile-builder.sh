@@ -38,7 +38,7 @@ TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" \
   -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASSWORD}\"}" | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
 
 # Check if profile builder is available
-AVAIL=$(curl -s -X POST "$BRIDGE_URL/api/v1/profiles/build" \
+AVAIL=$(curl -s -X POST "$BRIDGE_URL/api/v1/security-profiles/build" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"description":"test"}' -w "\n%{http_code}" | tail -1)
@@ -48,7 +48,7 @@ if [ "$AVAIL" = "503" ]; then
 fi
 
 build_profile() {
-    curl -s -X POST "$BRIDGE_URL/api/v1/profiles/build" \
+    curl -s -X POST "$BRIDGE_URL/api/v1/security-profiles/build" \
       -H "Authorization: Bearer $TOKEN" \
       -H "Content-Type: application/json" \
       -d "{\"description\":\"$1\"}"
@@ -113,7 +113,7 @@ import json,sys
 d = json.load(sys.stdin)
 p = d.get('profile', d)
 print(json.dumps(p))
-" | curl -s -X POST "$BRIDGE_URL/api/v1/profiles" \
+" | curl -s -X POST "$BRIDGE_URL/api/v1/security-profiles" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d @-)
@@ -121,7 +121,7 @@ SAVE_ID=$(echo "$SAVE_RESULT" | python3 -c "import json,sys; print(json.load(sys
 if [ "$SAVE_ID" != "ERROR" ] && [ -n "$SAVE_ID" ]; then
     pass "T9: Saved generated profile"
     # Clean up
-    curl -s -X DELETE "$BRIDGE_URL/api/v1/profiles/$PROFILE_NAME" -H "Authorization: Bearer $TOKEN" > /dev/null 2>&1
+    curl -s -X DELETE "$BRIDGE_URL/api/v1/security-profiles/$PROFILE_NAME" -H "Authorization: Bearer $TOKEN" > /dev/null 2>&1
 else
     fail "T9: Failed to save generated profile"
 fi

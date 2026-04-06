@@ -24,25 +24,29 @@ import (
 	"github.com/bmbouter/alcove/internal"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"gopkg.in/yaml.v3"
 )
 
 // SecurityProfile is a named, reusable bundle of tool + repo + operation permissions.
 type SecurityProfile struct {
 	ID          string                       `json:"id"`
-	Name        string                       `json:"name"`
-	DisplayName string                       `json:"display_name,omitempty"`
-	Description string                       `json:"description,omitempty"`
-	Tools       map[string]ProfileToolConfig `json:"tools"`
+	Name        string                       `json:"name" yaml:"name"`
+	DisplayName string                       `json:"display_name,omitempty" yaml:"display_name"`
+	Description string                       `json:"description,omitempty" yaml:"description"`
+	Tools       map[string]ProfileToolConfig `json:"tools" yaml:"tools"`
 	Owner       string                       `json:"owner,omitempty"`
 	IsBuiltin   bool                         `json:"is_builtin"`
+	Source      string                       `json:"source"`
+	SourceRepo  string                       `json:"source_repo,omitempty"`
+	SourceKey   string                       `json:"source_key,omitempty"`
 	CreatedAt   time.Time                    `json:"created_at"`
 	UpdatedAt   time.Time                    `json:"updated_at"`
 }
 
 // ProfileToolRule specifies a single repo+operations rule within a tool config.
 type ProfileToolRule struct {
-	Repos      []string `json:"repos"`
-	Operations []string `json:"operations"`
+	Repos      []string `json:"repos" yaml:"repos"`
+	Operations []string `json:"operations" yaml:"operations"`
 }
 
 // ProfileToolConfig specifies per-tool configuration within a security profile.
@@ -52,9 +56,9 @@ type ProfileToolRule struct {
 //
 // When Rules is non-empty, it takes precedence over the flat Operations/Repos fields.
 type ProfileToolConfig struct {
-	Operations []string          `json:"operations,omitempty"`
-	Repos      []string          `json:"repos,omitempty"`
-	Rules      []ProfileToolRule `json:"rules,omitempty"`
+	Operations []string          `json:"operations,omitempty" yaml:"operations"`
+	Repos      []string          `json:"repos,omitempty" yaml:"repos"`
+	Rules      []ProfileToolRule `json:"rules,omitempty" yaml:"rules"`
 }
 
 // FlattenRules returns a single (operations, repos) pair by unioning all rules.
@@ -137,12 +141,12 @@ func (ps *ProfileStore) CreateProfile(ctx context.Context, profile *SecurityProf
 	return nil
 }
 
-// ListProfiles returns ALL builtin profiles plus the given owner's custom profiles.
+// ListProfiles returns the given owner's profiles.
 func (ps *ProfileStore) ListProfiles(ctx context.Context, owner string) ([]SecurityProfile, error) {
-	query := `SELECT id, name, display_name, description, tools, owner, is_builtin, created_at, updated_at
+	query := `SELECT id, name, display_name, description, tools, owner, is_builtin, source, source_repo, source_key, created_at, updated_at
 		FROM security_profiles
-		WHERE owner = $1 OR is_builtin = true
-		ORDER BY is_builtin DESC, name ASC`
+		WHERE owner = $1
+		ORDER BY name ASC`
 
 	rows, err := ps.db.Query(ctx, query, owner)
 	if err != nil {
@@ -166,20 +170,19 @@ func (ps *ProfileStore) ListProfiles(ctx context.Context, owner string) ([]Secur
 	return profiles, rows.Err()
 }
 
-// GetProfile looks up a profile by name. User profiles take priority over builtins.
+// GetProfile looks up a profile by name, scoped to the given owner.
 func (ps *ProfileStore) GetProfile(ctx context.Context, name, owner string) (*SecurityProfile, error) {
-	// Try user's own profile first, then fall back to builtin.
-	query := `SELECT id, name, display_name, description, tools, owner, is_builtin, created_at, updated_at
+	query := `SELECT id, name, display_name, description, tools, owner, is_builtin, source, source_repo, source_key, created_at, updated_at
 		FROM security_profiles
-		WHERE name = $1 AND (owner = $2 OR is_builtin = true)
-		ORDER BY is_builtin ASC
+		WHERE name = $1 AND owner = $2
+		ORDER BY source ASC
 		LIMIT 1`
 
 	row := ps.db.QueryRow(ctx, query, name, owner)
 	return scanProfileRow(row)
 }
 
-// UpdateProfile updates an existing profile. Builtin profiles cannot be updated.
+// UpdateProfile updates an existing profile. YAML-sourced profiles cannot be updated.
 func (ps *ProfileStore) UpdateProfile(ctx context.Context, profile *SecurityProfile, owner string) error {
 	toolsJSON, err := json.Marshal(profile.Tools)
 	if err != nil {
@@ -190,29 +193,29 @@ func (ps *ProfileStore) UpdateProfile(ctx context.Context, profile *SecurityProf
 	result, err := ps.db.Exec(ctx,
 		`UPDATE security_profiles
 		SET display_name = $1, description = $2, tools = $3, updated_at = $4
-		WHERE name = $5 AND owner = $6 AND is_builtin = false`,
+		WHERE name = $5 AND owner = $6 AND source != 'yaml'`,
 		profile.DisplayName, profile.Description, string(toolsJSON), now,
 		profile.Name, owner)
 	if err != nil {
 		return fmt.Errorf("updating profile: %w", err)
 	}
 	if result.RowsAffected() == 0 {
-		return fmt.Errorf("profile %q not found or is a builtin profile", profile.Name)
+		return fmt.Errorf("profile %q not found or is a YAML-sourced profile", profile.Name)
 	}
 	profile.UpdatedAt = now
 	return nil
 }
 
-// DeleteProfile removes a profile. Builtin profiles cannot be deleted.
+// DeleteProfile removes a profile. YAML-sourced profiles cannot be deleted.
 func (ps *ProfileStore) DeleteProfile(ctx context.Context, name, owner string) error {
 	result, err := ps.db.Exec(ctx,
-		`DELETE FROM security_profiles WHERE name = $1 AND owner = $2 AND is_builtin = false`,
+		`DELETE FROM security_profiles WHERE name = $1 AND owner = $2 AND source != 'yaml'`,
 		name, owner)
 	if err != nil {
 		return fmt.Errorf("deleting profile: %w", err)
 	}
 	if result.RowsAffected() == 0 {
-		return fmt.Errorf("profile %q not found or is a builtin profile", name)
+		return fmt.Errorf("profile %q not found or is a YAML-sourced profile", name)
 	}
 	return nil
 }
@@ -277,99 +280,14 @@ func (ps *ProfileStore) MergeProfiles(ctx context.Context, names []string, owner
 	return scope, merged, nil
 }
 
-// SeedBuiltinProfiles creates or updates the starter security profiles.
-// Uses INSERT ... ON CONFLICT DO UPDATE for idempotent seeding.
-func (ps *ProfileStore) SeedBuiltinProfiles(ctx context.Context) error {
-	builtins := []SecurityProfile{
-		{
-			Name:        "read-only",
-			DisplayName: "Read Only",
-			Description: "Read-only access to all repositories on all configured services",
-			Tools: map[string]ProfileToolConfig{
-				"github": {
-					Repos: []string{"*"},
-					Operations: []string{
-						"clone", "read_prs", "read_issues", "read_contents", "read_actions",
-					},
-				},
-				"gitlab": {
-					Repos: []string{"*"},
-					Operations: []string{
-						"clone", "read_mrs", "read_issues", "read_contents", "read_pipelines",
-					},
-				},
-			},
-		},
-		{
-			Name:        "contributor",
-			DisplayName: "Contributor",
-			Description: "Read access plus branch push and draft PR/MR creation on all repos",
-			Tools: map[string]ProfileToolConfig{
-				"github": {
-					Repos: []string{"*"},
-					Operations: []string{
-						"clone", "read_prs", "read_issues", "read_contents", "read_actions",
-						"push_branch", "create_pr_draft", "create_comment",
-					},
-				},
-				"gitlab": {
-					Repos: []string{"*"},
-					Operations: []string{
-						"clone", "read_mrs", "read_issues", "read_contents", "read_pipelines",
-						"push_branch", "create_mr_draft", "create_comment",
-					},
-				},
-			},
-		},
-		{
-			Name:        "maintainer",
-			DisplayName: "Maintainer",
-			Description: "Full access including PR/MR merge and branch deletion on all repos",
-			Tools: map[string]ProfileToolConfig{
-				"github": {
-					Repos:      []string{"*"},
-					Operations: []string{"*"},
-				},
-				"gitlab": {
-					Repos:      []string{"*"},
-					Operations: []string{"*"},
-				},
-			},
-		},
-	}
-
-	for _, b := range builtins {
-		id := uuid.New().String()
-		toolsJSON, err := json.Marshal(b.Tools)
-		if err != nil {
-			return fmt.Errorf("marshaling tools for profile %q: %w", b.Name, err)
-		}
-
-		_, err = ps.db.Exec(ctx,
-			`INSERT INTO security_profiles (id, name, display_name, description, tools, owner, is_builtin, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, '', true, NOW(), NOW())
-			ON CONFLICT (name, owner) DO UPDATE SET
-				display_name = EXCLUDED.display_name,
-				description = EXCLUDED.description,
-				tools = EXCLUDED.tools,
-				is_builtin = EXCLUDED.is_builtin,
-				updated_at = NOW()`,
-			id, b.Name, b.DisplayName, b.Description, string(toolsJSON))
-		if err != nil {
-			return fmt.Errorf("seeding builtin profile %q: %w", b.Name, err)
-		}
-	}
-
-	return nil
-}
-
 // scanProfile scans a SecurityProfile from a rows result.
 func scanProfile(rows interface{ Scan(dest ...any) error }) (*SecurityProfile, error) {
 	var p SecurityProfile
 	var toolsJSON string
 
 	if err := rows.Scan(&p.ID, &p.Name, &p.DisplayName, &p.Description,
-		&toolsJSON, &p.Owner, &p.IsBuiltin, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		&toolsJSON, &p.Owner, &p.IsBuiltin, &p.Source, &p.SourceRepo, &p.SourceKey,
+		&p.CreatedAt, &p.UpdatedAt); err != nil {
 		return nil, fmt.Errorf("scanning profile: %w", err)
 	}
 
@@ -383,6 +301,77 @@ func scanProfile(rows interface{ Scan(dest ...any) error }) (*SecurityProfile, e
 // scanProfileRow scans a SecurityProfile from a single row result.
 func scanProfileRow(row interface{ Scan(dest ...any) error }) (*SecurityProfile, error) {
 	return scanProfile(row)
+}
+
+// ParseSecurityProfile parses a YAML security profile definition.
+func ParseSecurityProfile(data []byte) (*SecurityProfile, error) {
+	var p SecurityProfile
+	if err := yaml.Unmarshal(data, &p); err != nil {
+		return nil, fmt.Errorf("parsing YAML: %w", err)
+	}
+	if p.Name == "" {
+		return nil, fmt.Errorf("security profile missing required field: name")
+	}
+	if len(p.Tools) == 0 {
+		return nil, fmt.Errorf("security profile %q missing required field: tools", p.Name)
+	}
+	return &p, nil
+}
+
+// UpsertYAMLProfile inserts or updates a YAML-sourced security profile.
+func (ps *ProfileStore) UpsertYAMLProfile(ctx context.Context, profile *SecurityProfile) error {
+	if profile.ID == "" {
+		profile.ID = uuid.New().String()
+	}
+	toolsJSON, err := json.Marshal(profile.Tools)
+	if err != nil {
+		return fmt.Errorf("marshaling tools: %w", err)
+	}
+
+	_, err = ps.db.Exec(ctx,
+		`INSERT INTO security_profiles (id, name, display_name, description, tools, owner, is_builtin, source, source_repo, source_key, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, false, 'yaml', $7, $8, NOW(), NOW())
+		ON CONFLICT (source_key) WHERE source_key != '' DO UPDATE SET
+			name = EXCLUDED.name,
+			display_name = EXCLUDED.display_name,
+			description = EXCLUDED.description,
+			tools = EXCLUDED.tools,
+			owner = EXCLUDED.owner,
+			source_repo = EXCLUDED.source_repo,
+			updated_at = NOW()`,
+		profile.ID, profile.Name, profile.DisplayName, profile.Description,
+		string(toolsJSON), profile.Owner, profile.SourceRepo, profile.SourceKey)
+	if err != nil {
+		return fmt.Errorf("upserting YAML profile: %w", err)
+	}
+	return nil
+}
+
+// DeleteYAMLProfilesByRepo removes all YAML-sourced profiles from the given repo and owner.
+func (ps *ProfileStore) DeleteYAMLProfilesByRepo(ctx context.Context, repoURL, owner string) error {
+	_, err := ps.db.Exec(ctx,
+		`DELETE FROM security_profiles WHERE source = 'yaml' AND source_repo = $1 AND owner = $2`, repoURL, owner)
+	return err
+}
+
+// ListYAMLProfileKeysByRepo returns source_keys for all YAML profiles from the given repo and owner.
+func (ps *ProfileStore) ListYAMLProfileKeysByRepo(ctx context.Context, repoURL, owner string) ([]string, error) {
+	rows, err := ps.db.Query(ctx,
+		`SELECT source_key FROM security_profiles WHERE source = 'yaml' AND source_repo = $1 AND owner = $2`, repoURL, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var keys []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	return keys, rows.Err()
 }
 
 // containsStr checks if a string slice contains a given string.

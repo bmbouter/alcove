@@ -151,12 +151,8 @@ func main() {
 	}
 	log.Println("builtin MCP tools seeded")
 
-	// Create profile store and seed builtin profiles.
+	// Create security profile store.
 	profileStore := bridge.NewProfileStore(dbpool)
-	if err := profileStore.SeedBuiltinProfiles(context.Background()); err != nil {
-		log.Fatalf("seeding builtin profiles: %v", err)
-	}
-	log.Println("builtin security profiles seeded")
 
 	// Create settings store for admin settings.
 	settingsStore := bridge.NewSettingsStore(dbpool)
@@ -177,14 +173,16 @@ func main() {
 		log.Fatalf("subscribing to status updates: %v", err)
 	}
 
+	// Create task definition store.
+	defStore := bridge.NewTaskDefStore(dbpool)
+
 	// Create and start the scheduler.
-	scheduler := bridge.NewScheduler(dbpool, dispatcher, cfg)
+	scheduler := bridge.NewScheduler(dbpool, dispatcher, cfg, credStore, defStore)
 	scheduler.Start(context.Background())
 	defer scheduler.Stop()
 
-	// Create task definition store and repo syncer.
-	defStore := bridge.NewTaskDefStore(dbpool)
-	syncer := bridge.NewTaskRepoSyncer(dbpool, settingsStore, scheduler, defStore, dispatcher)
+	// Create repo syncer.
+	syncer := bridge.NewTaskRepoSyncer(dbpool, settingsStore, scheduler, defStore, dispatcher, profileStore)
 	syncer.Start(context.Background())
 	defer syncer.Stop()
 	log.Println("task repo syncer started")

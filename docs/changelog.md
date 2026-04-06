@@ -230,7 +230,7 @@ All notable changes to Alcove are documented here. This project uses
   alcove.yaml only); shows guidance to edit alcove.yaml if not configured
 - SCM options (GitHub/GitLab/Jira) filtered out of the system LLM provider dropdown
 - Task Definitions section on Schedules page with source badges
-- Skill Repos and Task Repos configuration modals
+- Skill / Agent Repos and Task Repos configuration modals
 - Webhook configuration modal with setup instructions
 - Trigger type selector (cron, event, both) on schedule form
 
@@ -258,7 +258,7 @@ All notable changes to Alcove are documented here. This project uses
 - Strip trailing hyphens from job names after truncation
 
 ### Documentation
-- API reference: added Tools, Profiles, Admin Settings, Skill Repos, Task Repos,
+- API reference: added Tools, Profiles, Admin Settings, Skill / Agent Repos, Task Repos,
   Task Definitions, Task Templates, Webhook endpoints
 - CLI reference: added --model and --budget flags
 - Configuration guide: alcove.yaml format, Kubernetes secrets, skill/task repos
