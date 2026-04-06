@@ -3,6 +3,55 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.4.0
+
+### Features
+- **YAML security profiles**: Define security profiles in `.alcove/security-profiles/*.yml`
+  alongside task definitions. Synced from task repos, read-only in UI, with profile
+  validation on task definitions (sync errors block dispatch).
+- **GitHub event polling**: Poll GitHub Events API every 60 seconds for event-triggered
+  tasks. Works in local dev without webhooks. Supports ETag conditional requests,
+  deduplication, and per-user credentials.
+- **Per-user resource ownership**: All resources (task definitions, schedules, security
+  profiles, sessions) are owned by real users. Removed `_system` submitter concept.
+  Strict user isolation across all pages.
+- **Repos page**: New top-level nav tab for managing Task Repos and Skill / Agent Repos
+  (moved from dropdown menu).
+- **Proxy log filtering and sorting**: Clickable column headers for sorting, dropdown
+  filters for Service and Decision, summary counts.
+- **Task definition cards**: Show security profiles, schedule with next/last run times,
+  event triggers, and sync errors with disabled Run button.
+- **PR review template**: New starter template for event-triggered PR reviews.
+
+### UI/UX Improvements
+- Renamed Profiles section to Security, Sessions to Tasks in dashboard.
+- Unified Schedules page (task definitions + manual schedules in one list).
+- Unified Security page (all profiles in one list, no section separators).
+- Session pagination (15 per page) with relative timestamp "When" column.
+- New Task tab moved to leftmost nav position, admin tabs right-aligned.
+- Run Now shows "View Task" link after dispatch.
+- Live indicator hidden for completed tasks.
+- Renamed Skill Repos to Skill / Agent Repos.
+
+### Backend Changes
+- Removed builtin security profiles (replaced by YAML-defined profiles from repos).
+- Removed system task repos (all repos are per-user).
+- Added `GH_PROTOCOL=http` for gh CLI through Gate proxy.
+- Migration 014: YAML profile source tracking columns.
+- Migration 015: Task definition owner column with per-user source keys.
+- Migration 016: GitHub poll state table for ETag and event ID tracking.
+
+### Bug Fixes
+- Fix proxy log: gateEnvVars built before URL resolution.
+- Fix SyncAll cleanup for users with empty repo list.
+- Fix profile validation setting empty owner on task definitions.
+- Fix `notsecret` annotations on test credentials.
+
+### CI/CD
+- Added functional tests to CI (70+ API tests across 5 scripts).
+- Added `go vet` to release workflow.
+- Test scripts use per-user task repos endpoint.
+
 ## v0.3.10
 
 ### Bug Fixes
