@@ -3,6 +3,17 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.4.3
+
+### Security
+- Task prompts require `ready-for-dev` label before acting on issues.
+  Autonomous dev task verifies comment author is `bmbouter`.
+
+### Bug Fixes
+- Fix SSE live streaming through reverse proxies: add `X-Accel-Buffering: no`
+  header to SSE responses, disabling Turnpike/nginx/haproxy response buffering.
+- Remove diagnostic proxy log logging from Gate (flush fix confirmed).
+
 ## v0.4.2
 
 ### Bug Fixes
