@@ -68,8 +68,9 @@ func main() {
 		log.Printf("gate: WARNING — GATE_LEDGER_URL is empty, proxy logs will NOT be sent")
 	}
 
-	// Start periodic log flushing to Ledger (every 30 seconds)
-	proxy.StartLogFlusher(30 * time.Second)
+	// Start periodic log flushing to Ledger (every 5 seconds).
+	// Short interval ensures logs are captured even for fast-completing tasks.
+	proxy.StartLogFlusher(5 * time.Second)
 
 	server := &http.Server{
 		Addr:         ":8443",
@@ -93,7 +94,15 @@ func main() {
 	<-ctx.Done()
 	log.Println("gate: shutting down...")
 
-	// Stop the log flusher (triggers final flush)
+	// Flush remaining proxy logs synchronously before stopping the server.
+	// This ensures logs are delivered even for short-lived tasks.
+	entries := proxy.FlushLogs()
+	if len(entries) > 0 {
+		log.Printf("gate: final flush of %d proxy log entries", len(entries))
+		proxy.SendLogs(entries)
+	}
+
+	// Stop the periodic log flusher goroutine.
 	proxy.Stop()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
