@@ -3,6 +3,12 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.4.2
+
+### Bug Fixes
+- Fix empty proxy logs on short-lived tasks: reduced Gate flush interval from
+  30s to 5s and added synchronous flush on shutdown before container exits.
+
 ## v0.4.1
 
 ### Bug Fixes
