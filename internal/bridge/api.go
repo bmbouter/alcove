@@ -384,8 +384,10 @@ func (a *API) streamTranscriptSSE(w http.ResponseWriter, r *http.Request, sessio
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // Disable reverse proxy buffering (nginx/Turnpike)
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
+	log.Printf("sse: streaming transcript for session %s (client: %s)", sessionID, r.RemoteAddr)
 
 	// Phase 1: Catch-up — send persisted events from database
 	var transcript json.RawMessage
