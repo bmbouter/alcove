@@ -673,13 +673,13 @@ func (p *Proxy) StartLogFlusher(interval time.Duration) {
 			case <-ticker.C:
 				entries := p.FlushLogs()
 				if len(entries) > 0 {
-					p.sendLogsToLedger(entries)
+					p.SendLogs(entries)
 				}
 			case <-p.stopChan:
 				// Final flush
 				entries := p.FlushLogs()
 				if len(entries) > 0 {
-					p.sendLogsToLedger(entries)
+					p.SendLogs(entries)
 				}
 				return
 			}
@@ -692,8 +692,8 @@ func (p *Proxy) Stop() {
 	close(p.stopChan)
 }
 
-// sendLogsToLedger sends proxy log entries to the Ledger service.
-func (p *Proxy) sendLogsToLedger(entries []internal.ProxyLogEntry) {
+// SendLogs sends proxy log entries to the Ledger service.
+func (p *Proxy) SendLogs(entries []internal.ProxyLogEntry) {
 	if p.config.LedgerURL == "" {
 		log.Printf("gate: GATE_LEDGER_URL is empty — cannot send %d proxy log entries", len(entries))
 		return
