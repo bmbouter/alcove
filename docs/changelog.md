@@ -3,6 +3,12 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.4.4
+
+### Bug Fixes
+- Fix SSE live streaming through haproxy/3scale (Turnpike): send 4KB padding
+  block to push past proxy buffer threshold and force streaming mode.
+
 ## v0.4.3
 
 ### Security
