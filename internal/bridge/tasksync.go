@@ -114,6 +114,8 @@ func (s *TaskRepoSyncer) SyncAll(ctx context.Context) error {
 	var userRepoSets []userRepoSet
 	totalRepos := 0
 
+	// Collect all users who have task_repos configured (even if empty — they may need cleanup).
+	allUsersWithRepos := make(map[string][]SkillRepo)
 	rows, err := s.db.Query(ctx, `SELECT DISTINCT username FROM user_settings WHERE key = 'task_repos'`)
 	if err == nil {
 		defer rows.Close()
@@ -122,27 +124,32 @@ func (s *TaskRepoSyncer) SyncAll(ctx context.Context) error {
 			if err := rows.Scan(&username); err != nil {
 				continue
 			}
-			if userRepos, err := s.settingsStore.GetUserTaskRepos(ctx, username); err == nil && len(userRepos) > 0 {
-				userRepoSets = append(userRepoSets, userRepoSet{username: username, repos: userRepos})
-				totalRepos += len(userRepos)
+			if userRepos, err := s.settingsStore.GetUserTaskRepos(ctx, username); err == nil {
+				allUsersWithRepos[username] = userRepos
+				if len(userRepos) > 0 {
+					userRepoSets = append(userRepoSets, userRepoSet{username: username, repos: userRepos})
+					totalRepos += len(userRepos)
+				}
 			}
 		}
 	}
 
 	// Per-user cleanup: remove definitions/profiles for repos the user no longer has configured.
-	for _, urs := range userRepoSets {
+	for username, repos := range allUsersWithRepos {
 		configuredURLs := make(map[string]bool)
-		for _, repo := range urs.repos {
+		for _, repo := range repos {
 			configuredURLs[repo.URL] = true
 		}
-		userDefs, err := s.defStore.ListTaskDefinitions(ctx, urs.username)
+		userDefs, err := s.defStore.ListTaskDefinitions(ctx, username)
 		if err == nil {
 			removedRepos := make(map[string]bool)
 			for _, def := range userDefs {
 				if !configuredURLs[def.SourceRepo] && !removedRepos[def.SourceRepo] {
-					log.Printf("task-repo-syncer: removing tasks and profiles from %s for user %s (no longer configured)", def.SourceRepo, urs.username)
-					_ = s.defStore.DeleteTaskDefinitionsByRepo(ctx, def.SourceRepo, urs.username)
-					_ = s.profileStore.DeleteYAMLProfilesByRepo(ctx, def.SourceRepo, urs.username)
+					log.Printf("task-repo-syncer: removing tasks and profiles from %s for user %s (no longer configured)", def.SourceRepo, username)
+					_ = s.defStore.DeleteTaskDefinitionsByRepo(ctx, def.SourceRepo, username)
+					_ = s.profileStore.DeleteYAMLProfilesByRepo(ctx, def.SourceRepo, username)
+					// Also clean up schedules from this repo.
+					s.db.Exec(ctx, `DELETE FROM schedules WHERE source_key LIKE $1 AND owner = $2`, username+"::%", username)
 					removedRepos[def.SourceRepo] = true
 				}
 			}
