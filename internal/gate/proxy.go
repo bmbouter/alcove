@@ -695,6 +695,7 @@ func (p *Proxy) Stop() {
 // sendLogsToLedger sends proxy log entries to the Ledger service.
 func (p *Proxy) sendLogsToLedger(entries []internal.ProxyLogEntry) {
 	if p.config.LedgerURL == "" {
+		log.Printf("gate: GATE_LEDGER_URL is empty — cannot send %d proxy log entries", len(entries))
 		return
 	}
 
@@ -721,13 +722,14 @@ func (p *Proxy) sendLogsToLedger(entries []internal.ProxyLogEntry) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		log.Printf("gate: failed to send proxy log to ledger: %v", err)
+		log.Printf("gate: failed to send proxy log to %s: %v", url, err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		log.Printf("gate: ledger proxy-log POST returned HTTP %d", resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		log.Printf("gate: ledger proxy-log POST to %s returned HTTP %d: %s", url, resp.StatusCode, string(body))
 	} else {
 		log.Printf("gate: flushed %d proxy log entries to ledger", len(entries))
 	}
