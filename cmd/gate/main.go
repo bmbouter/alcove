@@ -62,6 +62,12 @@ func main() {
 
 	proxy := gate.NewProxy(cfg)
 
+	if cfg.LedgerURL != "" {
+		log.Printf("gate: proxy log target: %s/api/v1/sessions/%s/proxy-log", cfg.LedgerURL, cfg.SessionID)
+	} else {
+		log.Printf("gate: WARNING — GATE_LEDGER_URL is empty, proxy logs will NOT be sent")
+	}
+
 	// Start periodic log flushing to Ledger (every 30 seconds)
 	proxy.StartLogFlusher(30 * time.Second)
 
