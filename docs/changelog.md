@@ -3,6 +3,15 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.4.9
+
+### Improvements
+- Replace EventSource with fetch()+ReadableStream for transcript streaming.
+  EventSource is incompatible with the Akamai+Turnpike proxy chain.
+  fetch() works through the proxy chain already, so ReadableStream extends
+  it to stream responses incrementally. Falls back to 5-second polling
+  automatically. Live indicator works in both modes.
+
 ## v0.4.8
 
 ### Bug Fixes
