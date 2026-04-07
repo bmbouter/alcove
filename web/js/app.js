@@ -2008,6 +2008,7 @@
     // Transcript
     // ---------------------
     async function loadTranscript(id, status, silent) {
+        console.log('[SSE] loadTranscript called, status:', status, 'silent:', silent);
         const content = $('#transcript-content');
         const loading = $('#transcript-loading');
         if (!silent) {
@@ -2024,11 +2025,15 @@
                 if (token) {
                     sseUrl += '&token=' + encodeURIComponent(token);
                 }
+                console.log('[SSE] Opening EventSource:', sseUrl);
+                console.log('[SSE] basePath:', basePath, 'token:', token ? 'present' : 'null');
                 sseSource = new EventSource(sseUrl);
+                console.log('[SSE] EventSource created, readyState:', sseSource.readyState);
 
                 // Safety timeout: if SSE hasn't connected in 5s, hide spinner and fall back
                 let sseConnected = false;
                 const sseTimeout = setTimeout(() => {
+                    console.log('[SSE] 5s timeout fired, sseConnected:', sseConnected, 'readyState:', sseSource ? sseSource.readyState : 'null');
                     if (!sseConnected) {
                         hide(loading);
                         stopSSE();
@@ -2037,6 +2042,7 @@
                 }, 5000);
 
                 sseSource.onopen = () => {
+                    console.log('[SSE] onopen fired! readyState:', sseSource.readyState);
                     sseConnected = true;
                     clearTimeout(sseTimeout);
                     hide(loading);
@@ -2044,6 +2050,7 @@
                 };
 
                 sseSource.onmessage = (event) => {
+                    console.log('[SSE] onmessage:', event.data.substring(0, 100));
                     sseConnected = true;
                     clearTimeout(sseTimeout);
                     hide(loading);
@@ -2061,7 +2068,8 @@
                     }
                 };
 
-                sseSource.onerror = () => {
+                sseSource.onerror = (err) => {
+                    console.log('[SSE] onerror fired, readyState:', sseSource ? sseSource.readyState : 'null', 'error:', err);
                     sseConnected = true;
                     clearTimeout(sseTimeout);
                     hideLiveIndicator();
