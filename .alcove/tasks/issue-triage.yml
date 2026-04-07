@@ -1,6 +1,6 @@
 name: Issue Triage
 description: |
-  Analyze newly opened GitHub issues and post a triage assessment comment.
+  Analyze new GitHub issues with the ready-for-dev label and post a triage comment.
 
 prompt: |
   A new issue was opened on bmbouter/alcove. Triage it and post a comment.
@@ -34,7 +34,7 @@ prompt: |
   Be concise and actionable. Focus on helping maintainers prioritize.
 
 repo: https://github.com/bmbouter/alcove.git
-timeout: 300
+timeout: 600
 
 profiles:
   - alcove-developer
