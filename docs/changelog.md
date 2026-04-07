@@ -3,6 +3,13 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.4.8
+
+### Bug Fixes
+- Fix SSE live streaming on Turnpike/rh-identity: pass withCredentials
+  to EventSource so SSO cookies are sent. Without cookies, Turnpike
+  redirected to the login page and EventSource stayed in CONNECTING.
+
 ## v0.4.7
 
 ### Debugging
