@@ -1,0 +1,18 @@
+name: alcove-planner
+display_name: Alcove Planner
+description: Read-only code access plus issue reading and commenting on bmbouter/alcove
+tools:
+  github:
+    rules:
+      - repos: ["bmbouter/alcove"]
+        operations:
+          - clone
+          - read_issues
+          - read_prs
+          - read_contents
+          - read_actions
+          - read_releases
+          - read_commits
+          - read_branches
+          - read_git
+          - create_comment

@@ -45,9 +45,20 @@ prompt: |
   Consider ALL affected areas: Go code, API, dashboard UI, documentation,
   functional tests, YAML task/profile definitions.
 
-  ## Step 3: Implement changes
+  ## Step 3: Implement changes with a team of agents
 
-  Create a feature branch and make all changes:
+  Form a team of specialist agents working in parallel to implement changes
+  across all affected areas simultaneously. Dispatch agents for independent
+  work streams — for example:
+  - A Go backend agent for API/store/handler changes
+  - A frontend agent for HTML/JS/CSS dashboard changes
+  - A testing agent for functional test scripts
+  - A documentation agent for docs updates
+  - A DevOps agent for template/CI changes
+
+  Not every issue needs every specialist — choose the right team for the work.
+
+  Create a feature branch first:
     git checkout -b issue-N-description main
 
   Follow the codebase conventions:
