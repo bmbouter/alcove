@@ -578,6 +578,61 @@ select.input {
     color: var(--status-cancelled);
 }
 
+/* --- Visual Hierarchy --- */
+.tx-hierarchy-main {
+    /* Prominent agent content */
+    opacity: 1;
+    filter: brightness(1.1);
+}
+
+.tx-hierarchy-tool {
+    /* Subdued tool content */
+    opacity: 0.85;
+    filter: brightness(0.9);
+}
+
+/* --- Enhanced Collapsible Sections --- */
+.tx-tool-result-summary {
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 4px 12px;
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.tx-tool-result-summary:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.tx-tool-result-badge {
+    font-weight: 500;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* --- Syntax Highlighting --- */
+.tx-content-json .json-key { color: #4fc3f7; }
+.tx-content-json .json-string { color: #a5d6a7; }
+.tx-content-json .json-number { color: #ffb74d; }
+.tx-content-json .json-literal { color: #f48fb1; }
+
+.tx-content-code {
+    background: rgba(0, 0, 0, 0.25);
+}
+
+.tx-content-shell {
+    background: rgba(0, 0, 0, 0.3);
+    border-left: 3px solid var(--status-running);
+}
+
+.tx-content-text {
+    /* Default text styling */
+}
+
 /* --- Assistant text message --- */
 .tx-msg {
     border-left: 3px solid var(--status-running);
@@ -796,6 +851,9 @@ select.input {
     padding: 4px 12px;
     cursor: pointer;
     user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 
 .tx-tool-output-summary:hover {
