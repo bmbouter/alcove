@@ -3,6 +3,12 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.4.6
+
+### Bug Fixes
+- Fix SSE live streaming on HTTP/2: remove illegal Transfer-Encoding: chunked
+  header and padding hack. HTTP/2 forbids Transfer-Encoding (RFC 7540).
+
 ## v0.4.5
 
 ### Bug Fixes
