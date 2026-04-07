@@ -11,6 +11,13 @@ All notable changes to Alcove are documented here. This project uses
   issue/PR has a matching label. Enforced at the trigger level, not in the
   prompt — prevents unauthorized issues from triggering automated development.
 
+## v0.4.15
+
+### Features
+- Add user-based trigger filtering. Event triggers can specify `users`
+  to only fire for events from specific usernames. Prevents tasks from
+  re-triggering on their own comments (e.g., planner posting a plan).
+
 ## v0.4.14
 
 ### Bug Fixes
