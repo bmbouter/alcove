@@ -1752,6 +1752,7 @@ func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
 	// Extract additional info for dispatched tasks.
 	sha := ""
 	prNumber := ""
+	issueNumber := ""
 	switch eventType {
 	case "push":
 		if after, ok := payload["after"].(string); ok {
@@ -1766,6 +1767,12 @@ func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
 			}
 			if num, ok := pr["number"].(float64); ok {
 				prNumber = fmt.Sprintf("%d", int(num))
+			}
+		}
+	case "issues", "issue_comment":
+		if issue, ok := payload["issue"].(map[string]any); ok {
+			if num, ok := issue["number"].(float64); ok {
+				issueNumber = fmt.Sprintf("%d", int(num))
 			}
 		}
 	}
@@ -1858,11 +1865,12 @@ func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
 
 		// Store webhook context as metadata on the session.
 		webhookMeta := map[string]string{
-			"GITHUB_EVENT":     eventType,
-			"GITHUB_REPO":      repo,
-			"GITHUB_REF":       branch,
-			"GITHUB_SHA":       sha,
-			"GITHUB_PR_NUMBER": prNumber,
+			"GITHUB_EVENT":        eventType,
+			"GITHUB_REPO":         repo,
+			"GITHUB_REF":          branch,
+			"GITHUB_SHA":          sha,
+			"GITHUB_PR_NUMBER":    prNumber,
+			"GITHUB_ISSUE_NUMBER": issueNumber,
 		}
 		metaJSON, _ := json.Marshal(webhookMeta)
 		_, _ = a.db.Exec(ctx,

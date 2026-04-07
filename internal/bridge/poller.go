@@ -260,6 +260,7 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 		branch := ""
 		sha := ""
 		prNumber := ""
+		issueNumber := ""
 
 		if ref, ok := payload["ref"].(string); ok {
 			branch = strings.TrimPrefix(ref, "refs/heads/")
@@ -275,6 +276,13 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 			}
 			if num, ok := pr["number"].(float64); ok {
 				prNumber = strconv.Itoa(int(num))
+			}
+		}
+
+		// Extract issue number from issue events.
+		if issue, ok := payload["issue"].(map[string]interface{}); ok {
+			if num, ok := issue["number"].(float64); ok {
+				issueNumber = strconv.Itoa(int(num))
 			}
 		}
 		if commits, ok := payload["commits"].([]interface{}); ok && len(commits) > 0 {
@@ -373,11 +381,12 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 
 			// Store event context on the session.
 			meta := map[string]string{
-				"GITHUB_EVENT":     eventType,
-				"GITHUB_REPO":      eventRepo,
-				"GITHUB_REF":       branch,
-				"GITHUB_SHA":       sha,
-				"GITHUB_PR_NUMBER": prNumber,
+				"GITHUB_EVENT":        eventType,
+				"GITHUB_REPO":         eventRepo,
+				"GITHUB_REF":          branch,
+				"GITHUB_SHA":          sha,
+				"GITHUB_PR_NUMBER":    prNumber,
+				"GITHUB_ISSUE_NUMBER": issueNumber,
 			}
 			metaJSON, _ := json.Marshal(meta)
 			_, _ = p.db.Exec(ctx,

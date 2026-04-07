@@ -22,13 +22,18 @@ prompt: |
 
   ## Step 1: Understand the request
 
-  Fetch all open issues and find the one that triggered this event:
+  Read the issue number from the event context at the end of this prompt.
+  Then fetch that specific issue:
     curl -s -H "Authorization: token $GITHUB_TOKEN" \
-      "$GITHUB_API_URL/repos/bmbouter/alcove/issues?state=open&sort=updated&direction=desc&per_page=10"
+      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/ISSUE_NUMBER"
 
   Read the issue title, body, and ALL comments. Understand what is being asked.
   If there are comments, the latest comment contains the current instructions.
   Read it carefully — it may refine or redirect prior work.
+
+  Also fetch all comments:
+    curl -s -H "Authorization: token $GITHUB_TOKEN" \
+      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/ISSUE_NUMBER/comments"
 
   ## Step 2: Plan changes
 
@@ -114,7 +119,13 @@ prompt: |
     curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
       -H "Content-Type: application/json" \
       -d @/tmp/comment.json \
-      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/N/comments"
+      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/ISSUE_NUMBER/comments"
+
+  ## Event Context
+
+  The ISSUE_NUMBER referenced above will be extracted from the event metadata
+  at the end of this prompt. Look for [event: {...}] or [webhook: {...}] and
+  extract GITHUB_ISSUE_NUMBER from the JSON.
 
   ## Important rules
 
