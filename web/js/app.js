@@ -52,7 +52,6 @@
     // ---------------------
     let refreshInterval = null;
     let durationInterval = null;
-    let sseSource = null;
     let currentSessionId = null;
     let currentPage = 1;
     const perPage = 15;
@@ -1796,12 +1795,6 @@
             loadTranscript(id, session.status);
             loadProxyLog(id);
 
-            // Hide live indicator for completed sessions
-            if (session.status !== 'running') {
-                hideLiveIndicator();
-                stopSSE();
-            }
-
             // Auto-refresh while running
             if (session.status === 'running') {
                 stopRefresh();
@@ -2018,164 +2011,45 @@
             show(loading);
         }
 
-        // If running and already streaming, don't restart — just show Live indicator
-        if (status === 'running' && sseSource && silent) {
-            showLiveIndicator();
-            return;
-        }
-
-        // If running and this is a silent refresh (polling), just fetch transcript data
-        if (status === 'running' && !sseSource && silent) {
-            showLiveIndicator();
-            fetchTranscript(id, content, loading);
-            return;
-        }
-
-        // If running, try fetch-based streaming first
+        // Show Live indicator while session is running
         if (status === 'running') {
-            stopSSE();
-
-            try {
-                const streamUrl = basePath + '/api/v1/sessions/' + id + '/transcript?stream=true';
-                const fetchOpts = { credentials: 'include' };
-                const token = localStorage.getItem('alcove_token');
-                if (token) {
-                    fetchOpts.headers = { 'Authorization': 'Bearer ' + token };
-                }
-                console.log('[STREAM] Starting fetch stream:', streamUrl);
-
-                const streamController = new AbortController();
-                fetchOpts.signal = streamController.signal;
-
-                // Store controller so stopSSE() can abort it
-                sseSource = { close: function() { streamController.abort(); } };
-
-                const response = await fetch(streamUrl, fetchOpts);
-
-                if (!response.ok) {
-                    console.log('[STREAM] Fetch failed:', response.status);
-                    throw new Error('Stream fetch failed');
-                }
-
-                if (!response.body) {
-                    console.log('[STREAM] No ReadableStream support, falling back to polling');
-                    throw new Error('No ReadableStream');
-                }
-
-                console.log('[STREAM] Connected, content-type:', response.headers.get('content-type'));
-                hide(loading);
-                showLiveIndicator();
-
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
-
-                try {
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        if (done) {
-                            console.log('[STREAM] Stream ended');
-                            break;
-                        }
-
-                        buffer += decoder.decode(value, { stream: true });
-                        const lines = buffer.split('\n');
-                        buffer = lines.pop(); // Keep incomplete line
-
-                        for (const line of lines) {
-                            const trimmed = line.trim();
-                            if (!trimmed || trimmed.startsWith(':')) continue; // Skip empty lines and SSE comments
-
-                            if (trimmed.startsWith('data: ')) {
-                                const data = trimmed.slice(6);
-                                try {
-                                    const ev = JSON.parse(data);
-                                    if (ev.status === 'completed' || ev.status === 'error' ||
-                                        ev.status === 'timeout' || ev.status === 'cancelled') {
-                                        // Session done
-                                        hideLiveIndicator();
-                                        stopSSE();
-                                        // Reload full session after delay
-                                        setTimeout(function() {
-                                            loadTranscript(id, ev.status);
-                                            loadProxyLog(id);
-                                        }, 2000);
-                                        return;
-                                    }
-                                    const isAtBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 50;
-                                    appendTranscriptEvent(content, ev);
-                                    if (isAtBottom) content.scrollTop = content.scrollHeight;
-                                } catch (e) {
-                                    // Non-JSON data line
-                                    appendTranscriptEvent(content, { type: 'system', content: data });
-                                }
-                            } else if (trimmed.startsWith('event: done')) {
-                                // SSE done event — next data line has the status
-                                continue;
-                            } else if (trimmed.startsWith('event: status')) {
-                                // SSE status event — next data line has the update
-                                continue;
-                            }
-                        }
-                    }
-                } catch (readErr) {
-                    if (readErr.name !== 'AbortError') {
-                        console.log('[STREAM] Read error:', readErr.message);
-                    }
-                }
-
-                // Stream ended — clear sseSource so polling can take over
-                sseSource = null;
-                console.log('[STREAM] Stream ended, falling back to polling');
-                // Don't return — fall through to fetchTranscript for current data
-
-            } catch (streamErr) {
-                sseSource = null;
-                console.log('[STREAM] Streaming failed, using polling fallback:', streamErr.message);
-                // Fall through to polling
-            }
+            showLiveIndicator();
+        } else {
+            hideLiveIndicator();
         }
 
-        // Polling fallback (also used for completed sessions)
-        fetchTranscript(id, content, loading);
-    }
-
-    async function fetchTranscript(id, content, loading) {
         try {
             const resp = await api('GET', '/api/v1/sessions/' + id + '/transcript');
             hide(loading);
 
             if (!resp.ok) {
-                content.innerHTML = '<div class="empty-state"><p>No transcript available.</p></div>';
+                if (!silent) {
+                    content.innerHTML = '<div class="transcript-system">No transcript available.</div>';
+                }
                 return;
             }
 
             const data = await resp.json();
-            let events = Array.isArray(data) ? data : (data.events || data.transcript || []);
+            const events = Array.isArray(data) ? data : (data.transcript || data.events || []);
 
             if (events.length === 0) {
-                content.innerHTML = '<div class="empty-state"><p>No transcript events yet.</p></div>';
+                if (!silent) {
+                    content.innerHTML = '<div class="transcript-system">Waiting for output...</div>';
+                }
                 return;
             }
 
+            // Re-render all events (simple and reliable)
             content.innerHTML = '';
-
-            const MAX_EVENTS = 500;
-            if (events.length > MAX_EVENTS) {
-                const notice = document.createElement('div');
-                notice.className = 'empty-state';
-                notice.innerHTML = '<p>Showing last ' + MAX_EVENTS + ' of ' + events.length + ' events.</p>';
-                content.appendChild(notice);
-                events = events.slice(-MAX_EVENTS);
+            for (var i = 0; i < events.length; i++) {
+                appendTranscriptEvent(content, events[i]);
             }
-
-            events.forEach((ev) => appendTranscriptEvent(content, ev));
-            // Auto-scroll to bottom for completed sessions
+            // Auto-scroll to bottom
             content.scrollTop = content.scrollHeight;
         } catch (err) {
             hide(loading);
-            if (err.message !== 'unauthorized') {
-                content.innerHTML = '<div class="empty-state"><p>Failed to load transcript.</p></div>';
+            if (err.message !== 'unauthorized' && !silent) {
+                content.innerHTML = '<div class="transcript-system" style="color:var(--status-error)">Failed to load transcript.</div>';
             }
         }
     }
@@ -2517,11 +2391,7 @@
     }
 
     function stopSSE() {
-        if (sseSource) {
-            sseSource.close();
-            sseSource = null;
-        }
-        hideLiveIndicator();
+        // No-op: streaming removed, transcript uses polling
     }
 
     // ---------------------
