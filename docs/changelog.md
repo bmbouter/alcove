@@ -3,6 +3,14 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.4.12
+
+### Improvements
+- Replace transcript streaming with 5-second polling. Streaming through
+  Akamai/Turnpike is not viable (v0.4.2-v0.4.11 investigation). Polling
+  works reliably — identical to how proxy log already works. Transcript
+  and proxy log both update every ~5 seconds during running sessions.
+
 ## v0.4.11
 
 ### Bug Fixes
