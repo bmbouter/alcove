@@ -2018,6 +2018,19 @@
             show(loading);
         }
 
+        // If running and already streaming, don't restart — just show Live indicator
+        if (status === 'running' && sseSource && silent) {
+            showLiveIndicator();
+            return;
+        }
+
+        // If running and this is a silent refresh (polling), just fetch transcript data
+        if (status === 'running' && !sseSource && silent) {
+            showLiveIndicator();
+            fetchTranscript(id, content, loading);
+            return;
+        }
+
         // If running, try fetch-based streaming first
         if (status === 'running') {
             stopSSE();
