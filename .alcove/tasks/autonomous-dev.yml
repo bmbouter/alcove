@@ -22,18 +22,39 @@ prompt: |
 
   ## Step 1: Understand the request
 
-  Read the issue number from the event context at the end of this prompt.
-  Then fetch that specific issue:
+  Extract the issue number from the event context at the end of this prompt.
+  The event context is appended as JSON after "[event: {...}]" or "[webhook: {...}]".
+
+  # Extract issue number from event context
+  ISSUE_NUMBER=""
+  if echo "$0" | grep -q '\[event:'; then
+    ISSUE_NUMBER=$(echo "$0" | sed -n 's/.*\[event: \(.*\)\].*/\1/p' | grep -o '"GITHUB_ISSUE_NUMBER":"[^"]*"' | cut -d'"' -f4)
+  elif echo "$0" | grep -q '\[webhook:'; then
+    ISSUE_NUMBER=$(echo "$0" | sed -n 's/.*\[webhook: \(.*\)\].*/\1/p' | grep -o '"GITHUB_ISSUE_NUMBER":"[^"]*"' | cut -d'"' -f4)
+  fi
+
+  if [ -z "$ISSUE_NUMBER" ]; then
+    echo "Error: No issue number found in event context. Falling back to most recent issue."
+    # Fallback to original behavior if issue number is not available
     curl -s -H "Authorization: token $GITHUB_TOKEN" \
-      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/ISSUE_NUMBER"
+      "$GITHUB_API_URL/repos/bmbouter/alcove/issues?state=open&sort=updated&direction=desc&per_page=1" \
+      | jq -r '.[0].number' > /tmp/issue_number.txt
+    ISSUE_NUMBER=$(cat /tmp/issue_number.txt)
+  fi
+
+  echo "Working on issue #$ISSUE_NUMBER"
+
+  # Fetch the specific issue
+  curl -s -H "Authorization: token $GITHUB_TOKEN" \
+    "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$ISSUE_NUMBER"
 
   Read the issue title, body, and ALL comments. Understand what is being asked.
   If there are comments, the latest comment contains the current instructions.
   Read it carefully — it may refine or redirect prior work.
 
-  Also fetch all comments:
+  Also fetch all comments on the issue:
     curl -s -H "Authorization: token $GITHUB_TOKEN" \
-      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/ISSUE_NUMBER/comments"
+      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$ISSUE_NUMBER/comments"
 
   ## Step 2: Plan changes
 
@@ -64,7 +85,7 @@ prompt: |
   Not every issue needs every specialist — choose the right team for the work.
 
   Create a feature branch first:
-    git checkout -b issue-N-description main
+    git checkout -b issue-$ISSUE_NUMBER-description main
 
   Follow the codebase conventions:
   - Go: net/http, cobra CLI, pgx/v5 for PostgreSQL, nats.go
@@ -78,11 +99,11 @@ prompt: |
     git add -A
     Write commit message to /tmp/commit-msg.txt, then:
     git commit -F /tmp/commit-msg.txt
-    git push origin issue-N-description
+    git push origin issue-$ISSUE_NUMBER-description
 
   Then create the PR via API:
     Write PR body to /tmp/pr-body.json:
-    {"title":"...","head":"issue-N-description","base":"main","body":"Fixes #N\n\n..."}
+    {"title":"...","head":"issue-$ISSUE_NUMBER-description","base":"main","body":"Fixes #$ISSUE_NUMBER\n\n..."}
 
     curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
       -H "Content-Type: application/json" \
@@ -119,13 +140,7 @@ prompt: |
     curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
       -H "Content-Type: application/json" \
       -d @/tmp/comment.json \
-      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/ISSUE_NUMBER/comments"
-
-  ## Event Context
-
-  The ISSUE_NUMBER referenced above will be extracted from the event metadata
-  at the end of this prompt. Look for [event: {...}] or [webhook: {...}] and
-  extract GITHUB_ISSUE_NUMBER from the JSON.
+      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$ISSUE_NUMBER/comments"
 
   ## Important rules
 
@@ -135,7 +150,7 @@ prompt: |
   - Include tests for new functionality
   - Update documentation when behavior changes
   - Do not modify the changelog (that happens at release time)
-  - Reference the issue number in the PR (e.g., "Fixes #N")
+  - Reference the issue number in the PR (e.g., "Fixes #$ISSUE_NUMBER")
 
 repo: https://github.com/bmbouter/alcove.git
 timeout: 7200

@@ -292,6 +292,12 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 				}
 			}
 		}
+		// Extract issue number for issue events
+		if issue, ok := payload["issue"].(map[string]interface{}); ok {
+			if num, ok := issue["number"].(float64); ok {
+				issueNumber = strconv.Itoa(int(num))
+			}
+		}
 
 		// Extract labels from issue or pull_request.
 		var labels []string
