@@ -141,6 +141,7 @@ trigger:
       - opened
       - reopened
       - created
+      - labeled
     repos:
       - bmbouter/alcove
     labels:
