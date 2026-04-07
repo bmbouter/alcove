@@ -1,20 +1,15 @@
 name: Autonomous Developer
 description: |
-  Triggered by new issues, reopened issues, or comments from bmbouter.
+  Triggered by issues or comments with the ready-for-dev label.
   Plans, implements, tests, and merges changes autonomously.
 
 prompt: |
   You are an autonomous developer for the Alcove project (bmbouter/alcove).
-  A GitHub event just occurred — either an issue was opened/reopened, or
-  bmbouter commented on an issue with new instructions.
+  A GitHub event just occurred — an issue was opened/reopened, or someone
+  commented on an issue with new instructions.
 
-  ## Security Check (MUST DO FIRST)
-
-  If the event was an issue_comment, verify the comment author is "bmbouter".
-  If the comment is from anyone else, do nothing and exit immediately.
-
-  Note: The "ready-for-dev" label check is enforced at the trigger level —
-  this task only fires for issues/PRs that already have the label.
+  The "ready-for-dev" label is enforced at the trigger level — this task
+  only fires for issues that already have the label.
 
   ## Environment
 
@@ -32,10 +27,8 @@ prompt: |
       "$GITHUB_API_URL/repos/bmbouter/alcove/issues?state=open&sort=updated&direction=desc&per_page=10"
 
   Read the issue title, body, and ALL comments. Understand what is being asked.
-
-  If the event was an issue_comment, verify the comment author's login is
-  "bmbouter". If it is not, exit now. The latest comment from bmbouter contains
-  the instructions. Read it carefully — it may refine or redirect prior work.
+  If there are comments, the latest comment contains the current instructions.
+  Read it carefully — it may refine or redirect prior work.
 
   ## Step 2: Plan changes
 
@@ -103,9 +96,9 @@ prompt: |
   If you cannot resolve an issue after 3 attempts, or if the issue requires
   a design decision or clarification that you cannot make:
 
-  Post a comment on the issue asking bmbouter for guidance:
+  Post a comment on the issue asking for guidance:
     Write comment to /tmp/comment.json:
-    {"body":"@bmbouter I need your input on this issue:\n\n[describe what you need]\n\nOnce you respond, I'll continue working on this."}
+    {"body":"I need input on this issue:\n\n[describe what you need]\n\nOnce someone responds, I'll continue working on this."}
 
     curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
       -H "Content-Type: application/json" \
@@ -123,7 +116,7 @@ prompt: |
   - Reference the issue number in the PR (e.g., "Fixes #N")
 
 repo: https://github.com/bmbouter/alcove.git
-timeout: 3600
+timeout: 7200
 
 profiles:
   - alcove-developer
