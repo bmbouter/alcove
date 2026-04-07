@@ -3,6 +3,16 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.4.10
+
+### Bug Fixes
+- Fix transcript and proxy log not appearing during running sessions.
+  Skiff batched transcript events and only wrote to the database every
+  50 events or at session end. The 5-second flush timer existed but was
+  never used for flushing. Now flushes to the DB every 5 seconds.
+- Fix client-side: don't abort active stream on polling refresh, show
+  Live indicator during polling fallback.
+
 ## v0.4.9
 
 ### Improvements
