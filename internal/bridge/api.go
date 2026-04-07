@@ -446,7 +446,9 @@ func (a *API) streamTranscriptSSE(w http.ResponseWriter, r *http.Request, sessio
 
 	select {
 	case <-r.Context().Done():
+		log.Printf("sse: client disconnected for session %s (context done)", sessionID)
 	case <-done:
+		log.Printf("sse: session %s completed, closing SSE stream", sessionID)
 	}
 }
 
