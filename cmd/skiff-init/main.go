@@ -30,6 +30,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -255,6 +256,7 @@ func runClaude(
 
 	var (
 		batch            []json.RawMessage
+		batchMu          sync.Mutex
 		artifacts        []internal.Artifact
 		lastEvent        = time.Now()
 		ticker           = time.NewTicker(walFlushInterval)
@@ -264,7 +266,7 @@ func runClaude(
 	)
 	defer ticker.Stop()
 
-	// Monitor heartbeat timeout and cancellation in a goroutine
+	// Monitor heartbeat timeout, periodic batch flush, and cancellation
 	go func() {
 		for {
 			select {
@@ -286,6 +288,13 @@ func runClaude(
 					_ = cmd.Process.Kill()
 					return
 				}
+				// Periodic flush: write buffered transcript events to the database
+				// so polling clients see data before the batch reaches 50 events.
+				batchMu.Lock()
+				if len(batch) > 0 {
+					flushBatch(lc, sessionID, &batch)
+				}
+				batchMu.Unlock()
 			}
 		}
 	}()
@@ -322,20 +331,24 @@ func runClaude(
 			continue // skip malformed lines
 		}
 
+		batchMu.Lock()
 		batch = append(batch, json.RawMessage(lineCopy))
 
 		// Flush batch when it reaches the batch size
 		if len(batch) >= walBatchSize {
 			flushBatch(lc, sessionID, &batch)
 		}
+		batchMu.Unlock()
 	}
 
 	close(doneCh)
 
 	// Flush remaining events
+	batchMu.Lock()
 	if len(batch) > 0 {
 		flushBatch(lc, sessionID, &batch)
 	}
+	batchMu.Unlock()
 
 	// Wait for process to exit
 	err = cmd.Wait()
