@@ -2124,10 +2124,13 @@
                     }
                 }
 
-                hideLiveIndicator();
-                return; // Stream completed normally
+                // Stream ended — clear sseSource so polling can take over
+                sseSource = null;
+                console.log('[STREAM] Stream ended, falling back to polling');
+                // Don't return — fall through to fetchTranscript for current data
 
             } catch (streamErr) {
+                sseSource = null;
                 console.log('[STREAM] Streaming failed, using polling fallback:', streamErr.message);
                 // Fall through to polling
             }
