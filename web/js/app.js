@@ -2074,6 +2074,101 @@
     }
 
     // Summarize tool input for the header line
+    // Enhanced helper functions for transcript improvements
+    function detectContentType(content) {
+        if (!content || typeof content !== 'string') return 'unknown';
+
+        // Try to parse as JSON
+        try {
+            JSON.parse(content);
+            return 'json';
+        } catch (e) {
+            // Not JSON, check for other patterns
+        }
+
+        // Check for code patterns
+        if (content.includes('function ') || content.includes('class ') ||
+            content.includes('def ') || content.includes('import ') ||
+            content.includes('package ') || content.includes('#!/')) {
+            return 'code';
+        }
+
+        // Check for shell output patterns
+        if (content.match(/^\$ /m) || content.match(/^.*@.*:\$/) || content.match(/^bash.*\$ /)) {
+            return 'shell';
+        }
+
+        return 'text';
+    }
+
+    function generateToolResultSummary(content, isError, toolName) {
+        if (!content) return 'Empty output';
+
+        var contentType = detectContentType(content);
+        var size = content.length;
+        var lines = content.split('\n').length;
+
+        var summary = '';
+
+        if (isError) {
+            summary = '❌ Error';
+        } else if (contentType === 'json') {
+            summary = '📄 JSON response';
+        } else if (contentType === 'code') {
+            summary = '🔧 Code output';
+        } else if (contentType === 'shell') {
+            summary = '💻 Command output';
+        } else {
+            summary = '📝 Text output';
+        }
+
+        // Add size information
+        if (lines > 1) {
+            summary += ' (' + lines + ' line' + (lines === 1 ? '' : 's');
+            if (size > 1000) {
+                summary += ', ' + (size / 1000).toFixed(1) + 'k chars';
+            }
+            summary += ')';
+        } else if (size > 200) {
+            summary += ' (' + size.toLocaleString() + ' chars)';
+        }
+
+        return summary;
+    }
+
+    function shouldAutoCollapse(content, contentType) {
+        if (!content) return false;
+
+        var lines = content.split('\n').length;
+        var size = content.length;
+
+        // Auto-collapse if more than 3 lines or more than 200 characters
+        // Or if it's JSON or very large
+        return lines > 3 || size > 200 || contentType === 'json';
+    }
+
+    function applySyntaxHighlighting(content, contentType) {
+        if (contentType === 'json') {
+            try {
+                var parsed = JSON.parse(content);
+                var formatted = JSON.stringify(parsed, null, 2);
+                return syntaxHighlightJSON(formatted);
+            } catch (e) {
+                return escapeHtml(content);
+            }
+        } else {
+            return escapeHtml(content);
+        }
+    }
+
+    function syntaxHighlightJSON(jsonString) {
+        return jsonString
+            .replace(/(".*?")/g, '<span class="json-string">$1</span>')
+            .replace(/(\d+\.?\d*)/g, '<span class="json-number">$1</span>')
+            .replace(/(true|false|null)/g, '<span class="json-literal">$1</span>')
+            .replace(/("[^"]*")(\s*:)/g, '<span class="json-key">$1</span>$2');
+    }
+
     function toolInputSummary(name, input) {
         if (!input) return '';
         if (typeof input === 'string') {
@@ -2187,20 +2282,33 @@
             if (!output) return; // skip empty tool results
 
             var div = document.createElement('div');
-            div.className = 'tx-tool-output-block';
+            div.className = 'tx-tool-output-block tx-hierarchy-tool';
             var isError = ev.is_error || false;
+            var contentType = detectContentType(output);
+            var autoCollapse = shouldAutoCollapse(output, contentType);
 
-            // Truncate very long output for display but keep full in expandable
-            var truncLen = 500;
-            var needsTrunc = output.length > truncLen;
+            // Generate intelligent summary
+            var summary = generateToolResultSummary(output, isError);
 
-            if (needsTrunc) {
+            if (autoCollapse) {
+                // Use enhanced collapsible with syntax highlighting
+                var highlightedContent = applySyntaxHighlighting(output, contentType);
+                var contentClass = 'tx-tool-output-pre tx-content-' + contentType;
+                if (isError) contentClass += ' tx-tool-output-error';
+
                 div.innerHTML = '<details class="tx-tool-output-details">' +
-                    '<summary class="tx-tool-output-summary' + (isError ? ' tx-tool-output-error' : '') + '">Output (' + output.length.toLocaleString() + ' chars)</summary>' +
-                    '<pre class="tx-tool-output-pre">' + escapeHtml(output) + '</pre>' +
+                    '<summary class="tx-tool-result-summary' + (isError ? ' tx-tool-output-error' : '') + '">' +
+                    '<span class="tx-tool-result-badge">' + summary + '</span>' +
+                    '</summary>' +
+                    '<pre class="' + contentClass + '">' + highlightedContent + '</pre>' +
                     '</details>';
             } else {
-                div.innerHTML = '<pre class="tx-tool-output-pre' + (isError ? ' tx-tool-output-error' : '') + '">' + escapeHtml(output) + '</pre>';
+                // Short content - show directly with highlighting
+                var highlightedContent = applySyntaxHighlighting(output, contentType);
+                var contentClass = 'tx-tool-output-pre tx-content-' + contentType;
+                if (isError) contentClass += ' tx-tool-output-error';
+
+                div.innerHTML = '<pre class="' + contentClass + '">' + highlightedContent + '</pre>';
             }
             container.appendChild(div);
             return;
@@ -2223,7 +2331,7 @@
                 else if (ev.message && typeof ev.message === 'string') text = ev.message;
                 if (text) {
                     var div = document.createElement('div');
-                    div.className = 'tx-msg';
+                    div.className = 'tx-msg tx-hierarchy-main';
                     div.innerHTML = '<div class="tx-msg-body">' + renderMarkdown(text) + '</div>';
                     container.appendChild(div);
                 }
@@ -2255,7 +2363,7 @@
                     var text = block.text || '';
                     if (!text) continue;
                     var div = document.createElement('div');
-                    div.className = 'tx-msg';
+                    div.className = 'tx-msg tx-hierarchy-main';
                     div.innerHTML = '<div class="tx-msg-label">Claude</div>' +
                         '<div class="tx-msg-body">' + renderMarkdown(text) + '</div>';
                     container.appendChild(div);
@@ -2269,7 +2377,7 @@
                     var summary = toolInputSummary(toolName, input);
 
                     var div = document.createElement('div');
-                    div.className = 'tx-tool';
+                    div.className = 'tx-tool tx-hierarchy-tool';
 
                     var toolIcon = '&#x1F527;';
 
@@ -2283,12 +2391,21 @@
                         bodyHtml = '<div class="tx-tool-summary"><pre class="tx-tool-cmd">' + escapeHtml(summary) + '</pre></div>';
                     }
 
-                    // Show full input as collapsible for complex tools
-                    if (!summary || toolName === 'Edit') {
-                        var inputStr = typeof input === 'string' ? input : JSON.stringify(input, null, 2);
+                    // Show full input as collapsible for complex tools or when no summary
+                    var inputStr = typeof input === 'string' ? input : JSON.stringify(input, null, 2);
+                    var inputType = detectContentType(inputStr);
+                    var shouldCollapseInput = shouldAutoCollapse(inputStr, inputType);
+
+                    if (!summary || toolName === 'Edit' || shouldCollapseInput) {
+                        var inputSummary = 'Show input';
+                        if (shouldCollapseInput) {
+                            inputSummary = 'Show input (' + Object.keys(input).length + ' parameter' + (Object.keys(input).length === 1 ? '' : 's') + ')';
+                        }
+
+                        var highlightedInput = applySyntaxHighlighting(inputStr, inputType);
                         bodyHtml += '<details class="tx-tool-input-details">' +
-                            '<summary class="tx-tool-input-toggle">Show input</summary>' +
-                            '<pre class="tx-tool-input-pre">' + escapeHtml(inputStr) + '</pre>' +
+                            '<summary class="tx-tool-input-toggle">' + inputSummary + '</summary>' +
+                            '<pre class="tx-tool-input-pre tx-content-' + inputType + '">' + highlightedInput + '</pre>' +
                             '</details>';
                     }
 
@@ -2315,7 +2432,7 @@
             var summary = toolInputSummary(toolName, input);
 
             var div = document.createElement('div');
-            div.className = 'tx-tool';
+            div.className = 'tx-tool tx-hierarchy-tool';
             var headerHtml = '<div class="tx-tool-header">' +
                 '<span class="tx-tool-icon">&#x1F527;</span>' +
                 '<span class="tx-tool-name">' + escapeHtml(toolName) + '</span>' +
@@ -2325,10 +2442,21 @@
                 bodyHtml = '<div class="tx-tool-summary"><pre class="tx-tool-cmd">' + escapeHtml(summary) + '</pre></div>';
             }
             if (output) {
-                bodyHtml += '<details class="tx-tool-output-details">' +
-                    '<summary class="tx-tool-output-summary">Output</summary>' +
-                    '<pre class="tx-tool-output-pre">' + escapeHtml(typeof output === 'string' ? output : JSON.stringify(output, null, 2)) + '</pre>' +
-                    '</details>';
+                var contentType = detectContentType(output);
+                var autoCollapse = shouldAutoCollapse(output, contentType);
+                var outputSummary = generateToolResultSummary(output, false, toolName);
+                var highlightedOutput = applySyntaxHighlighting(output, contentType);
+
+                if (autoCollapse) {
+                    bodyHtml += '<details class="tx-tool-output-details">' +
+                        '<summary class="tx-tool-output-summary tx-tool-result-summary">' +
+                        '<span class="tx-tool-result-badge">' + outputSummary + '</span>' +
+                        '</summary>' +
+                        '<pre class="tx-tool-output-pre tx-content-' + contentType + '">' + highlightedOutput + '</pre>' +
+                        '</details>';
+                } else {
+                    bodyHtml += '<pre class="tx-tool-output-pre tx-content-' + contentType + '">' + highlightedOutput + '</pre>';
+                }
             }
             div.innerHTML = headerHtml + bodyHtml;
             container.appendChild(div);
@@ -2346,7 +2474,7 @@
             if (!text) text = JSON.stringify(ev, null, 2);
 
             var div = document.createElement('div');
-            div.className = 'tx-msg tx-msg-user';
+            div.className = 'tx-msg tx-msg-user tx-hierarchy-main';
             div.innerHTML = '<div class="tx-msg-label">User</div>' +
                 '<div class="tx-msg-body">' + renderMarkdown(text) + '</div>';
             container.appendChild(div);
