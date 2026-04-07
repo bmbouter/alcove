@@ -388,13 +388,16 @@ func (a *API) streamTranscriptSSE(w http.ResponseWriter, r *http.Request, sessio
 	w.Header().Set("Transfer-Encoding", "chunked") // Force chunked encoding through proxies
 	w.WriteHeader(http.StatusOK)
 
-	// Send a padding block to force proxy buffers to flush. Many reverse proxies
-	// (haproxy, 3scale/Turnpike) buffer the first ~4-8KB before forwarding.
-	// A 4KB SSE comment block pushes past typical buffer thresholds.
-	padding := ": " + strings.Repeat(" ", 4096) + "\n\n"
-	fmt.Fprint(w, padding)
+	// Send padding blocks to force proxy buffers to flush. 3scale/Turnpike on
+	// OpenShift may buffer 16-32KB before forwarding. SSE comment lines (: prefix)
+	// are ignored by EventSource clients. Send 32KB in multiple flushes.
+	for i := 0; i < 8; i++ {
+		fmt.Fprintf(w, ": %s\n", strings.Repeat(" ", 4096))
+		flusher.Flush()
+	}
+	fmt.Fprint(w, "\n")
 	flusher.Flush()
-	log.Printf("sse: streaming transcript for session %s (client: %s, sent %d-byte padding)", sessionID, r.RemoteAddr, len(padding))
+	log.Printf("sse: streaming transcript for session %s (client: %s, sent 32KB padding)", sessionID, r.RemoteAddr)
 
 	// Phase 1: Catch-up — send persisted events from database
 	var transcript json.RawMessage
