@@ -315,7 +315,7 @@ curl -X DELETE http://localhost:8080/api/v1/sessions/f47ac10b-58cc-4372-a567-0e0
 
 Retrieve the transcript for a session.
 
-When called with `Accept: text/event-stream`, this endpoint streams live transcript events via SSE (Server-Sent Events) until the session completes or the client disconnects. Otherwise, it returns the full transcript as a static JSON response.
+When called with `Accept: text/event-stream` or `?stream=true`, this endpoint streams live transcript events using SSE-formatted data (`Content-Type: text/event-stream`) until the session completes or the client disconnects. Otherwise, it returns the full transcript as a static JSON response.
 
 **Static response (200):**
 
@@ -338,7 +338,7 @@ When called with `Accept: text/event-stream`, this endpoint streams live transcr
 }
 ```
 
-**SSE stream:** each event is a `data:` line containing a JSON transcript event. When the session reaches a terminal state (`completed`, `error`, `timeout`, `cancelled`), a `done` event is sent:
+**SSE stream:** The endpoint returns `Content-Type: text/event-stream` with SSE-formatted data. Each event is a `data:` line containing a JSON transcript event. When the session reaches a terminal state (`completed`, `error`, `timeout`, `cancelled`), a `done` event is sent:
 
 ```
 data: {"type":"assistant","content":"Reading file...","ts":"2026-03-25T14:30:05Z"}
@@ -347,6 +347,23 @@ data: {"type":"tool","tool":"Read","input":{"file_path":"/src/main.go"},"ts":"20
 
 event: done
 data: {"status":"completed"}
+```
+
+**Client implementation note:** Use `fetch()` + `ReadableStream` to consume this endpoint, not `EventSource`. The `EventSource` API is incompatible with the Akamai + Turnpike proxy chain used in OpenShift staging deployments. For cookie-based auth environments (e.g., Turnpike), include `credentials: 'include'` in the fetch options. If streaming is unavailable, clients should fall back to polling the static transcript endpoint every 5 seconds.
+
+```javascript
+// Recommended client pattern
+const response = await fetch(url + '?stream=true', {
+  headers: { 'Authorization': 'Bearer ' + token },
+  credentials: 'include'  // Required for cookie-based auth (Turnpike)
+});
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  // Parse SSE-formatted lines from decoder.decode(value)
+}
 ```
 
 **Status codes:**
@@ -364,9 +381,8 @@ curl http://localhost:8080/api/v1/sessions/$SESSION_ID/transcript \
   -H "Authorization: Bearer $TOKEN"
 
 # Live SSE stream
-curl -N http://localhost:8080/api/v1/sessions/$SESSION_ID/transcript \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Accept: text/event-stream"
+curl -N http://localhost:8080/api/v1/sessions/$SESSION_ID/transcript?stream=true \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ### GET /api/v1/sessions/{id}/proxy-log

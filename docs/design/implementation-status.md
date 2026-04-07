@@ -40,7 +40,7 @@ alcove/
 │   │   ├── kubernetes.go       ✅ KubernetesRuntime implementation (client-go, Jobs with native sidecars, NetworkPolicy)
 │   │   └── kubernetes_test.go  ✅ Kubernetes runtime tests
 │   ├── bridge/
-│   │   ├── api.go              ✅ REST handlers (tasks, sessions, schedules, credentials, providers, profiles, tools, settings, health, transcript SSE streaming, proxy-log ingestion)
+│   │   ├── api.go              ✅ REST handlers (tasks, sessions, schedules, credentials, providers, profiles, tools, settings, health, transcript streaming, proxy-log ingestion)
 │   │   ├── dispatcher.go       ✅ Task dispatch: creates session, resolves security profiles, publishes to NATS, starts Skiff+Gate with LLM/SCM credentials and tool configs
 │   │   ├── config.go           ✅ Config loading from env vars, auth backend selection, debug mode
 │   │   ├── runtime.go          ✅ Runtime factory (podman/kubernetes selection)
@@ -71,7 +71,7 @@ alcove/
 │   ├── ledger/
 │   │   └── client.go           ✅ HTTP client for session CRUD + transcript streaming
 │   └── auth/
-│       ├── auth.go             ✅ Authenticator + UserManager interfaces, Argon2id passwords, LoginHandler, AuthMiddleware, admin role checks, SSE query-param token fallback
+│       ├── auth.go             ✅ Authenticator + UserManager interfaces, Argon2id passwords, LoginHandler, AuthMiddleware, admin role checks, streaming query-param token fallback
 │       ├── memory.go           ✅ MemoryStore: in-memory auth backend with rate limiting
 │       ├── postgres.go         ✅ PgStore: PostgreSQL-backed auth with user CRUD, admin flag, session persistence, expired session cleanup, password change
 │       ├── rh_identity.go      ✅ RHIdentityStore: X-RH-Identity header auth, JIT user provisioning, admin bootstrap
@@ -79,7 +79,7 @@ alcove/
 ├── web/
 │   ├── index.html              ✅ Dashboard SPA shell with all page views, setup checklist
 │   ├── css/style.css           ✅ Dark theme dashboard styles
-│   └── js/app.js               ✅ Full SPA: login, task list with pagination, new task form with profile selection, live transcript viewer (SSE with catch-up + live), proxy log viewer, providers page, security profiles page, MCP tools page, schedules with NLP cron input, admin settings, user management, guided setup checklist, contextual warnings
+│   └── js/app.js               ✅ Full SPA: login, task list with pagination, new task form with profile selection, live transcript viewer (fetch + ReadableStream with polling fallback), proxy log viewer, providers page, security profiles page, MCP tools page, schedules with NLP cron input, admin settings, user management, guided setup checklist, contextual warnings
 ├── build/
 │   ├── Containerfile.bridge    ✅ Multi-stage (golang:1.25 → ubi9/ubi)
 │   ├── Containerfile.gate      ✅ Multi-stage (golang:1.25 → ubi9-minimal)
@@ -134,7 +134,7 @@ alcove/
 2. **Dashboard Frontend** — Full SPA in `web/` with login form, task list with
    status filters, search, and pagination, new task form with provider and profile
    selection and debug toggle, task detail view with live transcript streaming
-   (SSE with catch-up + live) and proxy log tabs, providers page, security profiles
+   (fetch + ReadableStream with catch-up + live, fallback to polling) and proxy log tabs, providers page, security profiles
    page, MCP tools page, schedules page with NLP-style cron input, admin settings
    page (system LLM shown as read-only status), user management page, guided
    setup checklist with contextual warnings. Dark theme.
@@ -197,8 +197,12 @@ alcove/
     session and streams events to the dashboard via SSE. The SSE endpoint implements
     catch-up + live: on connect, it sends all persisted transcript events from the
     database, then subscribes to NATS for live events. Status updates are also
-    streamed so the client detects session completion. Auth supports query-param
-    token fallback for `EventSource` (which cannot set HTTP headers).
+    streamed so the client detects session completion. The dashboard uses
+    `fetch()` + `ReadableStream` for real-time streaming (not `EventSource`, which
+    is incompatible with the Akamai + Turnpike proxy chain used on OpenShift
+    staging). If streaming is unavailable, the client automatically falls back to
+    5-second polling. This approach works on both local dev and OpenShift staging.
+    Auth supports query-param token fallback for SSE connections.
 
 12. **Security Profiles** — Named, reusable bundles of tool + repo + operation
     permissions. Supports multi-rule per-repo operation scoping (each rule specifies
