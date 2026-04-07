@@ -42,7 +42,7 @@ profiles:
 trigger:
   github:
     events: [issues]
-    actions: [opened]
+    actions: [opened, labeled]
     repos: [bmbouter/alcove]
     labels:
       - ready-for-dev
