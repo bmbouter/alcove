@@ -3,6 +3,14 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.4.13
+
+### Features
+- Add label-based trigger filtering. Event triggers can now require specific
+  labels (e.g., `labels: [ready-for-dev]`). Tasks only dispatch when the
+  issue/PR has a matching label. Enforced at the trigger level, not in the
+  prompt — prevents unauthorized issues from triggering automated development.
+
 ## v0.4.12
 
 ### Improvements
