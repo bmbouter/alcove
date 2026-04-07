@@ -286,6 +286,11 @@ alcove/
     avoid retroactive dispatches. Works in any environment including local
     development with no webhook configuration required.
 
+25. **Label-Based Trigger Filtering** — Event triggers support an optional
+    `labels` field that restricts dispatch to issues or PRs carrying at least
+    one of the listed GitHub labels. This provides a safety gate that prevents
+    unauthorized issues from triggering automated development tasks.
+
 ## What's NOT Working Yet
 
 ### 1. NATS Dead Code

@@ -30,11 +30,12 @@ type GitHubTrigger struct {
 	Actions      []string `json:"actions,omitempty" yaml:"actions"`                   // opened, synchronize, created, published
 	Repos        []string `json:"repos,omitempty" yaml:"repos"`                       // org/repo filters (empty = all)
 	Branches     []string `json:"branches,omitempty" yaml:"branches"`                 // branch filters (empty = all)
+	Labels       []string `json:"labels,omitempty" yaml:"labels"`                     // label filters (empty = all)
 	DeliveryMode string   `json:"delivery_mode,omitempty" yaml:"delivery_mode"`       // "polling" or "webhook", default "polling"
 }
 
 // Matches checks if an incoming webhook event matches this trigger config.
-func (t *GitHubTrigger) Matches(eventType, action, repo, branch string) bool {
+func (t *GitHubTrigger) Matches(eventType, action, repo, branch string, labels []string) bool {
 	if t == nil {
 		return false
 	}
@@ -57,6 +58,26 @@ func (t *GitHubTrigger) Matches(eventType, action, repo, branch string) bool {
 	// If t.Branches is non-empty, branch must be in t.Branches.
 	if len(t.Branches) > 0 && !stringInSlice(branch, t.Branches) {
 		return false
+	}
+
+	// Labels filter (AND with other filters). If trigger specifies labels,
+	// at least one must be present on the issue/PR.
+	if len(t.Labels) > 0 {
+		matched := false
+		for _, required := range t.Labels {
+			for _, have := range labels {
+				if strings.EqualFold(required, have) {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
 	}
 
 	return true

@@ -1714,7 +1714,22 @@ Task definitions with event triggers (e.g., GitHub `issues.opened`) support two 
 - **`polling`** (default) — Alcove polls the GitHub Events API every 60 seconds. No webhook setup required. Suitable for local development and environments without a public URL.
 - **`webhook`** — GitHub pushes events to `POST /api/v1/webhooks/github`. Requires a publicly accessible Bridge URL and a configured webhook secret.
 
-See [Configuration Reference](configuration.md#event-delivery-mode) for YAML syntax and details.
+### Event Trigger Label Filtering
+
+The trigger configuration supports an optional `labels` field (string array). When specified, the event is only dispatched if at least one of the listed labels is present on the issue or pull request. This acts as a safety gate to prevent unauthorized issues from triggering automated tasks.
+
+```yaml
+trigger:
+  github:
+    events: [issues]
+    actions: [opened, labeled]
+    repos: [org/myproject]
+    labels: [ready-for-dev]
+```
+
+If `labels` is omitted or empty, all matching events are dispatched.
+
+See [Configuration Reference](configuration.md#label-based-trigger-filtering) for full details.
 
 ---
 

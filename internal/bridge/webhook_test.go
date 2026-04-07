@@ -24,6 +24,7 @@ func TestGitHubTriggerMatches(t *testing.T) {
 		action    string
 		repo      string
 		branch    string
+		labels    []string
 		want      bool
 	}{
 		{
@@ -136,14 +137,64 @@ func TestGitHubTriggerMatches(t *testing.T) {
 			eventType: "push",
 			want:      true,
 		},
+		// Label filter tests
+		{
+			name:      "trigger with labels + event with matching label",
+			trigger:   &GitHubTrigger{Events: []string{"issues"}, Labels: []string{"ready-for-dev"}},
+			eventType: "issues",
+			labels:    []string{"bug", "ready-for-dev"},
+			want:      true,
+		},
+		{
+			name:      "trigger with labels + event with no labels",
+			trigger:   &GitHubTrigger{Events: []string{"issues"}, Labels: []string{"ready-for-dev"}},
+			eventType: "issues",
+			labels:    nil,
+			want:      false,
+		},
+		{
+			name:      "trigger with labels + event with different labels",
+			trigger:   &GitHubTrigger{Events: []string{"issues"}, Labels: []string{"ready-for-dev"}},
+			eventType: "issues",
+			labels:    []string{"bug", "enhancement"},
+			want:      false,
+		},
+		{
+			name:      "trigger with no labels + event with any labels",
+			trigger:   &GitHubTrigger{Events: []string{"issues"}},
+			eventType: "issues",
+			labels:    []string{"bug", "enhancement"},
+			want:      true,
+		},
+		{
+			name:      "case insensitive label matching",
+			trigger:   &GitHubTrigger{Events: []string{"issues"}, Labels: []string{"Ready-For-Dev"}},
+			eventType: "issues",
+			labels:    []string{"ready-for-dev"},
+			want:      true,
+		},
+		{
+			name:      "trigger with multiple labels + event matches one",
+			trigger:   &GitHubTrigger{Events: []string{"issues"}, Labels: []string{"ready-for-dev", "approved"}},
+			eventType: "issues",
+			labels:    []string{"approved"},
+			want:      true,
+		},
+		{
+			name:      "trigger with labels + empty labels slice",
+			trigger:   &GitHubTrigger{Events: []string{"issues"}, Labels: []string{"ready-for-dev"}},
+			eventType: "issues",
+			labels:    []string{},
+			want:      false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.trigger.Matches(tt.eventType, tt.action, tt.repo, tt.branch)
+			got := tt.trigger.Matches(tt.eventType, tt.action, tt.repo, tt.branch, tt.labels)
 			if got != tt.want {
-				t.Errorf("Matches(%q, %q, %q, %q) = %v, want %v",
-					tt.eventType, tt.action, tt.repo, tt.branch, got, tt.want)
+				t.Errorf("Matches(%q, %q, %q, %q, %v) = %v, want %v",
+					tt.eventType, tt.action, tt.repo, tt.branch, tt.labels, got, tt.want)
 			}
 		})
 	}

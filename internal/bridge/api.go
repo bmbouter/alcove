@@ -1709,6 +1709,30 @@ func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Extract labels from issue or pull_request.
+	var labels []string
+	if issue, ok := payload["issue"].(map[string]any); ok {
+		if labelArr, ok := issue["labels"].([]any); ok {
+			for _, lo := range labelArr {
+				if lm, ok := lo.(map[string]any); ok {
+					if name, ok := lm["name"].(string); ok {
+						labels = append(labels, name)
+					}
+				}
+			}
+		}
+	} else if pr, ok := payload["pull_request"].(map[string]any); ok {
+		if labelArr, ok := pr["labels"].([]any); ok {
+			for _, lo := range labelArr {
+				if lm, ok := lo.(map[string]any); ok {
+					if name, ok := lm["name"].(string); ok {
+						labels = append(labels, name)
+					}
+				}
+			}
+		}
+	}
+
 	// Extract additional info for dispatched tasks.
 	sha := ""
 	prNumber := ""
@@ -1795,7 +1819,7 @@ func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		if trigger.GitHub == nil || !trigger.GitHub.Matches(eventType, action, repo, branch) {
+		if trigger.GitHub == nil || !trigger.GitHub.Matches(eventType, action, repo, branch, labels) {
 			continue
 		}
 
