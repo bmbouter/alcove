@@ -3,6 +3,13 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.4.5
+
+### Bug Fixes
+- Fix SSE live streaming: increase proxy buffer padding from 4KB to 32KB.
+  Server logs confirmed the SSE connection reached Bridge but data never
+  reached the browser through 3scale/Turnpike.
+
 ## v0.4.4
 
 ### Bug Fixes
