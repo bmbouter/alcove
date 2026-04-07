@@ -25,6 +25,7 @@ func TestGitHubTriggerMatches(t *testing.T) {
 		repo      string
 		branch    string
 		labels    []string
+		users     []string
 		want      bool
 	}{
 		{
@@ -187,14 +188,57 @@ func TestGitHubTriggerMatches(t *testing.T) {
 			labels:    []string{},
 			want:      false,
 		},
+		// User filter tests
+		{
+			name:      "trigger with users + matching user",
+			trigger:   &GitHubTrigger{Events: []string{"issues"}, Users: []string{"bmbouter"}},
+			eventType: "issues",
+			users:     []string{"bmbouter"},
+			want:      true,
+		},
+		{
+			name:      "trigger with users + no users",
+			trigger:   &GitHubTrigger{Events: []string{"issues"}, Users: []string{"bmbouter"}},
+			eventType: "issues",
+			users:     nil,
+			want:      false,
+		},
+		{
+			name:      "trigger with users + different user",
+			trigger:   &GitHubTrigger{Events: []string{"issues"}, Users: []string{"bmbouter"}},
+			eventType: "issues",
+			users:     []string{"otheruser"},
+			want:      false,
+		},
+		{
+			name:      "trigger with no users filter + any event",
+			trigger:   &GitHubTrigger{Events: []string{"issues"}},
+			eventType: "issues",
+			users:     []string{"anyuser"},
+			want:      true,
+		},
+		{
+			name:      "case insensitive user matching",
+			trigger:   &GitHubTrigger{Events: []string{"issues"}, Users: []string{"BMBouter"}},
+			eventType: "issues",
+			users:     []string{"bmbouter"},
+			want:      true,
+		},
+		{
+			name:      "multiple trigger users, one matches",
+			trigger:   &GitHubTrigger{Events: []string{"issues"}, Users: []string{"alice", "bmbouter"}},
+			eventType: "issues",
+			users:     []string{"bmbouter"},
+			want:      true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.trigger.Matches(tt.eventType, tt.action, tt.repo, tt.branch, tt.labels)
+			got := tt.trigger.Matches(tt.eventType, tt.action, tt.repo, tt.branch, tt.labels, tt.users)
 			if got != tt.want {
-				t.Errorf("Matches(%q, %q, %q, %q, %v) = %v, want %v",
-					tt.eventType, tt.action, tt.repo, tt.branch, tt.labels, got, tt.want)
+				t.Errorf("Matches(%q, %q, %q, %q, %v, %v) = %v, want %v",
+					tt.eventType, tt.action, tt.repo, tt.branch, tt.labels, tt.users, got, tt.want)
 			}
 		})
 	}

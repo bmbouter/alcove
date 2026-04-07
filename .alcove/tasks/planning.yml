@@ -114,4 +114,5 @@ trigger:
       - bmbouter/alcove
     labels:
       - needs-planning
+    users: [bmbouter]
     delivery_mode: polling

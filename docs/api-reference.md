@@ -1731,6 +1731,24 @@ If `labels` is omitted or empty, all matching events are dispatched.
 
 See [Configuration Reference](configuration.md#label-based-trigger-filtering) for full details.
 
+### Event Trigger User Filtering
+
+The trigger configuration supports an optional `users` field (string array). When specified, the event is only dispatched if the user who authored the comment or issue matches at least one of the listed GitHub usernames (case-insensitive). This prevents automated agents' own comments from re-triggering tasks and limits dispatch to trusted users.
+
+```yaml
+trigger:
+  github:
+    events: [issues, issue_comment]
+    actions: [opened, created]
+    repos: [org/myproject]
+    labels: [ready-for-dev]
+    users: [bmbouter]
+```
+
+If `users` is omitted or empty, all matching events are dispatched regardless of the event author.
+
+See [Configuration Reference](configuration.md#user-based-trigger-filtering) for full details.
+
 ---
 
 ## Task Templates
