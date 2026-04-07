@@ -3,6 +3,13 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.4.11
+
+### Bug Fixes
+- Fix transcript polling fallback: clear stream state when proxy closes
+  the SSE connection, allowing the 5-second refresh to fetch transcript
+  data from the database.
+
 ## v0.4.10
 
 ### Bug Fixes
