@@ -443,6 +443,7 @@ schedule: "0 2 * * *"
 | `tools`     | string[] | no       | MCP tool names to enable |
 | `schedule`  | string   | no       | Cron expression for automatic execution |
 | `labels`    | string[] | no       | GitHub issue/PR labels for event filtering (see below) |
+| `users`     | string[] | no       | GitHub usernames for event filtering (see below) |
 
 ### Event Delivery Mode
 
@@ -486,6 +487,31 @@ trigger:
 
 If `labels` is omitted or empty, all matching events are dispatched regardless
 of labels on the issue or PR.
+
+### User-Based Trigger Filtering
+
+The `users` field provides a safety gate for event triggers. When specified,
+an event is only dispatched if the user who authored the comment or issue
+matches at least one of the listed GitHub usernames (case-insensitive). This
+prevents automated agents' own comments from re-triggering tasks and limits
+task dispatch to trusted users.
+
+```yaml
+name: auto-fix
+prompt: |
+  Investigate and fix the issue described above.
+repo: https://github.com/org/myproject.git
+trigger:
+  github:
+    events: [issues, issue_comment]
+    actions: [opened, created]
+    repos: [org/myproject]
+    labels: [ready-for-dev]
+    users: [bmbouter]
+```
+
+If `users` is omitted or empty, all matching events are dispatched regardless
+of the event author.
 
 Task definitions appear in the dashboard where users can run them directly or
 view the source YAML. Starter templates are also available via

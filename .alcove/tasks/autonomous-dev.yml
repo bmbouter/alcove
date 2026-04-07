@@ -145,4 +145,5 @@ trigger:
       - bmbouter/alcove
     labels:
       - ready-for-dev
+    users: [bmbouter]
     delivery_mode: polling

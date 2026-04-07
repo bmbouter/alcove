@@ -309,11 +309,27 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 			}
 		}
 
+		// Extract user from comment or issue.
+		var users []string
+		if comment, ok := payload["comment"].(map[string]interface{}); ok {
+			if user, ok := comment["user"].(map[string]interface{}); ok {
+				if login, ok := user["login"].(string); ok {
+					users = append(users, login)
+				}
+			}
+		} else if issue, ok := payload["issue"].(map[string]interface{}); ok {
+			if user, ok := issue["user"].(map[string]interface{}); ok {
+				if login, ok := user["login"].(string); ok {
+					users = append(users, login)
+				}
+			}
+		}
+
 		eventRepo := event.Repo.Name
 
 		// Match against each schedule.
 		for _, sched := range schedules {
-			if !sched.Trigger.Matches(eventType, action, eventRepo, branch, labels) {
+			if !sched.Trigger.Matches(eventType, action, eventRepo, branch, labels, users) {
 				continue
 			}
 

@@ -1733,6 +1733,22 @@ func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Extract user from comment or issue.
+	var users []string
+	if comment, ok := payload["comment"].(map[string]any); ok {
+		if user, ok := comment["user"].(map[string]any); ok {
+			if login, ok := user["login"].(string); ok {
+				users = append(users, login)
+			}
+		}
+	} else if issue, ok := payload["issue"].(map[string]any); ok {
+		if user, ok := issue["user"].(map[string]any); ok {
+			if login, ok := user["login"].(string); ok {
+				users = append(users, login)
+			}
+		}
+	}
+
 	// Extract additional info for dispatched tasks.
 	sha := ""
 	prNumber := ""
@@ -1819,7 +1835,7 @@ func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		if trigger.GitHub == nil || !trigger.GitHub.Matches(eventType, action, repo, branch, labels) {
+		if trigger.GitHub == nil || !trigger.GitHub.Matches(eventType, action, repo, branch, labels, users) {
 			continue
 		}
 

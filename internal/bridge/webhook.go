@@ -31,11 +31,12 @@ type GitHubTrigger struct {
 	Repos        []string `json:"repos,omitempty" yaml:"repos"`                       // org/repo filters (empty = all)
 	Branches     []string `json:"branches,omitempty" yaml:"branches"`                 // branch filters (empty = all)
 	Labels       []string `json:"labels,omitempty" yaml:"labels"`                     // label filters (empty = all)
+	Users        []string `json:"users,omitempty" yaml:"users"`                       // user filters (empty = all)
 	DeliveryMode string   `json:"delivery_mode,omitempty" yaml:"delivery_mode"`       // "polling" or "webhook", default "polling"
 }
 
 // Matches checks if an incoming webhook event matches this trigger config.
-func (t *GitHubTrigger) Matches(eventType, action, repo, branch string, labels []string) bool {
+func (t *GitHubTrigger) Matches(eventType, action, repo, branch string, labels, users []string) bool {
 	if t == nil {
 		return false
 	}
@@ -66,6 +67,26 @@ func (t *GitHubTrigger) Matches(eventType, action, repo, branch string, labels [
 		matched := false
 		for _, required := range t.Labels {
 			for _, have := range labels {
+				if strings.EqualFold(required, have) {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+
+	// Users filter (AND with other filters). If trigger specifies users,
+	// at least one must match the event's user.
+	if len(t.Users) > 0 {
+		matched := false
+		for _, required := range t.Users {
+			for _, have := range users {
 				if strings.EqualFold(required, have) {
 					matched = true
 					break
