@@ -16,7 +16,7 @@ all resolved decisions.
 | Controller | **Bridge** | REST API, dashboard, task dispatch, scheduler, admin settings, security profile builder |
 | Worker | **Skiff** | Ephemeral Claude Code execution |
 | Auth Proxy | **Gate** | Sidecar proxy: token swap, LLM API proxy, SCM proxy (`/github/`, `/gitlab/`), scope enforcement, MCP tool configs |
-| Message Bus | **Hail** | NATS-based status, transcript streaming, cancellation |
+| Message Bus | **Hail** | NATS-based status, transcript ingestion, cancellation |
 | Session Store | **Ledger** | PostgreSQL session records, transcripts, proxy logs |
 
 ## What's Built (Phase 1 — functional)
@@ -79,7 +79,7 @@ alcove/
 ├── web/
 │   ├── index.html              ✅ Dashboard SPA shell with all page views, setup checklist
 │   ├── css/style.css           ✅ Dark theme dashboard styles
-│   └── js/app.js               ✅ Full SPA: login, task list with pagination, new task form with profile selection, live transcript viewer (fetch + ReadableStream with polling fallback), proxy log viewer, providers page, security profiles page, MCP tools page, schedules with NLP cron input, admin settings, user management, guided setup checklist, contextual warnings
+│   └── js/app.js               ✅ Full SPA: login, task list with pagination, new task form with profile selection, live transcript viewer (5-second polling from database), proxy log viewer, providers page, security profiles page, MCP tools page, schedules with NLP cron input, admin settings, user management, guided setup checklist, contextual warnings
 ├── build/
 │   ├── Containerfile.bridge    ✅ Multi-stage (golang:1.25 → ubi9/ubi)
 │   ├── Containerfile.gate      ✅ Multi-stage (golang:1.25 → ubi9-minimal)
@@ -133,11 +133,12 @@ alcove/
 
 2. **Dashboard Frontend** — Full SPA in `web/` with login form, task list with
    status filters, search, and pagination, new task form with provider and profile
-   selection and debug toggle, task detail view with live transcript streaming
-   (fetch + ReadableStream with catch-up + live, fallback to polling) and proxy log tabs, providers page, security profiles
-   page, MCP tools page, schedules page with NLP-style cron input, admin settings
-   page (system LLM shown as read-only status), user management page, guided
-   setup checklist with contextual warnings. Dark theme.
+   selection and debug toggle, task detail view with live transcript viewer
+   (5-second polling from database, same as proxy log) and proxy log tabs,
+   providers page, security profiles page, MCP tools page, schedules page with
+   NLP-style cron input, admin settings page (system LLM shown as read-only
+   status), user management page, guided setup checklist with contextual
+   warnings. Live indicator shown while session status is 'running'. Dark theme.
 
 3. **Ledger Ingestion API** — Bridge serves POST endpoints for transcript, status,
    and proxy-log ingestion:
@@ -192,17 +193,15 @@ alcove/
     `GH_HOST`, `GLAB_HOST`, `GATE_CREDENTIAL_URL`, `GIT_SSH_COMMAND`, etc.) are
     injected by Bridge when the task scope includes a `github` or `gitlab` service.
 
-11. **Real-Time Transcript Streaming** — Skiff publishes transcript events to NATS
-    via `hail.PublishTranscript()`. Bridge subscribes to the NATS subject for the
-    session and streams events to the dashboard via SSE. The SSE endpoint implements
-    catch-up + live: on connect, it sends all persisted transcript events from the
-    database, then subscribes to NATS for live events. Status updates are also
-    streamed so the client detects session completion. The dashboard uses
-    `fetch()` + `ReadableStream` for real-time streaming (not `EventSource`, which
-    is incompatible with the Akamai + Turnpike proxy chain used on OpenShift
-    staging). If streaming is unavailable, the client automatically falls back to
-    5-second polling. This approach works on both local dev and OpenShift staging.
-    Auth supports query-param token fallback for SSE connections.
+11. **Transcript Viewing** — Skiff flushes transcript events to the database
+    every 5 seconds via `POST /api/v1/sessions/{id}/transcript`. The dashboard
+    polls `GET /api/v1/sessions/{id}/transcript` every 5 seconds (same approach
+    as proxy log). A live indicator is shown while the session status is
+    'running'. Client-side streaming (EventSource and fetch+ReadableStream)
+    was removed due to incompatibility with the Akamai + Turnpike proxy chain
+    used on OpenShift staging. The `?stream=true` SSE endpoint still exists on
+    the server but is not used by the dashboard. This polling approach works
+    reliably on both local dev and OpenShift staging.
 
 12. **Security Profiles** — Named, reusable bundles of tool + repo + operation
     permissions. Supports multi-rule per-repo operation scoping (each rule specifies

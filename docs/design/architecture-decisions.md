@@ -187,15 +187,18 @@ claude \
 | Manual cancel | Bridge sends cancel via NATS topic `tasks.<id>.cancel`; init sends `SIGTERM` |
 | Heartbeat timeout | Init monitors stream-json stdout; 10 min silence triggers `SIGTERM` |
 
-### 10. Session Transcript Streaming
+### 10. Session Transcript Delivery
 
-**Decision**: Real-time streaming with local write-ahead log.
+**Decision**: Write-ahead log with periodic flush to database; dashboard uses polling.
 
 1. Init process reads Claude Code's NDJSON stdout line-by-line
 2. Each event is written to local WAL (`/tmp/alcove-transcript-<id>.jsonl`)
-3. Events are batched and sent to Ledger via HTTP
+3. Events are flushed to the database every 5 seconds via HTTP POST
 4. On exit, final reconciliation flushes any unsent events
 5. Pod `terminationGracePeriodSeconds: 60` allows flush to complete
+6. Dashboard polls `GET /api/v1/sessions/{id}/transcript` every 5 seconds
+   (same approach as proxy log). Client-side streaming (EventSource and
+   fetch+ReadableStream) was removed due to Akamai/Turnpike incompatibility.
 
 ### 11. Vertex AI Credentials
 
