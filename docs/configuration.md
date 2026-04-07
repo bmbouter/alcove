@@ -442,6 +442,7 @@ schedule: "0 2 * * *"
 | `profiles`  | string[] | no       | Security profile names to apply |
 | `tools`     | string[] | no       | MCP tool names to enable |
 | `schedule`  | string   | no       | Cron expression for automatic execution |
+| `labels`    | string[] | no       | GitHub issue/PR labels for event filtering (see below) |
 
 ### Event Delivery Mode
 
@@ -462,6 +463,29 @@ trigger:
 ```
 
 Polling uses GitHub's conditional request support (ETags) to minimize API usage. On first poll, existing events are skipped to avoid a flood of retroactive task dispatches.
+
+### Label-Based Trigger Filtering
+
+The `labels` field provides a safety gate for event triggers. When specified,
+an event is only dispatched if at least one of the listed labels is present on
+the issue or pull request. This prevents unauthorized or unexpected issues from
+triggering automated development tasks.
+
+```yaml
+name: auto-fix
+prompt: |
+  Investigate and fix the issue described above.
+repo: https://github.com/org/myproject.git
+trigger:
+  github:
+    events: [issues]
+    actions: [opened, labeled]
+    repos: [org/myproject]
+    labels: [ready-for-dev]
+```
+
+If `labels` is omitted or empty, all matching events are dispatched regardless
+of labels on the issue or PR.
 
 Task definitions appear in the dashboard where users can run them directly or
 view the source YAML. Starter templates are also available via

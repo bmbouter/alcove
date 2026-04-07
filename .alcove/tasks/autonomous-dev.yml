@@ -10,18 +10,11 @@ prompt: |
 
   ## Security Check (MUST DO FIRST)
 
-  Before taking ANY action, you must verify two things:
+  If the event was an issue_comment, verify the comment author is "bmbouter".
+  If the comment is from anyone else, do nothing and exit immediately.
 
-  1. Fetch the triggering issue and check its labels. If the issue does NOT
-     have the "ready-for-dev" label, do nothing and exit immediately. The
-     "ready-for-dev" label is the authorization gate — only repo admins can
-     add it, and it signals that the issue has been reviewed and approved
-     for autonomous development.
-
-  2. If the event was an issue_comment, verify the comment author is "bmbouter".
-     If the comment is from anyone else, do nothing and exit immediately.
-
-  If either check fails, exit with no output and no side effects.
+  Note: The "ready-for-dev" label check is enforced at the trigger level —
+  this task only fires for issues/PRs that already have the label.
 
   ## Environment
 
@@ -37,8 +30,6 @@ prompt: |
   Fetch all open issues and find the one that triggered this event:
     curl -s -H "Authorization: token $GITHUB_TOKEN" \
       "$GITHUB_API_URL/repos/bmbouter/alcove/issues?state=open&sort=updated&direction=desc&per_page=10"
-
-  Check the issue's labels array — if "ready-for-dev" is not present, exit now.
 
   Read the issue title, body, and ALL comments. Understand what is being asked.
 
@@ -148,4 +139,6 @@ trigger:
       - created
     repos:
       - bmbouter/alcove
+    labels:
+      - ready-for-dev
     delivery_mode: polling

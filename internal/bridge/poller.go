@@ -285,11 +285,35 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 			}
 		}
 
+		// Extract labels from issue or pull_request.
+		var labels []string
+		if issue, ok := payload["issue"].(map[string]interface{}); ok {
+			if labelArr, ok := issue["labels"].([]interface{}); ok {
+				for _, lo := range labelArr {
+					if lm, ok := lo.(map[string]interface{}); ok {
+						if name, ok := lm["name"].(string); ok {
+							labels = append(labels, name)
+						}
+					}
+				}
+			}
+		} else if pr, ok := payload["pull_request"].(map[string]interface{}); ok {
+			if labelArr, ok := pr["labels"].([]interface{}); ok {
+				for _, lo := range labelArr {
+					if lm, ok := lo.(map[string]interface{}); ok {
+						if name, ok := lm["name"].(string); ok {
+							labels = append(labels, name)
+						}
+					}
+				}
+			}
+		}
+
 		eventRepo := event.Repo.Name
 
 		// Match against each schedule.
 		for _, sched := range schedules {
-			if !sched.Trigger.Matches(eventType, action, eventRepo, branch) {
+			if !sched.Trigger.Matches(eventType, action, eventRepo, branch, labels) {
 				continue
 			}
 
