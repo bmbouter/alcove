@@ -3,6 +3,12 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.4.7
+
+### Debugging
+- Add SSE debug logging to browser console and server for diagnosing
+  live streaming issues on staging.
+
 ## v0.4.6
 
 ### Bug Fixes
