@@ -2025,9 +2025,10 @@
                 if (token) {
                     sseUrl += '&token=' + encodeURIComponent(token);
                 }
-                console.log('[SSE] Opening EventSource:', sseUrl);
+                var sseOpts = rhIdentityMode ? { withCredentials: true } : undefined;
+                console.log('[SSE] Opening EventSource:', sseUrl, 'rhIdentityMode:', rhIdentityMode, 'withCredentials:', !!sseOpts);
                 console.log('[SSE] basePath:', basePath, 'token:', token ? 'present' : 'null');
-                sseSource = new EventSource(sseUrl);
+                sseSource = new EventSource(sseUrl, sseOpts);
                 console.log('[SSE] EventSource created, readyState:', sseSource.readyState);
 
                 // Safety timeout: if SSE hasn't connected in 5s, hide spinner and fall back
