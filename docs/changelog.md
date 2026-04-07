@@ -11,6 +11,14 @@ All notable changes to Alcove are documented here. This project uses
   issue/PR has a matching label. Enforced at the trigger level, not in the
   prompt — prevents unauthorized issues from triggering automated development.
 
+## v0.4.14
+
+### Bug Fixes
+- Fix Gate URLs on Kubernetes: override GITHUB_API_URL, GITLAB_API_URL,
+  JIRA_API_URL, and GH_HOST to use localhost:8443 instead of the Gate
+  container hostname (which doesn't resolve on Kubernetes where Gate is
+  a native sidecar sharing the pod network namespace).
+
 ## v0.4.12
 
 ### Improvements
