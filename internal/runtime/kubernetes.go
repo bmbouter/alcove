@@ -147,8 +147,26 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 	if _, ok := skiffEnv["NO_PROXY"]; !ok {
 		skiffEnv["NO_PROXY"] = "localhost,127.0.0.1,alcove-hail,alcove-bridge,alcove-ledger,.svc,.svc.cluster.local"
 	}
-	// Override ANTHROPIC_BASE_URL to use localhost since Gate is a sidecar.
+	// Override Gate-referenced URLs to use localhost since Gate is a sidecar
+	// sharing the pod network namespace (not a separate container with its own hostname).
 	skiffEnv["ANTHROPIC_BASE_URL"] = "http://localhost:8443"
+	for _, key := range []string{
+		"GITHUB_API_URL", "GITLAB_API_URL", "JIRA_API_URL",
+	} {
+		if val, ok := skiffEnv[key]; ok {
+			// Replace gate-{taskid}:8443 with localhost:8443
+			if strings.Contains(val, ":8443/") {
+				parts := strings.SplitN(val, ":8443/", 2)
+				skiffEnv[key] = "http://localhost:8443/" + parts[1]
+			}
+		}
+	}
+	if _, ok := skiffEnv["GH_HOST"]; ok {
+		skiffEnv["GH_HOST"] = "localhost:8443"
+	}
+	if _, ok := skiffEnv["GLAB_HOST"]; ok {
+		skiffEnv["GLAB_HOST"] = "http://localhost:8443/gitlab"
+	}
 
 	// Resolve service hostnames to IPs to bypass DNS issues in task pods.
 	// OVN-Kubernetes may block UDP DNS from pods with restrictive egress policies.
