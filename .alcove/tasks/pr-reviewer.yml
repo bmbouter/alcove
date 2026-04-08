@@ -142,64 +142,166 @@ prompt: |
   - **Database**: Migrations are additive and safe?
   - **Breaking changes**: API backward compatible?
 
-  ## Step 7: Decision
+  Document your findings for each criterion above. This will inform your review body.
+
+  ## Step 7: Decision and Formal Review Process
+
+  ⚠️ **CRITICAL**: You MUST post a formal GitHub review before taking any other action.
+  The formal review is the primary audit record - merging without it leaves no trace of what was checked.
+
+  **MANDATORY ORDER**:
+  1. Post formal review (APPROVE or REQUEST_CHANGES) ← MUST happen first
+  2. Swap labels (awaiting-review → reviewer-approved OR changes-requested)
+  3. If approved: merge PR, then delete branch
+  4. Verify each step succeeded before proceeding to the next
+
+  **Each API call must be verified** - if any step fails, stop and report the error.
 
   ### If APPROVE:
 
-  1. Post an approval review with a brief summary of what you reviewed:
-     Write review JSON to /tmp/review.json with event "APPROVE" and a body
-     summarizing what was checked and why it's good.
+  1. **CRITICAL: Post formal approval review FIRST** - This must succeed before proceeding:
 
-     curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+     Create a comprehensive review body covering all checklist items:
+
+     cat > /tmp/review.json << 'EOF'
+     {
+       "event": "APPROVE",
+       "body": "## ✅ Code Review Complete\n\n**Correctness**: Verified implementation matches issue requirements\n**Testing**: Adequate test coverage for new functionality\n**Security**: No exposed credentials or vulnerabilities detected\n**Code Quality**: Follows Go conventions and project patterns\n**Documentation**: Updated appropriately for behavior changes\n**Database**: Migrations are safe and additive (if applicable)\n**Breaking Changes**: Verified backward compatibility\n\n**Summary**: All review criteria met. Ready to merge.\n\n---\n*Automated review by Alcove PR Reviewer*"
+     }
+     EOF
+
+     echo "Posting formal approval review..."
+     REVIEW_RESPONSE=$(curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
        -H "Content-Type: application/json" \
        -d @/tmp/review.json \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER/reviews"
+       "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER/reviews")
 
-  2. Swap labels (remove awaiting-review, add reviewer-approved):
+     # Verify review was created successfully
+     REVIEW_ID=$(echo "$REVIEW_RESPONSE" | jq -r '.id // empty')
+     if [ -z "$REVIEW_ID" ]; then
+       echo "ERROR: Failed to post approval review. Response: $REVIEW_RESPONSE"
+       exit 1
+     fi
+     echo "Posted approval review #$REVIEW_ID"
+
+  2. **Swap labels**: Remove awaiting-review, add reviewer-approved:
+
+     echo "Removing awaiting-review label..."
      curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/awaiting-review" 2>/dev/null
+       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/awaiting-review"
 
-     Write label JSON to /tmp/label.json: {"labels":["reviewer-approved"]}
-     curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+     echo "Adding reviewer-approved label..."
+     cat > /tmp/label.json << 'EOF'
+     {"labels": ["reviewer-approved"]}
+     EOF
+     LABEL_RESPONSE=$(curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
        -H "Content-Type: application/json" \
        -d @/tmp/label.json \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels"
+       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels")
 
-  3. Merge the PR (squash merge):
-     Write merge JSON to /tmp/merge.json with merge_method "squash"
-     curl -s -X PUT -H "Authorization: token $GITHUB_TOKEN" \
+     # Verify label was added
+     if ! echo "$LABEL_RESPONSE" | jq -e '.[] | select(.name == "reviewer-approved")' >/dev/null; then
+       echo "ERROR: Failed to add reviewer-approved label. Response: $LABEL_RESPONSE"
+       exit 1
+     fi
+     echo "Successfully swapped labels"
+
+  3. **Merge the PR** (only after review and labels are confirmed):
+
+     echo "Merging PR..."
+     cat > /tmp/merge.json << 'EOF'
+     {
+       "commit_title": "Auto-merge approved PR",
+       "commit_message": "Merged after automated review approval",
+       "merge_method": "squash"
+     }
+     EOF
+     MERGE_RESPONSE=$(curl -s -X PUT -H "Authorization: token $GITHUB_TOKEN" \
        -H "Content-Type: application/json" \
        -d @/tmp/merge.json \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER/merge"
+       "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER/merge")
 
-  4. Delete the feature branch:
-     curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/git/refs/heads/$BRANCH"
+     # Verify merge succeeded
+     if ! echo "$MERGE_RESPONSE" | jq -e '.merged' >/dev/null; then
+       echo "ERROR: Failed to merge PR. Response: $MERGE_RESPONSE"
+       exit 1
+     fi
+     echo "Successfully merged PR"
+
+  4. **Delete the feature branch** (cleanup after successful merge):
+
+     echo "Deleting feature branch: $BRANCH"
+     DELETE_RESPONSE=$(curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+       "$GITHUB_API_URL/repos/bmbouter/alcove/git/refs/heads/$BRANCH")
+
+     # Branch deletion is not critical - log but don't fail
+     if [ -n "$DELETE_RESPONSE" ]; then
+       echo "Branch deletion response: $DELETE_RESPONSE"
+     else
+       echo "Feature branch deleted successfully"
+     fi
+
+     echo "✅ PR #$PR_NUMBER review cycle complete: approved, merged, and cleaned up"
 
   ### If REQUEST_CHANGES:
 
-  1. Post a detailed review with specific issues and suggestions:
-     Write review JSON to /tmp/review.json with event "REQUEST_CHANGES"
-     Include specific file references, explain WHY each issue matters,
-     and suggest concrete fixes.
+  1. **Post detailed review with specific feedback** - Must include actionable items:
 
-     curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+     Create a comprehensive review explaining each issue:
+
+     # Build review body with specific issues found during review
+     # Example format - adapt based on actual issues found:
+     cat > /tmp/review.json << 'EOF'
+     {
+       "event": "REQUEST_CHANGES",
+       "body": "## 🔍 Changes Requested\n\n**Issues Found:**\n\n### [Specific Issue Category]\n- **File**: `path/to/file.go:line`\n- **Issue**: Detailed explanation of what's wrong\n- **Why it matters**: Security/correctness/maintainability concern\n- **Suggested fix**: Concrete steps to resolve\n\n### [Additional Issues as needed]\n...\n\n**Summary**: Please address the above issues and push updates. The dev agent will be notified to continue work.\n\n---\n*Automated review by Alcove PR Reviewer*"
+     }
+     EOF
+
+     echo "Posting change request review..."
+     REVIEW_RESPONSE=$(curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
        -H "Content-Type: application/json" \
        -d @/tmp/review.json \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER/reviews"
+       "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER/reviews")
 
-  2. Swap labels (remove awaiting-review, add changes-requested):
+     # Verify review was created successfully
+     REVIEW_ID=$(echo "$REVIEW_RESPONSE" | jq -r '.id // empty')
+     if [ -z "$REVIEW_ID" ]; then
+       echo "ERROR: Failed to post change request review. Response: $REVIEW_RESPONSE"
+       exit 1
+     fi
+     echo "Posted change request review #$REVIEW_ID"
+
+  2. **Swap labels**: Remove awaiting-review, add changes-requested:
+
+     echo "Removing awaiting-review label..."
      curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/awaiting-review" 2>/dev/null
+       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/awaiting-review"
 
-     Write label JSON to /tmp/label.json: {"labels":["changes-requested"]}
-     curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+     echo "Adding changes-requested label..."
+     cat > /tmp/label.json << 'EOF'
+     {"labels": ["changes-requested"]}
+     EOF
+     LABEL_RESPONSE=$(curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
        -H "Content-Type: application/json" \
        -d @/tmp/label.json \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels"
+       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels")
+
+     # Verify label was added
+     if ! echo "$LABEL_RESPONSE" | jq -e '.[] | select(.name == "changes-requested")' >/dev/null; then
+       echo "ERROR: Failed to add changes-requested label. Response: $LABEL_RESPONSE"
+       exit 1
+     fi
+     echo "Successfully swapped labels to request changes"
+
+     echo "🔄 PR #$PR_NUMBER review cycle complete: changes requested, dev agent will be notified"
 
   ## Important rules
 
+  - **NEVER merge without posting a formal review first** - This is the primary audit trail
+  - **Verify each API call succeeds** before proceeding to the next step
+  - **Always swap labels** to indicate review status (reviewer-approved or changes-requested)
+  - **Delete feature branches** after successful merge to keep the repository clean
   - ALWAYS use curl with $GITHUB_API_URL and $GITHUB_TOKEN, never gh CLI
   - Write JSON to files before POSTing (avoids shell escaping bugs)
   - Be thorough — read the full diff, not just file names
