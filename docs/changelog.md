@@ -3,6 +3,23 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.6.0
+
+### Features
+- Add PR review workflow. New reviewer agent reviews PRs after CI passes,
+  can approve and merge or request changes. Autonomous dev agent handles
+  revision cycles. 3-cycle limit before escalating to human review.
+- New GitHub Actions workflow adds `awaiting-review` label when CI passes
+  on PRs, triggering the reviewer agent automatically.
+- Updated deploy-staging and release skills to match automated workflows.
+
+### Bug Fixes
+- Fix event metadata not reaching tasks. The poller was appending event
+  context (issue number, PR number, etc.) to the database after the task
+  container had already launched. Metadata is now included in the prompt
+  before dispatch.
+- Fix label-on-ci-pass workflow permissions (needs `issues: write`).
+
 ## v0.5.0
 
 ### Features
