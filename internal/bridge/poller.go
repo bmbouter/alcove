@@ -322,6 +322,24 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 				}
 			}
 		}
+		// For "labeled" actions, the added label may not be in the
+		// issue/PR labels array yet. Check payload["label"] directly.
+		if action == "labeled" {
+			if labelObj, ok := payload["label"].(map[string]interface{}); ok {
+				if name, ok := labelObj["name"].(string); ok {
+					found := false
+					for _, l := range labels {
+						if strings.EqualFold(l, name) {
+							found = true
+							break
+						}
+					}
+					if !found {
+						labels = append(labels, name)
+					}
+				}
+			}
+		}
 
 		// Extract user from comment or issue.
 		var users []string
