@@ -83,6 +83,13 @@ prompt: |
 
   echo "Working on issue #$ISSUE_NUMBER"
 
+  # Assign alcove-bot to the issue to indicate it's being worked on
+  echo '{"assignees": ["alcove-bot"]}' > /tmp/assign-issue.json
+  curl -s -X PATCH -H "Authorization: token $GITHUB_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d @/tmp/assign-issue.json \
+    "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$ISSUE_NUMBER"
+
   # Fetch the specific issue
   curl -s -H "Authorization: token $GITHUB_TOKEN" \
     "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$ISSUE_NUMBER"
