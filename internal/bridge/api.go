@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/bmbouter/alcove/internal"
+	"github.com/bmbouter/alcove/internal/auth"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
 )
@@ -102,6 +103,8 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/webhooks/github", a.handleWebhookGitHub)
 	mux.HandleFunc("/api/v1/admin/settings/webhook", a.handleAdminSettingsWebhook)
 	mux.HandleFunc("/api/v1/system-info", a.handleSystemInfo)
+	mux.HandleFunc("/api/v1/auth/tbr-associations", a.handleTBRAssociations)
+	mux.HandleFunc("/api/v1/auth/tbr-associations/", a.handleTBRAssociationByID)
 }
 
 // --- Health ---
@@ -2006,6 +2009,107 @@ func (a *API) handleAdminSettingsWebhook(w http.ResponseWriter, r *http.Request)
 			"secret":     req.Secret,
 			"url":        "/api/v1/webhooks/github",
 		})
+	default:
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+// --- TBR Identity Associations ---
+
+func (a *API) handleTBRAssociations(w http.ResponseWriter, r *http.Request) {
+	username := r.Header.Get("X-Alcove-User")
+	if username == "" {
+		respondError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	// Only supported with rh-identity backend
+	if a.cfg.AuthBackend != "rh-identity" {
+		respondError(w, http.StatusBadRequest, "TBR associations only supported with rh-identity backend")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		// List user's TBR associations
+		rhStore := a.cfg.AuthStore.(*auth.RHIdentityStore)
+		associations, err := rhStore.GetTBRAssociations(r.Context(), username)
+		if err != nil {
+			log.Printf("error fetching TBR associations for user %s: %v", username, err)
+			respondError(w, http.StatusInternalServerError, "failed to fetch associations")
+			return
+		}
+
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"associations": associations,
+		})
+
+	case http.MethodPost:
+		// Create new TBR association
+		var req struct {
+			TBROrgID    string `json:"tbr_org_id"`
+			TBRUsername string `json:"tbr_username"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+
+		if req.TBROrgID == "" || req.TBRUsername == "" {
+			respondError(w, http.StatusBadRequest, "tbr_org_id and tbr_username are required")
+			return
+		}
+
+		rhStore := a.cfg.AuthStore.(*auth.RHIdentityStore)
+		association, err := rhStore.CreateTBRAssociation(r.Context(), username, req.TBROrgID, req.TBRUsername)
+		if err != nil {
+			log.Printf("error creating TBR association for user %s: %v", username, err)
+			respondError(w, http.StatusConflict, err.Error())
+			return
+		}
+
+		respondJSON(w, http.StatusCreated, association)
+
+	default:
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (a *API) handleTBRAssociationByID(w http.ResponseWriter, r *http.Request) {
+	username := r.Header.Get("X-Alcove-User")
+	if username == "" {
+		respondError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	// Only supported with rh-identity backend
+	if a.cfg.AuthBackend != "rh-identity" {
+		respondError(w, http.StatusBadRequest, "TBR associations only supported with rh-identity backend")
+		return
+	}
+
+	// Extract association ID from URL path
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/auth/tbr-associations/")
+	if path == "" {
+		respondError(w, http.StatusBadRequest, "association ID required")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodDelete:
+		// Delete TBR association (user must own it)
+		rhStore := a.cfg.AuthStore.(*auth.RHIdentityStore)
+		if err := rhStore.DeleteTBRAssociation(r.Context(), username, path); err != nil {
+			log.Printf("error deleting TBR association %s for user %s: %v", path, username, err)
+			respondError(w, http.StatusNotFound, err.Error())
+			return
+		}
+
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"deleted": true,
+		})
+
 	default:
 		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}

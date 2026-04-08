@@ -1991,3 +1991,47 @@ select.input {
 .rh-identity-banner-dismiss:hover {
     background: rgba(52, 152, 219, 0.2);
 }
+
+
+/* === TBR Associations === */
+.associations-list h4 {
+    margin-bottom: 16px;
+    color: var(--text);
+    font-weight: 500;
+}
+
+.form-section {
+    margin-top: 32px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+}
+
+.form-section h4 {
+    margin-bottom: 16px;
+    color: var(--text);
+    font-weight: 500;
+}
+
+.section-description {
+    color: var(--text-muted);
+    margin-bottom: 24px;
+    line-height: 1.5;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.data-table td .btn.btn-danger {
+    background: rgba(231, 76, 60, 0.15);
+    border-color: rgba(231, 76, 60, 0.3);
+    color: var(--status-error);
+}
+
+.data-table td .btn.btn-danger:hover {
+    background: rgba(231, 76, 60, 0.25);
+    border-color: rgba(231, 76, 60, 0.5);
+}

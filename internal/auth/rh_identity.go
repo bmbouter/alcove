@@ -19,6 +19,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -35,11 +37,31 @@ type RHIdentity struct {
 			Surname   string   `json:"surname"`
 			Role      []string `json:"Role"`
 		} `json:"associate,omitempty"`
+		User *struct {
+			Username string `json:"username"`
+		} `json:"user,omitempty"`
+		OrgID string `json:"org_id,omitempty"`
 	} `json:"identity"`
 }
 
+// TBRIdentity represents TBR-specific identity information extracted from RHIdentity
+type TBRIdentity struct {
+	OrgID    string
+	Username string
+}
+
+// TBRAssociation represents a TBR identity association record
+type TBRAssociation struct {
+	ID          string    `json:"id"`
+	UserID      string    `json:"user_id"`
+	TBROrgID    string    `json:"tbr_org_id"`
+	TBRUsername string    `json:"tbr_username"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 // ParseRHIdentity decodes a base64-encoded X-RH-Identity header value
-// and unmarshals the JSON payload.
+// and unmarshals the JSON payload. It supports both SAML Associate and TBR User identities.
 func ParseRHIdentity(headerValue string) (*RHIdentity, error) {
 	decoded, err := base64.StdEncoding.DecodeString(headerValue)
 	if err != nil {
@@ -51,17 +73,47 @@ func ParseRHIdentity(headerValue string) (*RHIdentity, error) {
 		return nil, fmt.Errorf("unmarshaling identity: %w", err)
 	}
 
-	if id.Identity.Associate == nil {
-		return nil, fmt.Errorf("missing associate in identity")
-	}
-	if id.Identity.Associate.RhatUUID == "" {
-		return nil, fmt.Errorf("missing rhatUUID in identity")
-	}
-	if id.Identity.Associate.Email == "" {
-		return nil, fmt.Errorf("missing email in identity")
+	// Log raw header and decoded identity type for debugging
+	log.Printf("rh-identity: parsed header type=%s auth_type=%s", id.Identity.Type, id.Identity.AuthType)
+
+	// Validate SAML Associate identity
+	if id.Identity.Associate != nil {
+		if id.Identity.Associate.RhatUUID == "" {
+			return nil, fmt.Errorf("missing rhatUUID in Associate identity")
+		}
+		if id.Identity.Associate.Email == "" {
+			return nil, fmt.Errorf("missing email in Associate identity")
+		}
+		log.Printf("rh-identity: valid SAML Associate identity uuid=%s email=%s", id.Identity.Associate.RhatUUID, id.Identity.Associate.Email)
+		return &id, nil
 	}
 
-	return &id, nil
+	// Validate TBR User identity
+	if id.Identity.User != nil {
+		if id.Identity.OrgID == "" || id.Identity.User.Username == "" {
+			return nil, fmt.Errorf("missing org_id or username in TBR identity")
+		}
+		log.Printf("rh-identity: valid TBR identity org_id=%s username=%s", id.Identity.OrgID, id.Identity.User.Username)
+		return &id, nil
+	}
+
+	return nil, fmt.Errorf("identity missing both associate and user fields")
+}
+
+// ExtractTBRIdentity extracts TBR identity information from RHIdentity if present
+func ExtractTBRIdentity(id *RHIdentity) *TBRIdentity {
+	if id.Identity.User != nil && id.Identity.OrgID != "" && id.Identity.User.Username != "" {
+		return &TBRIdentity{
+			OrgID:    id.Identity.OrgID,
+			Username: id.Identity.User.Username,
+		}
+	}
+	return nil
+}
+
+// IsTBRIdentity returns true if the identity is a TBR identity type
+func IsTBRIdentity(id *RHIdentity) bool {
+	return ExtractTBRIdentity(id) != nil
 }
 
 // RHIdentityStore implements Authenticator and UserManager for the rh-identity
@@ -124,6 +176,102 @@ func (s *RHIdentityStore) UpsertUser(ctx context.Context, id *RHIdentity) (strin
 	}
 
 	return assoc.Email, nil
+}
+
+// --- TBR Identity Association Management ---
+
+// ResolveTBRToSSO looks up a TBR identity (org_id + username) and returns the associated SSO username
+func (s *RHIdentityStore) ResolveTBRToSSO(ctx context.Context, orgID, tbrUsername string) (string, error) {
+	log.Printf("rh-identity: resolving TBR identity org_id=%s username=%s", orgID, tbrUsername)
+
+	var ssoUsername string
+	err := s.db.QueryRow(ctx,
+		"SELECT user_id FROM tbr_identity_associations WHERE tbr_org_id = $1 AND tbr_username = $2",
+		orgID, tbrUsername).Scan(&ssoUsername)
+	if err != nil {
+		log.Printf("rh-identity: TBR resolution failed org_id=%s username=%s: %v", orgID, tbrUsername, err)
+		return "", fmt.Errorf("TBR identity not found: %w", err)
+	}
+
+	log.Printf("rh-identity: TBR resolved org_id=%s username=%s -> sso_user=%s", orgID, tbrUsername, ssoUsername)
+	return ssoUsername, nil
+}
+
+// GetTBRAssociations returns all TBR associations for a given SSO user
+func (s *RHIdentityStore) GetTBRAssociations(ctx context.Context, username string) ([]TBRAssociation, error) {
+	log.Printf("rh-identity: fetching TBR associations for user=%s", username)
+
+	rows, err := s.db.Query(ctx,
+		"SELECT id, user_id, tbr_org_id, tbr_username, created_at, updated_at FROM tbr_identity_associations WHERE user_id = $1 ORDER BY created_at",
+		username)
+	if err != nil {
+		return nil, fmt.Errorf("querying TBR associations: %w", err)
+	}
+	defer rows.Close()
+
+	var associations []TBRAssociation
+	for rows.Next() {
+		var assoc TBRAssociation
+		if err := rows.Scan(&assoc.ID, &assoc.UserID, &assoc.TBROrgID, &assoc.TBRUsername, &assoc.CreatedAt, &assoc.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scanning TBR association: %w", err)
+		}
+		associations = append(associations, assoc)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating TBR associations: %w", err)
+	}
+
+	log.Printf("rh-identity: found %d TBR associations for user=%s", len(associations), username)
+	return associations, nil
+}
+
+// CreateTBRAssociation creates a new TBR identity association for an SSO user
+func (s *RHIdentityStore) CreateTBRAssociation(ctx context.Context, username, orgID, tbrUsername string) (*TBRAssociation, error) {
+	log.Printf("rh-identity: creating TBR association user=%s org_id=%s tbr_username=%s", username, orgID, tbrUsername)
+
+	// Check if the TBR identity is already associated with someone else
+	var existingUser string
+	err := s.db.QueryRow(ctx,
+		"SELECT user_id FROM tbr_identity_associations WHERE tbr_org_id = $1 AND tbr_username = $2",
+		orgID, tbrUsername).Scan(&existingUser)
+	if err == nil {
+		if existingUser == username {
+			return nil, fmt.Errorf("TBR identity already associated with your account")
+		}
+		return nil, fmt.Errorf("TBR identity already associated with another user")
+	}
+
+	// Insert the new association
+	var assoc TBRAssociation
+	err = s.db.QueryRow(ctx,
+		`INSERT INTO tbr_identity_associations (user_id, tbr_org_id, tbr_username, created_at, updated_at)
+		 VALUES ($1, $2, $3, NOW(), NOW())
+		 RETURNING id, user_id, tbr_org_id, tbr_username, created_at, updated_at`,
+		username, orgID, tbrUsername).Scan(&assoc.ID, &assoc.UserID, &assoc.TBROrgID, &assoc.TBRUsername, &assoc.CreatedAt, &assoc.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("creating TBR association: %w", err)
+	}
+
+	log.Printf("rh-identity: created TBR association id=%s user=%s org_id=%s tbr_username=%s", assoc.ID, username, orgID, tbrUsername)
+	return &assoc, nil
+}
+
+// DeleteTBRAssociation removes a TBR identity association (user must own it)
+func (s *RHIdentityStore) DeleteTBRAssociation(ctx context.Context, username, associationID string) error {
+	log.Printf("rh-identity: deleting TBR association id=%s user=%s", associationID, username)
+
+	tag, err := s.db.Exec(ctx,
+		"DELETE FROM tbr_identity_associations WHERE id = $1 AND user_id = $2",
+		associationID, username)
+	if err != nil {
+		return fmt.Errorf("deleting TBR association: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("TBR association not found or not owned by user")
+	}
+
+	log.Printf("rh-identity: deleted TBR association id=%s user=%s", associationID, username)
+	return nil
 }
 
 // --- Authenticator interface (no-ops for rh-identity) ---

@@ -45,6 +45,7 @@
                 <a href="#security" class="nav-tab" data-tab="security">Security</a>
                 <a href="#repos" class="nav-tab" data-tab="repos">Repos</a>
                 <div style="flex:1;"></div>
+                <a href="#account" class="nav-tab" data-tab="account" id="account-tab" hidden>Account</a>
                 <a href="#users" class="nav-tab nav-admin-only" data-tab="users" hidden>Users</a>
             </nav>
             <div class="top-bar-right">
@@ -582,6 +583,66 @@
                     </table>
                     <div id="tools-empty" class="empty-state" hidden><p>No tools configured.</p></div>
                     <div id="tools-loading" class="loading-state" hidden><div class="spinner"></div><p>Loading tools...</p></div>
+                </div>
+            </div>
+
+            <!-- Account -->
+            <div id="page-account" class="page" hidden>
+                <div class="page-header">
+                    <h2>Account Settings</h2>
+                </div>
+
+                <!-- TBR Identity Associations Section -->
+                <div id="tbr-associations-section" class="form-card" hidden>
+                    <h3>TBR Identity Associations</h3>
+                    <p class="section-description">
+                        Associate Token Based Registry (TBR) identities with your account to enable API authentication.
+                        Once associated, you can authenticate API requests using TBR tokens.
+                    </p>
+
+                    <!-- Current Associations -->
+                    <div class="associations-list">
+                        <h4>Current Associations</h4>
+                        <div id="tbr-associations-empty" class="empty-state" hidden>
+                            <p>No TBR identities associated with your account.</p>
+                        </div>
+                        <table id="tbr-associations-table" class="data-table" hidden>
+                            <thead>
+                                <tr>
+                                    <th>Organization ID</th>
+                                    <th>Username</th>
+                                    <th>Created</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbr-associations-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Add New Association Form -->
+                    <div class="form-section">
+                        <h4>Add New Association</h4>
+                        <form id="tbr-association-form">
+                            <div class="form-row">
+                                <div class="form-group form-group-half">
+                                    <label for="tbr-org-id">Organization ID <span class="required">*</span></label>
+                                    <input type="text" id="tbr-org-id" name="tbr_org_id" required placeholder="e.g., 12345">
+                                    <small>The organization ID from your TBR identity.</small>
+                                </div>
+                                <div class="form-group form-group-half">
+                                    <label for="tbr-username">TBR Username <span class="required">*</span></label>
+                                    <input type="text" id="tbr-username" name="tbr_username" required placeholder="e.g., myuser">
+                                    <small>The username from your TBR identity.</small>
+                                </div>
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn-primary">Add Association</button>
+                            </div>
+                        </form>
+                        <div id="tbr-association-error" class="error-message" hidden></div>
+                        <div id="tbr-association-success" class="success-message" hidden></div>
+                    </div>
                 </div>
             </div>
 

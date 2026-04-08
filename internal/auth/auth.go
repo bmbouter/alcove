@@ -214,13 +214,32 @@ func AuthMiddleware(store Authenticator, mgr UserManager) func(http.Handler) htt
 					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid X-RH-Identity header"})
 					return
 				}
-				username, err := rhStore.UpsertUser(r.Context(), identity)
-				if err != nil {
-					log.Printf("auth: user provisioning failed for %s %s: %v", r.Method, path, err)
-					writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "user provisioning failed"})
-					return
+				var username string
+
+				// Check if this is a TBR identity that needs resolution
+				if IsTBRIdentity(identity) {
+					tbrID := ExtractTBRIdentity(identity)
+					log.Printf("auth: TBR identity detected org_id=%s username=%s", tbrID.OrgID, tbrID.Username)
+
+					// Resolve TBR to SSO user
+					resolvedUser, err := rhStore.ResolveTBRToSSO(r.Context(), tbrID.OrgID, tbrID.Username)
+					if err != nil {
+						log.Printf("auth: TBR identity resolution failed for %s %s: %v", r.Method, path, err)
+						writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "TBR identity not associated with any user"})
+						return
+					}
+					username = resolvedUser
+					log.Printf("auth: TBR identity resolved to SSO user=%s for %s %s", username, r.Method, path)
+				} else {
+					// SAML identity - provision/update user as before
+					username, err = rhStore.UpsertUser(r.Context(), identity)
+					if err != nil {
+						log.Printf("auth: user provisioning failed for %s %s: %v", r.Method, path, err)
+						writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "user provisioning failed"})
+						return
+					}
+					log.Printf("auth: SAML identity authenticated user=%s for %s %s", username, r.Method, path)
 				}
-				log.Printf("auth: rh-identity user=%s admin=%v for %s %s", username, false, r.Method, path)
 				r.Header.Set("X-Alcove-User", username)
 				if mgr != nil {
 					if admin, err := mgr.IsAdmin(r.Context(), username); err == nil && admin {

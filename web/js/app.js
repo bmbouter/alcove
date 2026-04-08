@@ -116,6 +116,10 @@
         if (changePassBtn) changePassBtn.hidden = rhIdentityMode;
         if (logoutBtn) logoutBtn.hidden = rhIdentityMode;
 
+        // Show/hide Account tab based on rh-identity mode
+        var accountTab = $('#account-tab');
+        if (accountTab) accountTab.hidden = !rhIdentityMode;
+
         // Show RH Identity banner in rh-identity mode (unless dismissed for session)
         var banner = $('#rh-identity-banner');
         var bannerDismissed = sessionStorage.getItem('alcove_rh_banner_dismissed') === 'true';
@@ -1092,7 +1096,7 @@
         stopSSE();
 
         const route = getRoute();
-        const pages = ['sessions', 'task-new', 'schedules', 'repos', 'credentials', 'security', 'tools', 'session-detail', 'users'];
+        const pages = ['sessions', 'task-new', 'schedules', 'repos', 'credentials', 'security', 'tools', 'session-detail', 'users', 'account'];
         pages.forEach((p) => hide($('#page-' + p)));
 
         // Update active nav tab
@@ -1142,6 +1146,9 @@
             if (!isAdmin()) { navigate('sessions'); return; }
             show($('#page-users'));
             loadUsers();
+        } else if (route === 'account') {
+            show($('#page-account'));
+            loadAccountPage();
         } else {
             show($('#page-sessions'));
             loadSessions();
@@ -5049,6 +5056,145 @@
             });
         }
     })();
+
+    // ---------------------
+    // Account Page / TBR Associations
+    // ---------------------
+    async function loadAccountPage() {
+        // Show account tab and TBR section only for rh-identity mode
+        if (rhIdentityMode) {
+            show($('#account-tab'));
+            show($('#tbr-associations-section'));
+            loadTBRAssociations();
+        } else {
+            hide($('#tbr-associations-section'));
+        }
+    }
+
+    async function loadTBRAssociations() {
+        const tbody = $('#tbr-associations-tbody');
+        const table = $('#tbr-associations-table');
+        const empty = $('#tbr-associations-empty');
+
+        try {
+            const resp = await api('GET', '/api/v1/auth/tbr-associations');
+            const data = await resp.json();
+            const associations = data.associations || [];
+
+            tbody.innerHTML = '';
+
+            if (associations.length === 0) {
+                show(empty);
+                hide(table);
+                return;
+            }
+
+            hide(empty);
+            show(table);
+
+            associations.forEach(assoc => {
+                const row = document.createElement('tr');
+                const createdDate = new Date(assoc.created_at).toLocaleDateString();
+
+                row.innerHTML = `
+                    <td>${escapeHtml(assoc.tbr_org_id)}</td>
+                    <td>${escapeHtml(assoc.tbr_username)}</td>
+                    <td>${createdDate}</td>
+                    <td>
+                        <button class="btn btn-small btn-outline btn-danger" onclick="deleteTBRAssociation('${assoc.id}')">
+                            Remove
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+
+        } catch (error) {
+            console.error('Error loading TBR associations:', error);
+            tbody.innerHTML = '<tr><td colspan="4" class="error">Error loading associations</td></tr>';
+            show(table);
+            hide(empty);
+        }
+    }
+
+    async function deleteTBRAssociation(id) {
+        if (!confirm('Are you sure you want to remove this TBR identity association?')) {
+            return;
+        }
+
+        try {
+            const resp = await api('DELETE', `/api/v1/auth/tbr-associations/${id}`);
+            if (resp.ok) {
+                showTBRMessage('Association removed successfully.', 'success');
+                loadTBRAssociations();
+            } else {
+                const error = await resp.json();
+                showTBRMessage(error.error || 'Failed to remove association', 'error');
+            }
+        } catch (error) {
+            console.error('Error deleting TBR association:', error);
+            showTBRMessage('Error removing association', 'error');
+        }
+    }
+
+    function showTBRMessage(message, type) {
+        const errorEl = $('#tbr-association-error');
+        const successEl = $('#tbr-association-success');
+
+        hide(errorEl);
+        hide(successEl);
+
+        if (type === 'error') {
+            errorEl.textContent = message;
+            show(errorEl);
+        } else {
+            successEl.textContent = message;
+            show(successEl);
+        }
+
+        // Hide message after 5 seconds
+        setTimeout(() => {
+            hide(errorEl);
+            hide(successEl);
+        }, 5000);
+    }
+
+    // TBR Association Form Handler
+    const tbrForm = $('#tbr-association-form');
+    if (tbrForm) {
+        tbrForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const formData = new FormData(tbrForm);
+            const data = {
+                tbr_org_id: formData.get('tbr_org_id').trim(),
+                tbr_username: formData.get('tbr_username').trim()
+            };
+
+            if (!data.tbr_org_id || !data.tbr_username) {
+                showTBRMessage('Both Organization ID and TBR Username are required.', 'error');
+                return;
+            }
+
+            try {
+                const resp = await api('POST', '/api/v1/auth/tbr-associations', data);
+                if (resp.ok) {
+                    tbrForm.reset();
+                    showTBRMessage('TBR identity association created successfully.', 'success');
+                    loadTBRAssociations();
+                } else {
+                    const error = await resp.json();
+                    showTBRMessage(error.error || 'Failed to create association', 'error');
+                }
+            } catch (error) {
+                console.error('Error creating TBR association:', error);
+                showTBRMessage('Error creating association', 'error');
+            }
+        });
+    }
+
+    // Make deleteTBRAssociation available globally for onclick handlers
+    window.deleteTBRAssociation = deleteTBRAssociation;
 
     // ---------------------
     // Init
