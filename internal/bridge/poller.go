@@ -235,6 +235,9 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 	var highestID string
 	dispatched := 0
 
+	// Track dispatched (issue_number, schedule_id) pairs to prevent duplicates in this poll cycle.
+	dispatchedTasks := make(map[string]bool)
+
 	for _, event := range events {
 		// Skip already-seen events.
 		if !firstPoll && event.ID <= lastEventID {
@@ -365,6 +368,18 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 				continue
 			}
 
+			// Deduplicate within this poll cycle to prevent multiple dispatches
+			// for the same issue/PR + schedule combination.
+			dedupeKey := ""
+			if issueNumber != "" {
+				dedupeKey = fmt.Sprintf("issue:%s:schedule:%s", issueNumber, sched.ID)
+			} else if prNumber != "" {
+				dedupeKey = fmt.Sprintf("pr:%s:schedule:%s", prNumber, sched.ID)
+			}
+			if dedupeKey != "" && dispatchedTasks[dedupeKey] {
+				continue // Already dispatched this task for this issue/PR in this poll cycle.
+			}
+
 			// Deduplicate via webhook_deliveries.
 			deliveryID := fmt.Sprintf("poll-%s", event.ID)
 			result, _ := p.db.Exec(ctx,
@@ -413,6 +428,11 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 			if err != nil {
 				log.Printf("poller: error dispatching schedule %s for %s: %v", sched.Name, eventRepo, err)
 				continue
+			}
+
+			// Mark this task as dispatched for this issue/PR in this poll cycle.
+			if dedupeKey != "" {
+				dispatchedTasks[dedupeKey] = true
 			}
 
 			dispatched++
