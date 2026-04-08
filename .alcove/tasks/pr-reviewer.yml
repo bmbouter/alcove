@@ -68,7 +68,18 @@ prompt: |
     exit 0
   fi
 
-  ## Step 3: Check revision count
+  ## Step 3: Request self as reviewer
+
+  # Make the PR reviewer agent visible in GitHub UI by requesting alcove-bot as reviewer
+  cat > /tmp/reviewer.json << 'EOF'
+  {"reviewers":["alcove-bot"]}
+  EOF
+  curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d @/tmp/reviewer.json \
+    "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER/requested_reviewers" || true
+
+  ## Step 4: Check revision count
 
   curl -s -H "Authorization: token $GITHUB_TOKEN" \
     "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER/reviews" > /tmp/reviews.json
@@ -100,7 +111,7 @@ prompt: |
     exit 0
   fi
 
-  ## Step 4: Review the changes
+  ## Step 5: Review the changes
 
   # Get the full diff
   curl -s -H "Authorization: token $GITHUB_TOKEN" \
@@ -119,7 +130,7 @@ prompt: |
   and check for issues. Also read the surrounding code in the repo to
   understand context.
 
-  ## Step 5: Check linked issue
+  ## Step 6: Check linked issue
 
   Extract the issue number from the PR body:
     ISSUE_NUMBER=$(echo "$BODY" | grep -oP '(?:Fixes|Closes|Resolves) #\K\d+' | head -1)
@@ -131,7 +142,7 @@ prompt: |
     curl -s -H "Authorization: token $GITHUB_TOKEN" \
       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$ISSUE_NUMBER/comments"
 
-  ## Step 6: Review checklist
+  ## Step 7: Review checklist
 
   Evaluate the PR against these criteria:
   - **Correctness**: Does the code implement what the issue/PR describes?
@@ -142,7 +153,7 @@ prompt: |
   - **Database**: Migrations are additive and safe?
   - **Breaking changes**: API backward compatible?
 
-  ## Step 7: Decision
+  ## Step 8: Decision
 
   ### If APPROVE:
 
