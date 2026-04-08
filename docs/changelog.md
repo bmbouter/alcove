@@ -3,6 +3,27 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.5.0
+
+### Features
+- Add automated release agent task definition. Runs daily at 6 AM UTC
+  and on-demand via `immediate-release` label. Handles changelog generation,
+  PR creation, CI monitoring, tagging, and release build verification.
+- Improve transcript readability with collapsible sections and visual
+  hierarchy. Tool calls and results are collapsed by default, making
+  long transcripts easier to navigate.
+
+### Bug Fixes
+- Fix event metadata to include GITHUB_ISSUE_NUMBER for issue events,
+  enabling event-triggered tasks to identify the correct issue.
+- Add `labeled` action to autonomous-dev trigger. Previously, adding
+  the `ready-for-dev` label didn't trigger the task.
+
+### Improvements
+- Revise automated release agent trigger configuration: daily cron
+  schedule plus immediate-release label trigger.
+- Remove issue-triage task (superseded by autonomous-dev).
+
 ## v0.4.13
 
 ### Features
