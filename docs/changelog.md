@@ -3,6 +3,17 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.7.1
+
+### Bug Fixes
+- Fix GitHub Events API poller to paginate through all available events
+  instead of only fetching page 1 (30 events). The poller now fetches up
+  to 10 pages (300 events), stopping when it reaches an already-seen event.
+  This prevents events from being permanently missed during high activity.
+- Fix event ID comparison to use numeric (int64) comparison instead of
+  lexicographic string comparison. String comparison caused incorrect
+  ordering where "9" was greater than "10000000", silently skipping events.
+
 ## v0.7.0
 
 ### Features
