@@ -27,6 +27,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -665,39 +666,80 @@ func (a *API) handleProviders(w http.ResponseWriter, r *http.Request) {
 
 // --- Database queries ---
 
+// parseEventContext extracts trigger context from the prompt's event JSON
+func parseEventContext(prompt string) string {
+	// Look for event JSON at the end of the prompt: [event: {...}] or [webhook: {...}]
+	eventPattern := []string{`\[event:\s*({[^}]+})\]`, `\[webhook:\s*({[^}]+})\]`}
+
+	for _, pattern := range eventPattern {
+		re := regexp.MustCompile(pattern)
+		if matches := re.FindStringSubmatch(prompt); len(matches) > 1 {
+			// Parse the JSON
+			var eventData map[string]interface{}
+			if err := json.Unmarshal([]byte(matches[1]), &eventData); err != nil {
+				continue
+			}
+
+			// Extract GitHub issue number
+			if issueNum, ok := eventData["GITHUB_ISSUE_NUMBER"].(string); ok && issueNum != "" {
+				return fmt.Sprintf("Issue #%s", issueNum)
+			}
+
+			// Extract GitHub PR number
+			if prNum, ok := eventData["GITHUB_PR_NUMBER"].(string); ok && prNum != "" {
+				return fmt.Sprintf("PR #%s", prNum)
+			}
+
+			// Extract GitHub event type for other events
+			if eventType, ok := eventData["GITHUB_EVENT"].(string); ok && eventType != "" {
+				if repo, ok := eventData["GITHUB_REPO"].(string); ok && repo != "" {
+					return fmt.Sprintf("%s: %s", eventType, repo)
+				}
+				return eventType
+			}
+
+			// Generic fallback
+			return "GitHub Event"
+		}
+	}
+
+	// No event context found
+	return "Manual"
+}
+
 func (a *API) listSessions(ctx context.Context, status, repo, since, until, submitter string, page, perPage int) ([]internal.Session, int, error) {
 	whereClause := " WHERE 1=1"
 	args := []any{}
 	argN := 1
 
 	if submitter != "" {
-		whereClause += fmt.Sprintf(" AND submitter = $%d", argN)
+		whereClause += fmt.Sprintf(" AND s.submitter = $%d", argN)
 		args = append(args, submitter)
 		argN++
 	}
 	if status != "" {
-		whereClause += fmt.Sprintf(" AND outcome = $%d", argN)
+		whereClause += fmt.Sprintf(" AND s.outcome = $%d", argN)
 		args = append(args, status)
 		argN++
 	}
 	if repo != "" {
-		whereClause += fmt.Sprintf(" AND prompt ILIKE '%%' || $%d || '%%'", argN)
+		whereClause += fmt.Sprintf(" AND s.prompt ILIKE '%%' || $%d || '%%'", argN)
 		args = append(args, repo)
 		argN++
 	}
 	if since != "" {
-		whereClause += fmt.Sprintf(" AND started_at >= $%d", argN)
+		whereClause += fmt.Sprintf(" AND s.started_at >= $%d", argN)
 		args = append(args, since)
 		argN++
 	}
 	if until != "" {
-		whereClause += fmt.Sprintf(" AND started_at <= $%d", argN)
+		whereClause += fmt.Sprintf(" AND s.started_at <= $%d", argN)
 		args = append(args, until)
 		argN++
 	}
 
 	// Count total matching sessions
-	countQuery := `SELECT COUNT(*) FROM sessions` + whereClause
+	countQuery := `SELECT COUNT(*) FROM sessions s` + whereClause
 	countArgs := make([]any, len(args))
 	copy(countArgs, args)
 
@@ -707,9 +749,13 @@ func (a *API) listSessions(ctx context.Context, status, repo, since, until, subm
 		return nil, 0, err
 	}
 
-	// Main query with pagination
-	query := `SELECT id, task_id, submitter, prompt, scope, provider, outcome, started_at, finished_at, exit_code, artifacts, parent_id
-		FROM sessions` + whereClause + " ORDER BY started_at DESC"
+	// Main query with pagination - include LEFT JOIN to potentially get task names
+	query := `SELECT s.id, s.task_id, s.submitter, s.prompt, s.scope, s.provider, s.outcome, s.started_at, s.finished_at, s.exit_code, s.artifacts, s.parent_id,
+		COALESCE(td.name, '') as task_name
+		FROM sessions s
+		LEFT JOIN schedules sc ON s.prompt LIKE '%[' || sc.source_key || ']%' AND sc.source_key IS NOT NULL AND sc.source_key != ''
+		LEFT JOIN task_definitions td ON sc.source_key = td.source_key` +
+		whereClause + " ORDER BY s.started_at DESC"
 
 	offset := (page - 1) * perPage
 	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argN, argN+1)
@@ -728,10 +774,11 @@ func (a *API) listSessions(ctx context.Context, status, repo, since, until, subm
 		var finishedAt *time.Time
 		var exitCode *int
 		var parentID *string
+		var taskName string
 
 		if err := rows.Scan(&s.ID, &s.TaskID, &s.Submitter, &s.Prompt,
 			&scopeJSON, &s.Provider, &s.Status, &s.StartedAt, &finishedAt,
-			&exitCode, &artifactsJSON, &parentID); err != nil {
+			&exitCode, &artifactsJSON, &parentID, &taskName); err != nil {
 			return nil, 0, err
 		}
 
@@ -754,6 +801,16 @@ func (a *API) listSessions(ctx context.Context, status, repo, since, until, subm
 			s.ParentID = *parentID
 		}
 
+		// Set task name with fallback
+		if taskName != "" {
+			s.TaskName = taskName
+		} else {
+			s.TaskName = "Manual Task"
+		}
+
+		// Parse trigger context from prompt
+		s.TriggerContext = parseEventContext(s.Prompt)
+
 		sessions = append(sessions, s)
 	}
 
@@ -770,13 +827,18 @@ func (a *API) getSession(ctx context.Context, id string) (*internal.Session, err
 	var finishedAt *time.Time
 	var exitCode *int
 	var parentID *string
+	var taskName string
 
 	err := a.db.QueryRow(ctx,
-		`SELECT id, task_id, submitter, prompt, scope, provider, outcome, started_at, finished_at, exit_code, artifacts, parent_id
-		FROM sessions WHERE id = $1`, id,
+		`SELECT s.id, s.task_id, s.submitter, s.prompt, s.scope, s.provider, s.outcome, s.started_at, s.finished_at, s.exit_code, s.artifacts, s.parent_id,
+		COALESCE(td.name, '') as task_name
+		FROM sessions s
+		LEFT JOIN schedules sc ON s.prompt LIKE '%[' || sc.source_key || ']%' AND sc.source_key IS NOT NULL AND sc.source_key != ''
+		LEFT JOIN task_definitions td ON sc.source_key = td.source_key
+		WHERE s.id = $1`, id,
 	).Scan(&s.ID, &s.TaskID, &s.Submitter, &s.Prompt,
 		&scopeJSON, &s.Provider, &s.Status, &s.StartedAt, &finishedAt,
-		&exitCode, &artifactsJSON, &parentID)
+		&exitCode, &artifactsJSON, &parentID, &taskName)
 	if err != nil {
 		return nil, err
 	}
@@ -799,6 +861,16 @@ func (a *API) getSession(ctx context.Context, id string) (*internal.Session, err
 	if parentID != nil {
 		s.ParentID = *parentID
 	}
+
+	// Set task name with fallback
+	if taskName != "" {
+		s.TaskName = taskName
+	} else {
+		s.TaskName = "Manual Task"
+	}
+
+	// Parse trigger context from prompt
+	s.TriggerContext = parseEventContext(s.Prompt)
 
 	return &s, nil
 }

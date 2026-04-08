@@ -1195,7 +1195,7 @@
         const filtered = sessions.filter((s) => {
             if (statusFilter && s.status !== statusFilter) return false;
             if (searchFilter) {
-                const text = (s.id + ' ' + (s.prompt || '') + ' ' + (s.provider || '')).toLowerCase();
+                const text = (s.id + ' ' + (s.task_name || '') + ' ' + (s.trigger_context || '') + ' ' + (s.prompt || '')).toLowerCase();
                 if (!text.includes(searchFilter)) return false;
             }
             return true;
@@ -1213,9 +1213,9 @@
             const idShort = (s.id || '').substring(0, 12);
             const submitter = s.submitter || '-';
             const status = s.status || 'unknown';
-            const provider = s.provider || '-';
+            const taskName = s.task_name || 'Manual Task';
             const duration = formatDuration(s.started_at, s.finished_at, s.duration);
-            const prompt = truncate(s.prompt || s.task_prompt || '-', 80);
+            const triggerContext = s.trigger_context || 'Manual';
             const when = formatRelativeTime(s.started_at);
 
             return '<tr class="clickable" data-session-id="' + escapeHtml(s.id) + '" tabindex="0" role="link">' +
@@ -1223,9 +1223,9 @@
                 '<td>' + escapeHtml(submitter) + '</td>' +
                 '<td><span class="badge badge-' + escapeHtml(status) + '">' + escapeHtml(status) + '</span></td>' +
                 '<td>' + escapeHtml(when) + '</td>' +
-                '<td>' + escapeHtml(provider) + '</td>' +
+                '<td>' + escapeHtml(taskName) + '</td>' +
                 '<td class="mono">' + escapeHtml(duration) + '</td>' +
-                '<td class="truncate">' + escapeHtml(prompt) + '</td>' +
+                '<td class="truncate">' + escapeHtml(triggerContext) + '</td>' +
                 '</tr>';
         }).join('');
 
