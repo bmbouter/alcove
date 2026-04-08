@@ -1,0 +1,21 @@
+name: alcove-reviewer
+display_name: Alcove PR Reviewer
+description: Code review access to bmbouter/alcove — read code, PRs, issues, post reviews, merge, manage labels
+tools:
+  github:
+    rules:
+      - repos: ["bmbouter/alcove"]
+        operations:
+          - clone
+          - read_prs
+          - read_issues
+          - read_contents
+          - read_actions
+          - read_commits
+          - read_branches
+          - read_git
+          - create_comment
+          - update_issue
+          - update_pr
+          - merge_pr
+          - delete_branch

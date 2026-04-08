@@ -1,29 +1,48 @@
 ---
 name: release
-description: Create a new Alcove release — changelog, tag, push, and verify CI builds containers
+description: Trigger the automated release pipeline for Alcove
 user-invocable: true
-argument-hint: "[version] (e.g., 0.4.0 — omit to auto-detect from semver)"
+argument-hint: "[version] (optional — omit to let the release agent decide)"
 ---
 
-Create a new Alcove release. All building happens in GitHub Actions, not locally.
+Trigger the Alcove automated release pipeline. Releases are handled by the Automated Release Agent task running on the staging environment — not locally.
+
+## How It Works
+
+The release agent (`.alcove/tasks/release.yml`) runs daily at 6 AM UTC and checks for unreleased commits. To trigger an immediate release:
 
 ## Steps
 
-1. **Determine version**: If $ARGUMENTS is provided, use it. Otherwise, examine commits since the last tag and determine the semver bump (features → minor, fixes → patch).
+### 1. Create or find an issue to tag
+If there's already an open issue, use it. Otherwise create one:
+```bash
+gh issue create --repo bmbouter/alcove --title "Release vX.Y.Z" --body "Triggering immediate release."
+```
 
-2. **Generate changelog**: Add a new `## vX.Y.Z` section to `docs/changelog.md` with categorized entries from the commit log.
+### 2. Add the immediate-release label
+```bash
+gh issue edit ISSUE_NUMBER --repo bmbouter/alcove --add-label "immediate-release"
+```
 
-3. **Create a PR**: Commit the changelog, push to a branch, open a PR against main via `gh pr create`. Wait for CI to pass (all three jobs: unit-tests, build, functional-tests).
+The release agent will:
+1. Check for unreleased commits on main
+2. Determine the semver bump (features → minor, fixes → patch)
+3. Generate changelog in `docs/changelog.md`
+4. Open a PR, wait for CI to pass, merge
+5. Tag and push the version
+6. Monitor the GitHub Actions release build (builds binaries + container images on ghcr.io)
 
-4. **Merge the PR**: Once CI passes, merge via `gh pr merge --squash`.
+### 3. Monitor progress
+Watch for the release agent task to appear in the Alcove staging dashboard. It will show up as a running task within ~60 seconds of the label being added.
 
-5. **Tag and push**: After merge, pull main, create an annotated tag, push it:
-   ```bash
-   git checkout main && git pull
-   git tag -a vX.Y.Z -m "Alcove vX.Y.Z — summary"
-   git push origin vX.Y.Z
-   ```
+### 4. Verify
+After the release agent completes:
+```bash
+gh release view --repo bmbouter/alcove
+```
 
-6. **Monitor release build**: The tag push triggers the Release workflow in GitHub Actions. Monitor with `gh run list` until it completes successfully.
-
-7. **Verify**: Check `gh release view vX.Y.Z` for assets and pull container images to confirm they exist on ghcr.io.
+## Notes
+- The release agent runs on staging, not locally
+- It uses the `alcove-developer` security profile for full repo access
+- Building and publishing containers happens in GitHub Actions (triggered by tag push)
+- Do NOT manually tag or push — the release agent handles everything
