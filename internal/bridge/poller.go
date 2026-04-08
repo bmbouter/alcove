@@ -235,6 +235,10 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 	var highestID string
 	dispatched := 0
 
+	// Track dispatched (issue_number, schedule_id) pairs to avoid duplicate dispatches
+	// within the same poll cycle for the same issue across multiple events (e.g., opened + labeled)
+	dispatchedPairs := map[string]bool{}
+
 	for _, event := range events {
 		// Skip already-seen events.
 		if !firstPoll && event.ID <= lastEventID {
@@ -364,6 +368,23 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 			if !sched.Trigger.Matches(eventType, action, eventRepo, branch, labels, users) {
 				continue
 			}
+
+			// Deduplicate within current poll cycle for same issue/PR + schedule
+			// This prevents dispatching duplicate tasks when GitHub fires multiple events
+			// for the same resource (e.g., "opened" + "labeled" for new issues with labels)
+			var resourceKey string
+			if issueNumber != "" {
+				resourceKey = fmt.Sprintf("issue:%s:schedule:%s", issueNumber, sched.ID)
+			} else if prNumber != "" {
+				resourceKey = fmt.Sprintf("pr:%s:schedule:%s", prNumber, sched.ID)
+			} else {
+				resourceKey = fmt.Sprintf("repo:%s:event:%s:schedule:%s", eventRepo, event.ID, sched.ID)
+			}
+
+			if dispatchedPairs[resourceKey] {
+				continue // Already dispatched for this issue/PR + schedule in this poll cycle
+			}
+			dispatchedPairs[resourceKey] = true
 
 			// Deduplicate via webhook_deliveries.
 			deliveryID := fmt.Sprintf("poll-%s", event.ID)
