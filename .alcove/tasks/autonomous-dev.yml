@@ -42,6 +42,45 @@ prompt: |
     ISSUE_NUMBER=$(cat /tmp/issue_number.txt)
   fi
 
+  # Check if triggered by a PR with changes-requested label (revision mode)
+  PR_NUMBER=""
+  if echo "$0" | grep -q '\[event:'; then
+    PR_NUMBER=$(echo "$0" | sed -n 's/.*\[event: \(.*\)\].*/\1/p' | grep -o '"GITHUB_PR_NUMBER":"[^"]*"' | cut -d'"' -f4)
+  elif echo "$0" | grep -q '\[webhook:'; then
+    PR_NUMBER=$(echo "$0" | sed -n 's/.*\[webhook: \(.*\)\].*/\1/p' | grep -o '"GITHUB_PR_NUMBER":"[^"]*"' | cut -d'"' -f4)
+  fi
+
+  if [ -n "$PR_NUMBER" ] && [ -z "$ISSUE_NUMBER" ]; then
+    echo "Triggered by PR #$PR_NUMBER with changes-requested — entering revision mode"
+
+    # Fetch PR details
+    curl -s -H "Authorization: token $GITHUB_TOKEN" \
+      "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER" > /tmp/pr.json
+
+    BRANCH=$(jq -r '.head.ref' /tmp/pr.json)
+    BODY=$(jq -r '.body' /tmp/pr.json)
+    ISSUE_NUMBER=$(echo "$BODY" | grep -oP '(?:Fixes|Closes|Resolves) #\K\d+' | head -1)
+
+    # Checkout existing branch instead of creating new one
+    git fetch origin "$BRANCH"
+    git checkout "$BRANCH"
+
+    # Read review comments to understand what needs fixing
+    curl -s -H "Authorization: token $GITHUB_TOKEN" \
+      "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER/reviews" > /tmp/reviews.json
+
+    echo "Review feedback to address:"
+    jq -r '.[] | select(.state == "CHANGES_REQUESTED") | .body' /tmp/reviews.json
+
+    # Remove changes-requested label
+    curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/changes-requested" 2>/dev/null
+
+    # Skip to Step 3 — implement the requested changes on the existing branch
+    # After fixing, commit and push to the same branch (Step 4 push section)
+    # The CI workflow will re-add awaiting-review when checks pass
+  fi
+
   echo "Working on issue #$ISSUE_NUMBER"
 
   # Fetch the specific issue
@@ -110,13 +149,7 @@ prompt: |
       -d @/tmp/pr-body.json \
       "$GITHUB_API_URL/repos/bmbouter/alcove/pulls"
 
-  Enable auto-merge on the PR:
-    curl -s -X PUT -H "Authorization: token $GITHUB_TOKEN" \
-      "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/PR_NUMBER/merge" \
-      -H "Content-Type: application/json" \
-      -d '{"merge_method":"squash","auto_merge":true}'
-
-  ## Step 5: Monitor CI
+  ## Step 5: Monitor CI and request review
 
   Poll the PR's check status every 30 seconds (up to 10 minutes):
     curl -s -H "Authorization: token $GITHUB_TOKEN" \
@@ -127,6 +160,10 @@ prompt: |
   2. Read the failure logs
   3. Fix the issue, commit, and push to the same branch
   4. Resume monitoring
+
+  Once all checks pass, the CI workflow will automatically add the
+  "awaiting-review" label. Your work is done — the PR Reviewer agent
+  will take it from here.
 
   ## Step 6: Handle blockers
 
@@ -163,6 +200,7 @@ trigger:
     events:
       - issues
       - issue_comment
+      - pull_request
     actions:
       - opened
       - reopened
@@ -172,5 +210,6 @@ trigger:
       - bmbouter/alcove
     labels:
       - ready-for-dev
+      - changes-requested
     users: [bmbouter]
     delivery_mode: polling

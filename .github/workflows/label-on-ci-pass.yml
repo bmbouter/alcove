@@ -1,0 +1,49 @@
+name: Label PRs for Review
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+jobs:
+  label:
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add awaiting-review label to PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Find PRs associated with the head SHA
+            const prs = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: `${context.repo.owner}:${context.payload.workflow_run.head_branch}`,
+              state: 'open'
+            });
+
+            for (const pr of prs.data) {
+              // Skip if reviewer-approved already present (e.g., release PRs)
+              const labels = pr.labels.map(l => l.name);
+              if (labels.includes('reviewer-approved')) {
+                console.log(`PR #${pr.number} already has reviewer-approved, skipping`);
+                continue;
+              }
+
+              // Skip if awaiting-review already present
+              if (labels.includes('awaiting-review')) {
+                console.log(`PR #${pr.number} already has awaiting-review, skipping`);
+                continue;
+              }
+
+              // Add awaiting-review label
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                labels: ['awaiting-review']
+              });
+              console.log(`Added awaiting-review to PR #${pr.number}`);
+            }

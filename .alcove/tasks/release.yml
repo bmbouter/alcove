@@ -81,18 +81,22 @@ prompt: |
 
   5. Create PR via API:
      Write PR body to /tmp/pr-body.json:
-     {"title":"Add vX.Y.Z changelog","head":"release-vX.Y.Z","base":"main","body":"Changelog for vX.Y.Z release.\n\nThis is an automated release PR. CI will run and auto-merge when all checks pass."}
+     {"title":"Add vX.Y.Z changelog","head":"release-vX.Y.Z","base":"main","body":"Changelog for vX.Y.Z release.\n\nThis is an automated release PR."}
 
      curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
        -H "Content-Type: application/json" \
        -d @/tmp/pr-body.json \
        "$GITHUB_API_URL/repos/bmbouter/alcove/pulls"
 
-  6. Extract PR number from response and enable auto-merge:
-     curl -s -X PUT -H "Authorization: token $GITHUB_TOKEN" \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/PR_NUMBER/merge" \
+  6. Extract PR number from response.
+
+  7. Add reviewer-approved label to skip review (release PRs are automated):
+     Write label JSON to /tmp/release-label.json: {"labels":["reviewer-approved"]}
+
+     curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
        -H "Content-Type: application/json" \
-       -d '{"merge_method":"squash"}'
+       -d @/tmp/release-label.json \
+       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels"
 
   ## Step 5: Wait for CI and merge
 
@@ -102,7 +106,13 @@ prompt: |
 
   Look for state: "success" and all check contexts passing.
   
-  Once CI passes, the PR will auto-merge. Confirm it merged:
+  Once CI passes, merge the PR via squash merge:
+     curl -s -X PUT -H "Authorization: token $GITHUB_TOKEN" \
+       "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/PR_NUMBER/merge" \
+       -H "Content-Type: application/json" \
+       -d '{"merge_method":"squash"}'
+
+  Confirm it merged:
     curl -s -H "Authorization: token $GITHUB_TOKEN" \
       "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/PR_NUMBER"
 
