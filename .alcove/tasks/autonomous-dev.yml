@@ -83,6 +83,13 @@ prompt: |
 
   echo "Working on issue #$ISSUE_NUMBER"
 
+  # Self-assign to the issue to indicate autonomous development has started
+  echo '{"assignees": ["alcove-bot"]}' > /tmp/assign.json
+  curl -s -X PATCH -H "Authorization: token $GITHUB_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d @/tmp/assign.json \
+    "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$ISSUE_NUMBER" > /dev/null
+
   # Fetch the specific issue
   curl -s -H "Authorization: token $GITHUB_TOKEN" \
     "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$ISSUE_NUMBER"
