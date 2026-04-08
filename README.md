@@ -18,6 +18,18 @@ exposure, and filesystem state that creates security and reliability problems.
 Alcove takes the opposite approach: one task, one container, then destroy it.
 See [Problem Statement](docs/design/problem-statement.md).
 
+## Security Principles
+
+Alcove is built around five north-star security principles that ensure safe AI agent execution:
+
+- **Safe Sandboxing** — Every task runs in an ephemeral, network-isolated container that's never reused
+- **Data Leakage Protection** — Real credentials are never available to the LLM; Gate injects them at proxy level
+- **Human-in-the-Loop Controls** — Security profiles and approval gates ensure humans control what agents can access
+- **Audit Records** — Every network request and LLM interaction is logged with full session transcripts
+- **Least Privilege** — Gate's network proxy denies by default; only explicitly allowed operations are permitted
+
+For implementation details, see [Security Principles](docs/design/security-principles.md).
+
 ## Components
 
 | Component | Name | Purpose |
@@ -68,6 +80,7 @@ For the full setup walkthrough, see the [Getting Started](docs/getting-started.m
 | [CLI Reference](docs/cli-reference.md) | All commands, flags, and usage examples |
 | [Development Guide](docs/development-guide.md) | Building, testing, adding features |
 | [Architecture](docs/design/architecture.md) | Component design, deployment diagrams, roadmap |
+| [Security Principles](docs/design/security-principles.md) | Five north-star security principles with implementation details |
 | [Architecture Decisions](docs/design/architecture-decisions.md) | Resolved design choices (18 decisions) |
 | [Implementation Status](docs/design/implementation-status.md) | Current state, what works, what is next |
 | [Problem Statement](docs/design/problem-statement.md) | Why ephemeral agents |
