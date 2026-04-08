@@ -5,6 +5,10 @@ on:
     workflows: ["CI"]
     types: [completed]
 
+permissions:
+  pull-requests: read
+  issues: write
+
 jobs:
   label:
     if: >
