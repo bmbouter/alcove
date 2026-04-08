@@ -3,6 +3,14 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.6.1
+
+### Bug Fixes
+- Fix poller label extraction for `labeled` events. The GitHub Events API
+  includes the added label in `payload.label`, not in `pull_request.labels`
+  (which can be empty). The poller now checks both sources, fixing the PR
+  reviewer agent not triggering on `awaiting-review` labels.
+
 ## v0.6.0
 
 ### Features
