@@ -36,7 +36,7 @@ type Credential struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
 	Provider  string    `json:"provider"`   // "anthropic" or "google-vertex"
-	AuthType  string    `json:"auth_type"`  // "api_key", "service_account", or "adc"
+	AuthType  string    `json:"auth_type"`  // "api_key", "service_account", "adc", or "claude_consumer"
 	ProjectID string    `json:"project_id"` // GCP project ID (Vertex only)
 	Region    string    `json:"region"`     // GCP region (Vertex only)
 	APIHost   string    `json:"api_host,omitempty"` // custom API host (e.g., self-hosted GitLab)
@@ -275,6 +275,17 @@ func (cs *CredentialStore) AcquireToken(ctx context.Context, providerName string
 			Provider:  provider,
 		}, nil
 
+	case "claude_consumer":
+		// Claude Pro/Max consumer account credentials
+		// The raw credential should be a session token or auth token from the consumer account
+		// TODO: This implementation needs to be refined based on investigation of Claude's consumer auth
+		return &TokenResult{
+			Token:     string(raw),
+			TokenType: "session_token", // New token type for consumer accounts
+			ExpiresIn: 3600,           // Consumer tokens typically expire, estimate 1 hour
+			Provider:  provider,
+		}, nil
+
 	default:
 		return nil, fmt.Errorf("unsupported auth type %q for provider %q", authType, providerName)
 	}
@@ -330,6 +341,15 @@ func (cs *CredentialStore) AcquireSystemToken(ctx context.Context, providerName 
 			Token:     tok.AccessToken,
 			TokenType: "bearer",
 			ExpiresIn: expiresIn,
+			Provider:  provider,
+		}, nil
+
+	case "claude_consumer":
+		// Claude Pro/Max consumer account credentials for system use
+		return &TokenResult{
+			Token:     string(raw),
+			TokenType: "session_token",
+			ExpiresIn: 3600,
 			Provider:  provider,
 		}, nil
 

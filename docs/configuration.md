@@ -300,6 +300,38 @@ export VERTEX_API_KEY=your-vertex-api-key
 
 After first startup, manage providers through the dashboard or API instead.
 
+### Provider Types
+
+Alcove supports three LLM provider configurations:
+
+1. **Anthropic API** — Developer API keys with standard API endpoints
+2. **Google Vertex AI** — GCP service accounts with Vertex AI access
+3. **Claude Pro/Max** — Consumer account credentials (⚠️ **Experimental**)
+
+### Claude Pro/Max Consumer Accounts (Experimental)
+
+⚠️ **Status: Under Development**
+
+This feature allows users with Claude Pro ($20/mo) or Claude Max ($100-200/mo) subscriptions 
+to use their personal Claude accounts as LLM providers without needing separate API keys.
+
+**Current Limitations:**
+- Authentication mechanism requires investigation through network traffic analysis
+- Consumer API endpoints may differ from developer APIs
+- Rate limits and availability may differ from API accounts
+- Session tokens may expire more frequently than API keys
+
+**Setup:**
+1. Navigate to the Credentials page in the dashboard
+2. Click "Add Credential" and select "Claude Pro/Max" as the provider
+3. Follow the instructions to extract your session token from the Claude web interface
+4. Consumer credentials will appear with a "Consumer" badge in the credentials list
+
+**Technical Notes:**
+- Consumer credentials use `auth_type: claude_consumer` in the database
+- Gate proxy handles consumer authentication headers (implementation pending investigation)
+- Tokens may require periodic refresh compared to API keys
+
 ---
 
 ## Auth Backend Selection

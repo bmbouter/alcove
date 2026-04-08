@@ -71,11 +71,19 @@ RESULT=$(curl -s -X POST "$BRIDGE_URL/api/v1/credentials" \
 CRED3_ID=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id','ERROR'))")
 if [ "$CRED3_ID" != "ERROR" ]; then pass "Created Vertex ADC credential"; else fail "Failed: $RESULT"; fi
 
-# Test 4: List credentials (should see all 3)
+# Test 3.5: Create Claude consumer credential
+log "Test 3.5: Create Claude consumer credential"
+RESULT=$(curl -s -X POST "$BRIDGE_URL/api/v1/credentials" \
+  -H "Authorization: Bearer $USER1_TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"my-claude-consumer","provider":"anthropic","auth_type":"claude_consumer","credential":"sess-test-consumer-token-123"}')
+CRED4_ID=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id','ERROR'))")
+if [ "$CRED4_ID" != "ERROR" ]; then pass "Created Claude consumer credential"; else fail "Failed: $RESULT"; fi
+
+# Test 4: List credentials (should see all 4)
 log "Test 4: List own credentials"
 COUNT=$(curl -s "$BRIDGE_URL/api/v1/credentials" -H "Authorization: Bearer $USER1_TOKEN" | \
   python3 -c "import json,sys; print(json.load(sys.stdin).get('count',0))")
-if [ "$COUNT" = "3" ]; then pass "User1 sees 3 credentials"; else fail "User1 sees $COUNT (expected 3)"; fi
+if [ "$COUNT" = "4" ]; then pass "User1 sees 4 credentials"; else fail "User1 sees $COUNT (expected 4)"; fi
 
 # Test 5: Credential secrets NOT returned
 log "Test 5: Secrets not in response"
@@ -105,6 +113,7 @@ if [ "$DEL_CODE" = "404" ]; then pass "Cross-user delete blocked"; else fail "Cr
 # Cleanup
 curl -s -X DELETE "$BRIDGE_URL/api/v1/credentials/$CRED2_ID" -H "Authorization: Bearer $USER1_TOKEN" > /dev/null 2>&1
 curl -s -X DELETE "$BRIDGE_URL/api/v1/credentials/$CRED3_ID" -H "Authorization: Bearer $USER1_TOKEN" > /dev/null 2>&1
+curl -s -X DELETE "$BRIDGE_URL/api/v1/credentials/$CRED4_ID" -H "Authorization: Bearer $USER1_TOKEN" > /dev/null 2>&1
 
 # =====================================================================
 # Test: System credentials hidden from users

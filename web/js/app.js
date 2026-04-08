@@ -1438,7 +1438,13 @@
 
             function renderLlmRow(c) {
                 const name = c.name || '-';
-                const provider = c.provider === 'vertex' ? 'Vertex AI' : (c.provider === 'anthropic' ? 'Anthropic' : escapeHtml(c.provider || '-'));
+                var provider = c.provider === 'vertex' ? 'Vertex AI' : (c.provider === 'anthropic' ? 'Anthropic' : escapeHtml(c.provider || '-'));
+
+                // Special case for Claude consumer accounts
+                if (c.provider === 'anthropic' && c.auth_type === 'claude_consumer') {
+                    provider = 'Claude Pro/Max';
+                }
+
                 var authBadge = '';
                 if (c.auth_type === 'api_key') {
                     authBadge = '<span class="badge">API Key</span>';
@@ -1446,6 +1452,8 @@
                     authBadge = '<span class="badge badge-running">Service Account</span>';
                 } else if (c.auth_type === 'adc') {
                     authBadge = '<span class="badge badge-completed">ADC</span>';
+                } else if (c.auth_type === 'claude_consumer') {
+                    authBadge = '<span class="badge badge-pending">Consumer</span>';
                 } else {
                     authBadge = '<span class="badge">' + escapeHtml(c.auth_type || '-') + '</span>';
                 }
@@ -1565,6 +1573,7 @@
         // Wire up provider toggle
         var providerSelect = q('cred-provider');
         var anthropicFields = q('cred-anthropic-fields');
+        var claudeConsumerFields = q('cred-claude-consumer-fields');
         var vertexFields = q('cred-vertex-fields');
         var scmFields = q('cred-scm-fields');
         var gitlabHostGroup = q('cred-gitlab-host-group');
@@ -1577,6 +1586,7 @@
 
             // Hide all
             if (anthropicFields) anthropicFields.hidden = true;
+            if (claudeConsumerFields) claudeConsumerFields.hidden = true;
             if (vertexFields) vertexFields.hidden = true;
             if (scmFields) scmFields.hidden = true;
             if (jiraHostGroup) jiraHostGroup.hidden = true;
@@ -1584,6 +1594,8 @@
 
             if (val === 'anthropic') {
                 if (anthropicFields) anthropicFields.hidden = false;
+            } else if (val === 'anthropic-consumer') {
+                if (claudeConsumerFields) claudeConsumerFields.hidden = false;
             } else if (val === 'google-vertex') {
                 if (vertexFields) vertexFields.hidden = false;
             } else if (val === 'github' || val === 'gitlab' || val === 'jira') {
@@ -1680,6 +1692,15 @@
                 if (!apiKey) { if (errorEl) { errorEl.textContent = 'API key is required.'; show(errorEl); } return; }
                 payload.auth_type = 'api_key';
                 payload.credential = apiKey;
+            } else if (provider === 'anthropic-consumer') {
+                var sessionToken = (q('cred-session-token') || {}).value?.trim();
+                if (!sessionToken) {
+                    if (errorEl) { errorEl.textContent = 'Session token is required.'; show(errorEl); }
+                    return;
+                }
+                payload.provider = 'anthropic'; // Use anthropic as the backend provider
+                payload.auth_type = 'claude_consumer';
+                payload.credential = sessionToken;
             } else if (provider === 'google-vertex') {
                 var at = authType ? authType.value : 'service_account';
                 var jsonVal = jsonTextarea ? jsonTextarea.value.trim() : '';

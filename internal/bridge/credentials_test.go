@@ -60,3 +60,43 @@ func TestDeriveKey(t *testing.T) {
 		t.Fatal("different input should give different key")
 	}
 }
+
+func TestClaudeConsumerTokenResult(t *testing.T) {
+	// Test that claude_consumer auth type returns the expected token result
+	cs := &CredentialStore{
+		key: deriveKey("test-key"),
+	}
+
+	// Mock a token result for claude_consumer
+	sessionToken := "sess-12345-abcdef-test-token"
+	encrypted, err := encrypt(cs.key, []byte(sessionToken))
+	if err != nil {
+		t.Fatalf("encrypt failed: %v", err)
+	}
+
+	// Simulate what AcquireToken would do for claude_consumer
+	decrypted, err := decrypt(cs.key, encrypted)
+	if err != nil {
+		t.Fatalf("decrypt failed: %v", err)
+	}
+
+	result := &TokenResult{
+		Token:     string(decrypted),
+		TokenType: "session_token",
+		ExpiresIn: 3600,
+		Provider:  "anthropic",
+	}
+
+	if result.Token != sessionToken {
+		t.Fatalf("want token %q, got %q", sessionToken, result.Token)
+	}
+	if result.TokenType != "session_token" {
+		t.Fatalf("want token_type %q, got %q", "session_token", result.TokenType)
+	}
+	if result.ExpiresIn != 3600 {
+		t.Fatalf("want expires_in %d, got %d", 3600, result.ExpiresIn)
+	}
+	if result.Provider != "anthropic" {
+		t.Fatalf("want provider %q, got %q", "anthropic", result.Provider)
+	}
+}

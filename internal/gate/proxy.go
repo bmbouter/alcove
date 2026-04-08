@@ -321,6 +321,19 @@ func (p *Proxy) handleLLMRequest(w http.ResponseWriter, r *http.Request) {
 				} else {
 					req.Header.Set("Authorization", "Bearer "+p.config.LLMToken)
 				}
+			case "session_token":
+				// Claude Pro/Max consumer authentication
+				// TODO: Investigate and implement proper consumer auth headers
+				// This may require different headers such as:
+				// - Cookie: sessionKey=<token>
+				// - Authorization: Bearer <token>
+				// - x-claude-session-token: <token>
+				// The actual implementation depends on network traffic analysis
+				if p.config.LLMProvider == "anthropic" {
+					req.Header.Set("Authorization", "Bearer "+p.config.LLMToken)
+					req.Header.Set("anthropic-version", "2023-06-01")
+					// Additional headers may be needed for consumer auth
+				}
 			default:
 				// Legacy fallback
 				req.Header.Set("x-api-key", p.config.LLMToken)
@@ -371,6 +384,19 @@ func (p *Proxy) handleLLMForward(w http.ResponseWriter, r *http.Request) {
 					req.Header.Set("anthropic-version", "2023-06-01")
 				} else {
 					req.Header.Set("Authorization", "Bearer "+p.config.LLMToken)
+				}
+			case "session_token":
+				// Claude Pro/Max consumer authentication
+				// TODO: Investigate and implement proper consumer auth headers
+				// This may require different headers such as:
+				// - Cookie: sessionKey=<token>
+				// - Authorization: Bearer <token>
+				// - x-claude-session-token: <token>
+				// The actual implementation depends on network traffic analysis
+				if p.config.LLMProvider == "anthropic" {
+					req.Header.Set("Authorization", "Bearer "+p.config.LLMToken)
+					req.Header.Set("anthropic-version", "2023-06-01")
+					// Additional headers may be needed for consumer auth
 				}
 			default:
 				// Legacy fallback

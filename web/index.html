@@ -809,6 +809,7 @@
                     <select data-role="cred-provider" class="input" required>
                         <option value="">Select a provider</option>
                         <option value="anthropic">Anthropic</option>
+                        <option value="anthropic-consumer">Claude Pro/Max</option>
                         <option value="google-vertex">Google Vertex AI</option>
                         <option value="github">GitHub</option>
                         <option value="gitlab">GitLab</option>
@@ -822,6 +823,42 @@
                     <input type="password" data-role="cred-api-key" class="input" placeholder="sk-ant-...">
                     <small class="form-help">Your Anthropic API key. It will be stored securely and never shown again.</small>
                 </div>
+            </div>
+            <div data-role="cred-claude-consumer-fields" hidden>
+                <div class="form-group">
+                    <label>Session Token <span class="required">*</span></label>
+                    <input type="password" data-role="cred-session-token" class="input" placeholder="sess-...">
+                    <small class="form-help">Your Claude Pro/Max session token. It will be stored securely and never shown again.</small>
+                </div>
+                <details class="claude-consumer-guide">
+                    <summary>How to get your session token</summary>
+                    <div class="claude-consumer-guide-content">
+                        <div class="form-warning">
+                            <strong>⚠️ Investigation Required:</strong> This feature is currently in development.
+                            The exact authentication mechanism for Claude Pro/Max accounts needs to be determined
+                            through analysis of network traffic from the Claude web interface.
+                        </div>
+                        <p><strong>Placeholder Instructions (to be updated):</strong></p>
+                        <ol>
+                            <li>Open Claude in your browser and log in to your Pro/Max account</li>
+                            <li>Open browser developer tools (F12 → Network tab)</li>
+                            <li>Make a request in Claude and examine the request headers</li>
+                            <li>Look for authentication headers such as:
+                                <ul>
+                                    <li><code>Authorization: Bearer ...</code></li>
+                                    <li><code>Cookie: sessionKey=...</code></li>
+                                    <li><code>x-api-key: ...</code></li>
+                                    <li>Other custom authentication headers</li>
+                                </ul>
+                            </li>
+                            <li>Copy the token value and paste it above</li>
+                        </ol>
+                        <p class="form-help">
+                            <strong>Note:</strong> Consumer tokens may expire more frequently than API keys.
+                            You may need to update this credential periodically.
+                        </p>
+                    </div>
+                </details>
             </div>
             <div data-role="cred-vertex-fields" hidden>
                 <div class="form-group">

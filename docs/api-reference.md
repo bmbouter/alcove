@@ -609,8 +609,8 @@ Create a new credential.
 |--------------|--------|----------|-------------|
 | `name`       | string | yes      | Display name (used for provider lookup) |
 | `provider`   | string | yes      | Provider type: `anthropic`, `google-vertex`, `github`, `gitlab`, or `jira` |
-| `auth_type`  | string | yes      | One of: `api_key`, `service_account`, `adc`, `pat`, `basic` |
-| `credential` | string | yes      | Raw credential material (API key or JSON service account key) |
+| `auth_type`  | string | yes      | One of: `api_key`, `service_account`, `adc`, `pat`, `basic`, `claude_consumer` |
+| `credential` | string | yes      | Raw credential material (API key, JSON service account key, or session token) |
 | `project_id` | string | no       | GCP project ID (Vertex only) |
 | `region`     | string | no       | GCP region (Vertex only) |
 
@@ -671,6 +671,17 @@ curl -X POST http://localhost:8080/api/v1/credentials \
     "provider": "jira",
     "auth_type": "basic",
     "credential": "user@example.com:your-jira-api-token"
+  }'
+
+# Create a Claude Pro/Max consumer credential (experimental)
+curl -X POST http://localhost:8080/api/v1/credentials \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "claude-consumer",
+    "provider": "anthropic",
+    "auth_type": "claude_consumer",
+    "credential": "sess-..."
   }'
 ```
 
