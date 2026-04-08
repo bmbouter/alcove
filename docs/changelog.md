@@ -3,6 +3,22 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.7.0
+
+### Features
+- Add north-star security principles to README and dedicated design doc
+  with implementation details, cross-references, and threat model summary.
+- Add informational banner to dashboard when using rh-identity auth backend
+  with links to issue tracker and security principles.
+- Autonomous developer agent now self-assigns issues it works on.
+- PR reviewer agent now self-assigns as reviewer on PRs it reviews.
+
+### Bug Fixes
+- Fix duplicate task dispatches when GitHub fires multiple events for the
+  same issue (e.g., opened + labeled). Poller now deduplicates by issue/PR
+  number within a single poll cycle.
+- Add missing `create_review` operation to alcove-reviewer security profile.
+
 ## v0.6.1
 
 ### Bug Fixes
