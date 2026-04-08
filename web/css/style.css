@@ -595,16 +595,34 @@ select.input {
 .tx-tool-result-summary {
     font-size: 11px;
     color: var(--text-dim);
-    padding: 4px 12px;
+    padding: 6px 12px;
     cursor: pointer;
     user-select: none;
     display: flex;
     align-items: center;
     gap: 6px;
+    border-radius: var(--radius);
+    transition: var(--transition);
 }
 
 .tx-tool-result-summary:hover {
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-muted);
+}
+
+.tx-tool-result-summary:before {
+    content: '▶';
+    font-size: 9px;
+    opacity: 0.6;
+    transition: transform 0.2s ease;
+    display: inline-block;
+    margin-right: 4px;
+}
+
+.tx-tool-output-details[open] .tx-tool-result-summary:before,
+.tx-tool-input-details[open] .tx-tool-input-toggle:before,
+.tx-thinking-details[open] .tx-thinking-summary:before {
+    transform: rotate(90deg);
 }
 
 .tx-tool-result-badge {
@@ -627,6 +645,27 @@ select.input {
 .tx-content-shell {
     background: rgba(0, 0, 0, 0.3);
     border-left: 3px solid var(--status-running);
+}
+
+.tx-content-command-result {
+    background: rgba(0, 0, 0, 0.25);
+    border-left: 3px solid var(--status-completed);
+}
+
+.tx-content-api-response {
+    background: rgba(0, 120, 215, 0.08);
+    border-left: 3px solid #0078d7;
+}
+
+.tx-content-error-response {
+    background: rgba(231, 76, 60, 0.08);
+    border-left: 3px solid var(--status-error);
+}
+
+.tx-content-filepath {
+    background: rgba(255, 193, 7, 0.08);
+    border-left: 3px solid #ffc107;
+    font-family: var(--font-mono);
 }
 
 .tx-content-text {
@@ -712,16 +751,29 @@ select.input {
 .tx-thinking-summary {
     font-size: 12px;
     color: var(--text-dim);
-    padding: 4px 8px;
+    padding: 6px 8px;
     border-radius: var(--radius);
     display: flex;
     align-items: center;
     gap: 6px;
     user-select: none;
+    transition: var(--transition);
+    position: relative;
+    padding-left: 24px;
 }
 
 .tx-thinking-summary:hover {
-    background: rgba(255, 255, 255, 0.03);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.tx-thinking-summary:before {
+    content: '▶';
+    position: absolute;
+    left: 8px;
+    font-size: 9px;
+    opacity: 0.6;
+    transition: transform 0.2s ease;
+    display: inline-block;
 }
 
 .tx-thinking-icon {
@@ -808,13 +860,28 @@ select.input {
 .tx-tool-input-toggle {
     font-size: 11px;
     color: var(--text-dim);
-    padding: 4px 12px;
+    padding: 6px 12px;
     cursor: pointer;
     user-select: none;
+    border-radius: var(--radius);
+    transition: var(--transition);
+    position: relative;
+    padding-left: 24px;
 }
 
 .tx-tool-input-toggle:hover {
     color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.tx-tool-input-toggle:before {
+    content: '▶';
+    position: absolute;
+    left: 12px;
+    font-size: 9px;
+    opacity: 0.6;
+    transition: transform 0.2s ease;
+    display: inline-block;
 }
 
 .tx-tool-input-pre {
