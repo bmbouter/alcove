@@ -2093,10 +2093,24 @@
 
         // Try to parse as JSON
         try {
-            JSON.parse(content);
+            var parsed = JSON.parse(content);
+            // Check if it looks like an API response
+            if (typeof parsed === 'object' && parsed !== null) {
+                if (parsed.url || parsed.status || parsed.headers || parsed.response) {
+                    return 'api-response';
+                }
+                if (parsed.error || parsed.message || parsed.code) {
+                    return 'error-response';
+                }
+            }
             return 'json';
         } catch (e) {
             // Not JSON, check for other patterns
+        }
+
+        // Check for command output patterns
+        if (content.match(/^Exit code \d+/m)) {
+            return 'command-result';
         }
 
         // Check for code patterns
@@ -2109,6 +2123,11 @@
         // Check for shell output patterns
         if (content.match(/^\$ /m) || content.match(/^.*@.*:\$/) || content.match(/^bash.*\$ /)) {
             return 'shell';
+        }
+
+        // Check for file paths
+        if (content.match(/^\/[^\n]+$/) || content.match(/^[a-zA-Z]:[\\\/][^\n]+$/)) {
+            return 'filepath';
         }
 
         return 'text';
@@ -2125,25 +2144,80 @@
 
         if (isError) {
             summary = '❌ Error';
+            // Try to extract meaningful error message from first line
+            var firstLine = content.split('\n')[0].trim();
+            if (firstLine && firstLine.length < 80) {
+                summary += ': ' + firstLine;
+            }
+        } else if (contentType === 'api-response') {
+            summary = '🌐 API response';
+            try {
+                var parsed = JSON.parse(content);
+                if (parsed.status) {
+                    summary += ' (' + parsed.status + ')';
+                } else if (parsed.url) {
+                    summary += ' from ' + parsed.url.split('/').pop();
+                }
+            } catch (e) { /* ignore */ }
+        } else if (contentType === 'error-response') {
+            summary = '⚠️ Error response';
+        } else if (contentType === 'command-result') {
+            summary = '💻 Command output';
+            // Show exit code if present
+            var exitCodeMatch = content.match(/Exit code (\d+)/);
+            if (exitCodeMatch) {
+                summary += ' (exit ' + exitCodeMatch[1] + ')';
+            }
         } else if (contentType === 'json') {
-            summary = '📄 JSON response';
+            summary = '📄 JSON data';
+            // For JSON, try to show key information
+            try {
+                var parsed = JSON.parse(content);
+                if (Array.isArray(parsed)) {
+                    summary += ' (' + parsed.length + ' items)';
+                } else if (typeof parsed === 'object' && parsed !== null) {
+                    var keys = Object.keys(parsed);
+                    if (keys.length <= 3) {
+                        summary += ' (' + keys.join(', ') + ')';
+                    } else {
+                        summary += ' (' + keys.length + ' keys)';
+                    }
+                }
+            } catch (e) {
+                // Fall through to size info
+            }
         } else if (contentType === 'code') {
             summary = '🔧 Code output';
         } else if (contentType === 'shell') {
-            summary = '💻 Command output';
+            summary = '💻 Shell output';
+        } else if (contentType === 'filepath') {
+            summary = '📁 File path';
+            var filename = content.trim().split(/[\/\\]/).pop();
+            if (filename.length < 40) {
+                summary += ': ' + filename;
+            }
         } else {
             summary = '📝 Text output';
+            // For text, show a brief preview if it's short enough
+            if (lines === 1 && size <= 100) {
+                var preview = content.trim();
+                if (preview.length <= 50) {
+                    summary += ': ' + preview;
+                }
+            }
         }
 
-        // Add size information
-        if (lines > 1) {
-            summary += ' (' + lines + ' line' + (lines === 1 ? '' : 's');
-            if (size > 1000) {
-                summary += ', ' + (size / 1000).toFixed(1) + 'k chars';
+        // Add size information for larger content
+        if (lines > 5 || size > 500) {
+            if (lines > 1) {
+                summary += ' (' + lines + ' line' + (lines === 1 ? '' : 's');
+                if (size > 1000) {
+                    summary += ', ' + (size / 1000).toFixed(1) + 'k chars';
+                }
+                summary += ')';
+            } else if (size > 200) {
+                summary += ' (' + size.toLocaleString() + ' chars)';
             }
-            summary += ')';
-        } else if (size > 200) {
-            summary += ' (' + size.toLocaleString() + ' chars)';
         }
 
         return summary;
@@ -2155,9 +2229,19 @@
         var lines = content.split('\n').length;
         var size = content.length;
 
-        // Auto-collapse if more than 3 lines or more than 200 characters
-        // Or if it's JSON or very large
-        return lines > 3 || size > 200 || contentType === 'json';
+        // Always auto-collapse JSON data and API responses to improve readability
+        if (contentType === 'json' || contentType === 'api-response' || contentType === 'error-response') {
+            return true;
+        }
+
+        // For file paths, don't auto-collapse single lines
+        if (contentType === 'filepath' && lines === 1) {
+            return false;
+        }
+
+        // Auto-collapse if more than 2 lines or more than 150 characters
+        // (more aggressive than before for better readability)
+        return lines > 2 || size > 150;
     }
 
     function applySyntaxHighlighting(content, contentType) {
@@ -2189,17 +2273,50 @@
         }
         switch (name) {
             case 'Bash':
-                return input.command ? '$ ' + input.command : '';
+                var cmd = input.command || '';
+                // Truncate very long commands for readability
+                if (cmd.length > 80) {
+                    cmd = cmd.substring(0, 77) + '...';
+                }
+                return cmd ? '$ ' + cmd : '';
             case 'Read':
-                return input.file_path || '';
+                var path = input.file_path || '';
+                if (input.limit && input.offset) {
+                    return path + ' (lines ' + input.offset + '-' + (input.offset + input.limit) + ')';
+                } else if (input.limit) {
+                    return path + ' (first ' + input.limit + ' lines)';
+                }
+                return path;
             case 'Edit':
-                return input.file_path || '';
+                var path = input.file_path || '';
+                var changes = '';
+                if (input.old_string && input.new_string) {
+                    var oldPreview = input.old_string.substring(0, 40);
+                    var newPreview = input.new_string.substring(0, 40);
+                    if (input.old_string.length > 40) oldPreview += '...';
+                    if (input.new_string.length > 40) newPreview += '...';
+                    changes = ' (replace: "' + oldPreview + '" → "' + newPreview + '")';
+                }
+                return path + changes;
             case 'Write':
-                return input.file_path || '';
+                var path = input.file_path || '';
+                var content = input.content || '';
+                if (content) {
+                    var lines = content.split('\n').length;
+                    return path + ' (' + lines + ' line' + (lines === 1 ? '' : 's') + ')';
+                }
+                return path;
             case 'Grep':
-                return input.pattern ? '/' + input.pattern + '/' + (input.path ? ' in ' + input.path : '') : '';
+                var pattern = input.pattern || '';
+                var path = input.path || '';
+                var result = pattern ? '/' + pattern + '/' : '';
+                if (path) result += ' in ' + path;
+                if (input.recursive && !path.endsWith('/')) result += ' (recursive)';
+                return result;
             case 'Glob':
-                return input.pattern || '';
+                var pattern = input.pattern || '';
+                if (input.recursive) pattern += ' (recursive)';
+                return pattern;
             default:
                 // For unknown tools, show a compact summary
                 var keys = Object.keys(input);
@@ -2409,10 +2526,16 @@
                     var inputType = detectContentType(inputStr);
                     var shouldCollapseInput = shouldAutoCollapse(inputStr, inputType);
 
-                    if (!summary || toolName === 'Edit' || shouldCollapseInput) {
-                        var inputSummary = 'Show input';
-                        if (shouldCollapseInput) {
-                            inputSummary = 'Show input (' + Object.keys(input).length + ' parameter' + (Object.keys(input).length === 1 ? '' : 's') + ')';
+                    // Always show collapsible input for better transparency, but with better summaries
+                    var inputSummary = 'Show details';
+                    if (shouldCollapseInput || !summary || toolName === 'Edit') {
+                        var paramCount = Object.keys(input).length;
+                        if (toolName === 'Edit') {
+                            inputSummary = 'Show edit details';
+                        } else if (inputType === 'json') {
+                            inputSummary = 'Show parameters (' + paramCount + ' field' + (paramCount === 1 ? '' : 's') + ')';
+                        } else {
+                            inputSummary = 'Show input (' + inputStr.length + ' chars)';
                         }
 
                         var highlightedInput = applySyntaxHighlighting(inputStr, inputType);
