@@ -44,20 +44,22 @@ type ServiceScope struct {
 
 // Session represents a completed or in-progress task execution record.
 type Session struct {
-	ID         string     `json:"id"`
-	TaskID     string     `json:"task_id"`
-	Submitter  string     `json:"submitter"`
-	Prompt     string     `json:"prompt"`
-	Repo       string     `json:"repo,omitempty"`
-	Provider   string     `json:"provider"`
-	Scope      Scope      `json:"scope"`
-	Status     string     `json:"status"` // running, completed, timeout, cancelled, error
-	StartedAt  time.Time  `json:"started_at"`
-	FinishedAt *time.Time `json:"finished_at,omitempty"`
-	ExitCode   *int       `json:"exit_code,omitempty"`
-	Duration   string     `json:"duration,omitempty"`
-	Artifacts  []Artifact `json:"artifacts,omitempty"`
-	ParentID   string     `json:"parent_id,omitempty"`
+	ID             string     `json:"id"`
+	TaskID         string     `json:"task_id"`
+	Submitter      string     `json:"submitter"`
+	Prompt         string     `json:"prompt"`
+	Repo           string     `json:"repo,omitempty"`
+	Provider       string     `json:"provider"`
+	Scope          Scope      `json:"scope"`
+	Status         string     `json:"status"` // running, completed, timeout, cancelled, error
+	StartedAt      time.Time  `json:"started_at"`
+	FinishedAt     *time.Time `json:"finished_at,omitempty"`
+	ExitCode       *int       `json:"exit_code,omitempty"`
+	Duration       string     `json:"duration,omitempty"`
+	Artifacts      []Artifact `json:"artifacts,omitempty"`
+	ParentID       string     `json:"parent_id,omitempty"`
+	TaskName       string     `json:"task_name,omitempty"`
+	TriggerContext string     `json:"trigger_context,omitempty"`
 }
 
 // Artifact represents an output produced by a task (PR, commit, etc.).
