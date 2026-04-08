@@ -9,7 +9,7 @@ prompt: |
 
   This task can be triggered in two ways:
   1. **Scheduled**: Runs daily to check for unreleased commits and create releases
-  2. **Manual**: Triggered by issues/comments with the "ready-for-release" label
+  2. **Manual**: Triggered by issues labeled with "immediate-release"
 
   ## Environment
 
@@ -22,11 +22,16 @@ prompt: |
 
   ## Step 1: Check for unreleased commits
 
+  First, determine the trigger type:
+  - **Cron trigger**: Check for unreleased commits, exit early if none exist
+  - **Label trigger**: Proceed with release (human explicitly requested it)
+
   Check if there are commits since the last release:
     LAST_TAG=$(git describe --tags --abbrev=0)
     UNRELEASED_COMMITS=$(git log $LAST_TAG..HEAD --oneline)
 
-  If there are no unreleased commits, exit early with a success message.
+  For cron triggers: If there are no unreleased commits, exit early with a success message.
+  For label triggers: Proceed regardless (the human requesting release overrides this check).
 
   ## Step 2: Determine version bump
 
@@ -169,19 +174,16 @@ profiles:
   - alcove-releaser
 
 trigger:
-  schedule: "0 12 * * *"  # Daily at noon UTC - configurable by admin
+  schedule:
+    cron: "0 6 * * *"
+    enabled: true
   github:
     events:
       - issues
-      - issue_comment
     actions:
-      - opened
-      - reopened
-      - created
       - labeled
     repos:
       - bmbouter/alcove
     labels:
-      - ready-for-release
-    users: [bmbouter]
+      - immediate-release
     delivery_mode: polling
