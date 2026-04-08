@@ -131,9 +131,9 @@ prompt: |
     curl -s -H "Authorization: token $GITHUB_TOKEN" \
       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$ISSUE_NUMBER/comments"
 
-  ## Step 6: Review checklist
+  ## Step 6: Comprehensive review analysis
 
-  Evaluate the PR against these criteria:
+  Thoroughly evaluate the PR against these criteria:
   - **Correctness**: Does the code implement what the issue/PR describes?
   - **Testing**: Are there tests? Do they cover the main cases?
   - **Security**: No credentials exposed, no injection flaws, no auth bypasses?
@@ -142,61 +142,124 @@ prompt: |
   - **Database**: Migrations are additive and safe?
   - **Breaking changes**: API backward compatible?
 
-  ## Step 7: Decision
+  ## Step 7: MANDATORY formal review posting
 
-  ### If APPROVE:
+  ⚠️ **CRITICAL**: You MUST post a formal GitHub review before any other action.
+  Do NOT skip this step or proceed directly to merging.
 
-  1. Post an approval review with a brief summary of what you reviewed:
-     Write review JSON to /tmp/review.json with event "APPROVE" and a body
-     summarizing what was checked and why it's good.
+  ### 7a. Draft review decision
 
-     curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
-       -H "Content-Type: application/json" \
-       -d @/tmp/review.json \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER/reviews"
+  Based on your analysis, determine APPROVE or REQUEST_CHANGES.
+  Prepare a detailed review body that includes:
+  - Summary of what you reviewed (files, functionality, tests)
+  - Security considerations checked
+  - Code quality assessment
+  - Linked issue verification (if applicable)
+  - Any specific feedback or concerns
 
-  2. Swap labels (remove awaiting-review, add reviewer-approved):
-     curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/awaiting-review" 2>/dev/null
+  ### 7b. POST the formal review (REQUIRED)
 
-     Write label JSON to /tmp/label.json: {"labels":["reviewer-approved"]}
-     curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
-       -H "Content-Type: application/json" \
-       -d @/tmp/label.json \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels"
+  Write your review JSON to /tmp/review.json with the format:
+  ```json
+  {
+    "event": "APPROVE" or "REQUEST_CHANGES",
+    "body": "## Code Review Summary\n\n**Files Reviewed**: [list key files]\n**Functionality**: [describe what this implements]\n**Testing**: [comment on test coverage]\n**Security**: [any security considerations]\n**Issue Link**: [verify it addresses the linked issue]\n\n**Decision**: [APPROVE/REQUEST_CHANGES] - [brief reasoning]"
+  }
+  ```
 
-  3. Merge the PR (squash merge):
-     Write merge JSON to /tmp/merge.json with merge_method "squash"
-     curl -s -X PUT -H "Authorization: token $GITHUB_TOKEN" \
-       -H "Content-Type: application/json" \
-       -d @/tmp/merge.json \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER/merge"
+  POST the review (THIS STEP IS MANDATORY):
+  ```bash
+  curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d @/tmp/review.json \
+    "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER/reviews"
+  ```
 
-  4. Delete the feature branch:
-     curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/git/refs/heads/$BRANCH"
+  Verify the review was posted successfully:
+  ```bash
+  curl -s -H "Authorization: token $GITHUB_TOKEN" \
+    "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER/reviews" | jq '.[].state' | tail -1
+  ```
 
-  ### If REQUEST_CHANGES:
+  ## Step 8: Label management (REQUIRED)
 
-  1. Post a detailed review with specific issues and suggestions:
-     Write review JSON to /tmp/review.json with event "REQUEST_CHANGES"
-     Include specific file references, explain WHY each issue matters,
-     and suggest concrete fixes.
+  ⚠️ **CRITICAL**: You MUST swap labels before merging.
 
-     curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
-       -H "Content-Type: application/json" \
-       -d @/tmp/review.json \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER/reviews"
+  ### 8a. Remove awaiting-review label
 
-  2. Swap labels (remove awaiting-review, add changes-requested):
-     curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/awaiting-review" 2>/dev/null
+  ```bash
+  curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+    "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/awaiting-review" 2>/dev/null
+  ```
 
-     Write label JSON to /tmp/label.json: {"labels":["changes-requested"]}
-     curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
-       -H "Content-Type: application/json" \
-       -d @/tmp/label.json \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels"
+  ### 8b. Add appropriate status label
+
+  **If APPROVED:** Add reviewer-approved label
+  ```bash
+  cat > /tmp/label.json << 'EOF'
+  {"labels":["reviewer-approved"]}
+  EOF
+  curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d @/tmp/label.json \
+    "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels"
+  ```
+
+  **If CHANGES REQUESTED:** Add changes-requested label
+  ```bash
+  cat > /tmp/label.json << 'EOF'
+  {"labels":["changes-requested"]}
+  EOF
+  curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d @/tmp/label.json \
+    "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels"
+  ```
+
+  Verify label was updated:
+  ```bash
+  curl -s -H "Authorization: token $GITHUB_TOKEN" \
+    "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER" | jq -r '.labels[].name'
+  ```
+
+  ## Step 9: Merge (only if APPROVED)
+
+  ⚠️ **ONLY proceed with merge if review was APPROVED and labels were swapped**
+
+  ### 9a. Merge the PR (squash merge)
+
+  ```bash
+  cat > /tmp/merge.json << EOF
+  {
+    "commit_title": "$TITLE",
+    "commit_message": "$(echo "$BODY" | head -5)",
+    "merge_method": "squash"
+  }
+  EOF
+  curl -s -X PUT -H "Authorization: token $GITHUB_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d @/tmp/merge.json \
+    "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER/merge"
+  ```
+
+  ### 9b. Verify merge succeeded
+
+  ```bash
+  curl -s -H "Authorization: token $GITHUB_TOKEN" \
+    "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER" | jq -r '.merged'
+  ```
+
+  ### 9c. Delete the feature branch (only if merge succeeded)
+
+  ```bash
+  curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+    "$GITHUB_API_URL/repos/bmbouter/alcove/git/refs/heads/$BRANCH"
+  ```
+
+  ## Step 10: Exit (for changes requested)
+
+  If you requested changes in Step 7, DO NOT proceed to Steps 8b(approve) or 9.
+  The PR will be handled by the development agent after the author addresses feedback.
 
   ## Important rules
 
@@ -204,10 +267,22 @@ prompt: |
   - Write JSON to files before POSTing (avoids shell escaping bugs)
   - Be thorough — read the full diff, not just file names
   - Be constructive — explain WHY something is an issue and suggest fixes
+  - **MANDATORY**: ALWAYS post a formal review before any other action (Step 7)
+  - **MANDATORY**: ALWAYS swap labels before merging (Step 8)
+  - **MANDATORY**: Verify each step succeeds before proceeding to the next
   - Do NOT approve PRs with obvious bugs or missing tests
   - Do NOT approve PRs that don't match what the linked issue requested
+  - Do NOT skip review posting or label management steps
   - Changelog-only PRs from release branches can be auto-approved
   - If uncertain about a design choice, request changes and ask
+
+  **Step order is MANDATORY**:
+  1. Verify CI passed ✓
+  2. Read and analyze diff ✓
+  3. Post formal review (REQUIRED)
+  4. Swap labels (REQUIRED)
+  5. Merge (only if approved)
+  6. Delete branch (only if merge succeeded)
 
 repo: https://github.com/bmbouter/alcove.git
 timeout: 1800
