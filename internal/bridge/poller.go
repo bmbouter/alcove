@@ -159,51 +159,9 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 	if apiHost != "" {
 		baseURL = strings.TrimRight(apiHost, "/")
 	}
-	url := fmt.Sprintf("%s/repos/%s/events?per_page=30", baseURL, repo)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		log.Printf("poller: error creating request for %s: %v", repo, err)
-		return
-	}
-	req.Header.Set("Authorization", "token "+token)
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("User-Agent", "alcove-poller")
-	if etag != "" {
-		req.Header.Set("If-None-Match", etag)
-	}
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		log.Printf("poller: error fetching events for %s: %v", repo, err)
-		return
-	}
-	defer resp.Body.Close()
-
-	// Log rate limit info.
-	if remaining := resp.Header.Get("X-RateLimit-Remaining"); remaining != "" {
-		if n, _ := strconv.Atoi(remaining); n < 100 {
-			log.Printf("poller: GitHub rate limit low for %s: %s remaining", repo, remaining)
-		}
-	}
-
-	if resp.StatusCode == http.StatusNotModified {
-		// No new events.
-		_, _ = p.db.Exec(ctx,
-			`INSERT INTO github_poll_state (repo, etag, last_event_id, last_polled_at) VALUES ($1, $2, $3, NOW())
-			ON CONFLICT (repo) DO UPDATE SET last_polled_at = NOW()`,
-			repo, etag, lastEventID)
-		return
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		log.Printf("poller: GitHub API returned %d for %s: %s", resp.StatusCode, repo, string(body))
-		return
-	}
-
-	// Parse events.
-	var events []struct {
+	// Parse events from all pages.
+	var allEvents []struct {
 		ID        string          `json:"id"`
 		Type      string          `json:"type"`
 		Repo      struct{ Name string } `json:"repo"`
@@ -211,17 +169,108 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 		CreatedAt time.Time       `json:"created_at"`
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1MB limit
-	if err != nil {
-		log.Printf("poller: error reading response for %s: %v", repo, err)
-		return
-	}
-	if err := json.Unmarshal(body, &events); err != nil {
-		log.Printf("poller: error parsing events for %s: %v", repo, err)
-		return
+	var newEtag string
+	const maxPages = 10
+
+	// Paginate through events until we find one we've already seen.
+	for page := 1; page <= maxPages; page++ {
+		url := fmt.Sprintf("%s/repos/%s/events?per_page=30&page=%d", baseURL, repo, page)
+
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			log.Printf("poller: error creating request for %s: %v", repo, err)
+			return
+		}
+		req.Header.Set("Authorization", "token "+token)
+		req.Header.Set("Accept", "application/vnd.github.v3+json")
+		req.Header.Set("User-Agent", "alcove-poller")
+		if page == 1 && etag != "" {
+			req.Header.Set("If-None-Match", etag)
+		}
+
+		resp, err := p.client.Do(req)
+		if err != nil {
+			log.Printf("poller: error fetching events for %s: %v", repo, err)
+			return
+		}
+
+		// Log rate limit info.
+		if remaining := resp.Header.Get("X-RateLimit-Remaining"); remaining != "" {
+			if n, _ := strconv.Atoi(remaining); n < 100 {
+				log.Printf("poller: GitHub rate limit low for %s: %s remaining", repo, remaining)
+			}
+		}
+
+		if resp.StatusCode == http.StatusNotModified {
+			// No new events.
+			resp.Body.Close()
+			_, _ = p.db.Exec(ctx,
+				`INSERT INTO github_poll_state (repo, etag, last_event_id, last_polled_at) VALUES ($1, $2, $3, NOW())
+				ON CONFLICT (repo) DO UPDATE SET last_polled_at = NOW()`,
+				repo, etag, lastEventID)
+			return
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			resp.Body.Close()
+			log.Printf("poller: GitHub API returned %d for %s: %s", resp.StatusCode, repo, string(body))
+			return
+		}
+
+		// Store ETag from first page only.
+		if page == 1 {
+			newEtag = resp.Header.Get("ETag")
+		}
+
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1MB limit
+		resp.Body.Close()
+		if err != nil {
+			log.Printf("poller: error reading response for %s: %v", repo, err)
+			return
+		}
+
+		var pageEvents []struct {
+			ID        string          `json:"id"`
+			Type      string          `json:"type"`
+			Repo      struct{ Name string } `json:"repo"`
+			Payload   json.RawMessage `json:"payload"`
+			CreatedAt time.Time       `json:"created_at"`
+		}
+
+		if err := json.Unmarshal(body, &pageEvents); err != nil {
+			log.Printf("poller: error parsing events for %s: %v", repo, err)
+			return
+		}
+
+		if len(pageEvents) == 0 {
+			break // No more events.
+		}
+
+		// Check if we've reached events we've already seen.
+		reachedLastSeen := false
+		if lastEventID != "" {
+			for _, event := range pageEvents {
+				eventIDNum, _ := strconv.ParseInt(event.ID, 10, 64)
+				lastIDNum, _ := strconv.ParseInt(lastEventID, 10, 64)
+				if eventIDNum > 0 && lastIDNum > 0 && eventIDNum <= lastIDNum {
+					reachedLastSeen = true
+					break
+				}
+			}
+		}
+
+		allEvents = append(allEvents, pageEvents...)
+
+		// Stop paginating if:
+		// 1. We found an event we've already seen
+		// 2. This page returned fewer than 30 events (last page)
+		if reachedLastSeen || len(pageEvents) < 30 {
+			break
+		}
 	}
 
-	newEtag := resp.Header.Get("ETag")
+	events := allEvents
 
 	// First poll: process events from the last hour to catch recent activity.
 	firstPoll := lastEventID == ""
@@ -240,8 +289,12 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 
 	for _, event := range events {
 		// Skip already-seen events.
-		if !firstPoll && event.ID <= lastEventID {
-			continue
+		if !firstPoll {
+			eventIDNum, _ := strconv.ParseInt(event.ID, 10, 64)
+			lastIDNum, _ := strconv.ParseInt(lastEventID, 10, 64)
+			if eventIDNum > 0 && lastIDNum > 0 && eventIDNum <= lastIDNum {
+				continue
+			}
 		}
 		// On first poll, only process events from the last hour.
 		if firstPoll && event.CreatedAt.Before(cutoff) {
