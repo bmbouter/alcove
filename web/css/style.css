@@ -1870,3 +1870,57 @@ select.input {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
 }
+
+/* === RH Identity Banner === */
+.rh-identity-banner {
+    background: rgba(52, 152, 219, 0.1);
+    border-bottom: 1px solid rgba(52, 152, 219, 0.3);
+    color: var(--status-running);
+    padding: 12px 0;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.rh-identity-banner-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 24px;
+}
+
+.rh-identity-banner-icon {
+    flex-shrink: 0;
+    font-size: 16px;
+}
+
+.rh-identity-banner-text {
+    flex: 1;
+}
+
+.rh-identity-banner-text a {
+    color: inherit;
+    text-decoration: underline;
+}
+
+.rh-identity-banner-text a:hover {
+    text-decoration: none;
+}
+
+.rh-identity-banner-dismiss {
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    font-size: 18px;
+    font-weight: bold;
+    padding: 4px 8px;
+    border-radius: var(--radius);
+    transition: var(--transition);
+    flex-shrink: 0;
+}
+
+.rh-identity-banner-dismiss:hover {
+    background: rgba(52, 152, 219, 0.2);
+}

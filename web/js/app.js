@@ -115,6 +115,13 @@
         var logoutBtn = $('#logout-btn');
         if (changePassBtn) changePassBtn.hidden = rhIdentityMode;
         if (logoutBtn) logoutBtn.hidden = rhIdentityMode;
+
+        // Show RH Identity banner in rh-identity mode (unless dismissed for session)
+        var banner = $('#rh-identity-banner');
+        var bannerDismissed = sessionStorage.getItem('alcove_rh_banner_dismissed') === 'true';
+        if (banner) {
+            banner.hidden = !rhIdentityMode || bannerDismissed;
+        }
     }
 
     function isLoggedIn() {
@@ -218,6 +225,12 @@
     // Close modal on overlay click
     $('#change-password-modal').addEventListener('click', (e) => {
         if (e.target === e.currentTarget) hide($('#change-password-modal'));
+    });
+
+    // RH Identity banner dismiss
+    $('#rh-identity-banner-dismiss').addEventListener('click', () => {
+        sessionStorage.setItem('alcove_rh_banner_dismissed', 'true');
+        hide($('#rh-identity-banner'));
     });
 
     // System Info modal
