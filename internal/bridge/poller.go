@@ -379,13 +379,7 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 				}
 			}
 
-			session, err := p.dispatcher.DispatchTask(ctx, taskReq, sched.Owner)
-			if err != nil {
-				log.Printf("poller: error dispatching schedule %s for %s: %v", sched.Name, eventRepo, err)
-				continue
-			}
-
-			// Store event context on the session.
+			// Append event context to the prompt before dispatching.
 			meta := map[string]string{
 				"GITHUB_EVENT":        eventType,
 				"GITHUB_REPO":         eventRepo,
@@ -395,9 +389,13 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 				"GITHUB_ISSUE_NUMBER": issueNumber,
 			}
 			metaJSON, _ := json.Marshal(meta)
-			_, _ = p.db.Exec(ctx,
-				`UPDATE sessions SET prompt = prompt || E'\n\n[event: ' || $1 || ']' WHERE id = $2`,
-				string(metaJSON), session.ID)
+			taskReq.Prompt = taskReq.Prompt + "\n\n[event: " + string(metaJSON) + "]"
+
+			_, err := p.dispatcher.DispatchTask(ctx, taskReq, sched.Owner)
+			if err != nil {
+				log.Printf("poller: error dispatching schedule %s for %s: %v", sched.Name, eventRepo, err)
+				continue
+			}
 
 			dispatched++
 			log.Printf("poller: dispatched %s for %s %s/%s (event %s)", sched.Name, eventType, eventRepo, action, event.ID)
