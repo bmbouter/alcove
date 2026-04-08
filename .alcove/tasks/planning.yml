@@ -53,39 +53,61 @@ prompt: |
     curl -s -H "Authorization: token $GITHUB_TOKEN" \
       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$ISSUE_NUMBER/comments"
 
-  ## Step 2: Form a team of specialist agents
+  ## Step 2: Form a team of specialist agents for multi-agent deliberation
 
   Dispatch a team of agents working in parallel to analyze the issue from
-  different perspectives. Each agent should focus on their specialty area.
-  Choose the relevant specialists based on the issue — not every issue needs
-  every specialist. Common specialists include:
+  different perspectives, then have them deliberate together to resolve
+  conflicts and create a unified plan. Select specialists based on the
+  issue scope — dispatch all relevant specialists to ensure comprehensive
+  coverage and meaningful deliberation.
 
-  - **Architect agent**: Overall design, component interactions, data flow,
-    API design, security implications, backward compatibility
+  **Required specialist roles** (dispatch based on issue scope):
+
+  - **UI/UX/Frontend agent**: Dashboard changes (web/js/app.js, web/index.html,
+    web/css/style.css), user experience, layout, accessibility, interaction design.
+    Reviews changes from the user's perspective and ensures intuitive workflows.
+  - **Testing agent**: Comprehensive testing across ALL dimensions — functional
+    tests (bash scripts in scripts/), API tests, UI smoke tests, end-to-end
+    workflow tests, unit tests in Go. Identifies what test coverage is needed
+    and where gaps exist. Covers edge cases and integration scenarios.
+  - **Technical writing agent**: Documentation changes with focus on clarity,
+    completeness, and audience-appropriate language. Reviews existing docs
+    (docs/*.md, README, design docs, configuration guides, API reference)
+    for accuracy after proposed changes. Ensures consistency and accessibility.
   - **Go backend agent**: internal/bridge, internal/gate, cmd/ changes,
-    database queries, NATS messaging, migration SQL
-  - **Frontend/UI/UX agent**: web/js/app.js, web/index.html, web/css/style.css,
-    user experience, accessibility, layout
+    database queries, NATS messaging, migration SQL, business logic, handlers
+  - **Architect agent**: Overall design, component interactions, data flow,
+    API design, security implications, backward compatibility, system integration
   - **DevOps agent**: deploy/openshift/template.yaml, Containerfiles,
-    CI/CD workflows, staging deployment considerations
+    CI/CD workflows, staging deployment considerations, infrastructure impact
   - **Database agent**: PostgreSQL schema changes, migrations, JSONB patterns,
-    query performance, data integrity
-  - **Testing agent**: scripts/test-*.sh functional tests, unit tests in Go,
-    edge cases, test coverage gaps
-  - **Documentation agent**: docs/*.md, API reference, configuration guide,
-    changelog considerations
+    query performance, data integrity, data migration strategies
 
-  Each specialist should:
-  1. Read the relevant code in their area
-  2. Identify what needs to change
-  3. Flag risks, edge cases, and dependencies
-  4. Propose their portion of the plan
+  **Phase 1 - Individual Analysis**: Each specialist should:
+  1. Read the relevant code/documentation in their area thoroughly
+  2. Identify what needs to change in their domain
+  3. Flag risks, edge cases, dependencies, and constraints
+  4. Propose their portion of the plan with rationale
 
-  ## Step 3: Reach consensus
+  **Phase 2 - Cross-team Deliberation**: After all specialists complete their
+  analysis, facilitate a deliberation session where:
+  1. Each specialist presents their findings and recommendations
+  2. Identify areas of overlap, dependencies, or conflicts between domains
+  3. Have specialists discuss tradeoffs and resolve disagreements
+  4. Example: Backend agent proposing API change discusses with Testing agent
+     about test coverage needs and Technical writing agent about documentation impact
+  5. Ensure UI/UX agent reviews any user-facing changes for usability
+  6. Address integration concerns raised by Architect agent
+  7. Validate deployment implications with DevOps agent
 
-  After all specialists report, synthesize their findings into a unified plan.
-  Resolve any conflicts between specialist recommendations. Ensure the plan
-  covers:
+  ## Step 3: Synthesize consensus plan
+
+  After deliberation, create a unified implementation plan that reflects the
+  shared consensus from all specialist inputs. The plan should demonstrate
+  how conflicts were resolved and show integration across all domains.
+
+  Resolve any remaining conflicts between specialist recommendations through
+  documented decision-making. Ensure the final plan covers:
 
   - **Code changes**: Which files, what modifications, in what order
   - **Database migrations**: Any new columns, tables, indexes, or data changes
@@ -118,6 +140,11 @@ prompt: |
     judgment on specifics
   - Read the existing codebase thoroughly before planning — understand current
     patterns, conventions, and architecture
+  - MANDATORY: Ensure agents deliberate and reach consensus rather than working
+    in isolation. The final plan must reflect integrated thinking across all
+    specialist domains, with documented resolution of any conflicts or tradeoffs
+  - The planning output should show evidence of cross-specialist collaboration
+    and explain how different domain concerns were balanced and integrated
   - Do NOT implement any changes — only plan
 
 repo: https://github.com/bmbouter/alcove.git
