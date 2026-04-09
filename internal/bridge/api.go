@@ -55,10 +55,11 @@ type API struct {
 	llm           *BridgeLLM
 	defStore      *TaskDefStore
 	syncer        *TaskRepoSyncer
+	authStore     auth.Authenticator // for TBR associations (rh-identity backend)
 }
 
 // NewAPI creates the API handler set.
-func NewAPI(dispatcher *Dispatcher, db *pgxpool.Pool, cfg *Config, scheduler *Scheduler, credStore *CredentialStore, toolStore *ToolStore, profileStore *ProfileStore, settingsStore *SettingsStore, llm *BridgeLLM, defStore *TaskDefStore, syncer *TaskRepoSyncer) *API {
+func NewAPI(dispatcher *Dispatcher, db *pgxpool.Pool, cfg *Config, scheduler *Scheduler, credStore *CredentialStore, toolStore *ToolStore, profileStore *ProfileStore, settingsStore *SettingsStore, llm *BridgeLLM, defStore *TaskDefStore, syncer *TaskRepoSyncer, authStore auth.Authenticator) *API {
 	return &API{
 		dispatcher:    dispatcher,
 		db:            db,
@@ -71,6 +72,7 @@ func NewAPI(dispatcher *Dispatcher, db *pgxpool.Pool, cfg *Config, scheduler *Sc
 		llm:           llm,
 		defStore:      defStore,
 		syncer:        syncer,
+		authStore:     authStore,
 	}
 }
 
@@ -2032,7 +2034,7 @@ func (a *API) handleTBRAssociations(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		// List user's TBR associations
-		rhStore := a.cfg.AuthStore.(*auth.RHIdentityStore)
+		rhStore := a.authStore.(*auth.RHIdentityStore)
 		associations, err := rhStore.GetTBRAssociations(r.Context(), username)
 		if err != nil {
 			log.Printf("error fetching TBR associations for user %s: %v", username, err)
@@ -2061,7 +2063,7 @@ func (a *API) handleTBRAssociations(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		rhStore := a.cfg.AuthStore.(*auth.RHIdentityStore)
+		rhStore := a.authStore.(*auth.RHIdentityStore)
 		association, err := rhStore.CreateTBRAssociation(r.Context(), username, req.TBROrgID, req.TBRUsername)
 		if err != nil {
 			log.Printf("error creating TBR association for user %s: %v", username, err)
@@ -2099,7 +2101,7 @@ func (a *API) handleTBRAssociationByID(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodDelete:
 		// Delete TBR association (user must own it)
-		rhStore := a.cfg.AuthStore.(*auth.RHIdentityStore)
+		rhStore := a.authStore.(*auth.RHIdentityStore)
 		if err := rhStore.DeleteTBRAssociation(r.Context(), username, path); err != nil {
 			log.Printf("error deleting TBR association %s for user %s: %v", path, username, err)
 			respondError(w, http.StatusNotFound, err.Error())
