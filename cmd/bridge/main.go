@@ -187,7 +187,7 @@ func main() {
 	defer syncer.Stop()
 	log.Println("task repo syncer started")
 
-	api := bridge.NewAPI(dispatcher, dbpool, cfg, scheduler, credStore, toolStore, profileStore, settingsStore, bridgeLLM, defStore, syncer)
+	api := bridge.NewAPI(dispatcher, dbpool, cfg, scheduler, credStore, toolStore, profileStore, settingsStore, bridgeLLM, defStore, syncer, store)
 
 	// Build HTTP server.
 	mux := http.NewServeMux()

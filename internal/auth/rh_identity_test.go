@@ -49,6 +49,23 @@ func makeRHIdentityHeaderCustom(identity map[string]interface{}) string {
 	return base64.StdEncoding.EncodeToString(data)
 }
 
+// makeTBRIdentityHeader builds a valid base64-encoded X-RH-Identity header
+// for a TBR User identity.
+func makeTBRIdentityHeader(orgID, username string) string {
+	identity := map[string]interface{}{
+		"identity": map[string]interface{}{
+			"type":      "User",
+			"auth_type": "basic-auth",
+			"org_id":    orgID,
+			"user": map[string]interface{}{
+				"username": username,
+			},
+		},
+	}
+	data, _ := json.Marshal(identity)
+	return base64.StdEncoding.EncodeToString(data)
+}
+
 // --- ParseRHIdentity tests ---
 
 func TestParseRHIdentity_ValidSAML(t *testing.T) {
@@ -231,6 +248,114 @@ func TestParseRHIdentity_ValidBase64Padding(t *testing.T) {
 	_, err := ParseRHIdentity(header)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
+	}
+}
+
+// --- TBR Identity Tests ---
+
+func TestParseRHIdentity_ValidTBR(t *testing.T) {
+	header := makeTBRIdentityHeader("12345", "testuser")
+
+	id, err := ParseRHIdentity(header)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if id.Identity.Type != "User" {
+		t.Errorf("expected type User, got %q", id.Identity.Type)
+	}
+	if id.Identity.AuthType != "basic-auth" {
+		t.Errorf("expected auth_type basic-auth, got %q", id.Identity.AuthType)
+	}
+	if id.Identity.OrgID != "12345" {
+		t.Errorf("expected org_id 12345, got %q", id.Identity.OrgID)
+	}
+	if id.Identity.User == nil {
+		t.Fatal("expected user to be non-nil")
+	}
+	if id.Identity.User.Username != "testuser" {
+		t.Errorf("expected username testuser, got %q", id.Identity.User.Username)
+	}
+}
+
+func TestParseRHIdentity_TBR_MissingOrgID(t *testing.T) {
+	header := makeRHIdentityHeaderCustom(map[string]interface{}{
+		"identity": map[string]interface{}{
+			"type":      "User",
+			"auth_type": "basic-auth",
+			"user": map[string]interface{}{
+				"username": "testuser",
+			},
+		},
+	})
+
+	_, err := ParseRHIdentity(header)
+	if err == nil {
+		t.Fatal("expected error for missing org_id, got nil")
+	}
+}
+
+func TestParseRHIdentity_TBR_MissingUsername(t *testing.T) {
+	header := makeRHIdentityHeaderCustom(map[string]interface{}{
+		"identity": map[string]interface{}{
+			"type":      "User",
+			"auth_type": "basic-auth",
+			"org_id":    "12345",
+			"user": map[string]interface{}{},
+		},
+	})
+
+	_, err := ParseRHIdentity(header)
+	if err == nil {
+		t.Fatal("expected error for missing username, got nil")
+	}
+}
+
+func TestExtractTBRIdentity(t *testing.T) {
+	// Test with valid TBR identity
+	header := makeTBRIdentityHeader("12345", "testuser")
+	id, err := ParseRHIdentity(header)
+	if err != nil {
+		t.Fatalf("expected no error parsing TBR identity, got: %v", err)
+	}
+
+	tbr := ExtractTBRIdentity(id)
+	if tbr == nil {
+		t.Fatal("expected non-nil TBRIdentity")
+	}
+	if tbr.OrgID != "12345" {
+		t.Errorf("expected org_id 12345, got %q", tbr.OrgID)
+	}
+	if tbr.Username != "testuser" {
+		t.Errorf("expected username testuser, got %q", tbr.Username)
+	}
+
+	// Test with SAML identity
+	samlHeader := makeRHIdentityHeader("test@redhat.com", "uuid-123", "Test", "User", nil)
+	samlID, err := ParseRHIdentity(samlHeader)
+	if err != nil {
+		t.Fatalf("expected no error parsing SAML identity, got: %v", err)
+	}
+
+	tbrFromSAML := ExtractTBRIdentity(samlID)
+	if tbrFromSAML != nil {
+		t.Error("expected nil TBRIdentity from SAML identity")
+	}
+}
+
+func TestIsTBRIdentity(t *testing.T) {
+	// Test TBR identity
+	tbrHeader := makeTBRIdentityHeader("12345", "testuser")
+	tbrID, _ := ParseRHIdentity(tbrHeader)
+	if !IsTBRIdentity(tbrID) {
+		t.Error("expected true for TBR identity")
+	}
+
+	// Test SAML identity
+	samlHeader := makeRHIdentityHeader("test@redhat.com", "uuid-123", "Test", "User", nil)
+	samlID, _ := ParseRHIdentity(samlHeader)
+	if IsTBRIdentity(samlID) {
+		t.Error("expected false for SAML identity")
 	}
 }
 

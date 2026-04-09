@@ -72,6 +72,102 @@ curl http://localhost:8080/api/v1/sessions \
   -H "Authorization: Bearer a1b2c3d4e5f6..."
 ```
 
+### TBR Identity Associations (rh-identity backend only)
+
+These endpoints are only available when `AUTH_BACKEND=rh-identity`. They allow SSO users to associate Token Based Registry (TBR) identities with their account for API authentication.
+
+#### GET /api/v1/auth/tbr-associations
+
+List the current user's TBR identity associations.
+
+**Response (200):**
+
+```json
+{
+  "associations": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "user_id": "alice@redhat.com",
+      "tbr_org_id": "12345",
+      "tbr_username": "alice",
+      "created_at": "2026-04-08T10:00:00Z",
+      "updated_at": "2026-04-08T10:00:00Z"
+    }
+  ]
+}
+```
+
+#### POST /api/v1/auth/tbr-associations
+
+Create a new TBR identity association for the authenticated user.
+
+**Request body:**
+
+```json
+{
+  "tbr_org_id": "12345",
+  "tbr_username": "alice"
+}
+```
+
+**Response (201):**
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "user_id": "alice@redhat.com", 
+  "tbr_org_id": "12345",
+  "tbr_username": "alice",
+  "created_at": "2026-04-08T10:00:00Z",
+  "updated_at": "2026-04-08T10:00:00Z"
+}
+```
+
+**Status codes:**
+
+| Code | Description |
+|------|-------------|
+| 201  | Association created successfully |
+| 400  | Invalid request body or missing fields |
+| 409  | TBR identity already associated with a user |
+
+#### DELETE /api/v1/auth/tbr-associations/{id}
+
+Remove a TBR identity association. Users can only delete their own associations.
+
+**Response (200):**
+
+```json
+{
+  "deleted": true
+}
+```
+
+**Status codes:**
+
+| Code | Description |
+|------|-------------|
+| 200  | Association deleted successfully |
+| 404  | Association not found or not owned by user |
+
+**curl examples:**
+
+```bash
+# List associations
+curl http://localhost:8080/api/v1/auth/tbr-associations \
+  -H "X-RH-Identity: <base64-encoded-saml-identity>"
+
+# Create association  
+curl -X POST http://localhost:8080/api/v1/auth/tbr-associations \
+  -H "Content-Type: application/json" \
+  -H "X-RH-Identity: <base64-encoded-saml-identity>" \
+  -d '{"tbr_org_id": "12345", "tbr_username": "alice"}'
+
+# Delete association
+curl -X DELETE http://localhost:8080/api/v1/auth/tbr-associations/550e8400-e29b-41d4-a716-446655440000 \
+  -H "X-RH-Identity: <base64-encoded-saml-identity>"
+```
+
 ---
 
 ## Tasks
