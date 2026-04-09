@@ -3,6 +3,14 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.8.0
+
+### Features
+- Add Token Based Registry (TBR) identity association for rh-identity
+  auth backend. SSO users can associate TBR identities with their account,
+  enabling API authentication via TBR tokens. Includes database migration,
+  REST API endpoints, dashboard Account page, and extensive logging.
+
 ## v0.7.1
 
 ### Bug Fixes
