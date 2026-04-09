@@ -133,6 +133,7 @@ func (p *GitHubPoller) PollAll(ctx context.Context) {
 	}
 
 	if len(repoMap) == 0 {
+		log.Printf("poller: no polling-mode event schedules found")
 		return
 	}
 	for repo, group := range repoMap {
@@ -202,7 +203,8 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 		}
 
 		if resp.StatusCode == http.StatusNotModified {
-			// No new events.
+			// No new events since last poll.
+			log.Printf("poller: 304 Not Modified for %s (page %d, etag=%s)", repo, page, etag)
 			resp.Body.Close()
 			_, _ = p.db.Exec(ctx,
 				`INSERT INTO github_poll_state (repo, etag, last_event_id, last_polled_at) VALUES ($1, $2, $3, NOW())
@@ -242,6 +244,8 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 			log.Printf("poller: error parsing events for %s: %v", repo, err)
 			return
 		}
+
+		log.Printf("poller: fetched %d events from %s page %d (last_event_id=%s)", len(pageEvents), repo, page, lastEventID)
 
 		if len(pageEvents) == 0 {
 			break // No more events.
