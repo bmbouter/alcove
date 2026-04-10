@@ -114,6 +114,11 @@ prompt: |
       -d @/tmp/comment.json \
       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/comments"
 
+    #### Remove needs-comment label if present (after leaving comment):
+    echo "Removing needs-comment label if present..."
+    curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/needs-comment" 2>/dev/null
+
     exit 0
   fi
 
@@ -208,6 +213,11 @@ prompt: |
     echo "Formal review posted successfully (ID: $REVIEW_ID)"
   fi
 
+  #### Remove needs-comment label if present (after leaving comment):
+  echo "Removing needs-comment label if present..."
+  curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+    "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/needs-comment" 2>/dev/null
+
   #### For self-authored PRs (approval comment):
   if [ "$IS_SELF_AUTHORED" = "true" ]; then
     # Post approval comment (GitHub blocks self-reviews)
@@ -231,6 +241,11 @@ prompt: |
     fi
     echo "Approval comment posted successfully (ID: $COMMENT_ID)"
   fi
+
+  #### Remove needs-comment label if present (after leaving comment):
+  echo "Removing needs-comment label if present..."
+  curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+    "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/needs-comment" 2>/dev/null
 
   #### Swap labels for all approved PRs:
   echo "Swapping labels: awaiting-review → reviewer-approved"
@@ -318,6 +333,11 @@ prompt: |
     exit 1
   fi
   echo "Changes requested review posted successfully (ID: $REVIEW_ID)"
+
+  #### Remove needs-comment label if present (after leaving comment):
+  echo "Removing needs-comment label if present..."
+  curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+    "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/needs-comment" 2>/dev/null
 
   #### Swap labels for changes requested:
   echo "Swapping labels: awaiting-review → changes-requested"
