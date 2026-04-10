@@ -143,11 +143,11 @@ func (p *GitHubPoller) PollAll(ctx context.Context) {
 
 // pollRepo fetches events from a single GitHub repo and dispatches matching tasks.
 func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedules []pollSchedule) {
-	// Load poll state.
-	var etag, lastEventID string
+	// Load poll state (ETag for caching only).
+	var etag string
 	_ = p.db.QueryRow(ctx,
-		`SELECT etag, last_event_id FROM github_poll_state WHERE repo = $1`, repo,
-	).Scan(&etag, &lastEventID)
+		`SELECT etag FROM github_poll_state WHERE repo = $1`, repo,
+	).Scan(&etag)
 
 	// Acquire GitHub token.
 	token, apiHost, err := p.credStore.AcquireSCMTokenForOwner(ctx, "github", owner)
@@ -161,8 +161,10 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 		baseURL = strings.TrimRight(apiHost, "/")
 	}
 
-	// Parse events from all pages.
-	var allEvents []struct {
+	// Fetch events from all pages. We process ALL fetched events and rely
+	// solely on the webhook_deliveries table for deduplication. No ID-based
+	// skipping — GitHub event IDs are not chronologically ordered.
+	type ghEvent struct {
 		ID        string          `json:"id"`
 		Type      string          `json:"type"`
 		Repo      struct{ Name string } `json:"repo"`
@@ -170,10 +172,10 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 		CreatedAt time.Time       `json:"created_at"`
 	}
 
+	var allEvents []ghEvent
 	var newEtag string
 	const maxPages = 10
 
-	// Paginate through events until we find one we've already seen.
 	for page := 1; page <= maxPages; page++ {
 		url := fmt.Sprintf("%s/repos/%s/events?per_page=30&page=%d", baseURL, repo, page)
 
@@ -195,7 +197,6 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 			return
 		}
 
-		// Log rate limit info.
 		if remaining := resp.Header.Get("X-RateLimit-Remaining"); remaining != "" {
 			if n, _ := strconv.Atoi(remaining); n < 100 {
 				log.Printf("poller: GitHub rate limit low for %s: %s remaining", repo, remaining)
@@ -203,13 +204,11 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 		}
 
 		if resp.StatusCode == http.StatusNotModified {
-			// No new events since last poll.
-			log.Printf("poller: 304 Not Modified for %s (page %d, etag=%s)", repo, page, etag)
 			resp.Body.Close()
 			_, _ = p.db.Exec(ctx,
-				`INSERT INTO github_poll_state (repo, etag, last_event_id, last_polled_at) VALUES ($1, $2, $3, NOW())
+				`INSERT INTO github_poll_state (repo, etag, last_event_id, last_polled_at) VALUES ($1, $2, '', NOW())
 				ON CONFLICT (repo) DO UPDATE SET last_polled_at = NOW()`,
-				repo, etag, lastEventID)
+				repo, etag)
 			return
 		}
 
@@ -220,91 +219,57 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 			return
 		}
 
-		// Store ETag from first page only.
 		if page == 1 {
 			newEtag = resp.Header.Get("ETag")
 		}
 
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1MB limit
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		resp.Body.Close()
 		if err != nil {
 			log.Printf("poller: error reading response for %s: %v", repo, err)
 			return
 		}
 
-		var pageEvents []struct {
-			ID        string          `json:"id"`
-			Type      string          `json:"type"`
-			Repo      struct{ Name string } `json:"repo"`
-			Payload   json.RawMessage `json:"payload"`
-			CreatedAt time.Time       `json:"created_at"`
-		}
-
+		var pageEvents []ghEvent
 		if err := json.Unmarshal(body, &pageEvents); err != nil {
 			log.Printf("poller: error parsing events for %s: %v", repo, err)
 			return
 		}
 
-		log.Printf("poller: fetched %d events from %s page %d (last_event_id=%s)", len(pageEvents), repo, page, lastEventID)
-
 		if len(pageEvents) == 0 {
-			break // No more events.
-		}
-
-		// Check if we've reached events we've already seen.
-		reachedLastSeen := false
-		if lastEventID != "" {
-			for _, event := range pageEvents {
-				eventIDNum, _ := strconv.ParseInt(event.ID, 10, 64)
-				lastIDNum, _ := strconv.ParseInt(lastEventID, 10, 64)
-				if eventIDNum > 0 && lastIDNum > 0 && eventIDNum <= lastIDNum {
-					reachedLastSeen = true
-					break
-				}
-			}
+			break
 		}
 
 		allEvents = append(allEvents, pageEvents...)
 
-		// Stop paginating if:
-		// 1. We found an event we've already seen
-		// 2. This page returned fewer than 30 events (last page)
-		if reachedLastSeen || len(pageEvents) < 30 {
-			break
+		if len(pageEvents) < 30 {
+			break // Last page.
 		}
 	}
 
-	events := allEvents
+	if len(allEvents) == 0 {
+		if newEtag != "" {
+			_, _ = p.db.Exec(ctx,
+				`INSERT INTO github_poll_state (repo, etag, last_event_id, last_polled_at) VALUES ($1, $2, '', NOW())
+				ON CONFLICT (repo) DO UPDATE SET etag = $2, last_polled_at = NOW()`,
+				repo, newEtag)
+		}
+		return
+	}
 
-	// First poll: process events from the last hour to catch recent activity.
-	firstPoll := lastEventID == ""
-	cutoff := time.Now().Add(-1 * time.Hour)
+	log.Printf("poller: fetched %d events from %s across all pages", len(allEvents), repo)
 
-	// Reverse events to process in chronological order.
-	sort.Slice(events, func(i, j int) bool {
-		return events[i].CreatedAt.Before(events[j].CreatedAt)
+	// Process events in chronological order.
+	sort.Slice(allEvents, func(i, j int) bool {
+		return allEvents[i].CreatedAt.Before(allEvents[j].CreatedAt)
 	})
 
-	var highestID string
 	dispatched := 0
 
 	// Track dispatched (issue_number, schedule_id) pairs to prevent duplicates in this poll cycle.
 	dispatchedTasks := make(map[string]bool)
 
-	for _, event := range events {
-		// Skip already-seen events.
-		if !firstPoll {
-			eventIDNum, _ := strconv.ParseInt(event.ID, 10, 64)
-			lastIDNum, _ := strconv.ParseInt(lastEventID, 10, 64)
-			if eventIDNum > 0 && lastIDNum > 0 && eventIDNum <= lastIDNum {
-				continue
-			}
-		}
-		// On first poll, only process events from the last hour.
-		if firstPoll && event.CreatedAt.Before(cutoff) {
-			continue
-		}
-		highestID = event.ID
+	for _, event := range allEvents {
 
 		// Map GitHub API event type to webhook event name.
 		eventType, ok := githubEventTypeMap[event.Type]
@@ -497,14 +462,11 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 		}
 	}
 
-	// Update poll state.
-	if highestID == "" {
-		highestID = lastEventID
-	}
+	// Update poll state (ETag only — deduplication is via webhook_deliveries).
 	_, _ = p.db.Exec(ctx,
-		`INSERT INTO github_poll_state (repo, etag, last_event_id, last_polled_at) VALUES ($1, $2, $3, NOW())
-		ON CONFLICT (repo) DO UPDATE SET etag = $2, last_event_id = $3, last_polled_at = NOW()`,
-		repo, newEtag, highestID)
+		`INSERT INTO github_poll_state (repo, etag, last_event_id, last_polled_at) VALUES ($1, $2, '', NOW())
+		ON CONFLICT (repo) DO UPDATE SET etag = $2, last_polled_at = NOW()`,
+		repo, newEtag)
 
 	if dispatched > 0 {
 		log.Printf("poller: dispatched %d task(s) from %s", dispatched, repo)
