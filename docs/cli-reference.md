@@ -53,6 +53,83 @@ alcove --help
 |------|-------------|
 | `--server <url>` | Bridge server URL (overrides env and config file) |
 | `--output <format>` | Output format: `json` or `table` (default: `table`) |
+| `--proxy-url <url>` | HTTP/HTTPS proxy URL (overrides environment) |
+| `--no-proxy <hosts>` | Comma-separated list of hosts to exclude from proxy (overrides `NO_PROXY` env var) |
+| `-u, --username <user>` | Username for Basic Auth (overrides `ALCOVE_USERNAME`) |
+| `-p, --password <pass>` | Password for Basic Auth (overrides `ALCOVE_PASSWORD`) |
+
+## Proxy Configuration
+
+The Alcove CLI supports HTTP and HTTPS proxies for connecting to Bridge instances
+behind corporate proxies. Proxy configuration follows standard conventions and
+supports both environment variables and command-line flags.
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `HTTP_PROXY` | HTTP proxy URL for API requests |
+| `HTTPS_PROXY` | HTTPS proxy URL for API requests (takes precedence over `HTTP_PROXY`) |
+| `NO_PROXY` | Comma-separated list of hosts to exclude from proxy |
+| `http_proxy` | Alternative lowercase version of `HTTP_PROXY` |
+| `https_proxy` | Alternative lowercase version of `HTTPS_PROXY` |
+| `no_proxy` | Alternative lowercase version of `NO_PROXY` |
+
+### Configuration Precedence
+
+1. CLI flags (`--proxy-url`, `--no-proxy`) — highest priority
+2. Environment variables (`HTTPS_PROXY`/`HTTP_PROXY`, `NO_PROXY`)
+3. No proxy (default)
+
+### Proxy URL Format
+
+Proxy URLs must use `http://` or `https://` schemes and support authentication:
+
+```
+http://proxy.example.com:8080
+https://proxy.example.com:443
+http://username:password@proxy.example.com:8080
+```
+
+### NO_PROXY Exclusions
+
+The `NO_PROXY` environment variable or `--no-proxy` flag supports:
+
+- **Exact host match**: `example.com`
+- **Host with port**: `example.com:8080`
+- **Domain suffix**: `.example.com` (matches `api.example.com`)
+- **Wildcard domain**: `*.example.com` (matches `api.example.com`)
+- **IP addresses**: `192.168.1.1`
+- **CIDR ranges**: `192.168.1.0/24`
+- **Port-only**: `8080` (excludes any host on port 8080)
+
+### Examples
+
+```bash
+# Use environment variables
+export HTTP_PROXY=http://proxy.company.com:8080
+export NO_PROXY=localhost,127.0.0.1,.internal.com
+alcove list
+
+# Override with CLI flags
+alcove --proxy-url=http://proxy.company.com:8080 --no-proxy=localhost list
+
+# Authenticated proxy
+export HTTP_PROXY=http://user:password@proxy.company.com:8080
+alcove run "Fix the bug"
+
+# Corporate proxy with exclusions
+export HTTPS_PROXY=https://corporate.proxy:3128
+export NO_PROXY=.internal.company.com,192.168.0.0/16
+alcove login https://alcove.internal.company.com
+```
+
+### Troubleshooting
+
+- **Connection failures**: Verify proxy URL format and credentials
+- **Certificate issues**: Corporate proxies may require custom CA certificates
+- **Scope violations**: Use `--no-proxy` to exclude internal Bridge instances
+- **Debugging**: Check proxy logs and use `alcove config validate` to verify configuration
 
 ## Server Resolution
 
