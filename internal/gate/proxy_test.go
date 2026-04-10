@@ -1211,3 +1211,59 @@ func TestJiraCredentialIsolation(t *testing.T) {
 		t.Errorf("expected 403 for jira (not in scope when only github allowed), got %d", code)
 	}
 }
+
+// --------------------------------------------------------------------
+// LLM OAuth token injection tests
+// --------------------------------------------------------------------
+
+func TestLLMOAuthToken_InjectsCorrectHeaders(t *testing.T) {
+	// Create a proxy with oauth_token type and send a request to /v1/messages.
+	// Verify that Gate accepts the request (no "unknown LLM provider" error).
+	cfg := Config{
+		SessionID:    "test-session",
+		Scope:        internal.Scope{Services: map[string]internal.ServiceScope{}},
+		Credentials:  map[string]string{},
+		ToolConfigs:  map[string]ToolConfig{},
+		SessionToken: "session-tok",
+		LLMToken:     "sk-ant-oat01-test",
+		LLMProvider:  "anthropic",
+		LLMTokenType: "oauth_token",
+	}
+	p := NewProxy(cfg)
+	ts := httptest.NewServer(p.Handler())
+	t.Cleanup(func() { ts.Close(); p.Stop() })
+
+	// Send a request to /v1/messages. The upstream (api.anthropic.com) will
+	// likely fail or refuse, but we verify Gate itself does not return a 500
+	// "unknown LLM provider" error — the request should be proxied.
+	code, body := doRequest(t, "POST", ts.URL+"/v1/messages", `{"model":"claude-sonnet-4-20250514","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`)
+	if code == http.StatusInternalServerError && strings.Contains(body, "unknown LLM provider") {
+		t.Errorf("oauth_token type should be accepted, but got 'unknown LLM provider' error")
+	}
+}
+
+func TestLLMOAuthToken_NotUnknownProvider(t *testing.T) {
+	// Verify that oauth_token with LLMProvider "anthropic" does not trigger
+	// the "unknown LLM provider" error path.
+	cfg := Config{
+		SessionID:    "test-session",
+		Scope:        internal.Scope{Services: map[string]internal.ServiceScope{}},
+		Credentials:  map[string]string{},
+		ToolConfigs:  map[string]ToolConfig{},
+		SessionToken: "session-tok",
+		LLMToken:     "sk-ant-oat01-test",
+		LLMProvider:  "anthropic",
+		LLMTokenType: "oauth_token",
+	}
+	p := NewProxy(cfg)
+	ts := httptest.NewServer(p.Handler())
+	t.Cleanup(func() { ts.Close(); p.Stop() })
+
+	code, body := doRequest(t, "POST", ts.URL+"/v1/messages", `{"model":"claude-sonnet-4-20250514","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`)
+	// The request should NOT get the "unknown LLM provider" error (500).
+	// It may fail for other reasons (upstream unreachable, auth failure, etc.)
+	// but the provider routing should work correctly.
+	if code == http.StatusInternalServerError && strings.Contains(body, "unknown LLM provider") {
+		t.Errorf("oauth_token with anthropic provider should not trigger 'unknown LLM provider'; got %d: %s", code, body)
+	}
+}

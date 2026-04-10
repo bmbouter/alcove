@@ -55,27 +55,28 @@ RESULT=$(curl -s -X POST "$BRIDGE_URL/api/v1/credentials" \
 CRED1_ID=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id','ERROR'))")
 if [ "$CRED1_ID" != "ERROR" ]; then pass "Created Anthropic credential"; else fail "Failed to create Anthropic credential: $RESULT"; fi
 
-# Test 2: Create Vertex SA credential
-log "Test 2: Create Vertex SA credential"
+# Test 2: One-LLM enforcement — second LLM credential blocked
+log "Test 2: One-LLM-per-user enforcement"
+RESULT=$(curl -s -w "\n%{http_code}" -X POST "$BRIDGE_URL/api/v1/credentials" \
+  -H "Authorization: Bearer $USER1_TOKEN" -H "Content-Type: application/json" \
+  -d '{"name":"my-vertex-sa","provider":"google-vertex","auth_type":"service_account","credential":"{\"type\":\"service_account\",\"project_id\":\"test\"}","project_id":"test-project","region":"us-east5"}')
+HTTP_CODE=$(echo "$RESULT" | tail -1)
+if [ "$HTTP_CODE" = "409" ]; then pass "Second LLM credential blocked with 409"; else fail "Expected 409, got $HTTP_CODE"; fi
+
+# Test 3: Replace LLM credential (delete old, create new)
+log "Test 3: Replace LLM credential"
+curl -s -X DELETE "$BRIDGE_URL/api/v1/credentials/$CRED1_ID" -H "Authorization: Bearer $USER1_TOKEN" > /dev/null
 RESULT=$(curl -s -X POST "$BRIDGE_URL/api/v1/credentials" \
   -H "Authorization: Bearer $USER1_TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"my-vertex-sa","provider":"google-vertex","auth_type":"service_account","credential":"{\"type\":\"service_account\",\"project_id\":\"test\"}","project_id":"test-project","region":"us-east5"}')
 CRED2_ID=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id','ERROR'))")
-if [ "$CRED2_ID" != "ERROR" ]; then pass "Created Vertex SA credential"; else fail "Failed: $RESULT"; fi
+if [ "$CRED2_ID" != "ERROR" ]; then pass "Replaced with Vertex SA credential"; else fail "Failed: $RESULT"; fi
 
-# Test 3: Create Vertex ADC credential
-log "Test 3: Create Vertex ADC credential"
-RESULT=$(curl -s -X POST "$BRIDGE_URL/api/v1/credentials" \
-  -H "Authorization: Bearer $USER1_TOKEN" -H "Content-Type: application/json" \
-  -d '{"name":"my-vertex-adc","provider":"google-vertex","auth_type":"adc","credential":"{\"type\":\"authorized_user\",\"client_id\":\"test\"}","project_id":"test-project-2","region":"us-central1"}')
-CRED3_ID=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id','ERROR'))")
-if [ "$CRED3_ID" != "ERROR" ]; then pass "Created Vertex ADC credential"; else fail "Failed: $RESULT"; fi
-
-# Test 4: List credentials (should see all 3)
+# Test 4: List credentials (should see 1 LLM credential)
 log "Test 4: List own credentials"
 COUNT=$(curl -s "$BRIDGE_URL/api/v1/credentials" -H "Authorization: Bearer $USER1_TOKEN" | \
   python3 -c "import json,sys; print(json.load(sys.stdin).get('count',0))")
-if [ "$COUNT" = "3" ]; then pass "User1 sees 3 credentials"; else fail "User1 sees $COUNT (expected 3)"; fi
+if [ "$COUNT" = "1" ]; then pass "User1 sees 1 credential"; else fail "User1 sees $COUNT (expected 1)"; fi
 
 # Test 5: Credential secrets NOT returned
 log "Test 5: Secrets not in response"
@@ -94,7 +95,7 @@ if [ "$USER2_GET" = "404" ]; then pass "User2 gets 404 on User1's credential"; e
 
 # Test 7: Delete credential
 log "Test 7: Delete credential"
-DEL_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE "$BRIDGE_URL/api/v1/credentials/$CRED1_ID" -H "Authorization: Bearer $USER1_TOKEN")
+DEL_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE "$BRIDGE_URL/api/v1/credentials/$CRED2_ID" -H "Authorization: Bearer $USER1_TOKEN")
 if [ "$DEL_CODE" = "200" ]; then pass "Deleted credential"; else fail "Delete returned $DEL_CODE"; fi
 
 # Test 8: User2 cannot delete User1's credential
@@ -102,9 +103,7 @@ log "Test 8: Cross-user delete blocked"
 DEL_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE "$BRIDGE_URL/api/v1/credentials/$CRED2_ID" -H "Authorization: Bearer $USER2_TOKEN")
 if [ "$DEL_CODE" = "404" ]; then pass "Cross-user delete blocked"; else fail "Cross-user delete returned $DEL_CODE"; fi
 
-# Cleanup
-curl -s -X DELETE "$BRIDGE_URL/api/v1/credentials/$CRED2_ID" -H "Authorization: Bearer $USER1_TOKEN" > /dev/null 2>&1
-curl -s -X DELETE "$BRIDGE_URL/api/v1/credentials/$CRED3_ID" -H "Authorization: Bearer $USER1_TOKEN" > /dev/null 2>&1
+# Cleanup (CRED2_ID already deleted in test 7)
 
 # =====================================================================
 # Test: System credentials hidden from users
@@ -255,7 +254,9 @@ else
 fi
 
 # Admin creates a credential — it should only be visible to admin
+# Delete existing system LLM credential first (one-LLM-per-user enforcement)
 log "Test 18: Admin's own credential visible only to admin"
+curl -s -X DELETE "$BRIDGE_URL/api/v1/credentials/$SYSTEM_CRED_ID" -H "Authorization: Bearer $ADMIN_TOKEN" > /dev/null 2>&1
 ADMIN_OWN_RESULT=$(curl -s -X POST "$BRIDGE_URL/api/v1/credentials" \
   -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"admin-own-key","provider":"anthropic","auth_type":"api_key","credential":"sk-ant-admin-own-789"}')

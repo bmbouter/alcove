@@ -884,6 +884,7 @@
                         <option value="">Select a provider</option>
                         <option value="anthropic">Anthropic</option>
                         <option value="google-vertex">Google Vertex AI</option>
+                        <option value="claude-oauth">Claude Pro/Max</option>
                         <option value="github">GitHub</option>
                         <option value="gitlab">GitLab</option>
                         <option value="jira">Jira</option>
@@ -895,6 +896,17 @@
                     <label>API Key <span class="required">*</span></label>
                     <input type="password" data-role="cred-api-key" class="input" placeholder="sk-ant-...">
                     <small class="form-help">Your Anthropic API key. It will be stored securely and never shown again.</small>
+                </div>
+            </div>
+            <div data-role="cred-claude-oauth-fields" hidden>
+                <div class="form-group">
+                    <label>Setup Token <span class="required">*</span></label>
+                    <input type="password" data-role="cred-oauth-token" class="input mono" placeholder="sk-ant-oat01-...">
+                    <small class="form-help">
+                        Run <code>claude setup-token</code> in your terminal to generate this token.
+                        It uses your Claude Pro or Max subscription — no separate API billing needed.
+                        The token is valid for ~1 year.
+                    </small>
                 </div>
             </div>
             <div data-role="cred-vertex-fields" hidden>

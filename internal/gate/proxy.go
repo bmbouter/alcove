@@ -67,7 +67,7 @@ type Config struct {
 	SessionToken       string                  // opaque token that Skiff presents
 	LLMToken           string                  // bearer token or API key (was LLMAPIKey)
 	LLMProvider        string                  // "anthropic" or "google-vertex"
-	LLMTokenType       string                  // "api_key" or "bearer"
+	LLMTokenType       string                  // "api_key", "bearer", or "oauth_token"
 	TokenRefreshURL    string                  // Bridge endpoint for token refresh
 	TokenRefreshSecret string                  // session-scoped secret for refresh auth
 	VertexRegion       string // Vertex AI region (e.g., "us-east5")
@@ -312,6 +312,10 @@ func (p *Proxy) handleLLMRequest(w http.ResponseWriter, r *http.Request) {
 
 			// Inject credential based on token type
 			switch p.config.LLMTokenType {
+			case "oauth_token":
+				req.Header.Set("x-api-key", p.config.LLMToken)
+				req.Header.Set("anthropic-version", "2023-06-01")
+				req.Header.Set("anthropic-beta", "oauth-2025-04-20,claude-code-20250219")
 			case "bearer":
 				req.Header.Set("Authorization", "Bearer "+p.config.LLMToken)
 			case "api_key":
@@ -363,6 +367,10 @@ func (p *Proxy) handleLLMForward(w http.ResponseWriter, r *http.Request) {
 
 			// Inject credential based on token type
 			switch p.config.LLMTokenType {
+			case "oauth_token":
+				req.Header.Set("x-api-key", p.config.LLMToken)
+				req.Header.Set("anthropic-version", "2023-06-01")
+				req.Header.Set("anthropic-beta", "oauth-2025-04-20,claude-code-20250219")
 			case "bearer":
 				req.Header.Set("Authorization", "Bearer "+p.config.LLMToken)
 			case "api_key":

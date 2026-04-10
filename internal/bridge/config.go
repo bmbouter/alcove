@@ -52,6 +52,7 @@ type SystemLLMConfig struct {
 	Provider           string `yaml:"provider"`
 	Model              string `yaml:"model"`
 	APIKey             string `yaml:"api_key"`
+	OAuthToken         string `yaml:"oauth_token"`
 	ServiceAccountJSON string `yaml:"service_account_json"`
 	ProjectID          string `yaml:"project_id"`
 	Region             string `yaml:"region"`
@@ -125,6 +126,9 @@ For Kubernetes:
 	}
 	if v := os.Getenv("BRIDGE_LLM_MODEL"); v != "" {
 		cfg.SystemLLM.Model = v
+	}
+	if v := os.Getenv("BRIDGE_LLM_OAUTH_TOKEN"); v != "" {
+		cfg.SystemLLM.OAuthToken = v
 	}
 	if v := os.Getenv("BRIDGE_LLM_SERVICE_ACCOUNT_JSON"); v != "" {
 		cfg.SystemLLM.ServiceAccountJSON = v

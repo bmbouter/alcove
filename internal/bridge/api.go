@@ -1019,6 +1019,22 @@ func (a *API) handleCredentials(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusBadRequest, "name, provider, auth_type, and credential are required")
 			return
 		}
+		// Enforce one LLM credential per user.
+		scmProviders := map[string]bool{"github": true, "gitlab": true, "jira": true}
+		if !scmProviders[req.Provider] {
+			existing, _ := a.credStore.ListCredentials(r.Context(), user)
+			for _, c := range existing {
+				if !scmProviders[c.Provider] {
+					respondJSON(w, http.StatusConflict, map[string]any{
+						"error":               "you already have an LLM credential configured",
+						"existing_credential":  c.Name,
+						"existing_provider":    c.Provider,
+						"existing_id":          c.ID,
+					})
+					return
+				}
+			}
+		}
 		cred := Credential{
 			Name:      req.Name,
 			Provider:  req.Provider,

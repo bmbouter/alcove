@@ -46,6 +46,25 @@ func TestEncryptDecryptWrongKey(t *testing.T) {
 	}
 }
 
+func TestEncryptDecryptOAuthTokenRoundtrip(t *testing.T) {
+	key := make([]byte, 32)
+	plaintext := []byte("sk-ant-oat01-oauth-token-value")
+	encrypted, err := encrypt(key, plaintext)
+	if err != nil {
+		t.Fatalf("encrypt failed: %v", err)
+	}
+	if string(encrypted) == string(plaintext) {
+		t.Fatal("encrypted should differ")
+	}
+	decrypted, err := decrypt(key, encrypted)
+	if err != nil {
+		t.Fatalf("decrypt failed: %v", err)
+	}
+	if string(decrypted) != string(plaintext) {
+		t.Fatalf("got %q, want %q", decrypted, plaintext)
+	}
+}
+
 func TestDeriveKey(t *testing.T) {
 	key := deriveKey("my-master-password")
 	if len(key) != 32 {

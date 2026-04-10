@@ -31,7 +31,7 @@ import (
 // BridgeLLM provides LLM capabilities for Bridge system features.
 // It calls the LLM API directly (not through Gate).
 type BridgeLLM struct {
-	provider           string // "anthropic" or "google-vertex"
+	provider           string // "anthropic", "google-vertex", or "claude-oauth"
 	model              string
 	apiKey             string
 	region             string
@@ -50,9 +50,16 @@ func NewBridgeLLM(cfg *Config, credStore *CredentialStore) *BridgeLLM {
 	}
 
 	provider := eff.Provider
+
 	apiKey := cfg.SystemLLM.APIKey
+	if provider == "claude-oauth" {
+		apiKey = cfg.SystemLLM.OAuthToken
+	}
 
 	if provider == "anthropic" && apiKey == "" {
+		return nil
+	}
+	if provider == "claude-oauth" && apiKey == "" {
 		return nil
 	}
 	if provider == "google-vertex" && eff.ProjectID == "" {
@@ -83,7 +90,7 @@ func (l *BridgeLLM) Complete(ctx context.Context, systemPrompt, userPrompt strin
 	}
 
 	switch l.provider {
-	case "anthropic":
+	case "anthropic", "claude-oauth":
 		return l.completeAnthropic(ctx, systemPrompt, userPrompt, maxTokens)
 	case "google-vertex":
 		return l.completeVertex(ctx, systemPrompt, userPrompt, maxTokens)
@@ -112,6 +119,9 @@ func (l *BridgeLLM) completeAnthropic(ctx context.Context, systemPrompt, userPro
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", l.apiKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
+	if l.provider == "claude-oauth" {
+		req.Header.Set("anthropic-beta", "oauth-2025-04-20,claude-code-20250219")
+	}
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
@@ -141,7 +151,7 @@ func (l *BridgeLLM) completeAnthropic(ctx context.Context, systemPrompt, userPro
 
 	for _, c := range result.Content {
 		if c.Type == "text" {
-			log.Printf("system LLM call: model=%s prompt_len=%d response_len=%d", l.model, len(userPrompt), len(c.Text))
+			log.Printf("system LLM call (claude-oauth): model=%s prompt_len=%d response_len=%d", l.model, len(userPrompt), len(c.Text))
 			return c.Text, nil
 		}
 	}
