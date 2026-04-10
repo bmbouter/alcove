@@ -405,10 +405,23 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 				continue // Already dispatched this task for this issue/PR in this poll cycle.
 			}
 
+			// Deduplicate via webhook_deliveries (per-event dedup).
+			deliveryID := fmt.Sprintf("poll-%s", event.ID)
+			result, _ := p.db.Exec(ctx,
+				`INSERT INTO webhook_deliveries (delivery_id, event_type, repo, action, received_at)
+				VALUES ($1, $2, $3, $4, NOW())
+				ON CONFLICT DO NOTHING`,
+				deliveryID, eventType, eventRepo, action)
+			if result.RowsAffected() == 0 {
+				continue // Already processed this event.
+			}
+
 			// Persistent dedup: prevent dispatching the same schedule for the
 			// same issue/PR across poll cycles. GitHub emits multiple events
 			// for a single action (e.g., "opened" + "labeled"), and they may
-			// arrive in different poll cycles.
+			// arrive in different poll cycles. This check runs AFTER
+			// webhook_deliveries so we don't consume dedup slots on events
+			// that were already processed.
 			itemNumber := issueNumber
 			if itemNumber == "" {
 				itemNumber = prNumber
@@ -422,17 +435,6 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 				if dedupResult.RowsAffected() == 0 {
 					continue // Already dispatched for this issue/PR + schedule recently.
 				}
-			}
-
-			// Deduplicate via webhook_deliveries.
-			deliveryID := fmt.Sprintf("poll-%s", event.ID)
-			result, _ := p.db.Exec(ctx,
-				`INSERT INTO webhook_deliveries (delivery_id, event_type, repo, action, received_at)
-				VALUES ($1, $2, $3, $4, NOW())
-				ON CONFLICT DO NOTHING`,
-				deliveryID, eventType, eventRepo, action)
-			if result.RowsAffected() == 0 {
-				continue // Already processed.
 			}
 
 			// Build task request. Look up task definition for profiles.
