@@ -114,6 +114,13 @@ prompt: |
       -d @/tmp/comment.json \
       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/comments"
 
+    # Remove needs-comment label if it exists
+    if [ -n "$HAS_NEEDS_COMMENT" ]; then
+      echo "Removing needs-comment label after posting escalation comment"
+      curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+        "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/needs-comment" 2>/dev/null || true
+    fi
+
     exit 0
   fi
 
@@ -162,7 +169,18 @@ prompt: |
     curl -s -H "Authorization: token $GITHUB_TOKEN" \
       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$ISSUE_NUMBER/comments"
 
-  ## Step 8: Review checklist
+  ## Step 8: Check for needs-comment label
+
+  # Check if the PR has a "needs-comment" label that should be removed after commenting
+  curl -s -H "Authorization: token $GITHUB_TOKEN" \
+    "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels" > /tmp/current-labels.json
+
+  HAS_NEEDS_COMMENT=$(jq -r '.[] | select(.name == "needs-comment") | .name' /tmp/current-labels.json)
+  if [ -n "$HAS_NEEDS_COMMENT" ]; then
+    echo "PR has needs-comment label - will remove it after posting comment"
+  fi
+
+  ## Step 9: Review checklist
 
   Evaluate the PR against these criteria:
   - **Correctness**: Does the code implement what the issue/PR describes?
@@ -174,12 +192,12 @@ prompt: |
   - **Breaking changes**: API backward compatible?
   - **Issue linkage**: Does the PR address the linked issue requirements?
 
-  ## Step 9: Make review decision
+  ## Step 10: Make review decision
 
   Based on the evaluation, decide whether to APPROVE or REQUEST_CHANGES.
   Then follow the appropriate approval path below.
 
-  ## Step 10: Approval path
+  ## Step 11: Approval path
 
   ### If APPROVE:
 
@@ -206,6 +224,13 @@ prompt: |
       exit 1
     fi
     echo "Formal review posted successfully (ID: $REVIEW_ID)"
+
+    # Remove needs-comment label if it exists
+    if [ -n "$HAS_NEEDS_COMMENT" ]; then
+      echo "Removing needs-comment label after posting formal review"
+      curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+        "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/needs-comment" 2>/dev/null || true
+    fi
   fi
 
   #### For self-authored PRs (approval comment):
@@ -230,6 +255,13 @@ prompt: |
       exit 1
     fi
     echo "Approval comment posted successfully (ID: $COMMENT_ID)"
+
+    # Remove needs-comment label if it exists
+    if [ -n "$HAS_NEEDS_COMMENT" ]; then
+      echo "Removing needs-comment label after posting approval comment"
+      curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+        "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/needs-comment" 2>/dev/null || true
+    fi
   fi
 
   #### Swap labels for all approved PRs:
@@ -318,6 +350,13 @@ prompt: |
     exit 1
   fi
   echo "Changes requested review posted successfully (ID: $REVIEW_ID)"
+
+  # Remove needs-comment label if it exists
+  if [ -n "$HAS_NEEDS_COMMENT" ]; then
+    echo "Removing needs-comment label after posting changes requested review"
+    curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/needs-comment" 2>/dev/null || true
+  fi
 
   #### Swap labels for changes requested:
   echo "Swapping labels: awaiting-review → changes-requested"
