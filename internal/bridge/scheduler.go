@@ -266,6 +266,13 @@ func (s *Scheduler) Start(ctx context.Context) {
 		ticker := time.NewTicker(60 * time.Second)
 		defer ticker.Stop()
 
+		// Clear stale GitHub poll ETags on startup. After a deployment or
+		// restart, the stored ETag may cause permanent 304 responses from
+		// GitHub's CDN. Clearing forces a fresh full poll on the first tick.
+		// The first-poll skip logic (no lastEventID) prevents duplicate dispatches.
+		_, _ = s.db.Exec(ctx, `UPDATE github_poll_state SET etag = ''`)
+		log.Printf("scheduler: cleared GitHub poll ETags on startup")
+
 		// Run immediately on start, then every tick.
 		s.tick(ctx)
 
