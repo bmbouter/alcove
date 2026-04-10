@@ -38,6 +38,12 @@ RUN dnf install -y \
         gzip \
     && dnf clean all
 
+# Install Go for local build/test validation
+RUN curl -sL https://go.dev/dl/go1.25.2.linux-amd64.tar.gz | tar -C /usr/local -xzf -
+ENV PATH="/usr/local/go/bin:${PATH}" \
+    GOPATH="/home/skiff/go" \
+    GOBIN="/home/skiff/go/bin"
+
 # Install Node.js (LTS) for Claude Code CLI
 RUN dnf module enable -y nodejs:20 && \
     dnf install -y nodejs npm && \
@@ -85,6 +91,7 @@ RUN git config --system credential.helper '/usr/local/bin/alcove-credential-help
 # Create a non-root user for running tasks
 RUN useradd -m -u 1001 -s /bin/bash skiff && \
     chmod 777 /home/skiff
+ENV PATH="/home/skiff/go/bin:/usr/local/go/bin:${PATH}"
 USER 1001
 WORKDIR /home/skiff
 

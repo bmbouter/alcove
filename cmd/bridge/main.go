@@ -168,6 +168,11 @@ func main() {
 	// Create dispatcher and API.
 	dispatcher := bridge.NewDispatcher(nc, dbpool, rt, cfg, credStore, toolStore, profileStore, settingsStore)
 
+	// Create CI Gate monitor for automated CI retry.
+	ciGateMonitor := bridge.NewCIGateMonitor(dbpool, dispatcher, credStore, bridgeLLM)
+	dispatcher.SetCIGateMonitor(ciGateMonitor)
+	log.Println("CI gate monitor initialized")
+
 	// Start listening for status updates from Skiff pods.
 	if err := dispatcher.ListenForStatusUpdates(context.Background()); err != nil {
 		log.Fatalf("subscribing to status updates: %v", err)

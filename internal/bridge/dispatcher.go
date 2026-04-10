@@ -43,6 +43,7 @@ type Dispatcher struct {
 	settingsStore *SettingsStore
 	mu            sync.Mutex
 	handles       map[string]runtime.TaskHandle // sessionID -> handle
+	ciGate        *CIGateMonitor
 }
 
 // NewDispatcher creates a Dispatcher with the given dependencies.
@@ -58,6 +59,12 @@ func NewDispatcher(nc *nats.Conn, db *pgxpool.Pool, rt runtime.Runtime, cfg *Con
 		settingsStore: settingsStore,
 		handles:       make(map[string]runtime.TaskHandle),
 	}
+}
+
+// SetCIGateMonitor attaches a CIGateMonitor to the dispatcher so that
+// completed tasks with PR artifacts can be automatically monitored for CI.
+func (d *Dispatcher) SetCIGateMonitor(m *CIGateMonitor) {
+	d.ciGate = m
 }
 
 // TaskRequest is the JSON body for POST /api/v1/tasks.
@@ -621,6 +628,11 @@ func (d *Dispatcher) ListenForStatusUpdates(ctx context.Context) error {
 			d.mu.Lock()
 			delete(d.handles, update.SessionID)
 			d.mu.Unlock()
+
+			// Notify CI Gate monitor if task completed with artifacts.
+			if d.ciGate != nil && update.Status == "completed" {
+				go d.ciGate.OnTaskCompleted(ctx, update.SessionID, update.Artifacts)
+			}
 		}
 	})
 

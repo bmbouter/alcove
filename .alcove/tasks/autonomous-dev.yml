@@ -20,6 +20,9 @@ prompt: |
 
   Write JSON payloads to files before POSTing to avoid shell escaping issues.
 
+  Go 1.25 is installed in the Skiff container. You can and MUST use `go build`,
+  `go vet`, and `go test` to validate your changes before pushing.
+
   ## Step 1: Understand the request
 
   Extract the issue number from the event context at the end of this prompt.
@@ -117,6 +120,18 @@ prompt: |
   Consider ALL affected areas: Go code, API, dashboard UI, documentation,
   functional tests, YAML task/profile definitions.
 
+  ### Risk assessment for changes you cannot validate locally
+
+  If your planned changes include:
+  - CI/CD workflow modifications (.github/workflows/)
+  - Containerfile/Dockerfile changes
+  - Cross-platform build targets
+  - Changes that require running containers
+
+  Flag these as HIGH RISK in your plan. Be extra conservative with these
+  changes — prefer minimal, incremental modifications. If possible, make
+  the core logic changes in one commit and CI/workflow changes separately.
+
   ## Step 3: Implement changes with a team of agents
 
   Form a team of specialist agents working in parallel to implement changes
@@ -139,6 +154,20 @@ prompt: |
   - Tests: bash scripts in scripts/ using curl against running Bridge
   - Docs: markdown in docs/
 
+  ### Pre-push validation (MANDATORY)
+
+  Before committing and pushing, you MUST run local validation:
+    go build ./...      # Must compile cleanly
+    go vet ./...        # Must pass static analysis
+    go test ./...       # Run unit tests (some may need infra — that's OK)
+
+  If `go build` or `go vet` fail, fix the issues before pushing. These are
+  non-negotiable — never push code that doesn't compile.
+
+  If `go test` has failures, examine them:
+  - Tests that fail due to missing PostgreSQL/NATS → expected, skip mentally
+  - Tests that fail due to your code changes → fix before pushing
+
   ## Step 4: Open a Pull Request
 
   Commit, push, and open a PR:
@@ -156,21 +185,63 @@ prompt: |
       -d @/tmp/pr-body.json \
       "$GITHUB_API_URL/repos/bmbouter/alcove/pulls"
 
-  ## Step 5: Monitor CI and request review
+  ## Step 4.5: Register PR for CI monitoring
 
-  Poll the PR's check status every 30 seconds (up to 10 minutes):
+  After creating the PR, write the PR details to a well-known file so
+  Bridge can monitor CI status:
+
+    PR_RESPONSE=$(curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d @/tmp/pr-body.json \
+      "$GITHUB_API_URL/repos/bmbouter/alcove/pulls")
+    PR_NUM=$(echo "$PR_RESPONSE" | jq -r '.number')
+    echo "{\"repo\": \"bmbouter/alcove\", \"number\": $PR_NUM}" > /tmp/alcove-pr.json
+
+  ## Step 5: Monitor CI — your task is NOT DONE until CI is green
+
+  Your implementation is NOT complete when you open a PR. It is complete
+  when CI passes. Pushing code is a checkpoint, not a deliverable.
+
+  Poll the PR's check status every 30 seconds (up to 15 minutes):
     curl -s -H "Authorization: token $GITHUB_TOKEN" \
-      "$GITHUB_API_URL/repos/bmbouter/alcove/commits/BRANCH/status"
+      "$GITHUB_API_URL/repos/bmbouter/alcove/commits/$BRANCH/check-runs"
 
-  If checks fail:
-  1. Fetch the failed check details
-  2. Read the failure logs
-  3. Fix the issue, commit, and push to the same branch
-  4. Resume monitoring
+  ### When CI fails (you MUST follow this loop, up to 3 iterations):
 
-  Once all checks pass, the CI workflow will automatically add the
-  "awaiting-review" label. Your work is done — the PR Reviewer agent
-  will take it from here.
+  1. Fetch the failed check details:
+     curl -s -H "Authorization: token $GITHUB_TOKEN" \
+       "$GITHUB_API_URL/repos/bmbouter/alcove/commits/$BRANCH/check-runs" \
+       | jq '.check_runs[] | select(.conclusion != "success" and .conclusion != "skipped")'
+
+  2. For each failed check, fetch the job log:
+     JOB_ID=$(... extract from check run ...)
+     curl -s -H "Authorization: token $GITHUB_TOKEN" \
+       "$GITHUB_API_URL/repos/bmbouter/alcove/actions/jobs/$JOB_ID/logs"
+
+  3. Classify the failure and fix:
+     - COMPILATION ERROR: Read the error message, fix the code, run `go build`
+       locally to verify, then push.
+     - TEST FAILURE: Read the test output, understand what's being tested,
+       fix the code or test, run the specific test locally, then push.
+     - LINT ERROR: Read the lint output, fix the issue, run `go vet` locally,
+       then push.
+     - INFRASTRUCTURE/FLAKY: If a test fails due to missing infrastructure
+       (PostgreSQL not available, NATS connection refused), this is expected
+       in CI for integration tests — focus on whether the unit tests passed.
+
+  4. After fixing, run local validation again (go build, go vet), commit,
+     and push to the same branch.
+
+  5. Resume polling for the new CI run.
+
+  ### Stopping criteria
+  - CI passes → your work is done, the CI workflow adds "awaiting-review"
+  - 3 fix attempts exhausted → post a comment on the issue explaining what
+    failed and what you tried. Do NOT silently give up.
+
+  CRITICAL: Stopping after a single CI failure is unacceptable. CI failures
+  are expected and normal — they are information, not blockers. Your value
+  is in iterating through them.
 
   ## Step 6: Handle blockers
 
@@ -201,6 +272,10 @@ timeout: 7200
 
 profiles:
   - alcove-developer
+
+ci_gate:
+  max_retries: 3
+  timeout: 900
 
 trigger:
   github:
