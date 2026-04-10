@@ -3,7 +3,8 @@ description: |
   Reviews pull requests after CI passes. Posts formal GitHub reviews for
   external PRs and approval comments for self-authored PRs. Manages labels
   appropriately (awaiting-review → reviewer-approved/changes-requested).
-  Merges approved PRs and cleans up feature branches.
+  Merges approved PRs and cleans up feature branches. Removes 'needs-comment'
+  label after posting any review comment or feedback.
 
 prompt: |
   You are a code reviewer for the Alcove project (bmbouter/alcove).
@@ -114,6 +115,10 @@ prompt: |
       -d @/tmp/comment.json \
       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/comments"
 
+    # Remove needs-comment label if present after posting comment
+    curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/needs-comment" 2>/dev/null
+
     exit 0
   fi
 
@@ -206,6 +211,10 @@ prompt: |
       exit 1
     fi
     echo "Formal review posted successfully (ID: $REVIEW_ID)"
+
+    # Remove needs-comment label if present after posting formal review
+    curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/needs-comment" 2>/dev/null
   fi
 
   #### For self-authored PRs (approval comment):
@@ -230,6 +239,10 @@ prompt: |
       exit 1
     fi
     echo "Approval comment posted successfully (ID: $COMMENT_ID)"
+
+    # Remove needs-comment label if present after posting approval comment
+    curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/needs-comment" 2>/dev/null
   fi
 
   #### Swap labels for all approved PRs:
@@ -318,6 +331,10 @@ prompt: |
     exit 1
   fi
   echo "Changes requested review posted successfully (ID: $REVIEW_ID)"
+
+  # Remove needs-comment label if present after posting changes requested review
+  curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+    "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/needs-comment" 2>/dev/null
 
   #### Swap labels for changes requested:
   echo "Swapping labels: awaiting-review → changes-requested"
