@@ -406,11 +406,15 @@ Use curl with $GITHUB_API_URL and $GITHUB_TOKEN for GitHub API calls.
 Write JSON payloads to files before POSTing.
 
 ## Instructions
-1. Checkout the existing branch: git fetch origin %s && git checkout %s
+1. The repo is already cloned. Fetch and checkout the PR branch:
+   git fetch origin %s && git checkout %s
 2. Read the CI failure analysis below and fix the issues
-3. Run any available local validation before pushing (go build, go test, go vet, etc.)
-4. Commit and push to the same branch
+3. Run local validation before pushing: go build ./... && go vet ./...
+4. Commit and push to the same branch:
+   git add -A && git commit -m "Fix CI failures" && git push origin %s
 5. Do NOT create a new PR — push to the existing branch
+6. Write the PR artifact file so Bridge can continue monitoring:
+   echo '{"repo": "%s", "number": %d}' > /tmp/alcove-pr.json
 
 ## CI Failure Analysis
 %s
@@ -419,7 +423,7 @@ Write JSON payloads to files before POSTing.
 - Fix ONLY the CI failures — do not refactor or add features
 - Run local validation before pushing
 - If you cannot fix a failure, leave a comment on PR #%d explaining what you tried
-`, repo, prNumber, branch, title, attempt, maxAttempts, branch, branch, analysis, prNumber)
+`, repo, prNumber, branch, title, attempt, maxAttempts, branch, branch, branch, repo, prNumber, analysis, prNumber)
 		}
 		log.Printf("cigate: LLM analysis failed, using template: %v", err)
 	}
@@ -438,14 +442,18 @@ Use curl with $GITHUB_API_URL and $GITHUB_TOKEN for GitHub API calls.
 Write JSON payloads to files before POSTing.
 
 ## Instructions
-1. Checkout the existing branch: git fetch origin %s && git checkout %s
+1. The repo is already cloned. Fetch and checkout the PR branch:
+   git fetch origin %s && git checkout %s
 2. Fetch the CI check runs to understand what failed:
    curl -s -H "Authorization: token $GITHUB_TOKEN" "$GITHUB_API_URL/repos/%s/commits/%s/check-runs"
 3. For each failed check, fetch the log and analyze the error
 4. Fix the issues in the code
-5. Run any available local validation (go build, go test, go vet, etc.)
-6. Commit and push to the same branch
+5. Run local validation before pushing: go build ./... && go vet ./...
+6. Commit and push to the same branch:
+   git add -A && git commit -m "Fix CI failures" && git push origin %s
 7. Do NOT create a new PR — push to the existing branch
+8. Write the PR artifact file so Bridge can continue monitoring:
+   echo '{"repo": "%s", "number": %d}' > /tmp/alcove-pr.json
 
 ## CI Failure Summary
 %s
@@ -454,7 +462,7 @@ Write JSON payloads to files before POSTing.
 - Fix ONLY the CI failures — do not refactor or add features
 - Run local validation before pushing
 - If you cannot fix a failure, leave a comment on PR #%d explaining what you tried
-`, repo, prNumber, branch, title, attempt, maxAttempts, branch, branch, repo, branch, failureLogs, prNumber)
+`, repo, prNumber, branch, title, attempt, maxAttempts, branch, branch, repo, branch, branch, repo, prNumber, failureLogs, prNumber)
 }
 
 // githubGet performs an authenticated GET request to the GitHub API.
