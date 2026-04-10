@@ -284,7 +284,6 @@ trigger:
       - issue_comment
       - pull_request
     actions:
-      - opened
       - reopened
       - created
       - labeled

@@ -266,6 +266,9 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 
 	dispatched := 0
 
+	// Clean up old dedup entries (older than 1 hour).
+	_, _ = p.db.Exec(ctx, `DELETE FROM dispatched_dedup WHERE dispatched_at < NOW() - INTERVAL '1 hour'`)
+
 	// Track dispatched (issue_number, schedule_id) pairs to prevent duplicates in this poll cycle.
 	dispatchedTasks := make(map[string]bool)
 
@@ -400,6 +403,25 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 			}
 			if dedupeKey != "" && dispatchedTasks[dedupeKey] {
 				continue // Already dispatched this task for this issue/PR in this poll cycle.
+			}
+
+			// Persistent dedup: prevent dispatching the same schedule for the
+			// same issue/PR across poll cycles. GitHub emits multiple events
+			// for a single action (e.g., "opened" + "labeled"), and they may
+			// arrive in different poll cycles.
+			itemNumber := issueNumber
+			if itemNumber == "" {
+				itemNumber = prNumber
+			}
+			if itemNumber != "" {
+				dedupResult, _ := p.db.Exec(ctx,
+					`INSERT INTO dispatched_dedup (repo, item_number, schedule_id)
+					VALUES ($1, $2, $3)
+					ON CONFLICT DO NOTHING`,
+					eventRepo, itemNumber, sched.ID)
+				if dedupResult.RowsAffected() == 0 {
+					continue // Already dispatched for this issue/PR + schedule recently.
+				}
 			}
 
 			// Deduplicate via webhook_deliveries.
