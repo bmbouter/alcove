@@ -3,6 +3,14 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.9.1
+
+### Bug Fixes
+- Fix GitHub Events API poller reliability by removing all ID-based event
+  filtering. GitHub event IDs are not chronologically ordered, causing the
+  poller to skip valid events. The poller now processes all fetched events
+  and relies solely on the webhook_deliveries table for deduplication.
+
 ## v0.9.0
 
 ### Features
