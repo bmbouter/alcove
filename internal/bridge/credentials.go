@@ -35,7 +35,7 @@ import (
 type Credential struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
-	Provider  string    `json:"provider"`   // "anthropic" or "google-vertex"
+	Provider  string    `json:"provider"`   // "anthropic", "google-vertex", or "claude-oauth"
 	AuthType  string    `json:"auth_type"`  // "api_key", "service_account", or "adc"
 	ProjectID string    `json:"project_id"` // GCP project ID (Vertex only)
 	Region    string    `json:"region"`     // GCP region (Vertex only)
@@ -243,10 +243,10 @@ func (cs *CredentialStore) AcquireToken(ctx context.Context, providerName string
 	}
 
 	switch authType {
-	case "api_key":
+	case "api_key", "oauth_token":
 		return &TokenResult{
 			Token:     string(raw),
-			TokenType: "api_key",
+			TokenType: authType,
 			ExpiresIn: 0,
 			Provider:  provider,
 		}, nil
@@ -301,10 +301,10 @@ func (cs *CredentialStore) AcquireSystemToken(ctx context.Context, providerName 
 	}
 
 	switch authType {
-	case "api_key":
+	case "api_key", "oauth_token":
 		return &TokenResult{
 			Token:     string(raw),
-			TokenType: "api_key",
+			TokenType: authType,
 			ExpiresIn: 0,
 			Provider:  provider,
 		}, nil
