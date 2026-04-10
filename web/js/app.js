@@ -2116,7 +2116,7 @@
     function detectContentType(content) {
         if (!content || typeof content !== 'string') return 'unknown';
 
-        // Try to parse as JSON
+        // Try to parse as JSON first
         try {
             var parsed = JSON.parse(content);
             // Check if it looks like an API response
@@ -2126,6 +2126,14 @@
                 }
                 if (parsed.error || parsed.message || parsed.code) {
                     return 'error-response';
+                }
+                // GitHub API specific patterns
+                if (parsed.html_url && (parsed.number || parsed.id)) {
+                    return 'api-response';
+                }
+                // Issue/PR data
+                if (parsed.title && (parsed.body || parsed.state)) {
+                    return 'api-response';
                 }
             }
             return 'json';
@@ -2138,10 +2146,23 @@
             return 'command-result';
         }
 
-        // Check for code patterns
+        // Check for HTTP response patterns
+        if (content.match(/^HTTP\/\d+\.\d+ \d+/) || content.includes('Content-Type:') || content.includes('User-Agent:')) {
+            return 'api-response';
+        }
+
+        // Check for error patterns
+        if (content.match(/^(Error|Exception|Fatal|Critical):/mi) || content.includes('Traceback')) {
+            return 'error-response';
+        }
+
+        // Check for code patterns - enhanced detection
         if (content.includes('function ') || content.includes('class ') ||
             content.includes('def ') || content.includes('import ') ||
-            content.includes('package ') || content.includes('#!/')) {
+            content.includes('package ') || content.includes('#!/') ||
+            content.includes('const ') || content.includes('let ') ||
+            content.includes('var ') || content.includes('=>') ||
+            content.includes('func ') || content.includes('struct ')) {
             return 'code';
         }
 
@@ -2153,6 +2174,17 @@
         // Check for file paths
         if (content.match(/^\/[^\n]+$/) || content.match(/^[a-zA-Z]:[\\\/][^\n]+$/)) {
             return 'filepath';
+        }
+
+        // Check for Git output
+        if (content.includes('commit ') && content.includes('Author:') ||
+            content.includes('diff --git') || content.includes('@@')) {
+            return 'code';
+        }
+
+        // Check for log patterns
+        if (content.match(/^\d{4}-\d{2}-\d{2}.*\[.*\]/) || content.includes('INFO:') || content.includes('DEBUG:')) {
+            return 'shell';
         }
 
         return 'text';
@@ -2182,16 +2214,42 @@
                     summary += ' (' + parsed.status + ')';
                 } else if (parsed.url) {
                     summary += ' from ' + parsed.url.split('/').pop();
+                } else if (parsed.html_url) {
+                    summary += ' (GitHub API)';
+                } else if (parsed.message) {
+                    var msg = parsed.message.substring(0, 40);
+                    if (parsed.message.length > 40) msg += '...';
+                    summary += ': ' + msg;
                 }
             } catch (e) { /* ignore */ }
         } else if (contentType === 'error-response') {
             summary = '⚠️ Error response';
+            try {
+                var parsed = JSON.parse(content);
+                if (parsed.message) {
+                    var msg = parsed.message.substring(0, 50);
+                    if (parsed.message.length > 50) msg += '...';
+                    summary += ': ' + msg;
+                }
+            } catch (e) { /* ignore */ }
         } else if (contentType === 'command-result') {
             summary = '💻 Command output';
             // Show exit code if present
             var exitCodeMatch = content.match(/Exit code (\d+)/);
             if (exitCodeMatch) {
-                summary += ' (exit ' + exitCodeMatch[1] + ')';
+                var exitCode = exitCodeMatch[1];
+                if (exitCode === '0') {
+                    summary += ' ✅ (success)';
+                } else {
+                    summary += ' ❌ (exit ' + exitCode + ')';
+                }
+            }
+            // Show first line of output as preview if it's short
+            var outputLines = content.split('\n').filter(function(line) {
+                return !line.match(/^Exit code \d+/) && line.trim() !== '';
+            });
+            if (outputLines.length > 0 && outputLines[0].length <= 60) {
+                summary += ' - ' + outputLines[0];
             }
         } else if (contentType === 'json') {
             summary = '📄 JSON data';
@@ -2207,12 +2265,26 @@
                     } else {
                         summary += ' (' + keys.length + ' keys)';
                     }
+                    // Show specific useful fields if present
+                    if (parsed.title || parsed.name) {
+                        summary += ' - ' + (parsed.title || parsed.name);
+                    } else if (parsed.id) {
+                        summary += ' (id: ' + parsed.id + ')';
+                    }
                 }
             } catch (e) {
                 // Fall through to size info
             }
         } else if (contentType === 'code') {
             summary = '🔧 Code output';
+            // Try to identify programming language
+            if (content.includes('function ') || content.includes('=>')) {
+                summary = '🔧 JavaScript code';
+            } else if (content.includes('def ') || content.includes('import ')) {
+                summary = '🔧 Python code';
+            } else if (content.includes('package ') || content.includes('func ')) {
+                summary = '🔧 Go code';
+            }
         } else if (contentType === 'shell') {
             summary = '💻 Shell output';
         } else if (contentType === 'filepath') {
@@ -2229,6 +2301,10 @@
                 if (preview.length <= 50) {
                     summary += ': ' + preview;
                 }
+            } else if (lines <= 3 && size <= 150) {
+                var preview = content.trim().replace(/\n/g, ' ').substring(0, 60);
+                if (content.length > 60) preview += '...';
+                summary += ': ' + preview;
             }
         }
 
@@ -2254,8 +2330,17 @@
         var lines = content.split('\n').length;
         var size = content.length;
 
-        // Always auto-collapse JSON data and API responses to improve readability
+        // Always auto-collapse JSON data, API responses, and error responses for better readability
         if (contentType === 'json' || contentType === 'api-response' || contentType === 'error-response') {
+            return true;
+        }
+
+        // Auto-collapse large code blocks and command output
+        if (contentType === 'code' && (lines > 10 || size > 500)) {
+            return true;
+        }
+
+        if (contentType === 'command-result' && (lines > 5 || size > 300)) {
             return true;
         }
 
@@ -2264,9 +2349,9 @@
             return false;
         }
 
-        // Auto-collapse if more than 2 lines or more than 150 characters
-        // (more aggressive than before for better readability)
-        return lines > 2 || size > 150;
+        // Auto-collapse if more than 3 lines or more than 200 characters
+        // Enhanced thresholds for better balance between readability and information density
+        return lines > 3 || size > 200;
     }
 
     function applySyntaxHighlighting(content, contentType) {
@@ -2278,6 +2363,20 @@
             } catch (e) {
                 return escapeHtml(content);
             }
+        } else if (contentType === 'command-result') {
+            // Highlight exit codes and common patterns in command output
+            var escaped = escapeHtml(content);
+            return escaped
+                .replace(/(Exit code \d+)/g, '<span class="cmd-exit-code">$1</span>')
+                .replace(/^(\$.*)/gm, '<span class="cmd-prompt">$1</span>')
+                .replace(/(error:|failed:|warning:)/gi, '<span class="cmd-error">$1</span>');
+        } else if (contentType === 'code') {
+            var escaped = escapeHtml(content);
+            return escaped
+                .replace(/\b(function|const|let|var|if|else|for|while|return|class|def|import|package)\b/g, '<span class="code-keyword">$1</span>')
+                .replace(/(".*?"|'.*?')/g, '<span class="code-string">$1</span>')
+                .replace(/\/\/.*$/gm, '<span class="code-comment">$&</span>')
+                .replace(/#.*$/gm, '<span class="code-comment">$&</span>');
         } else {
             return escapeHtml(content);
         }
@@ -2546,23 +2645,46 @@
                         bodyHtml = '<div class="tx-tool-summary"><pre class="tx-tool-cmd">' + escapeHtml(summary) + '</pre></div>';
                     }
 
-                    // Show full input as collapsible for complex tools or when no summary
+                    // Show full input as collapsible for complex tools or when needed for transparency
                     var inputStr = typeof input === 'string' ? input : JSON.stringify(input, null, 2);
                     var inputType = detectContentType(inputStr);
                     var shouldCollapseInput = shouldAutoCollapse(inputStr, inputType);
 
-                    // Always show collapsible input for better transparency, but with better summaries
+                    // Always show collapsible input for better transparency, but with intelligent summaries
+                    // Per issue #75: More aggressive collapsing of JSON data for better readability
+                    var paramCount = Object.keys(input).length;
                     var inputSummary = 'Show details';
-                    if (shouldCollapseInput || !summary || toolName === 'Edit') {
-                        var paramCount = Object.keys(input).length;
-                        if (toolName === 'Edit') {
-                            inputSummary = 'Show edit details';
-                        } else if (inputType === 'json') {
-                            inputSummary = 'Show parameters (' + paramCount + ' field' + (paramCount === 1 ? '' : 's') + ')';
-                        } else {
-                            inputSummary = 'Show input (' + inputStr.length + ' chars)';
-                        }
 
+                    if (toolName === 'Edit') {
+                        inputSummary = 'Show edit parameters';
+                        // For Edit tool, always collapse the input parameters
+                        shouldCollapseInput = true;
+                    } else if (toolName === 'Bash') {
+                        // For Bash, only show details if there are additional parameters beyond command
+                        if (paramCount <= 1 && input.command) {
+                            // Don't show collapsible section for simple bash commands
+                        } else {
+                            inputSummary = 'Show command parameters (' + paramCount + ' field' + (paramCount === 1 ? '' : 's') + ')';
+                            shouldCollapseInput = true;
+                        }
+                    } else if (toolName === 'Read') {
+                        if (paramCount <= 1) {
+                            // Simple file read, don't need details section
+                        } else {
+                            inputSummary = 'Show read parameters (offset: ' + (input.offset || 0) + ', limit: ' + (input.limit || 'all') + ')';
+                            shouldCollapseInput = true;
+                        }
+                    } else if (inputType === 'json') {
+                        inputSummary = 'Show parameters (' + paramCount + ' field' + (paramCount === 1 ? '' : 's') + ')';
+                        // Always collapse JSON input for better readability per issue #75
+                        shouldCollapseInput = true;
+                    } else {
+                        inputSummary = 'Show input (' + inputStr.length + ' chars)';
+                        shouldCollapseInput = shouldAutoCollapse(inputStr, inputType);
+                    }
+
+                    // Only add collapsible section if we determined it should be collapsed
+                    if (shouldCollapseInput) {
                         var highlightedInput = applySyntaxHighlighting(inputStr, inputType);
                         bodyHtml += '<details class="tx-tool-input-details">' +
                             '<summary class="tx-tool-input-toggle">' + inputSummary + '</summary>' +
@@ -2575,10 +2697,26 @@
                     continue;
                 }
 
-                // Unknown block type — render as JSON
+                // Unknown block type — render as JSON with collapsible for better readability
+                var jsonContent = JSON.stringify(block, null, 2);
+                var contentType = detectContentType(jsonContent);
+                var shouldCollapse = shouldAutoCollapse(jsonContent, contentType);
+
                 var div = document.createElement('div');
                 div.className = 'tx-system';
-                div.innerHTML = '<pre class="tx-tool-input-pre">' + escapeHtml(JSON.stringify(block, null, 2)) + '</pre>';
+
+                if (shouldCollapse) {
+                    var summary = generateToolResultSummary(jsonContent, false);
+                    var highlightedContent = applySyntaxHighlighting(jsonContent, contentType);
+                    div.innerHTML = '<details class="tx-tool-output-details">' +
+                        '<summary class="tx-tool-result-summary">' +
+                        '<span class="tx-tool-result-badge">' + summary + '</span>' +
+                        '</summary>' +
+                        '<pre class="tx-tool-input-pre tx-content-' + contentType + '">' + highlightedContent + '</pre>' +
+                        '</details>';
+                } else {
+                    div.innerHTML = '<pre class="tx-tool-input-pre">' + escapeHtml(jsonContent) + '</pre>';
+                }
                 container.appendChild(div);
             }
             return;
@@ -2647,7 +2785,24 @@
         div.className = 'tx-system';
         var body = ev.content || ev.text || ev.message || '';
         if (typeof body !== 'string') body = JSON.stringify(body || ev, null, 2);
-        div.innerHTML = '<span class="tx-system-icon">&#9679;</span> ' + escapeHtml(type) + ': ' + escapeHtml(body);
+
+        // Apply collapsible logic for large or JSON content in fallback cases too
+        var contentType = detectContentType(body);
+        var shouldCollapse = shouldAutoCollapse(body, contentType);
+
+        if (shouldCollapse) {
+            var summary = generateToolResultSummary(body, false);
+            var highlightedContent = applySyntaxHighlighting(body, contentType);
+            div.innerHTML = '<span class="tx-system-icon">&#9679;</span> ' + escapeHtml(type) + ': ' +
+                '<details class="tx-tool-output-details">' +
+                '<summary class="tx-tool-result-summary">' +
+                '<span class="tx-tool-result-badge">' + summary + '</span>' +
+                '</summary>' +
+                '<pre class="tx-tool-input-pre tx-content-' + contentType + '">' + highlightedContent + '</pre>' +
+                '</details>';
+        } else {
+            div.innerHTML = '<span class="tx-system-icon">&#9679;</span> ' + escapeHtml(type) + ': ' + escapeHtml(body);
+        }
         container.appendChild(div);
     }
 

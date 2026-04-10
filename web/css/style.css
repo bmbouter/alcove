@@ -603,11 +603,15 @@ select.input {
     gap: 6px;
     border-radius: var(--radius);
     transition: var(--transition);
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    margin: 2px 0;
 }
 
 .tx-tool-result-summary:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.06);
     color: var(--text-muted);
+    border-color: rgba(255, 255, 255, 0.15);
 }
 
 .tx-tool-result-summary:before {
@@ -630,6 +634,52 @@ select.input {
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    flex: 1;
+}
+
+/* Enhance visibility of collapsible sections */
+.tx-tool-output-details,
+.tx-tool-input-details,
+.tx-thinking-details {
+    margin: 4px 0;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.tx-tool-output-details[open],
+.tx-tool-input-details[open],
+.tx-thinking-details[open] {
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.tx-tool-input-toggle {
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 6px 12px;
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: var(--radius);
+    transition: var(--transition);
+    background: rgba(255, 255, 255, 0.02);
+    margin: 0;
+}
+
+.tx-tool-input-toggle:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-muted);
+}
+
+.tx-tool-input-toggle:before {
+    content: '▶';
+    font-size: 9px;
+    opacity: 0.6;
+    transition: transform 0.2s ease;
+    display: inline-block;
+    margin-right: 4px;
 }
 
 /* --- Syntax Highlighting --- */
@@ -637,6 +687,16 @@ select.input {
 .tx-content-json .json-string { color: #a5d6a7; }
 .tx-content-json .json-number { color: #ffb74d; }
 .tx-content-json .json-literal { color: #f48fb1; }
+
+/* Command result highlighting */
+.cmd-exit-code { color: #4fc3f7; font-weight: 600; }
+.cmd-prompt { color: #81c784; }
+.cmd-error { color: #ef5350; font-weight: 600; }
+
+/* Code syntax highlighting */
+.code-keyword { color: #bb86fc; font-weight: 600; }
+.code-string { color: #a5d6a7; }
+.code-comment { color: #757575; font-style: italic; }
 
 .tx-content-code {
     background: rgba(0, 0, 0, 0.25);
