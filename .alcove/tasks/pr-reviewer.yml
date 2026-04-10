@@ -3,6 +3,7 @@ description: |
   Reviews pull requests after CI passes. Posts formal GitHub reviews for
   external PRs and approval comments for self-authored PRs. Manages labels
   appropriately (awaiting-review → reviewer-approved/changes-requested).
+  Automatically removes needs-comment label after posting any comment or review.
   Merges approved PRs and cleans up feature branches.
 
 prompt: |
@@ -114,6 +115,10 @@ prompt: |
       -d @/tmp/comment.json \
       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/comments"
 
+    # Remove needs-comment label after posting comment (ignore errors if label doesn't exist)
+    curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/needs-comment" 2>/dev/null || true
+
     exit 0
   fi
 
@@ -206,6 +211,10 @@ prompt: |
       exit 1
     fi
     echo "Formal review posted successfully (ID: $REVIEW_ID)"
+
+    # Remove needs-comment label after posting review (ignore errors if label doesn't exist)
+    curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/needs-comment" 2>/dev/null || true
   fi
 
   #### For self-authored PRs (approval comment):
@@ -230,6 +239,10 @@ prompt: |
       exit 1
     fi
     echo "Approval comment posted successfully (ID: $COMMENT_ID)"
+
+    # Remove needs-comment label after posting comment (ignore errors if label doesn't exist)
+    curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/needs-comment" 2>/dev/null || true
   fi
 
   #### Swap labels for all approved PRs:
@@ -319,6 +332,10 @@ prompt: |
   fi
   echo "Changes requested review posted successfully (ID: $REVIEW_ID)"
 
+  # Remove needs-comment label after posting review comment (ignore errors if label doesn't exist)
+  curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+    "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels/needs-comment" 2>/dev/null || true
+
   #### Swap labels for changes requested:
   echo "Swapping labels: awaiting-review → changes-requested"
   curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
@@ -357,6 +374,7 @@ prompt: |
   - For self-authored PRs: post approval comments (GitHub blocks self-reviews)
   - ALWAYS complete the full sequence: review → approve/deny → labels → merge/wait → cleanup
   - Verify each step succeeded before proceeding to the next
+  - ALWAYS remove needs-comment label after posting any comment or review
 
 repo: https://github.com/bmbouter/alcove.git
 timeout: 1800
