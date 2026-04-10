@@ -75,6 +75,9 @@ func ParseRHIdentity(headerValue string) (*RHIdentity, error) {
 
 	// Log raw header and decoded identity type for debugging
 	log.Printf("rh-identity: parsed header type=%s auth_type=%s", id.Identity.Type, id.Identity.AuthType)
+	if id.Identity.Type == "Registry" {
+		log.Printf("rh-identity: registry identity raw payload: %s", string(decoded))
+	}
 
 	// Validate SAML Associate identity
 	if id.Identity.Associate != nil {
