@@ -54,27 +54,20 @@ func NewCIGateMonitor(db *pgxpool.Pool, dispatcher *Dispatcher, credStore *Crede
 	}
 }
 
-// parsePRArtifact extracts the repo slug and PR number from a PR artifact URL.
-// Expected format: https://github.com/owner/repo/pull/42
+// parsePRArtifact extracts the repo slug and PR number from a PR artifact.
+// Skiff-init writes: Type="pull_request", URL="owner/repo", Ref="42"
 func parsePRArtifact(a internal.Artifact) (repo string, prNumber int, ok bool) {
-	if a.Type != "pr" {
+	if a.Type != "pull_request" && a.Type != "pr" {
 		return "", 0, false
 	}
-	u := a.URL
-	// Strip scheme.
-	u = strings.TrimPrefix(u, "https://")
-	u = strings.TrimPrefix(u, "http://")
-	// Expected: github.com/owner/repo/pull/42
-	parts := strings.Split(u, "/")
-	if len(parts) < 5 || parts[3] != "pull" {
+	if a.URL == "" || a.Ref == "" {
 		return "", 0, false
 	}
-	repo = parts[1] + "/" + parts[2]
-	n, err := strconv.Atoi(parts[4])
-	if err != nil {
+	n, err := strconv.Atoi(a.Ref)
+	if err != nil || n == 0 {
 		return "", 0, false
 	}
-	return repo, n, true
+	return a.URL, n, true
 }
 
 // OnTaskCompleted is called when a task finishes. It checks for PR artifacts

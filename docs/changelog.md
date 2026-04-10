@@ -3,6 +3,19 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.10.0
+
+### Features
+- Add CI Gate: Bridge-driven CI retry loop for autonomous developer tasks.
+  When a task definition includes `ci_gate`, Bridge monitors CI status on PRs
+  created by the task and automatically dispatches fresh retry agents on failure,
+  using the system LLM to analyze failure logs and compose targeted fix prompts.
+- Add Go 1.25 toolchain to Skiff base image. Autonomous agents can now run
+  `go build`, `go vet`, and `go test` locally before pushing, catching
+  compilation and test errors without waiting for CI.
+- Rewrite autonomous developer prompt with mandatory pre-push validation,
+  structured CI retry discipline, and risk assessment for untestable changes.
+
 ## v0.9.1
 
 ### Bug Fixes
