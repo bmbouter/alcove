@@ -167,7 +167,6 @@ trigger:
       - issues
       - issue_comment
     actions:
-      - opened
       - reopened
       - created
       - labeled
