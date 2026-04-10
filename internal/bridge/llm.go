@@ -90,10 +90,8 @@ func (l *BridgeLLM) Complete(ctx context.Context, systemPrompt, userPrompt strin
 	}
 
 	switch l.provider {
-	case "anthropic":
+	case "anthropic", "claude-oauth":
 		return l.completeAnthropic(ctx, systemPrompt, userPrompt, maxTokens)
-	case "claude-oauth":
-		return l.completeClaudeOAuth(ctx, systemPrompt, userPrompt, maxTokens)
 	case "google-vertex":
 		return l.completeVertex(ctx, systemPrompt, userPrompt, maxTokens)
 	default:
@@ -121,63 +119,9 @@ func (l *BridgeLLM) completeAnthropic(ctx context.Context, systemPrompt, userPro
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", l.apiKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("LLM request failed: %w", err)
+	if l.provider == "claude-oauth" {
+		req.Header.Set("anthropic-beta", "oauth-2025-04-20,claude-code-20250219")
 	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("reading LLM response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("LLM returned %d: %s", resp.StatusCode, string(respBody))
-	}
-
-	var result struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-	}
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return "", fmt.Errorf("parsing LLM response: %w", err)
-	}
-
-	for _, c := range result.Content {
-		if c.Type == "text" {
-			log.Printf("system LLM call: model=%s prompt_len=%d response_len=%d", l.model, len(userPrompt), len(c.Text))
-			return c.Text, nil
-		}
-	}
-	return "", fmt.Errorf("no text content in LLM response")
-}
-
-func (l *BridgeLLM) completeClaudeOAuth(ctx context.Context, systemPrompt, userPrompt string, maxTokens int) (string, error) {
-	body := map[string]any{
-		"model":      l.model,
-		"max_tokens": maxTokens,
-		"system":     systemPrompt,
-		"messages":   []map[string]string{{"role": "user", "content": userPrompt}},
-	}
-
-	data, err := json.Marshal(body)
-	if err != nil {
-		return "", fmt.Errorf("marshaling request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.anthropic.com/v1/messages", bytes.NewReader(data))
-	if err != nil {
-		return "", fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", l.apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-	req.Header.Set("anthropic-beta", "oauth-2025-04-20,claude-code-20250219")
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)

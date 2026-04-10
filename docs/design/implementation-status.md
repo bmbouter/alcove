@@ -44,7 +44,7 @@ alcove/
 │   │   ├── dispatcher.go       ✅ Task dispatch: creates session, resolves security profiles, publishes to NATS, starts Skiff+Gate with LLM/SCM credentials and tool configs
 │   │   ├── config.go           ✅ Config loading from env vars, auth backend selection, debug mode
 │   │   ├── runtime.go          ✅ Runtime factory (podman/kubernetes selection)
-│   │   ├── credentials.go      ✅ Credential CRUD, AES-256-GCM encryption, OAuth2 token acquisition, token refresh, AcquireSCMToken, AcquireSystemToken, owner scoping, system credentials
+│   │   ├── credentials.go      ✅ Credential CRUD, AES-256-GCM encryption, OAuth2 token acquisition, token refresh, AcquireSCMToken, AcquireSystemToken, owner scoping, system credentials, claude-oauth support
 │   │   ├── credentials_test.go ✅ Credential store tests
 │   │   ├── scheduler.go        ✅ Cron scheduler: parsing, next-run computation, schedule CRUD, background tick loop, per-schedule debug flag
 │   │   ├── profiles.go         ✅ Security profiles: multi-rule per-repo operation scoping, profile CRUD with owner scoping
@@ -63,7 +63,7 @@ alcove/
 │   │       ├── 008_credential_api_host.sql  ✅ Custom API host for credentials (GitLab private servers)
 │   │       └── 009_system_settings.sql  ✅ System settings key-value store
 │   ├── gate/
-│   │   ├── proxy.go            ✅ HTTP proxy, CONNECT tunneling, LLM API injection (api_key + bearer), audit logging, 401 token refresh
+│   │   ├── proxy.go            ✅ HTTP proxy, CONNECT tunneling, LLM API injection (api_key + bearer + oauth_token), audit logging, 401 token refresh
 │   │   ├── proxy_test.go       ✅ Proxy tests
 │   │   └── scope.go            ✅ Scope enforcement, GitHub/GitLab URL parsing, git credential helper
 │   ├── hail/
@@ -429,6 +429,7 @@ See the full roadmap in [architecture-decisions.md](architecture-decisions.md#ro
 | `ALCOVE_DEBUG` | (unset) | Set to any value to enable debug mode (keep containers after exit) |
 | `ALCOVE_WEB_DIR` | `web` | Path to dashboard static files |
 | `ANTHROPIC_API_KEY` | (optional) | Anthropic API key (auto-migrated to credential store) |
+| `BRIDGE_LLM_OAUTH_TOKEN` | (optional) | Claude Pro/Max setup-token for system LLM |
 | `VERTEX_API_KEY` | (optional) | Vertex AI API key (auto-migrated to credential store) |
 | `VERTEX_PROJECT` | (optional) | GCP project ID for Vertex AI provider |
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Default model for Anthropic provider |
