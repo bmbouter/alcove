@@ -47,6 +47,51 @@ alcove version
 alcove --help
 ```
 
+## Configuration File
+
+The CLI supports configuration files to set default values for common options:
+
+```bash
+# Create a config file with all options documented
+alcove config init
+
+# Show your current effective configuration
+alcove config show
+
+# Validate your configuration
+alcove config validate
+```
+
+### Configuration Locations
+
+Config files are searched in this order:
+
+1. `~/.config/alcove/config.yaml` (XDG standard)
+2. `~/.alcove.yaml` (convenience location)
+3. `$XDG_CONFIG_HOME/alcove/config.yaml` (if `XDG_CONFIG_HOME` is set)
+
+### Configuration Precedence
+
+Settings are resolved in this order (highest to lowest priority):
+
+1. **Command-line flags** (e.g., `--provider anthropic`)
+2. **Environment variables** (e.g., `ALCOVE_SERVER`)  
+3. **Config file values** (e.g., `provider: anthropic` in config.yaml)
+4. **Built-in defaults**
+
+### Example Configuration
+
+```yaml
+# Alcove CLI Configuration
+server: https://bridge.example.com
+provider: anthropic
+model: claude-sonnet-4-20250514
+budget: 5.00
+timeout: 30m
+output: table
+repo: myorg/myproject
+```
+
 ## Global Flags
 
 | Flag | Description |
@@ -169,13 +214,17 @@ Dispatches a task to the Bridge, which creates a session and launches a Skiff
 container. By default, the command prints the session ID and exits immediately.
 With `--watch`, it streams the live transcript until the session completes.
 
+All flags can be set as defaults in your config file. Use `alcove config init`
+to create an example config file, then edit it to set your preferred defaults
+for provider, model, budget, timeout, and repository.
+
 ### Examples
 
 ```bash
 # Submit a task and get the session ID
 alcove run "Fix the failing test in pkg/auth"
 
-# Submit and stream the transcript live
+# Submit and stream the transcript live  
 alcove run --watch --repo myorg/myapp "Add input validation to the login handler"
 
 # Set a timeout and use a specific provider
@@ -192,6 +241,9 @@ alcove run --debug "Investigate the memory leak in the worker pool"
 
 # Get JSON output for scripting
 alcove run --output json "Update the README" | jq -r '.id'
+
+# Using config file defaults (with config.yaml containing provider: anthropic)
+alcove run "Implement feature X"  # Uses provider from config file
 ```
 
 ---
@@ -388,7 +440,91 @@ alcove login http://localhost:8080
 
 ---
 
-## alcove config validate
+## alcove config
+
+Configuration management for the CLI.
+
+```
+alcove config [subcommand]
+```
+
+### Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `init` | Create an example configuration file |
+| `show` | Show current effective configuration |
+| `validate` | Validate the current configuration |
+
+---
+
+### alcove config init
+
+Create an example configuration file with all supported options.
+
+```
+alcove config init
+```
+
+#### Description
+
+Creates `~/.config/alcove/config.yaml` with an example configuration that includes
+all supported options with helpful comments. Will not overwrite an existing config file.
+
+#### Examples
+
+```bash
+# Create initial config file
+alcove config init
+
+# Edit the file to set your defaults
+$EDITOR ~/.config/alcove/config.yaml
+```
+
+---
+
+### alcove config show
+
+Show the current effective configuration after applying all precedence rules.
+
+```
+alcove config show
+```
+
+#### Description
+
+Displays the effective configuration values, showing the source of each setting
+(flag, environment variable, config file, or default). Useful for debugging
+configuration precedence.
+
+#### Examples
+
+```bash
+# Show configuration in table format
+alcove config show
+
+# Show configuration in JSON format  
+alcove config show --output json
+```
+
+Sample output:
+
+```
+Current effective configuration:
+(showing resolved values after applying precedence: flag > env > config > default)
+
+Server:   https://bridge.example.com (from config file)
+Provider: anthropic (from config file)
+Model:    claude-sonnet-4-20250514 (from config file)
+Budget:   5.00 (from config file)
+Timeout:  30m0s (from config file)
+Output:   table (default)
+Repo:     myorg/myproject (from config file)
+```
+
+---
+
+### alcove config validate
 
 Check the current CLI configuration for issues.
 
@@ -396,17 +532,14 @@ Check the current CLI configuration for issues.
 alcove config validate
 ```
 
-### Flags
-
-No command-specific flags.
-
-### Description
+#### Description
 
 Validates that the config file and credentials are present and well-formed.
 Reports the configured server URL, token status, and whether `ALCOVE_SERVER`
-is set in the environment. Exits with a non-zero status if any issues are found.
+is set in the environment. Also validates config field values (e.g., output format,
+timeout format, budget constraints). Exits with a non-zero status if any issues are found.
 
-### Examples
+#### Examples
 
 ```bash
 # Validate configuration
@@ -417,6 +550,7 @@ Sample output when valid:
 
 ```
 config: server = https://alcove.example.com
+config: found configuration with 7 fields
 credentials: token present (128 chars)
 
 Configuration is valid.
@@ -426,11 +560,13 @@ Sample output with issues:
 
 ```
 config: server = https://alcove.example.com
-credentials: cannot read /home/user/.config/alcove/credentials: no such file
+config: found configuration with 3 fields
 
 Issues:
   - credentials: cannot read /home/user/.config/alcove/credentials: no such file
-Error: configuration has 1 issue(s)
+  - config: invalid output format 'xml' (must be 'json' or 'table')
+  - config: invalid timeout format 'invalid': time: invalid duration "invalid"
+Error: configuration has 3 issue(s)
 ```
 
 ---

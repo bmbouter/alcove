@@ -205,8 +205,61 @@ The `alcove` CLI (`cmd/alcove`) stores configuration in
 
 | File | Purpose |
 |---|---|
-| `config.yaml` | Stores the Bridge server URL. Created by `alcove login`. |
+| `config.yaml` | Stores the Bridge server URL and default CLI options. Created by `alcove login` or `alcove config init`. |
 | `credentials` | Stores the JWT authentication token. Created by `alcove login`. |
+
+### Configuration File Format
+
+The CLI config file supports all command-line options as defaults:
+
+```yaml
+# Alcove CLI Configuration
+# All fields are optional and will override corresponding flags when set
+
+# Bridge server URL (can also be set via ALCOVE_SERVER env var or --server flag)
+server: https://bridge.example.com
+
+# Default provider for tasks (optional)
+provider: anthropic
+
+# Default model override (optional)
+model: claude-sonnet-4-20250514
+
+# Default budget limit in USD (optional)
+budget: 5.00
+
+# Default timeout for tasks (optional, accepts Go duration syntax)
+timeout: 30m
+
+# Default output format: "table" or "json" (optional)
+output: table
+
+# Default repository for tasks (optional)
+repo: myorg/myproject
+```
+
+### Configuration File Discovery
+
+The CLI searches for config files in this order:
+
+1. `$XDG_CONFIG_HOME/alcove/config.yaml` (typically `~/.config/alcove/config.yaml`)
+2. `~/.alcove.yaml` (convenience location)
+3. `$XDG_CONFIG_HOME/alcove/config.yaml` (if `XDG_CONFIG_HOME` is explicitly set and different from `~/.config`)
+
+### Configuration Management Commands
+
+Use these commands to manage your CLI configuration:
+
+```bash
+# Create an example config file with all options documented
+alcove config init
+
+# Show current effective configuration (after resolving all sources)
+alcove config show
+
+# Validate your current configuration
+alcove config validate
+```
 
 ### CLI Environment Variables
 
@@ -234,13 +287,50 @@ The `alcove` CLI (`cmd/alcove`) stores configuration in
 | `-u, --username <user>` | Username for Basic Auth. Overrides `ALCOVE_USERNAME`. |
 | `-p, --password <pass>` | Password for Basic Auth. Overrides `ALCOVE_PASSWORD`. |
 
+### Configuration Resolution Precedence
+
+For each setting, values are resolved in this order (highest to lowest priority):
+
+1. **Command-line flag** (e.g., `--server`, `--provider`, `--budget`)
+2. **Environment variable** (e.g., `ALCOVE_SERVER`)
+3. **Config file value** (e.g., `server` field in `config.yaml`)
+4. **Built-in default**
+
+Examples:
+
+```bash
+# Server URL resolution
+alcove run --server https://override.com "task"  # Uses https://override.com
+ALCOVE_SERVER=https://env.com alcove run "task"  # Uses https://env.com (if no flag)
+# Otherwise uses server from config.yaml
+
+# Provider resolution
+alcove run --provider openai "task"              # Uses openai
+# Otherwise uses provider from config.yaml
+# Otherwise uses no default provider
+
+# Budget resolution  
+alcove run --budget 10.00 "task"                 # Uses 10.00
+# Otherwise uses budget from config.yaml
+# Otherwise uses no budget limit
+```
+
+### Migration from Flag-only Usage
+
+Existing users can gradually adopt config files:
+
+1. Run `alcove config init` to create an example config file
+2. Edit `~/.config/alcove/config.yaml` to set your preferred defaults
+3. Continue using flags for one-off overrides
+4. Use `alcove config show` to verify your effective configuration
+
 ### Server Resolution Order
 
 The CLI resolves the Bridge URL in this order:
 
 1. `--server` flag
 2. `ALCOVE_SERVER` environment variable
-3. `server` field in `~/.config/alcove/config.yaml`
+3. `server` field in config file
 
 ---
 

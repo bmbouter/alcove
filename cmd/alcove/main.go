@@ -40,7 +40,13 @@ var Version = "dev"
 
 // CLIConfig holds the user-level CLI configuration.
 type CLIConfig struct {
-	Server string `yaml:"server"`
+	Server   string  `yaml:"server"`
+	Provider string  `yaml:"provider,omitempty"`
+	Model    string  `yaml:"model,omitempty"`
+	Budget   float64 `yaml:"budget,omitempty"`
+	Timeout  string  `yaml:"timeout,omitempty"` // duration string like "30m"
+	Output   string  `yaml:"output,omitempty"`
+	Repo     string  `yaml:"repo,omitempty"`
 }
 
 // ProxyConfig holds HTTP proxy configuration.
@@ -284,15 +290,45 @@ func configDir() string {
 }
 
 func loadConfig() (*CLIConfig, error) {
-	data, err := os.ReadFile(filepath.Join(configDir(), "config.yaml"))
-	if err != nil {
-		return nil, err
+	// Try multiple locations in priority order:
+	// 1. ~/.config/alcove/config.yaml (XDG standard, current location)
+	// 2. ~/.alcove.yaml (convenience location)
+	// 3. $XDG_CONFIG_HOME/alcove/config.yaml (if XDG_CONFIG_HOME is set)
+
+	var configPaths []string
+
+	// XDG standard location
+	configPaths = append(configPaths, filepath.Join(configDir(), "config.yaml"))
+
+	// Convenience location
+	if home, err := os.UserHomeDir(); err == nil {
+		configPaths = append(configPaths, filepath.Join(home, ".alcove.yaml"))
 	}
-	var cfg CLIConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, err
+
+	// XDG_CONFIG_HOME location (if different from first)
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		xdgPath := filepath.Join(xdg, "alcove", "config.yaml")
+		if xdgPath != configPaths[0] {
+			configPaths = append(configPaths, xdgPath)
+		}
 	}
-	return &cfg, nil
+
+	var lastErr error
+	for _, path := range configPaths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		var cfg CLIConfig
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			return nil, fmt.Errorf("invalid YAML in %s: %w", path, err)
+		}
+		return &cfg, nil
+	}
+
+	return nil, lastErr
 }
 
 func loadToken() (string, error) {
@@ -301,6 +337,58 @@ func loadToken() (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(data)), nil
+}
+
+// resolveStringConfig resolves string config values with precedence: CLI flag > Environment variable > Config file > Default
+func resolveStringConfig(cmd *cobra.Command, flagName, envVar, configValue, defaultValue string) string {
+	// 1. CLI flag (highest priority)
+	if flagValue, _ := cmd.Flags().GetString(flagName); flagValue != "" {
+		return flagValue
+	}
+	// 2. Environment variable
+	if envVar != "" {
+		if envValue := os.Getenv(envVar); envValue != "" {
+			return envValue
+		}
+	}
+	// 3. Config file
+	if configValue != "" {
+		return configValue
+	}
+	// 4. Default value
+	return defaultValue
+}
+
+// resolveFloat64Config resolves float64 config values with precedence: CLI flag > Config file > Default
+func resolveFloat64Config(cmd *cobra.Command, flagName string, configValue float64, defaultValue float64) float64 {
+	// 1. CLI flag (highest priority)
+	if flagValue, _ := cmd.Flags().GetFloat64(flagName); flagValue > 0 {
+		return flagValue
+	}
+	// 2. Config file
+	if configValue > 0 {
+		return configValue
+	}
+	// 3. Default value
+	return defaultValue
+}
+
+// resolveDurationConfig resolves duration config values with precedence: CLI flag > Config file > Default
+func resolveDurationConfig(cmd *cobra.Command, flagName string, configValue string, defaultValue time.Duration) (time.Duration, error) {
+	// 1. CLI flag (highest priority)
+	if flagValue, _ := cmd.Flags().GetDuration(flagName); flagValue > 0 {
+		return flagValue, nil
+	}
+	// 2. Config file
+	if configValue != "" {
+		parsed, err := time.ParseDuration(configValue)
+		if err != nil {
+			return 0, fmt.Errorf("invalid timeout format in config: %w", err)
+		}
+		return parsed, nil
+	}
+	// 3. Default value
+	return defaultValue, nil
 }
 
 func newHTTPClient(proxyConfig *ProxyConfig) *http.Client {
@@ -360,9 +448,20 @@ func outputJSON(v interface{}) error {
 	return enc.Encode(v)
 }
 
+// resolveOutputFormat resolves the output format with config file support
+func resolveOutputFormat(cmd *cobra.Command) string {
+	cfg, err := loadConfig()
+	configValue := ""
+	if err == nil {
+		configValue = cfg.Output
+	}
+
+	return resolveStringConfig(cmd, "output", "", configValue, "table")
+}
+
 func isJSONOutput(cmd *cobra.Command) bool {
-	o, _ := cmd.Flags().GetString("output")
-	return strings.EqualFold(o, "json")
+	output := resolveOutputFormat(cmd)
+	return strings.EqualFold(output, "json")
 }
 
 // ---------- run ----------
@@ -401,16 +500,35 @@ type runResponse struct {
 }
 
 func runRun(cmd *cobra.Command, args []string) error {
+	// Load config file to get defaults
+	cfg, err := loadConfig()
+	if err != nil {
+		// Config file is optional for run command, just use empty config
+		cfg = &CLIConfig{}
+	}
+
 	reqBody := runRequest{Prompt: args[0]}
-	reqBody.Repo, _ = cmd.Flags().GetString("repo")
-	reqBody.Provider, _ = cmd.Flags().GetString("provider")
-	reqBody.Model, _ = cmd.Flags().GetString("model")
-	if b, _ := cmd.Flags().GetFloat64("budget"); b > 0 {
-		reqBody.Budget = b
+
+	// Resolve parameters with proper precedence
+	reqBody.Repo = resolveStringConfig(cmd, "repo", "", cfg.Repo, "")
+	reqBody.Provider = resolveStringConfig(cmd, "provider", "", cfg.Provider, "")
+	reqBody.Model = resolveStringConfig(cmd, "model", "", cfg.Model, "")
+
+	// Budget resolution
+	budget := resolveFloat64Config(cmd, "budget", cfg.Budget, 0)
+	if budget > 0 {
+		reqBody.Budget = budget
 	}
-	if t, _ := cmd.Flags().GetDuration("timeout"); t > 0 {
-		reqBody.Timeout = int(t.Seconds())
+
+	// Timeout resolution
+	timeout, err := resolveDurationConfig(cmd, "timeout", cfg.Timeout, 0)
+	if err != nil {
+		return fmt.Errorf("resolving timeout: %w", err)
 	}
+	if timeout > 0 {
+		reqBody.Timeout = int(timeout.Seconds())
+	}
+
 	reqBody.Debug, _ = cmd.Flags().GetBool("debug")
 
 	resp, err := apiRequest(cmd, http.MethodPost, "/api/v1/tasks", reqBody)
@@ -474,13 +592,23 @@ type sessionSummary struct {
 }
 
 func runList(cmd *cobra.Command, _ []string) error {
+	// Load config file to get defaults
+	cfg, err := loadConfig()
+	if err != nil {
+		cfg = &CLIConfig{}
+	}
+
 	var params []string
 	if s, _ := cmd.Flags().GetString("status"); s != "" {
 		params = append(params, "status="+s)
 	}
-	if r, _ := cmd.Flags().GetString("repo"); r != "" {
-		params = append(params, "repo="+r)
+
+	// Use config file default for repo if not specified via flag
+	repo := resolveStringConfig(cmd, "repo", "", cfg.Repo, "")
+	if repo != "" {
+		params = append(params, "repo="+repo)
 	}
+
 	if d, _ := cmd.Flags().GetDuration("since"); d > 0 {
 		since := time.Now().Add(-d).Format(time.RFC3339)
 		params = append(params, "since="+since)
@@ -792,30 +920,58 @@ func newConfigCmd() *cobra.Command {
 		Use:   "config",
 		Short: "Configuration management",
 	}
-	cmd.AddCommand(&cobra.Command{
-		Use:   "validate",
-		Short: "Validate the current configuration",
-		RunE:  runConfigValidate,
-	})
+	cmd.AddCommand(
+		&cobra.Command{
+			Use:   "validate",
+			Short: "Validate the current configuration",
+			RunE:  runConfigValidate,
+		},
+		&cobra.Command{
+			Use:   "init",
+			Short: "Create an example configuration file",
+			RunE:  runConfigInit,
+		},
+		&cobra.Command{
+			Use:   "show",
+			Short: "Show current effective configuration",
+			RunE:  runConfigShow,
+		},
+	)
 	return cmd
 }
 
 func runConfigValidate(cmd *cobra.Command, _ []string) error {
 	dir := configDir()
-	configPath := filepath.Join(dir, "config.yaml")
 	credsPath := filepath.Join(dir, "credentials")
 
 	var issues []string
 
 	cfg, err := loadConfig()
 	if err != nil {
-		issues = append(issues, fmt.Sprintf("config: cannot read %s: %v", configPath, err))
+		issues = append(issues, fmt.Sprintf("config: cannot read configuration file: %v", err))
 	} else {
 		if cfg.Server == "" {
 			issues = append(issues, "config: 'server' is not set")
 		} else {
 			fmt.Fprintf(os.Stderr, "config: server = %s\n", cfg.Server)
 		}
+
+		// Validate new config fields
+		if cfg.Output != "" && !strings.EqualFold(cfg.Output, "json") && !strings.EqualFold(cfg.Output, "table") {
+			issues = append(issues, fmt.Sprintf("config: invalid output format '%s' (must be 'json' or 'table')", cfg.Output))
+		}
+
+		if cfg.Timeout != "" {
+			if _, err := time.ParseDuration(cfg.Timeout); err != nil {
+				issues = append(issues, fmt.Sprintf("config: invalid timeout format '%s': %v", cfg.Timeout, err))
+			}
+		}
+
+		if cfg.Budget < 0 {
+			issues = append(issues, "config: budget cannot be negative")
+		}
+
+		fmt.Fprintf(os.Stderr, "config: found configuration with %d fields\n", getConfigFieldCount(cfg))
 	}
 
 	token, err := loadToken()
@@ -841,6 +997,210 @@ func runConfigValidate(cmd *cobra.Command, _ []string) error {
 
 	fmt.Fprintln(os.Stderr, "\nConfiguration is valid.")
 	return nil
+}
+
+// getConfigFieldCount counts non-empty fields in config
+func getConfigFieldCount(cfg *CLIConfig) int {
+	count := 0
+	if cfg.Server != "" {
+		count++
+	}
+	if cfg.Provider != "" {
+		count++
+	}
+	if cfg.Model != "" {
+		count++
+	}
+	if cfg.Budget > 0 {
+		count++
+	}
+	if cfg.Timeout != "" {
+		count++
+	}
+	if cfg.Output != "" {
+		count++
+	}
+	if cfg.Repo != "" {
+		count++
+	}
+	return count
+}
+
+func runConfigInit(cmd *cobra.Command, _ []string) error {
+	dir := configDir()
+	configPath := filepath.Join(dir, "config.yaml")
+
+	// Check if config file already exists
+	if _, err := os.Stat(configPath); err == nil {
+		return fmt.Errorf("config file already exists at %s", configPath)
+	}
+
+	// Create config directory if it doesn't exist
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("creating config directory: %w", err)
+	}
+
+	// Create example config with helpful comments
+	exampleConfig := `# Alcove CLI Configuration
+# All fields are optional and will override corresponding flags when set
+
+# Bridge server URL (can also be set via ALCOVE_SERVER env var or --server flag)
+server: ""
+
+# Default provider for tasks (optional)
+# Examples: "anthropic", "openai", "google"
+# provider: anthropic
+
+# Default model override (optional)
+# Examples: "claude-sonnet-4-20250514", "gpt-4", "gemini-pro"
+# model: claude-sonnet-4-20250514
+
+# Default budget limit in USD (optional)
+# budget: 5.00
+
+# Default timeout for tasks (optional, accepts Go duration syntax)
+# Examples: "30m", "1h", "2h30m"
+# timeout: 30m
+
+# Default output format: "table" or "json" (optional)
+# output: table
+
+# Default repository for tasks (optional)
+# Examples: "myorg/myproject", "username/repo"
+# repo: myorg/myproject
+`
+
+	if err := os.WriteFile(configPath, []byte(exampleConfig), 0600); err != nil {
+		return fmt.Errorf("writing example config: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "Example configuration created at %s\n", configPath)
+	fmt.Fprintln(os.Stderr, "Edit the file to set your defaults, then run 'alcove config validate' to check it.")
+	return nil
+}
+
+func runConfigShow(cmd *cobra.Command, _ []string) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		cfg = &CLIConfig{} // Use empty config if none found
+		fmt.Fprintf(os.Stderr, "Warning: no config file found, showing defaults\n\n")
+	}
+
+	if isJSONOutput(cmd) {
+		// Create effective config structure showing resolved values
+		effectiveConfig := map[string]interface{}{
+			"server":   resolveStringConfig(cmd, "server", "ALCOVE_SERVER", cfg.Server, ""),
+			"provider": resolveStringConfig(cmd, "provider", "", cfg.Provider, ""),
+			"model":    resolveStringConfig(cmd, "model", "", cfg.Model, ""),
+			"budget":   resolveFloat64Config(cmd, "budget", cfg.Budget, 0),
+			"output":   resolveOutputFormat(cmd),
+			"repo":     resolveStringConfig(cmd, "repo", "", cfg.Repo, ""),
+		}
+
+		// Add timeout separately since it needs special handling
+		if timeout, err := resolveDurationConfig(cmd, "timeout", cfg.Timeout, 0); err == nil && timeout > 0 {
+			effectiveConfig["timeout"] = timeout.String()
+		} else {
+			effectiveConfig["timeout"] = ""
+		}
+
+		return outputJSON(effectiveConfig)
+	}
+
+	fmt.Println("Current effective configuration:")
+	fmt.Println("(showing resolved values after applying precedence: flag > env > config > default)")
+	fmt.Println()
+
+	// Show server with source
+	server := resolveStringConfig(cmd, "server", "ALCOVE_SERVER", cfg.Server, "")
+	source := getConfigSource("server", cmd, "ALCOVE_SERVER", cfg.Server)
+	fmt.Printf("Server:   %s %s\n", server, source)
+
+	// Show provider with source
+	provider := resolveStringConfig(cmd, "provider", "", cfg.Provider, "")
+	if provider != "" {
+		source := getConfigSource("provider", cmd, "", cfg.Provider)
+		fmt.Printf("Provider: %s %s\n", provider, source)
+	} else {
+		fmt.Printf("Provider: (not set)\n")
+	}
+
+	// Show model with source
+	model := resolveStringConfig(cmd, "model", "", cfg.Model, "")
+	if model != "" {
+		source := getConfigSource("model", cmd, "", cfg.Model)
+		fmt.Printf("Model:    %s %s\n", model, source)
+	} else {
+		fmt.Printf("Model:    (not set)\n")
+	}
+
+	// Show budget with source
+	budget := resolveFloat64Config(cmd, "budget", cfg.Budget, 0)
+	if budget > 0 {
+		source := getFloat64ConfigSource("budget", cmd, cfg.Budget)
+		fmt.Printf("Budget:   %.2f %s\n", budget, source)
+	} else {
+		fmt.Printf("Budget:   (not set)\n")
+	}
+
+	// Show timeout with source
+	timeout, err := resolveDurationConfig(cmd, "timeout", cfg.Timeout, 0)
+	if err == nil && timeout > 0 {
+		source := getDurationConfigSource("timeout", cmd, cfg.Timeout)
+		fmt.Printf("Timeout:  %s %s\n", timeout, source)
+	} else {
+		fmt.Printf("Timeout:  (not set)\n")
+	}
+
+	// Show output with source
+	output := resolveOutputFormat(cmd)
+	source = getConfigSource("output", cmd, "", cfg.Output)
+	fmt.Printf("Output:   %s %s\n", output, source)
+
+	// Show repo with source
+	repo := resolveStringConfig(cmd, "repo", "", cfg.Repo, "")
+	if repo != "" {
+		source := getConfigSource("repo", cmd, "", cfg.Repo)
+		fmt.Printf("Repo:     %s %s\n", repo, source)
+	} else {
+		fmt.Printf("Repo:     (not set)\n")
+	}
+
+	return nil
+}
+
+// Helper functions to determine config source for display
+func getConfigSource(flagName string, cmd *cobra.Command, envVar string, configValue string) string {
+	if flagValue, _ := cmd.Flags().GetString(flagName); flagValue != "" {
+		return "(from --" + flagName + " flag)"
+	}
+	if envVar != "" && os.Getenv(envVar) != "" {
+		return "(from " + envVar + " env)"
+	}
+	if configValue != "" {
+		return "(from config file)"
+	}
+	return "(default)"
+}
+
+func getFloat64ConfigSource(flagName string, cmd *cobra.Command, configValue float64) string {
+	if flagValue, _ := cmd.Flags().GetFloat64(flagName); flagValue > 0 {
+		return "(from --" + flagName + " flag)"
+	}
+	if configValue > 0 {
+		return "(from config file)"
+	}
+	return "(default)"
+}
+
+func getDurationConfigSource(flagName string, cmd *cobra.Command, configValue string) string {
+	if flagValue, _ := cmd.Flags().GetDuration(flagName); flagValue > 0 {
+		return "(from --" + flagName + " flag)"
+	}
+	if configValue != "" {
+		return "(from config file)"
+	}
+	return "(default)"
 }
 
 // ---------- version ----------

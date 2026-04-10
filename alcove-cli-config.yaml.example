@@ -1,0 +1,65 @@
+# Alcove CLI Configuration Example
+#
+# Copy this file to one of these locations and edit as needed:
+#   ~/.config/alcove/config.yaml (recommended)
+#   ~/.alcove.yaml (convenience location)
+#
+# All fields are optional. CLI flags and environment variables
+# will override these defaults.
+
+# Bridge server URL (required)
+# Can also be set via ALCOVE_SERVER env var or --server flag
+server: "https://bridge.example.com"
+
+# Default provider for tasks (optional)
+# Examples: "anthropic", "openai", "google", "azure"
+# Overridden by --provider flag
+provider: "anthropic"
+
+# Default model override (optional)  
+# Examples: "claude-sonnet-4-20250514", "gpt-4", "gemini-pro"
+# Overridden by --model flag
+model: "claude-sonnet-4-20250514"
+
+# Default budget limit in USD (optional)
+# Set to 0 or omit for no budget limit
+# Overridden by --budget flag
+budget: 5.00
+
+# Default timeout for tasks (optional)
+# Accepts Go duration syntax: "30m", "1h", "2h30m", "90s"
+# Set to empty string or omit for no timeout
+# Overridden by --timeout flag
+timeout: "30m"
+
+# Default output format (optional)
+# Options: "table" (human-readable) or "json" (machine-readable)
+# Defaults to "table" if not specified
+# Overridden by --output flag
+output: "table"
+
+# Default repository for tasks (optional)
+# Format: "org/repo" or "username/project"
+# Overridden by --repo flag
+repo: "myorg/myproject"
+
+# Configuration Tips:
+#
+# 1. Precedence Order (highest to lowest):
+#    - Command line flags (--provider anthropic)
+#    - Environment variables (ALCOVE_SERVER=...)
+#    - Config file values (provider: anthropic)  
+#    - Built-in defaults
+#
+# 2. Check your effective config:
+#    alcove config show
+#
+# 3. Validate your config:
+#    alcove config validate
+#
+# 4. Create this file automatically:
+#    alcove config init
+#
+# 5. Example usage with config defaults:
+#    alcove run "Fix the bug"  # Uses provider, model, etc. from this file
+#    alcove run --provider openai "Task"  # Overrides provider for this task
