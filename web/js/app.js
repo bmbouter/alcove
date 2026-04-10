@@ -1335,7 +1335,7 @@
             });
             select.innerHTML = '<option value="">Select a provider</option>';
             llmCreds.forEach((c) => {
-                const label = c.name + ' (' + (c.provider === 'google-vertex' ? 'Vertex AI' : 'Anthropic') + ')';
+                const label = c.name + ' (' + (c.provider === 'google-vertex' ? 'Vertex AI' : c.provider === 'claude-oauth' ? 'Claude Pro/Max' : 'Anthropic') + ')';
                 select.innerHTML += '<option value="' + escapeHtml(c.name) + '">' + escapeHtml(label) + '</option>';
             });
             if (llmCreds.length === 1) select.selectedIndex = 1;
@@ -1476,7 +1476,7 @@
 
             function renderLlmRow(c) {
                 const name = c.name || '-';
-                const provider = c.provider === 'vertex' ? 'Vertex AI' : (c.provider === 'anthropic' ? 'Anthropic' : escapeHtml(c.provider || '-'));
+                const provider = c.provider === 'google-vertex' ? 'Vertex AI' : (c.provider === 'claude-oauth' ? 'Claude Pro/Max' : (c.provider === 'anthropic' ? 'Anthropic' : escapeHtml(c.provider || '-')));
                 var authBadge = '';
                 if (c.auth_type === 'api_key') {
                     authBadge = '<span class="badge">API Key</span>';
@@ -1484,6 +1484,8 @@
                     authBadge = '<span class="badge badge-running">Service Account</span>';
                 } else if (c.auth_type === 'adc') {
                     authBadge = '<span class="badge badge-completed">ADC</span>';
+                } else if (c.auth_type === 'oauth_token') {
+                    authBadge = '<span class="badge badge-completed">OAuth</span>';
                 } else {
                     authBadge = '<span class="badge">' + escapeHtml(c.auth_type || '-') + '</span>';
                 }
@@ -1603,6 +1605,7 @@
         // Wire up provider toggle
         var providerSelect = q('cred-provider');
         var anthropicFields = q('cred-anthropic-fields');
+        var claudeOauthFields = q('cred-claude-oauth-fields');
         var vertexFields = q('cred-vertex-fields');
         var scmFields = q('cred-scm-fields');
         var gitlabHostGroup = q('cred-gitlab-host-group');
@@ -1615,6 +1618,7 @@
 
             // Hide all
             if (anthropicFields) anthropicFields.hidden = true;
+            if (claudeOauthFields) claudeOauthFields.hidden = true;
             if (vertexFields) vertexFields.hidden = true;
             if (scmFields) scmFields.hidden = true;
             if (jiraHostGroup) jiraHostGroup.hidden = true;
@@ -1622,6 +1626,8 @@
 
             if (val === 'anthropic') {
                 if (anthropicFields) anthropicFields.hidden = false;
+            } else if (val === 'claude-oauth') {
+                if (claudeOauthFields) claudeOauthFields.hidden = false;
             } else if (val === 'google-vertex') {
                 if (vertexFields) vertexFields.hidden = false;
             } else if (val === 'github' || val === 'gitlab' || val === 'jira') {
@@ -1733,6 +1739,11 @@
                 payload.credential = jsonVal;
                 payload.project_id = projectId;
                 payload.region = region;
+            } else if (provider === 'claude-oauth') {
+                var oauthToken = (q('cred-oauth-token') || {}).value?.trim();
+                if (!oauthToken) { if (errorEl) { errorEl.textContent = 'Setup token is required. Run "claude setup-token" in your terminal.'; show(errorEl); } return; }
+                payload.auth_type = 'oauth_token';
+                payload.credential = oauthToken;
             } else if (provider === 'github' || provider === 'gitlab') {
                 var pat = (q('cred-pat') || {}).value?.trim();
                 if (!pat) {
@@ -1797,6 +1808,22 @@
             submitLabel: 'Add Credential',
             onSubmit: async function(payload) {
                 var resp = await api('POST', '/api/v1/credentials', payload);
+
+                if (resp.status === 409) {
+                    var conflict = await resp.json();
+                    var replace = confirm(
+                        'You already have an LLM credential: "' + conflict.existing_credential +
+                        '" (' + (conflict.existing_provider === 'google-vertex' ? 'Google Vertex AI' :
+                                 conflict.existing_provider === 'claude-oauth' ? 'Claude Pro/Max' : 'Anthropic') +
+                        ').\n\nReplace it with this new credential?'
+                    );
+                    if (!replace) {
+                        return;
+                    }
+                    await api('DELETE', '/api/v1/credentials/' + conflict.existing_id);
+                    resp = await api('POST', '/api/v1/credentials', payload);
+                }
+
                 if (!resp.ok) {
                     var data = await resp.json().catch(function () { return {}; });
                     throw new Error(data.error || data.message || 'Failed to add credential.');
@@ -3267,7 +3294,7 @@
             const creds = data.credentials || [];
             select.innerHTML = '<option value="">Select a provider</option>';
             creds.forEach(function (c) {
-                const label = c.name + ' (' + (c.provider === 'google-vertex' ? 'Vertex AI' : 'Anthropic') + ')';
+                const label = c.name + ' (' + (c.provider === 'google-vertex' ? 'Vertex AI' : c.provider === 'claude-oauth' ? 'Claude Pro/Max' : 'Anthropic') + ')';
                 select.innerHTML += '<option value="' + escapeHtml(c.name) + '">' + escapeHtml(label) + '</option>';
             });
             if (creds.length === 1) select.selectedIndex = 1;
