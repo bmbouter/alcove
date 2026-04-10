@@ -301,7 +301,7 @@ func TestParseRHIdentity_TBR_MissingUsername(t *testing.T) {
 			"type":      "User",
 			"auth_type": "basic-auth",
 			"org_id":    "12345",
-			"user": map[string]interface{}{},
+			"user":      map[string]interface{}{},
 		},
 	})
 

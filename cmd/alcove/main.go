@@ -18,6 +18,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -42,15 +43,17 @@ type CLIConfig struct {
 
 func main() {
 	root := &cobra.Command{
-		Use:   "alcove",
-		Short: "Alcove — sandboxed AI coding agents",
-		Long:  "Alcove CLI for dispatching and managing AI coding tasks via the Bridge API.",
+		Use:           "alcove",
+		Short:         "Alcove — sandboxed AI coding agents",
+		Long:          "Alcove CLI for dispatching and managing AI coding tasks via the Bridge API.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
 
 	root.PersistentFlags().String("server", "", "Bridge server URL (overrides config and ALCOVE_SERVER)")
 	root.PersistentFlags().String("output", "", "Output format: json or table (default: table)")
+	root.PersistentFlags().StringP("username", "u", "", "Username for Basic Auth (overrides ALCOVE_USERNAME)")
+	root.PersistentFlags().StringP("password", "p", "", "Password for Basic Auth (overrides ALCOVE_PASSWORD)")
 
 	root.AddCommand(
 		newRunCmd(),
@@ -85,6 +88,22 @@ func resolveServer(cmd *cobra.Command) (string, error) {
 		return strings.TrimRight(cfg.Server, "/"), nil
 	}
 	return "", fmt.Errorf("no Bridge server configured; use --server, ALCOVE_SERVER, or 'alcove login'")
+}
+
+// resolveBasicAuth determines username/password from flags or environment variables.
+// Returns empty strings if not configured.
+func resolveBasicAuth(cmd *cobra.Command) (string, string) {
+	// 1. Flags
+	username, _ := cmd.Flags().GetString("username")
+	password, _ := cmd.Flags().GetString("password")
+	if username != "" {
+		return username, password
+	}
+
+	// 2. Environment variables
+	username = os.Getenv("ALCOVE_USERNAME")
+	password = os.Getenv("ALCOVE_PASSWORD")
+	return username, password
 }
 
 func configDir() string {
@@ -141,9 +160,18 @@ func apiRequest(cmd *cobra.Command, method, path string, body interface{}) (*htt
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	token, err := loadToken()
-	if err == nil && token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+	// Try Basic Auth first
+	username, password := resolveBasicAuth(cmd)
+	if username != "" {
+		// Use Basic Auth
+		auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+		req.Header.Set("Authorization", "Basic "+auth)
+	} else {
+		// Fall back to Bearer token
+		token, err := loadToken()
+		if err == nil && token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
 	}
 
 	return newHTTPClient().Do(req)
@@ -258,14 +286,14 @@ type listResponse struct {
 }
 
 type sessionSummary struct {
-	ID         string  `json:"id"`
-	Prompt     string  `json:"prompt"`
-	Repo       string  `json:"repo,omitempty"`
-	Provider   string  `json:"provider"`
-	Status     string  `json:"status"`
-	StartedAt  string  `json:"started_at"`
-	Duration   string  `json:"duration,omitempty"`
-	ExitCode   *int    `json:"exit_code,omitempty"`
+	ID        string `json:"id"`
+	Prompt    string `json:"prompt"`
+	Repo      string `json:"repo,omitempty"`
+	Provider  string `json:"provider"`
+	Status    string `json:"status"`
+	StartedAt string `json:"started_at"`
+	Duration  string `json:"duration,omitempty"`
+	ExitCode  *int   `json:"exit_code,omitempty"`
 }
 
 func runList(cmd *cobra.Command, _ []string) error {
@@ -388,16 +416,16 @@ func newStatusCmd() *cobra.Command {
 }
 
 type statusResponse struct {
-	ID         string   `json:"id"`
-	TaskID     string   `json:"task_id"`
-	Prompt     string   `json:"prompt"`
-	Repo       string   `json:"repo,omitempty"`
-	Provider   string   `json:"provider"`
-	Status     string   `json:"status"`
-	StartedAt  string   `json:"started_at"`
-	FinishedAt string   `json:"finished_at,omitempty"`
-	Duration   string   `json:"duration,omitempty"`
-	ExitCode   *int     `json:"exit_code,omitempty"`
+	ID         string `json:"id"`
+	TaskID     string `json:"task_id"`
+	Prompt     string `json:"prompt"`
+	Repo       string `json:"repo,omitempty"`
+	Provider   string `json:"provider"`
+	Status     string `json:"status"`
+	StartedAt  string `json:"started_at"`
+	FinishedAt string `json:"finished_at,omitempty"`
+	Duration   string `json:"duration,omitempty"`
+	ExitCode   *int   `json:"exit_code,omitempty"`
 	Artifacts  []struct {
 		Type string `json:"type"`
 		URL  string `json:"url,omitempty"`
@@ -504,6 +532,12 @@ func newLoginCmd() *cobra.Command {
 }
 
 func runLogin(cmd *cobra.Command, args []string) error {
+	// Check for conflicting auth methods
+	username, password := resolveBasicAuth(cmd)
+	if username != "" || password != "" {
+		return fmt.Errorf("cannot use --username/--password flags or ALCOVE_USERNAME/ALCOVE_PASSWORD environment variables with the login command; use either Basic Auth or token-based auth, not both")
+	}
+
 	bridgeURL := strings.TrimRight(args[0], "/")
 
 	// Prompt for username and password
@@ -515,7 +549,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 	username = strings.TrimSpace(username)
 	fmt.Fprint(os.Stderr, "Password: ")
-	password, err := reader.ReadString('\n')
+	password, err = reader.ReadString('\n')
 	if err != nil {
 		return fmt.Errorf("reading password: %w", err)
 	}
@@ -656,9 +690,18 @@ func streamSSE(cmd *cobra.Command, sessionID, path string) error {
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Cache-Control", "no-cache")
 
-	token, err := loadToken()
-	if err == nil && token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+	// Try Basic Auth first
+	username, password := resolveBasicAuth(cmd)
+	if username != "" {
+		// Use Basic Auth
+		auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+		req.Header.Set("Authorization", "Basic "+auth)
+	} else {
+		// Fall back to Bearer token or query param for SSE compatibility
+		token, err := loadToken()
+		if err == nil && token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
 	}
 
 	client := &http.Client{Timeout: 0} // no timeout for SSE

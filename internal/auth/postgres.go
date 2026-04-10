@@ -60,9 +60,9 @@ func NewPgStore(db *pgxpool.Pool) *PgStore {
 	return s
 }
 
-// Authenticate checks username/password with rate limiting and returns a
-// session token on success. The token is persisted in PostgreSQL.
-func (s *PgStore) Authenticate(username, password string) (string, error) {
+// ValidateCredentials checks username/password with rate limiting without
+// creating a session. Returns the username on success.
+func (s *PgStore) ValidateCredentials(username, password string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -87,6 +87,18 @@ func (s *PgStore) Authenticate(username, password string) (string, error) {
 	// Clear failures on success.
 	delete(s.failures, username)
 
+	return username, nil
+}
+
+// Authenticate checks username/password with rate limiting and returns a
+// session token on success. The token is persisted in PostgreSQL.
+func (s *PgStore) Authenticate(username, password string) (string, error) {
+	// Validate credentials first
+	validatedUser, err := s.ValidateCredentials(username, password)
+	if err != nil {
+		return "", err
+	}
+
 	// Generate session token.
 	token, err := generateToken()
 	if err != nil {
@@ -97,7 +109,7 @@ func (s *PgStore) Authenticate(username, password string) (string, error) {
 	expiresAt := time.Now().Add(pgSessionExpiry)
 	_, err = s.db.Exec(context.Background(),
 		"INSERT INTO auth_sessions (token, username, expires_at, created_at) VALUES ($1, $2, $3, $4)",
-		token, username, expiresAt, time.Now())
+		token, validatedUser, expiresAt, time.Now())
 	if err != nil {
 		return "", fmt.Errorf("creating session: %w", err)
 	}
