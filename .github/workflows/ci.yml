@@ -17,8 +17,12 @@ jobs:
           go-version: '1.25'
 
       - run: go test ./...
+        env:
+          GOPROXY: direct
 
       - run: go vet ./...
+        env:
+          GOPROXY: direct
 
   build:
     runs-on: ubuntu-latest
@@ -30,6 +34,8 @@ jobs:
           go-version: '1.25'
 
       - run: make build
+        env:
+          GOPROXY: direct
 
   cross-platform-build:
     runs-on: ubuntu-latest
@@ -57,6 +63,7 @@ jobs:
         env:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
+          GOPROXY: direct
         run: |
           ext=""
           if [ "${{ matrix.os }}" = "windows" ]; then
