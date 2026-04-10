@@ -31,6 +31,45 @@ jobs:
 
       - run: make build
 
+  cross-platform-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+          - os: linux
+            arch: arm64
+          - os: darwin
+            arch: amd64
+          - os: darwin
+            arch: arm64
+          - os: windows
+            arch: amd64
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+
+      - name: Build CLI for ${{ matrix.os }}/${{ matrix.arch }}
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          ext=""
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            ext=".exe"
+          fi
+
+          echo "Cross-compiling alcove CLI for ${{ matrix.os }}/${{ matrix.arch }}..."
+          CGO_ENABLED=0 go build -ldflags="-s -w -X main.Version=test" \
+            -o "alcove-${{ matrix.os }}-${{ matrix.arch }}$ext" ./cmd/alcove
+
+          # Basic validation (check if binary was created)
+          ls -la "alcove-${{ matrix.os }}-${{ matrix.arch }}$ext"
+
   functional-tests:
     runs-on: ubuntu-latest
     steps:
