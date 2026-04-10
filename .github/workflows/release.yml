@@ -40,12 +40,30 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           mkdir -p dist
-          for cmd in bridge gate skiff-init alcove; do
-            echo "Building ${cmd}..."
+          # Build server components (Linux only)
+          for cmd in bridge gate skiff-init; do
+            echo "Building ${cmd} for Linux..."
             CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
               go build -ldflags="-s -w -X main.Version=${VERSION}" \
               -o "dist/alcove-${cmd}-linux-amd64" "./cmd/${cmd}"
           done
+
+          # Build CLI for multiple platforms
+          echo "Building alcove CLI for all platforms..."
+          for platform in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            export GOOS=${platform%/*} GOARCH=${platform#*/}
+            ext=""
+            if [ "$GOOS" = "windows" ]; then
+              ext=".exe"
+            fi
+            echo "  Building alcove for $GOOS/$GOARCH..."
+            CGO_ENABLED=0 go build -ldflags="-s -w -X main.Version=${VERSION}" \
+              -o "dist/alcove-$GOOS-$GOARCH$ext" "./cmd/alcove"
+          done
+
+          # Maintain backward compatibility with existing naming
+          cp "dist/alcove-linux-amd64" "dist/alcove-alcove-linux-amd64"
+
           cd dist && sha256sum * > checksums-sha256.txt
 
       - name: Log in to GitHub Container Registry
@@ -105,4 +123,11 @@ jobs:
             dist/alcove-gate-linux-amd64
             dist/alcove-skiff-init-linux-amd64
             dist/alcove-alcove-linux-amd64
+            dist/alcove-linux-amd64
+            dist/alcove-linux-arm64
+            dist/alcove-darwin-amd64
+            dist/alcove-darwin-arm64
+            dist/alcove-windows-amd64.exe
             dist/checksums-sha256.txt
+            scripts/install.sh
+            scripts/install.ps1

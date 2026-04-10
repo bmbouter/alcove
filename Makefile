@@ -17,7 +17,7 @@ PODMAN   := podman
 
 CMDS     := bridge gate skiff-init alcove
 
-.PHONY: all build build-images test test-network test-ledger test-isolation test-schedules test-credentials test-security-profiles test-yaml-security-profiles test-gate-real lint clean \
+.PHONY: all build build-cli-all build-images test test-network test-ledger test-isolation test-schedules test-credentials test-security-profiles test-yaml-security-profiles test-gate-real lint clean \
         up down logs dev-config dev-up dev-down dev-logs dev-reset dev-infra help \
         login-registry push pull up-pull
 
@@ -32,6 +32,18 @@ build: ## Build all Go binaries locally
 		$(GO) build $(LDFLAGS) -o $(BINDIR)/$$cmd ./cmd/$$cmd; \
 	done
 	@echo "Binaries written to $(BINDIR)/"
+
+build-cli-all: ## Build CLI for all platforms
+	@mkdir -p dist
+	@echo "Building Alcove CLI for all platforms..."
+	@for platform in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do \
+		export GOOS=$${platform%/*} GOARCH=$${platform#*/}; \
+		ext=""; [ "$$GOOS" = "windows" ] && ext=".exe"; \
+		echo "  Building alcove for $$GOOS/$$GOARCH..."; \
+		CGO_ENABLED=0 $(GO) build $(LDFLAGS) \
+			-o "dist/alcove-$$GOOS-$$GOARCH$$ext" ./cmd/alcove; \
+	done
+	@echo "Cross-platform CLI binaries written to dist/"
 
 build-images: ## Build all container images with podman
 	$(PODMAN) build --build-arg VERSION=$(VERSION) -f build/Containerfile.bridge -t localhost/alcove-bridge:$(VERSION) .

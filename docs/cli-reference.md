@@ -6,6 +6,22 @@ The `alcove` CLI dispatches and manages AI coding tasks via the Bridge API.
 alcove [command] [flags]
 ```
 
+## Installation
+
+See the [CLI Installation Guide](cli-installation.md) for detailed installation instructions across all platforms.
+
+### Quick Install
+
+**Linux/macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/bmbouter/alcove/main/scripts/install.sh | bash
+```
+
+**Windows:**
+```powershell
+iex (iwr https://raw.githubusercontent.com/bmbouter/alcove/main/scripts/install.ps1).Content
+```
+
 ## Global Flags
 
 | Flag | Description |
