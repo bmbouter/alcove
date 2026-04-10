@@ -1,0 +1,92 @@
+# Alcove CLI Configuration Example
+# ================================
+#
+# This file shows all available configuration options for the Alcove CLI.
+# Copy this file to one of these locations to use it:
+#   - ~/.config/alcove/config.yaml (recommended)
+#   - ~/.alcove.yaml (convenience)
+#   - $XDG_CONFIG_HOME/alcove/config.yaml (if XDG_CONFIG_HOME is set)
+#
+# All fields except 'server' are optional. Remove the '#' to enable a setting.
+# CLI flags and environment variables take precedence over these values.
+
+# ==========================================
+# REQUIRED: Bridge Server Configuration
+# ==========================================
+
+# Server URL for the Alcove Bridge API
+# This is the only required field. Set this to your Bridge instance URL.
+# Can also be set via ALCOVE_SERVER environment variable or --server flag.
+server: "https://alcove.example.com"
+
+# ==========================================
+# OPTIONAL: Default Task Configuration
+# ==========================================
+
+# Default LLM provider for tasks
+# Examples: "anthropic", "openai", "bedrock"
+# Can be overridden with --provider flag
+#provider: "anthropic"
+
+# Default model override for tasks  
+# Examples: "claude-sonnet-4-20250514", "gpt-4", "claude-haiku-3-20240307"
+# Can be overridden with --model flag
+#model: "claude-sonnet-4-20250514"
+
+# Default budget limit in USD for tasks
+# Example: 5.00 (allows up to $5.00 per task)
+# Can be overridden with --budget flag
+#budget: 5.00
+
+# Default timeout for tasks
+# Accepts Go duration syntax: "30m", "1h", "90s", "2h30m"
+# Can be overridden with --timeout flag  
+#timeout: "30m"
+
+# ==========================================
+# OPTIONAL: CLI Behavior Configuration
+# ==========================================
+
+# Default output format for CLI commands
+# Options: "table" (human-readable) or "json" (machine-readable)
+# Can be overridden with --output flag
+#output: "table"
+
+# Default repository for tasks and filtering
+# Format: "organization/repository" (e.g., "myorg/myproject")
+# Can be overridden with --repo flag
+#repo: "myorg/myproject"
+
+# ==========================================
+# Configuration Precedence
+# ==========================================
+#
+# Values are resolved in this order (highest to lowest priority):
+# 1. CLI flags (--server, --provider, --budget, etc.)
+# 2. Environment variables (ALCOVE_SERVER, etc.)
+# 3. This config file
+# 4. Built-in defaults
+#
+# ==========================================
+# Validation and Management
+# ==========================================
+#
+# Use these commands to manage your configuration:
+#   alcove config init      # Create this example file
+#   alcove config show      # Display current effective config
+#   alcove config validate  # Check configuration for errors
+#
+# ==========================================
+# Example Usage
+# ==========================================
+#
+# With this config file, these commands become equivalent:
+#
+# Before (with flags):
+#   alcove run --provider anthropic --budget 5.00 --timeout 30m "Fix the login bug"
+#
+# After (with config defaults):
+#   alcove run "Fix the login bug"
+#
+# You can still override defaults when needed:
+#   alcove run --budget 10.00 --provider openai "Complex refactoring task"

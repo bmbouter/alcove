@@ -198,29 +198,105 @@ present):
 
 ## CLI Configuration
 
-The `alcove` CLI (`cmd/alcove`) stores configuration in
-`$XDG_CONFIG_HOME/alcove/` (defaults to `~/.config/alcove/`).
+The `alcove` CLI (`cmd/alcove`) stores configuration in multiple locations,
+automatically discovered in priority order.
+
+### Configuration File Locations
+
+The CLI searches for configuration files in this order:
+
+1. `$XDG_CONFIG_HOME/alcove/config.yaml` (if `XDG_CONFIG_HOME` is set and different from default)
+2. `~/.config/alcove/config.yaml` (standard XDG location)
+3. `~/.alcove.yaml` (convenience location)
 
 ### Files
 
 | File | Purpose |
 |---|---|
-| `config.yaml` | Stores the Bridge server URL. Created by `alcove login`. |
+| `config.yaml` | Stores default CLI options (server URL, provider, model, etc.). |
 | `credentials` | Stores the JWT authentication token. Created by `alcove login`. |
+
+### Configuration File Format
+
+The `config.yaml` file supports the following options:
+
+```yaml
+# Server URL - required (can also be set via ALCOVE_SERVER env var or --server flag)
+server: "https://alcove.example.com"
+
+# Default provider for tasks (optional)
+provider: "anthropic"
+
+# Default model override (optional)
+model: "claude-sonnet-4-20250514"
+
+# Default budget limit in USD (optional)
+budget: 5.00
+
+# Default timeout for tasks (optional, accepts Go duration syntax)
+timeout: "30m"
+
+# Default output format: "table" or "json" (optional)
+output: "table"
+
+# Default repository for tasks (optional)
+repo: "myorg/myproject"
+```
+
+All fields except `server` are optional. Commented or missing fields will use built-in defaults.
+
+### Configuration Management Commands
+
+| Command | Description |
+|---|---|
+| `alcove config init` | Create an example config file with all options documented |
+| `alcove config show` | Display current effective configuration with precedence info |
+| `alcove config validate` | Validate current configuration and show any issues |
 
 ### CLI Environment Variables
 
 | Variable | Description |
 |---|---|
 | `ALCOVE_SERVER` | Bridge server URL. Overrides the value in `config.yaml`. Overridden by `--server`. |
+| `ALCOVE_USERNAME` | Username for Basic Auth. Cannot be used with `alcove login`. |
+| `ALCOVE_PASSWORD` | Password for Basic Auth. Cannot be used with `alcove login`. |
 | `XDG_CONFIG_HOME` | Base directory for config files. Defaults to `~/.config`. |
 
 ### Global Flags
 
-| Flag | Description |
-|---|---|
-| `--server <url>` | Bridge server URL. Highest priority, overrides everything. |
-| `--output <format>` | Output format: `json` or `table` (default: `table`). |
+| Flag | Description | Config File Field |
+|---|---|---|
+| `--server <url>` | Bridge server URL. Highest priority, overrides everything. | `server` |
+| `--output <format>` | Output format: `json` or `table` (default: `table`). | `output` |
+| `--username <user>` | Username for Basic Auth. Cannot be used with token auth. | N/A |
+| `--password <pass>` | Password for Basic Auth. Cannot be used with token auth. | N/A |
+
+### Command-Specific Flags
+
+**`alcove run` command:**
+
+| Flag | Description | Config File Field |
+|---|---|---|
+| `--repo <repo>` | Target repository (e.g., `org/repo`). | `repo` |
+| `--provider <name>` | LLM provider name (e.g., `anthropic`, `openai`). | `provider` |
+| `--model <model>` | Model override (e.g., `claude-sonnet-4-20250514`). | `model` |
+| `--budget <amount>` | Budget limit in USD (e.g., `5.00`). | `budget` |
+| `--timeout <duration>` | Task timeout (e.g., `30m`, `1h`). | `timeout` |
+
+**`alcove list` command:**
+
+| Flag | Description | Config File Field |
+|---|---|---|
+| `--repo <repo>` | Filter by repository. Uses config default if not specified. | `repo` |
+
+### Configuration Resolution Order
+
+All configurable options follow this precedence order (highest to lowest):
+
+1. **CLI flag** (e.g., `--server`, `--provider`)
+2. **Environment variable** (e.g., `ALCOVE_SERVER`)
+3. **Config file value** (from `config.yaml`)
+4. **Built-in default**
 
 ### Server Resolution Order
 
@@ -228,7 +304,44 @@ The CLI resolves the Bridge URL in this order:
 
 1. `--server` flag
 2. `ALCOVE_SERVER` environment variable
-3. `server` field in `~/.config/alcove/config.yaml`
+3. `server` field in config file
+4. Error if not configured
+
+### Example Workflow
+
+1. **Initial setup:**
+   ```bash
+   # Create example config file
+   alcove config init
+
+   # Edit config file to set defaults
+   editor ~/.config/alcove/config.yaml
+
+   # Validate configuration
+   alcove config validate
+   ```
+
+2. **Check effective configuration:**
+   ```bash
+   # Show resolved configuration with sources
+   alcove config show
+   ```
+
+3. **Use with defaults:**
+   ```bash
+   # Uses provider, model, budget, etc. from config file
+   alcove run "Add user authentication to the login page"
+
+   # Override specific values as needed
+   alcove run --budget 10.00 --provider openai "Complex refactoring task"
+   ```
+
+### Backward Compatibility
+
+- Existing config files with only `server` field continue to work unchanged
+- All new config fields are optional with sensible defaults
+- CLI flag and environment variable behavior remains unchanged
+- No migration required for existing users
 
 ---
 

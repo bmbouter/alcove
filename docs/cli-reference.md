@@ -54,13 +54,46 @@ alcove --help
 | `--server <url>` | Bridge server URL (overrides env and config file) |
 | `--output <format>` | Output format: `json` or `table` (default: `table`) |
 
+## Configuration File
+
+The Alcove CLI supports configuration files to set default values for common options,
+reducing the need to specify flags on every command. Configuration files are automatically
+discovered in this priority order:
+
+1. `$XDG_CONFIG_HOME/alcove/config.yaml` (if `XDG_CONFIG_HOME` is set)
+2. `~/.config/alcove/config.yaml` (standard location)
+3. `~/.alcove.yaml` (convenience location)
+
+### Configuration Management
+
+| Command | Description |
+|---------|-------------|
+| `alcove config init` | Create an example config file with documentation |
+| `alcove config show` | Display current effective configuration |
+| `alcove config validate` | Validate configuration and show issues |
+
+### Example Configuration
+
+```yaml
+server: "https://alcove.example.com"
+provider: "anthropic"
+model: "claude-sonnet-4-20250514"
+budget: 5.00
+timeout: "30m"
+output: "table"
+repo: "myorg/myproject"
+```
+
+All fields except `server` are optional. Values are resolved with this precedence:
+CLI flag → Environment variable → Config file → Built-in default.
+
 ## Server Resolution
 
 The CLI resolves the Bridge server URL using the following precedence:
 
 1. `--server` flag (highest priority)
 2. `ALCOVE_SERVER` environment variable
-3. Config file at `~/.config/alcove/config.yaml` (set by `alcove login`)
+3. Config file `server` field (discovered from multiple locations)
 
 If none are configured, commands that contact the Bridge will fail with an error.
 
@@ -78,11 +111,11 @@ alcove run [prompt] [flags]
 
 | Flag | Type | Description |
 |------|------|-------------|
-| `--repo` | string | Target repository (e.g., `org/repo`) |
-| `--provider` | string | LLM provider name |
-| `--model` | string | Model override (e.g., `claude-sonnet-4-20250514`) |
-| `--budget` | float | Budget limit in USD (e.g., `5.00`) |
-| `--timeout` | duration | Task timeout (e.g., `30m`, `1h`) |
+| `--repo` | string | Target repository (e.g., `org/repo`). Can be set in config file. |
+| `--provider` | string | LLM provider name. Can be set in config file. |
+| `--model` | string | Model override (e.g., `claude-sonnet-4-20250514`). Can be set in config file. |
+| `--budget` | float | Budget limit in USD (e.g., `5.00`). Can be set in config file. |
+| `--timeout` | duration | Task timeout (e.g., `30m`, `1h`). Can be set in config file. |
 | `--watch` | bool | Stream the session transcript via SSE after dispatch |
 | `--debug` | bool | Keep containers after exit for log inspection |
 
@@ -132,7 +165,7 @@ alcove list [flags]
 | Flag | Type | Description |
 |------|------|-------------|
 | `--status` | string | Filter by status: `running`, `completed`, `error`, `cancelled`, `timeout` |
-| `--repo` | string | Filter by repository |
+| `--repo` | string | Filter by repository. Can be set in config file. |
 | `--since` | duration | Show sessions from the last duration (e.g., `24h`, `168h`) |
 
 ### Description
