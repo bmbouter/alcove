@@ -378,6 +378,11 @@ func runClaude(
 		outcome = "error"
 	}
 
+	// Check for PR artifact from task.
+	if prArtifact := readPRArtifact(); prArtifact != nil {
+		artifacts = append(artifacts, *prArtifact)
+	}
+
 	return exitCode, outcome, artifacts
 }
 
@@ -387,6 +392,35 @@ func flushBatch(lc *ledger.Client, sessionID string, batch *[]json.RawMessage) {
 		log.Printf("warning: failed to flush transcript batch to Ledger: %v", err)
 	}
 	*batch = nil
+}
+
+// readPRArtifact checks for a PR artifact file written by the task.
+// Tasks write {"repo": "owner/repo", "number": 123} to /tmp/alcove-pr.json
+// to report the PR they created for CI Gate monitoring.
+func readPRArtifact() *internal.Artifact {
+	data, err := os.ReadFile("/tmp/alcove-pr.json")
+	if err != nil {
+		return nil // No PR artifact file — normal for most tasks.
+	}
+
+	var pr struct {
+		Repo   string `json:"repo"`
+		Number int    `json:"number"`
+	}
+	if err := json.Unmarshal(data, &pr); err != nil {
+		log.Printf("warning: invalid /tmp/alcove-pr.json: %v", err)
+		return nil
+	}
+	if pr.Repo == "" || pr.Number == 0 {
+		return nil
+	}
+
+	log.Printf("PR artifact detected: %s#%d", pr.Repo, pr.Number)
+	return &internal.Artifact{
+		Type: "pull_request",
+		URL:  pr.Repo,
+		Ref:  strconv.Itoa(pr.Number),
+	}
 }
 
 // setupEnv configures the environment for Claude Code execution.
