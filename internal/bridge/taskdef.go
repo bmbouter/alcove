@@ -25,6 +25,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// CIGate configures Bridge-driven CI monitoring for PRs created by a task.
+type CIGate struct {
+	MaxRetries int `json:"max_retries" yaml:"max_retries"`
+	Timeout    int `json:"timeout" yaml:"timeout"` // seconds to wait for CI, default 900
+}
+
 // TaskDefinition represents a task defined in a YAML file within a task repo.
 type TaskDefinition struct {
 	ID          string                `json:"id"`
@@ -41,6 +47,7 @@ type TaskDefinition struct {
 	Tools       map[string]ToolConfig `json:"tools,omitempty" yaml:"tools"`
 	Schedule    *TaskDefSchedule      `json:"schedule,omitempty" yaml:"schedule"`
 	Trigger     *EventTrigger         `json:"trigger,omitempty" yaml:"trigger"`
+	CIGate      *CIGate               `json:"ci_gate,omitempty" yaml:"ci_gate"`
 
 	// Metadata (not from YAML).
 	Owner      string     `json:"owner,omitempty"`
