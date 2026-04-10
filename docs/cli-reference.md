@@ -6,6 +6,47 @@ The `alcove` CLI dispatches and manages AI coding tasks via the Bridge API.
 alcove [command] [flags]
 ```
 
+## Installation
+
+### One-Line Install (Linux/macOS)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bmbouter/alcove/main/scripts/install.sh | bash
+```
+
+### Windows (PowerShell)
+
+```powershell
+iex (iwr -useb 'https://raw.githubusercontent.com/bmbouter/alcove/main/scripts/install.ps1').Content
+```
+
+### Manual Download
+
+Download platform-specific binaries from [GitHub Releases](https://github.com/bmbouter/alcove/releases/latest):
+
+- **Linux AMD64**: `alcove-linux-amd64`
+- **Linux ARM64**: `alcove-linux-arm64`  
+- **macOS Intel**: `alcove-darwin-amd64`
+- **macOS Apple Silicon**: `alcove-darwin-arm64`
+- **Windows**: `alcove-windows-amd64.exe`
+
+### Custom Installation Directory
+
+```bash
+# Linux/macOS with custom directory
+curl -fsSL https://raw.githubusercontent.com/bmbouter/alcove/main/scripts/install.sh | INSTALL_DIR="$HOME/bin" bash
+
+# Windows with custom directory
+$env:INSTALL_DIR = "C:\tools"; iex (iwr -useb 'https://raw.githubusercontent.com/bmbouter/alcove/main/scripts/install.ps1').Content
+```
+
+### Verify Installation
+
+```bash
+alcove version
+alcove --help
+```
+
 ## Global Flags
 
 | Flag | Description |
