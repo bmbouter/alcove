@@ -28,8 +28,8 @@ import (
 // RHIdentity represents the decoded X-RH-Identity header payload.
 type RHIdentity struct {
 	Identity struct {
-		Type     string `json:"type"`
-		AuthType string `json:"auth_type"`
+		Type      string `json:"type"`
+		AuthType  string `json:"auth_type"`
 		Associate *struct {
 			RhatUUID  string   `json:"rhatUUID"`
 			Email     string   `json:"email"`
@@ -279,6 +279,11 @@ func (s *RHIdentityStore) DeleteTBRAssociation(ctx context.Context, username, as
 // Authenticate is not supported with the rh-identity backend.
 func (s *RHIdentityStore) Authenticate(username, password string) (string, error) {
 	return "", fmt.Errorf("login not supported with rh-identity backend")
+}
+
+// ValidateCredentials is not supported with the rh-identity backend.
+func (s *RHIdentityStore) ValidateCredentials(username, password string) (string, error) {
+	return "", fmt.Errorf("basic auth not supported with rh-identity backend")
 }
 
 // ValidateToken is not used with the rh-identity backend.

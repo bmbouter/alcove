@@ -32,8 +32,8 @@ const (
 // MemoryStore manages users, sessions, and rate limiting in memory.
 type MemoryStore struct {
 	mu       sync.RWMutex
-	users    map[string]string        // username -> argon2id hash
-	sessions map[string]*sessionEntry // token -> session
+	users    map[string]string         // username -> argon2id hash
+	sessions map[string]*sessionEntry  // token -> session
 	failures map[string]*failureRecord // username -> failure tracking
 }
 
@@ -61,9 +61,9 @@ func NewMemoryStore(users map[string]string) *MemoryStore {
 	return s
 }
 
-// Authenticate checks username/password with rate limiting. Returns a session
-// token on success.
-func (s *MemoryStore) Authenticate(username, password string) (string, error) {
+// ValidateCredentials checks username/password with rate limiting without
+// creating a session. Returns the username on success.
+func (s *MemoryStore) ValidateCredentials(username, password string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -85,6 +85,21 @@ func (s *MemoryStore) Authenticate(username, password string) (string, error) {
 	// Clear failures on success.
 	delete(s.failures, username)
 
+	return username, nil
+}
+
+// Authenticate checks username/password with rate limiting. Returns a session
+// token on success.
+func (s *MemoryStore) Authenticate(username, password string) (string, error) {
+	// Validate credentials first
+	validatedUser, err := s.ValidateCredentials(username, password)
+	if err != nil {
+		return "", err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	// Generate session token.
 	token, err := generateToken()
 	if err != nil {
@@ -92,7 +107,7 @@ func (s *MemoryStore) Authenticate(username, password string) (string, error) {
 	}
 
 	s.sessions[token] = &sessionEntry{
-		Username:  username,
+		Username:  validatedUser,
 		ExpiresAt: time.Now().Add(sessionExpiry),
 	}
 

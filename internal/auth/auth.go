@@ -19,6 +19,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -32,16 +33,17 @@ import (
 
 const (
 	// Argon2id parameters per architecture-decisions.md.
-	argonMemory     = 64 * 1024 // 64 MB
-	argonIterations = 3
+	argonMemory      = 64 * 1024 // 64 MB
+	argonIterations  = 3
 	argonParallelism = 4
-	argonKeyLength  = 32
-	argonSaltLength = 16
+	argonKeyLength   = 32
+	argonSaltLength  = 16
 )
 
 // Authenticator defines the interface for authentication backends.
 type Authenticator interface {
 	Authenticate(username, password string) (string, error)
+	ValidateCredentials(username, password string) (string, error)
 	ValidateToken(token string) (string, bool)
 	InvalidateToken(token string)
 }
@@ -250,28 +252,67 @@ func AuthMiddleware(store Authenticator, mgr UserManager) func(http.Handler) htt
 				return
 			}
 
-			// Extract token from Authorization header or query parameter.
+			// Extract authentication from Authorization header or query parameter.
 			// Query parameter fallback is needed for SSE (EventSource can't set headers).
+			var username string
 			var tokenStr string
 			authHeader := r.Header.Get("Authorization")
-			if authHeader != "" {
+
+			// Check for Basic Auth first
+			if authHeader != "" && strings.HasPrefix(strings.ToLower(authHeader), "basic ") {
+				basicAuth := strings.TrimPrefix(authHeader, "Basic ")
+				basicAuth = strings.TrimPrefix(basicAuth, "basic ") // case-insensitive
+
+				// Decode base64 credentials
+				decoded, err := base64.StdEncoding.DecodeString(basicAuth)
+				if err != nil {
+					log.Printf("auth: invalid base64 in Basic auth for %s %s", r.Method, path)
+					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid basic auth format"})
+					return
+				}
+
+				// Split username:password
+				parts := strings.SplitN(string(decoded), ":", 2)
+				if len(parts) != 2 {
+					log.Printf("auth: invalid Basic auth format for %s %s", r.Method, path)
+					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid basic auth format"})
+					return
+				}
+
+				// Validate credentials
+				validatedUser, err := store.ValidateCredentials(parts[0], parts[1])
+				if err != nil {
+					log.Printf("auth: Basic auth failed for %s %s: %v", r.Method, path, err)
+					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
+					return
+				}
+
+				username = validatedUser
+				log.Printf("auth: Basic auth successful for user=%s %s %s", username, r.Method, path)
+			} else if authHeader != "" {
+				// Try Bearer token
 				parts := strings.SplitN(authHeader, " ", 2)
 				if len(parts) == 2 && strings.EqualFold(parts[0], "bearer") {
 					tokenStr = parts[1]
 				}
 			}
-			if tokenStr == "" {
-				tokenStr = r.URL.Query().Get("token")
-			}
-			if tokenStr == "" {
-				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "missing authorization header"})
-				return
-			}
 
-			username, ok := store.ValidateToken(tokenStr)
-			if !ok {
-				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid or expired token"})
-				return
+			// If no Basic Auth, check for Bearer token or query param
+			if username == "" {
+				if tokenStr == "" {
+					tokenStr = r.URL.Query().Get("token")
+				}
+				if tokenStr == "" {
+					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "missing authorization header"})
+					return
+				}
+
+				var ok bool
+				username, ok = store.ValidateToken(tokenStr)
+				if !ok {
+					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid or expired token"})
+					return
+				}
 			}
 
 			// Set username in header for downstream handlers.
