@@ -213,6 +213,14 @@ The `alcove` CLI (`cmd/alcove`) stores configuration in
 | Variable | Description |
 |---|---|
 | `ALCOVE_SERVER` | Bridge server URL. Overrides the value in `config.yaml`. Overridden by `--server`. |
+| `ALCOVE_USERNAME` | Username for Basic Auth. Overridden by `--username` flag. |
+| `ALCOVE_PASSWORD` | Password for Basic Auth. Overridden by `--password` flag. |
+| `HTTP_PROXY` | HTTP proxy URL for API requests |
+| `HTTPS_PROXY` | HTTPS proxy URL for API requests (takes precedence over `HTTP_PROXY`) |
+| `NO_PROXY` | Comma-separated list of hosts to exclude from proxy |
+| `http_proxy` | Alternative lowercase version of `HTTP_PROXY` |
+| `https_proxy` | Alternative lowercase version of `HTTPS_PROXY` |
+| `no_proxy` | Alternative lowercase version of `NO_PROXY` |
 | `XDG_CONFIG_HOME` | Base directory for config files. Defaults to `~/.config`. |
 
 ### Global Flags
@@ -221,6 +229,10 @@ The `alcove` CLI (`cmd/alcove`) stores configuration in
 |---|---|
 | `--server <url>` | Bridge server URL. Highest priority, overrides everything. |
 | `--output <format>` | Output format: `json` or `table` (default: `table`). |
+| `--proxy-url <url>` | HTTP/HTTPS proxy URL. Overrides environment variables. |
+| `--no-proxy <hosts>` | Comma-separated list of hosts to exclude from proxy. Overrides `NO_PROXY` env var. |
+| `-u, --username <user>` | Username for Basic Auth. Overrides `ALCOVE_USERNAME`. |
+| `-p, --password <pass>` | Password for Basic Auth. Overrides `ALCOVE_PASSWORD`. |
 
 ### Server Resolution Order
 

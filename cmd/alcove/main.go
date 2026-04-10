@@ -22,7 +22,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,6 +43,12 @@ type CLIConfig struct {
 	Server string `yaml:"server"`
 }
 
+// ProxyConfig holds HTTP proxy configuration.
+type ProxyConfig struct {
+	ProxyURL string
+	NoProxy  []string
+}
+
 func main() {
 	root := &cobra.Command{
 		Use:           "alcove",
@@ -54,6 +62,8 @@ func main() {
 	root.PersistentFlags().String("output", "", "Output format: json or table (default: table)")
 	root.PersistentFlags().StringP("username", "u", "", "Username for Basic Auth (overrides ALCOVE_USERNAME)")
 	root.PersistentFlags().StringP("password", "p", "", "Password for Basic Auth (overrides ALCOVE_PASSWORD)")
+	root.PersistentFlags().String("proxy-url", "", "HTTP/HTTPS proxy URL (overrides environment)")
+	root.PersistentFlags().String("no-proxy", "", "Comma-separated list of hosts to exclude from proxy (overrides NO_PROXY env var)")
 
 	root.AddCommand(
 		newRunCmd(),
@@ -106,6 +116,165 @@ func resolveBasicAuth(cmd *cobra.Command) (string, string) {
 	return username, password
 }
 
+// resolveProxyConfig determines proxy configuration from flags or environment variables.
+func resolveProxyConfig(cmd *cobra.Command) (*ProxyConfig, error) {
+	config := &ProxyConfig{}
+
+	// 1. CLI flags (highest priority)
+	if proxyURL, _ := cmd.Flags().GetString("proxy-url"); proxyURL != "" {
+		if err := validateProxyURL(proxyURL); err != nil {
+			return nil, fmt.Errorf("invalid proxy URL: %w", err)
+		}
+		config.ProxyURL = proxyURL
+	}
+
+	if noProxy, _ := cmd.Flags().GetString("no-proxy"); noProxy != "" {
+		config.NoProxy = parseNoProxy(noProxy)
+	}
+
+	// 2. Environment variables (if flags not set)
+	if config.ProxyURL == "" {
+		// Try HTTPS_PROXY first, then HTTP_PROXY (both case variants)
+		proxyURL := os.Getenv("HTTPS_PROXY")
+		if proxyURL == "" {
+			proxyURL = os.Getenv("https_proxy")
+		}
+		if proxyURL == "" {
+			proxyURL = os.Getenv("HTTP_PROXY")
+		}
+		if proxyURL == "" {
+			proxyURL = os.Getenv("http_proxy")
+		}
+		if proxyURL != "" {
+			if err := validateProxyURL(proxyURL); err != nil {
+				return nil, fmt.Errorf("invalid proxy URL from environment: %w", err)
+			}
+			config.ProxyURL = proxyURL
+		}
+	}
+
+	if len(config.NoProxy) == 0 {
+		noProxy := os.Getenv("NO_PROXY")
+		if noProxy == "" {
+			noProxy = os.Getenv("no_proxy")
+		}
+		if noProxy != "" {
+			config.NoProxy = parseNoProxy(noProxy)
+		}
+	}
+
+	return config, nil
+}
+
+// validateProxyURL validates the proxy URL format.
+func validateProxyURL(proxyURL string) error {
+	u, err := url.Parse(proxyURL)
+	if err != nil {
+		return fmt.Errorf("parsing proxy URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("proxy URL must use http or https scheme, got %s", u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("proxy URL must have a host")
+	}
+	return nil
+}
+
+// parseNoProxy parses a comma-separated list of hosts to exclude from proxy.
+func parseNoProxy(noProxy string) []string {
+	var hosts []string
+	for _, host := range strings.Split(noProxy, ",") {
+		host = strings.TrimSpace(host)
+		if host != "" {
+			hosts = append(hosts, host)
+		}
+	}
+	return hosts
+}
+
+// shouldUseProxy determines whether a target URL should use the proxy.
+func shouldUseProxy(targetURL string, noProxy []string) bool {
+	if len(noProxy) == 0 {
+		return true
+	}
+
+	u, err := url.Parse(targetURL)
+	if err != nil {
+		return true // Default to proxy if we can't parse
+	}
+
+	host := u.Hostname()
+	port := u.Port()
+	hostPort := u.Host
+
+	for _, pattern := range noProxy {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+
+		// Exact match for host or host:port
+		if pattern == host || pattern == hostPort {
+			return false
+		}
+
+		// Domain suffix match (e.g., ".example.com" matches "api.example.com")
+		if strings.HasPrefix(pattern, ".") && strings.HasSuffix(host, pattern) {
+			return false
+		}
+
+		// Wildcard domain match (e.g., "*.example.com" matches "api.example.com")
+		if strings.HasPrefix(pattern, "*.") {
+			domain := strings.TrimPrefix(pattern, "*")
+			if strings.HasSuffix(host, domain) {
+				return false
+			}
+		}
+
+		// Check for IP/CIDR match
+		if ip := net.ParseIP(host); ip != nil {
+			if patternIP := net.ParseIP(pattern); patternIP != nil {
+				if ip.Equal(patternIP) {
+					return false
+				}
+			} else if _, cidr, err := net.ParseCIDR(pattern); err == nil {
+				if cidr.Contains(ip) {
+					return false
+				}
+			}
+		}
+
+		// Port-only pattern
+		if pattern == port {
+			return false
+		}
+	}
+
+	return true
+}
+
+// newHTTPTransport creates an HTTP transport with proxy configuration.
+func newHTTPTransport(proxyConfig *ProxyConfig) *http.Transport {
+	transport := &http.Transport{}
+
+	if proxyConfig != nil && proxyConfig.ProxyURL != "" {
+		// Create proxy function that respects NO_PROXY
+		proxyURL, _ := url.Parse(proxyConfig.ProxyURL)
+		transport.Proxy = func(req *http.Request) (*url.URL, error) {
+			if shouldUseProxy(req.URL.String(), proxyConfig.NoProxy) {
+				return proxyURL, nil
+			}
+			return nil, nil
+		}
+	} else {
+		// Use standard Go proxy behavior
+		transport.Proxy = http.ProxyFromEnvironment
+	}
+
+	return transport
+}
+
 func configDir() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
 		return filepath.Join(xdg, "alcove")
@@ -134,13 +303,21 @@ func loadToken() (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-func newHTTPClient() *http.Client {
-	return &http.Client{Timeout: 30 * time.Second}
+func newHTTPClient(proxyConfig *ProxyConfig) *http.Client {
+	return &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: newHTTPTransport(proxyConfig),
+	}
 }
 
 // apiRequest performs an authenticated HTTP request to the Bridge API.
 func apiRequest(cmd *cobra.Command, method, path string, body interface{}) (*http.Response, error) {
 	server, err := resolveServer(cmd)
+	if err != nil {
+		return nil, err
+	}
+
+	proxyConfig, err := resolveProxyConfig(cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +351,7 @@ func apiRequest(cmd *cobra.Command, method, path string, body interface{}) (*htt
 		}
 	}
 
-	return newHTTPClient().Do(req)
+	return newHTTPClient(proxyConfig).Do(req)
 }
 
 func outputJSON(v interface{}) error {
@@ -540,10 +717,16 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 	bridgeURL := strings.TrimRight(args[0], "/")
 
+	// Get proxy configuration for login request
+	proxyConfig, err := resolveProxyConfig(cmd)
+	if err != nil {
+		return err
+	}
+
 	// Prompt for username and password
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Fprint(os.Stderr, "Username: ")
-	username, err := reader.ReadString('\n')
+	username, err = reader.ReadString('\n')
 	if err != nil {
 		return fmt.Errorf("reading username: %w", err)
 	}
@@ -562,7 +745,8 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	resp, err := http.Post(bridgeURL+"/api/v1/auth/login", "application/json", bytes.NewReader(data))
+	client := newHTTPClient(proxyConfig)
+	resp, err := client.Post(bridgeURL+"/api/v1/auth/login", "application/json", bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("connecting to bridge: %w", err)
 	}
@@ -683,6 +867,11 @@ func streamSSE(cmd *cobra.Command, sessionID, path string) error {
 		return err
 	}
 
+	proxyConfig, err := resolveProxyConfig(cmd)
+	if err != nil {
+		return err
+	}
+
 	req, err := http.NewRequest(http.MethodGet, server+path, nil)
 	if err != nil {
 		return err
@@ -704,7 +893,10 @@ func streamSSE(cmd *cobra.Command, sessionID, path string) error {
 		}
 	}
 
-	client := &http.Client{Timeout: 0} // no timeout for SSE
+	client := &http.Client{
+		Timeout:   0, // no timeout for SSE
+		Transport: newHTTPTransport(proxyConfig),
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("connecting to SSE stream: %w", err)
