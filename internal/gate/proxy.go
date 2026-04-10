@@ -312,6 +312,10 @@ func (p *Proxy) handleLLMRequest(w http.ResponseWriter, r *http.Request) {
 
 			// Inject credential based on token type
 			switch p.config.LLMTokenType {
+			case "oauth_token":
+				req.Header.Set("x-api-key", p.config.LLMToken)
+				req.Header.Set("anthropic-version", "2023-06-01")
+				req.Header.Set("anthropic-beta", "oauth-2025-04-20,claude-code-20250219")
 			case "bearer":
 				req.Header.Set("Authorization", "Bearer "+p.config.LLMToken)
 			case "api_key":
@@ -363,6 +367,10 @@ func (p *Proxy) handleLLMForward(w http.ResponseWriter, r *http.Request) {
 
 			// Inject credential based on token type
 			switch p.config.LLMTokenType {
+			case "oauth_token":
+				req.Header.Set("x-api-key", p.config.LLMToken)
+				req.Header.Set("anthropic-version", "2023-06-01")
+				req.Header.Set("anthropic-beta", "oauth-2025-04-20,claude-code-20250219")
 			case "bearer":
 				req.Header.Set("Authorization", "Bearer "+p.config.LLMToken)
 			case "api_key":
