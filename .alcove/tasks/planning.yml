@@ -131,6 +131,14 @@ prompt: |
       -d @/tmp/plan.json \
       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$ISSUE_NUMBER/comments"
 
+  ## Step 5: Remove the needs-planning label
+
+  After posting the plan, remove the "needs-planning" label so the issue
+  is not re-triggered:
+
+    curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$ISSUE_NUMBER/labels/needs-planning"
+
   ## Important rules
 
   - ALWAYS use curl with $GITHUB_API_URL and $GITHUB_TOKEN, never gh CLI
