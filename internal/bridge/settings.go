@@ -47,11 +47,18 @@ func NewSettingsStore(db *pgxpool.Pool) *SettingsStore {
 	return &SettingsStore{db: db}
 }
 
-// SkillRepo represents a git repository containing Claude Code skills/agents.
+// SkillRepo represents a git repository containing Claude Code skills/agents
+// or task definitions.
 type SkillRepo struct {
-	URL  string `json:"url"`
-	Ref  string `json:"ref,omitempty"`  // branch/tag/commit, default: main
-	Name string `json:"name,omitempty"` // display name
+	URL     string `json:"url"`
+	Ref     string `json:"ref,omitempty"`     // branch/tag/commit, default: main
+	Name    string `json:"name,omitempty"`    // display name
+	Enabled *bool  `json:"enabled,omitempty"` // nil or true = enabled, false = disabled
+}
+
+// IsEnabled returns whether the repo is enabled (defaults to true if not set).
+func (r SkillRepo) IsEnabled() bool {
+	return r.Enabled == nil || *r.Enabled
 }
 
 // GetSystemSkillRepos returns the system-wide skill repos.

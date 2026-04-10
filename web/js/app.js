@@ -421,14 +421,32 @@
         var html = '';
         for (var i = 0; i < taskReposList.length; i++) {
             var r = taskReposList[i];
+            var isEnabled = r.enabled === undefined || r.enabled === null || r.enabled === true;
             var displayUrl = (r.url || '').replace(/^https?:\/\//, '').replace(/\.git$/, '');
-            html += '<div class="repo-item">';
+            html += '<div class="repo-item' + (isEnabled ? '' : ' repo-item-disabled') + '">';
+            html += '<label class="repo-item-toggle"><input type="checkbox" class="repo-item-enabled" data-index="' + i + '"' + (isEnabled ? ' checked' : '') + '> </label>';
             html += '<span class="repo-item-url">' + escapeHtml(displayUrl) + '</span>';
             if (r.ref && r.ref !== 'main') html += ' <span class="repo-item-ref">' + escapeHtml(r.ref) + '</span>';
+            if (!isEnabled) html += ' <span class="repo-item-badge-disabled">disabled</span>';
             html += ' <button class="btn btn-small btn-outline repo-item-remove" data-index="' + i + '" style="color:var(--status-error);border-color:var(--status-error);padding:2px 8px;font-size:11px;">Remove</button>';
             html += '</div>';
         }
         listEl.innerHTML = html;
+
+        listEl.querySelectorAll('.repo-item-enabled').forEach(function(cb) {
+            cb.addEventListener('change', async function() {
+                var idx = parseInt(cb.getAttribute('data-index'), 10);
+                taskReposList[idx].enabled = cb.checked;
+                await saveTaskRepos();
+                var statusEl = $('#task-repo-add-status-inline');
+                if (statusEl) {
+                    statusEl.removeAttribute('hidden');
+                    statusEl.style.color = 'var(--text-muted)';
+                    statusEl.textContent = (cb.checked ? 'Enabled' : 'Disabled') + ' ' + (taskReposList[idx].name || taskReposList[idx].url) + '. Changes take effect on next sync.';
+                }
+                setTimeout(function() { loadUnifiedSchedules(); }, 2000);
+            });
+        });
 
         listEl.querySelectorAll('.repo-item-remove').forEach(function(btn) {
             btn.addEventListener('click', async function() {

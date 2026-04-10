@@ -165,6 +165,15 @@ func (s *TaskRepoSyncer) SyncAll(ctx context.Context) error {
 	var errs []string
 	for _, urs := range userRepoSets {
 		for _, repo := range urs.repos {
+			if !repo.IsEnabled() {
+				// Repo is disabled — disable all its schedules but don't remove them.
+				sourceKeyPrefix := urs.username + "::" + repo.URL + "::"
+				_, _ = s.db.Exec(ctx,
+					`UPDATE schedules SET enabled = false WHERE source_key LIKE $1 || '%' AND source = 'yaml'`,
+					sourceKeyPrefix)
+				log.Printf("task-repo-syncer: repo %s disabled for user %s, schedules paused", repo.URL, urs.username)
+				continue
+			}
 			if err := s.syncRepo(ctx, repo, urs.username); err != nil {
 				errs = append(errs, fmt.Sprintf("%s (user %s): %v", repo.URL, urs.username, err))
 			}
