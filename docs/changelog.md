@@ -3,6 +3,19 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.9.0
+
+### Features
+- Add enable/disable toggle for task repos. When multiple Alcove instances
+  share the same task repo, disable it on one instance to prevent both
+  from competing for the same events. Toggle via checkbox in the Repos page.
+
+### Bug Fixes
+- Fix GitHub poll ETags cleared on startup to prevent stale 304 loops.
+  After deployments, the poller could get permanently stuck receiving
+  304 Not Modified from GitHub's CDN. Now automatically clears stale
+  ETags on every Bridge startup.
+
 ## v0.8.0
 
 ### Features
