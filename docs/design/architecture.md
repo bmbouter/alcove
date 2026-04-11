@@ -100,6 +100,8 @@ The Skiff image is built with:
 - Git (for cloning repos at task start)
 - `gh` and `glab` CLIs (for GitHub/GitLab interaction via Gate's SCM proxy)
 - A git credential helper that routes authentication through Gate
+- **Puppeteer for wireframe generation** — enables planning agents to create
+  UI wireframes as HTML files and capture screenshots for GitHub issue posting
 
 ### Gate — The Authorization Proxy
 

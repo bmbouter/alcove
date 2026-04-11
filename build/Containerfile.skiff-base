@@ -63,6 +63,11 @@ RUN curl -sL "https://gitlab.com/gitlab-org/cli/-/releases/permalink/latest/down
 # Install Claude Code CLI via npm
 RUN npm install -g @anthropic-ai/claude-code
 
+# Install Puppeteer for wireframe screenshot generation
+# Let Puppeteer install its own Chromium copy for compatibility
+RUN npm install -g puppeteer && \
+    npm cache clean --force
+
 # Install uv and lola as root, then make accessible to all users.
 # Lola requires Python >= 3.13; uv manages its own Python runtime.
 ENV UV_INSTALL_DIR=/usr/local/bin

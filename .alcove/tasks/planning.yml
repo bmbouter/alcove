@@ -46,6 +46,8 @@ prompt: |
   - **UI/UX/Frontend agent**: Dashboard changes (web/js/app.js, web/index.html,
     web/css/style.css), user experience, layout, accessibility, interaction design.
     Reviews changes from the user's perspective and ensures intuitive workflows.
+    **When UI changes are needed, this agent must generate wireframes** using the
+    wireframe generation workflow described in Step 3.5.
   - **Testing agent**: Comprehensive testing across ALL dimensions — functional
     tests (bash scripts in scripts/), API tests, UI smoke tests, end-to-end
     workflow tests, unit tests in Go. Identifies what test coverage is needed
@@ -97,6 +99,161 @@ prompt: |
   - **Test changes**: New functional tests, updated existing tests
   - **Deployment considerations**: Template changes, configuration, rollout risks
   - **Dependencies**: What must happen before what, blocking relationships
+
+  ## Step 3.5: Generate UI wireframes (when applicable)
+
+  **MANDATORY**: If the consensus plan includes any user-facing UI changes,
+  the UI/UX/Frontend agent MUST generate wireframes for human review.
+
+  ### When to generate wireframes
+  - New dashboard features or pages
+  - Changes to existing UI layouts, forms, or navigation
+  - New user workflows or interaction patterns
+  - API changes that affect the dashboard UI
+
+  ### Wireframe generation workflow
+
+  For each UI screen or component that needs changes:
+
+  1. **Create wireframe HTML** (`wireframe-<name>.html`):
+     - Single-file HTML with inline CSS
+     - Use grayscale color palette (#000, #333, #666, #999, #ccc, #f5f5f5, #fff)
+     - Include placeholder text ("Lorem ipsum", "Username", "Submit Button", etc.)
+     - Use standard web components (buttons, inputs, cards, tables, navigation)
+     - Responsive layout with flexbox/grid
+     - Annotate interactive elements with HTML comments
+
+     Example wireframe structure:
+     ```html
+     <!DOCTYPE html>
+     <html>
+     <head>
+       <title>Wireframe: User Dashboard</title>
+       <style>
+         body { font-family: Arial, sans-serif; color: #333; background: #f5f5f5; margin: 0; }
+         .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+         .nav { background: #fff; padding: 1rem; border-bottom: 1px solid #ccc; }
+         .card { background: #fff; padding: 1rem; border: 1px solid #ccc; margin: 1rem 0; }
+         /* ... more wireframe styles ... */
+       </style>
+     </head>
+     <body>
+       <!-- Navigation -->
+       <nav class="nav">
+         <div class="logo">App Name</div>
+         <div class="nav-links">Dashboard | Settings | Logout</div>
+       </nav>
+
+       <!-- Main content -->
+       <div class="container">
+         <div class="card">
+           <h2>Recent Activity</h2>
+           <p>List of recent user actions...</p>
+         </div>
+       </div>
+     </body>
+     </html>
+     ```
+
+  2. **Create component specification** (`spec-<name>.json`):
+     - Structured component tree with types, props, and data bindings
+     - Layout constraints and responsive behavior
+     - Interaction specifications (clicks, form submissions, navigation)
+     - API integration points
+
+     Example spec format:
+     ```json
+     {
+       "screen": "User Dashboard",
+       "description": "Main dashboard view after login",
+       "components": [
+         {
+           "type": "nav",
+           "position": "top",
+           "children": [
+             {"type": "logo", "text": "App Name"},
+             {"type": "nav-links", "items": ["Dashboard", "Settings", "Logout"]}
+           ]
+         },
+         {
+           "type": "grid",
+           "columns": 3,
+           "responsive": {"mobile": 1, "tablet": 2},
+           "children": [
+             {
+               "type": "card",
+               "title": "Recent Activity",
+               "content": "activity-list",
+               "data_source": "GET /api/activity",
+               "refresh": "30s"
+             }
+           ]
+         }
+       ],
+       "interactions": [
+         {"trigger": "click Logout", "action": "POST /api/logout", "navigate": "/login"},
+         {"trigger": "card.refresh", "action": "GET /api/activity", "update": "activity-list"}
+       ],
+       "responsive_breakpoints": {"mobile": 768, "tablet": 1024}
+     }
+     ```
+
+  3. **Generate screenshots** using Puppeteer:
+     ```bash
+     # Install Puppeteer if not available
+     npm install puppeteer
+
+     # Create screenshot script
+     cat > /tmp/screenshot.js << 'EOF'
+     const puppeteer = require('puppeteer');
+     const fs = require('fs');
+
+     (async () => {
+       const browser = await puppeteer.launch({headless: true});
+       const page = await browser.newPage();
+       await page.setViewport({width: 1200, height: 800});
+
+       const htmlContent = fs.readFileSync(process.argv[2], 'utf8');
+       await page.setContent(htmlContent);
+
+       await page.screenshot({
+         path: process.argv[3],
+         fullPage: true
+       });
+
+       await browser.close();
+     })();
+     EOF
+
+     # Generate screenshot
+     node /tmp/screenshot.js wireframe-dashboard.html wireframe-dashboard.png
+     ```
+
+  4. **Upload wireframes to GitHub issue** using base64 encoding:
+     ```bash
+     # Encode image as base64
+     IMAGE_B64=$(base64 -w 0 wireframe-dashboard.png)
+
+     # Post wireframe comment
+     cat > /tmp/wireframe-comment.json << JSONEOF
+     {"body":"## UI Wireframes\n\n### Screen: User Dashboard\n![User Dashboard wireframe](data:image/png;base64,${IMAGE_B64})\n\n<details>\n<summary>Component Spec</summary>\n\n\`\`\`json\n$(cat spec-dashboard.json)\n\`\`\`\n</details>\n\n<details>\n<summary>HTML Source</summary>\n\n\`\`\`html\n$(cat wireframe-dashboard.html)\n\`\`\`\n</details>\n\n---\n*Generated wireframes for implementation planning*"}
+     JSONEOF
+
+     curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+       -H "Content-Type: application/json" \
+       -d @/tmp/wireframe-comment.json \
+       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$ISSUE_NUMBER/comments"
+     ```
+
+  ### Wireframe quality guidelines
+  - **Focus on layout and functionality**, not visual design
+  - **Keep it simple** — use standard web UI patterns
+  - **Annotate interactions** with HTML comments (<!-- Click here to submit -->)
+  - **Show data relationships** — which components fetch from which APIs
+  - **Consider responsive design** — test wireframes at mobile and desktop widths
+  - **Make wireframes implementation-ready** — the HTML should serve as a starting point for real components
+
+  The implementing agent will use these wireframes and specs to build the actual UI components.
 
   ## Step 4: Post the plan as a comment
 
