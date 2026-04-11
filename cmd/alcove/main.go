@@ -1194,15 +1194,55 @@ func runConfigValidate(cmd *cobra.Command, _ []string) error {
 func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Short: "Print client version",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if isJSONOutput(cmd) {
-				return outputJSON(map[string]string{"version": Version})
-			}
-			fmt.Printf("alcove version %s\n", Version)
-			return nil
-		},
+		Short: "Print client and server versions",
+		RunE:  runVersion,
 	}
+}
+
+func runVersion(cmd *cobra.Command, _ []string) error {
+	if isJSONOutput(cmd) {
+		result := map[string]string{"client": Version}
+
+		// Try to get server version
+		if serverVersion, err := getServerVersion(cmd); err == nil {
+			result["server"] = serverVersion
+		}
+
+		return outputJSON(result)
+	}
+
+	fmt.Printf("Client: %s\n", Version)
+
+	// Try to get server version
+	serverVersion, err := getServerVersion(cmd)
+	if err != nil {
+		fmt.Printf("Server: (could not reach server: %v)\n", err)
+	} else {
+		fmt.Printf("Server: %s\n", serverVersion)
+	}
+
+	return nil
+}
+
+func getServerVersion(cmd *cobra.Command) (string, error) {
+	resp, err := apiRequest(cmd, "GET", "/api/v1/health", nil)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("health endpoint returned %d", resp.StatusCode)
+	}
+
+	var healthResp struct {
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&healthResp); err != nil {
+		return "", fmt.Errorf("failed to decode health response: %w", err)
+	}
+
+	return healthResp.Version, nil
 }
 
 // ---------- SSE streaming ----------

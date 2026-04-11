@@ -137,6 +137,7 @@ func (a *API) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"status":  status,
 		"runtime": a.cfg.RuntimeType,
 		"db":      dbOK,
+		"version": a.cfg.Version,
 	})
 }
 
