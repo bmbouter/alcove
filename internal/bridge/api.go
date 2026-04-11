@@ -888,7 +888,7 @@ func (a *API) listSessions(ctx context.Context, status, repo, since, until, subm
 		argN++
 	}
 	if until != "" {
-		whereClause += fmt.Sprintf(" AND s.started_at <= $%d", argN)
+		whereClause += fmt.Sprintf(" AND s.finished_at <= $%d", argN)
 		args = append(args, until)
 		argN++
 	}
