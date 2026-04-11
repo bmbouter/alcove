@@ -753,8 +753,10 @@ func TestGitHubOperationMapping(t *testing.T) {
 		{"POST", "actions/workflows/ci.yml/dispatches", "write_actions"},
 		{"GET", "releases", "read_releases"},
 		{"POST", "releases", "write_releases"},
-		{"GET", "labels", "read"},
+		{"GET", "labels", "read_issues"},
 		{"POST", "labels", "write"},
+		{"POST", "issues/42/labels", "update_issue"},
+		{"DELETE", "issues/42/labels/bug", "update_issue"},
 	}
 
 	for _, tt := range tests {
