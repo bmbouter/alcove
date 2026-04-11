@@ -329,6 +329,7 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 
 		// Extract labels from issue or pull_request.
 		var labels []string
+		var addedLabel string
 		if issue, ok := payload["issue"].(map[string]interface{}); ok {
 			if labelArr, ok := issue["labels"].([]interface{}); ok {
 				for _, lo := range labelArr {
@@ -355,6 +356,7 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 		if action == "labeled" {
 			if labelObj, ok := payload["label"].(map[string]interface{}); ok {
 				if name, ok := labelObj["name"].(string); ok {
+					addedLabel = name
 					found := false
 					for _, l := range labels {
 						if strings.EqualFold(l, name) {
@@ -466,9 +468,15 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 				"GITHUB_SHA":          sha,
 				"GITHUB_PR_NUMBER":    prNumber,
 				"GITHUB_ISSUE_NUMBER": issueNumber,
+				"GITHUB_LABEL_ADDED":  addedLabel,
 			}
+
+			// Enrich event context with full GitHub data.
+			enrichedContext := p.enrichEventContext(ctx, token, baseURL, eventType, action, meta)
+
+			// Prepend enriched context, keep raw metadata for backward compatibility.
 			metaJSON, _ := json.Marshal(meta)
-			taskReq.Prompt = taskReq.Prompt + "\n\n[event: " + string(metaJSON) + "]"
+			taskReq.Prompt = taskReq.Prompt + "\n\n" + enrichedContext + "\n\n[event: " + string(metaJSON) + "]"
 
 			_, err := p.dispatcher.DispatchTask(ctx, taskReq, sched.Owner)
 			if err != nil {
