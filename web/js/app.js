@@ -62,7 +62,6 @@
     let systemLLMConfigured = false;
     let editingProfileId = null;
     let cachedCredentials = [];  // cached from last fetch for prerequisite checks
-    let setupChecklistDismissed = localStorage.getItem('alcove_setup_dismissed') === 'true';
     let rhIdentityMode = false;
     let proxyLogData = [];
     let proxyLogSortField = 'timestamp';
@@ -1156,7 +1155,6 @@
         if (route === 'sessions') {
             show($('#page-sessions'));
             loadSessions();
-            updateSetupChecklist();
         } else if (route === 'task/new') {
             show($('#page-task-new'));
             hide($('#task-error'));
@@ -1199,7 +1197,6 @@
         } else {
             show($('#page-sessions'));
             loadSessions();
-            updateSetupChecklist();
         }
     }
 
@@ -5327,91 +5324,6 @@
         }, 500);
 
         promptEl.addEventListener('input', analyzePrompt);
-    })();
-
-    // ---------------------
-    // Setup Checklist
-    // ---------------------
-    async function updateSetupChecklist() {
-        var checklist = $('#setup-checklist');
-        if (!checklist || setupChecklistDismissed) return;
-
-        try {
-            var credResp = await api('GET', '/api/v1/credentials');
-            var credData = await credResp.json();
-            var allCreds = credData.credentials || [];
-            cachedCredentials = allCreds;
-
-            var profileResp = await api('GET', '/api/v1/security-profiles');
-            var profileData = await profileResp.json();
-            var profiles = Array.isArray(profileData) ? profileData : (profileData.profiles || profileData.items || []);
-
-            var sessResp = await api('GET', '/api/v1/sessions?limit=1');
-            var sessData = await sessResp.json();
-            var sessions = Array.isArray(sessData) ? sessData : (sessData.sessions || sessData.items || []);
-
-            var llmCreds = allCreds.filter(function (c) {
-                return c.provider !== 'github' && c.provider !== 'gitlab' && c.provider !== 'jira';
-            });
-            var scmCreds = allCreds.filter(function (c) {
-                return c.provider === 'github' || c.provider === 'gitlab' || c.provider === 'jira';
-            });
-
-            var hasLlm = llmCreds.length > 0;
-            var hasScm = scmCreds.length > 0;
-            var hasProfile = profiles.length > 0;
-            var hasTask = sessions.length > 0;
-
-            // If everything is done, hide the checklist entirely
-            if (hasLlm && hasScm && hasProfile && hasTask) {
-                hide(checklist);
-                return;
-            }
-
-            // Update each item
-            updateChecklistItem('setup-item-llm', hasLlm);
-            updateChecklistItem('setup-item-scm', hasScm);
-            updateChecklistItem('setup-item-profile', hasProfile);
-            updateChecklistItem('setup-item-task', hasTask);
-
-            show(checklist);
-        } catch (err) {
-            // Don't show checklist if we can't fetch data
-            if (err.message !== 'unauthorized') {
-                hide(checklist);
-            }
-        }
-    }
-
-    function updateChecklistItem(itemId, isDone) {
-        var el = $('#' + itemId);
-        if (!el) return;
-
-        // Hide completed items entirely — only show what's left to do
-        if (isDone) {
-            el.hidden = true;
-        } else {
-            el.hidden = false;
-            el.classList.remove('setup-item-done');
-            var check = el.querySelector('.setup-check');
-            if (check) {
-                check.innerHTML = itemId === 'setup-item-task' ? '&#9675;' : '&#10007;';
-            }
-            var action = el.querySelector('.setup-action');
-            if (action) action.style.display = '';
-        }
-    }
-
-    // Dismiss checklist button
-    (function () {
-        var btn = $('#setup-checklist-dismiss');
-        if (btn) {
-            btn.addEventListener('click', function () {
-                setupChecklistDismissed = true;
-                localStorage.setItem('alcove_setup_dismissed', 'true');
-                hide($('#setup-checklist'));
-            });
-        }
     })();
 
     // ---------------------
