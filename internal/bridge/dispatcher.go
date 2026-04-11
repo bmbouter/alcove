@@ -79,6 +79,10 @@ type TaskRequest struct {
 	Model    string                `json:"model,omitempty"`
 	Budget   float64               `json:"budget_usd,omitempty"`
 	Debug    bool                  `json:"debug,omitempty"`
+	// Task metadata — set by dispatch code paths, stored in sessions table.
+	TaskName    string `json:"-"` // Schedule/task definition name
+	TriggerType string `json:"-"` // "event", "cron", "manual", "webhook"
+	TriggerRef  string `json:"-"` // e.g., "bmbouter/alcove#107" for GitHub events
 }
 
 // ToolConfig specifies per-tool configuration in a task request.
@@ -191,15 +195,18 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 
 	now := time.Now().UTC()
 	session := &internal.Session{
-		ID:        sessionID,
-		TaskID:    taskID,
-		Submitter: submitter,
-		Prompt:    req.Prompt,
-		Repo:      req.Repo,
-		Provider:  provider,
-		Scope:     scope,
-		Status:    "running",
-		StartedAt: now,
+		ID:          sessionID,
+		TaskID:      taskID,
+		Submitter:   submitter,
+		Prompt:      req.Prompt,
+		Repo:        req.Repo,
+		Provider:    provider,
+		Scope:       scope,
+		Status:      "running",
+		StartedAt:   now,
+		TaskName:    req.TaskName,
+		TriggerType: req.TriggerType,
+		TriggerRef:  req.TriggerRef,
 	}
 
 	// Generate a session token for the Skiff pod to authenticate to Ledger.
@@ -643,9 +650,10 @@ func (d *Dispatcher) ListenForStatusUpdates(ctx context.Context) error {
 func (d *Dispatcher) insertSession(ctx context.Context, s *internal.Session, sessionToken string) error {
 	scopeJSON, _ := json.Marshal(s.Scope)
 	_, err := d.db.Exec(ctx, `
-		INSERT INTO sessions (id, task_id, submitter, prompt, scope, provider, started_at, outcome, session_token)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, s.ID, s.TaskID, s.Submitter, s.Prompt, scopeJSON, s.Provider, s.StartedAt, s.Status, sessionToken)
+		INSERT INTO sessions (id, task_id, submitter, prompt, scope, provider, started_at, outcome, session_token, task_name, trigger_type, trigger_ref, repo)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+	`, s.ID, s.TaskID, s.Submitter, s.Prompt, scopeJSON, s.Provider, s.StartedAt, s.Status, sessionToken,
+		nilIfEmpty(s.TaskName), nilIfEmpty(s.TriggerType), nilIfEmpty(s.TriggerRef), nilIfEmpty(s.Repo))
 	return err
 }
 

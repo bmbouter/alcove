@@ -366,6 +366,11 @@ func (m *CIGateMonitor) handleCIFailure(ctx context.Context, sessionID, repo str
 	ciContext := m.composeCIFailureContext(ctx, repo, prNumber, prInfo.Head.Ref, prInfo.Title, failureSummary.String(), retryCount+1, maxRetries)
 	taskReq.Prompt = ciContext + "\n\n" + modifyPromptForRetry(originalPrompt, prInfo.Head.Ref, repo, prNumber)
 
+	// Set task metadata for session storage.
+	taskReq.TaskName = "CI Retry"
+	taskReq.TriggerType = "event"
+	taskReq.TriggerRef = fmt.Sprintf("%s#%d", repo, prNumber)
+
 	// Dispatch retry task.
 	newSession, err := m.dispatcher.DispatchTask(ctx, taskReq, owner)
 	if err != nil {
