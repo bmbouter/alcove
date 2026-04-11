@@ -318,16 +318,43 @@ func configDir() string {
 	return filepath.Join(home, ".config", "alcove")
 }
 
+// getConfigPaths returns a list of config file paths to check in order of precedence.
+func getConfigPaths() []string {
+	var paths []string
+
+	// 1. XDG config home (if set)
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		paths = append(paths, filepath.Join(xdg, "alcove", "config.yaml"))
+	}
+
+	// 2. Standard XDG config location
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths, filepath.Join(home, ".config", "alcove", "config.yaml"))
+		// 3. Convenience location mentioned in original issue
+		paths = append(paths, filepath.Join(home, ".alcove.yaml"))
+	}
+
+	return paths
+}
+
 func loadConfig() (*CLIConfig, error) {
-	data, err := os.ReadFile(filepath.Join(configDir(), "config.yaml"))
-	if err != nil {
-		return nil, err
+	var lastErr error
+
+	for _, path := range getConfigPaths() {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			lastErr = err
+			continue // Try next path
+		}
+
+		var cfg CLIConfig
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			return nil, fmt.Errorf("parsing config file %s: %w", path, err)
+		}
+		return &cfg, nil
 	}
-	var cfg CLIConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, err
-	}
-	return &cfg, nil
+
+	return nil, lastErr
 }
 
 func loadToken() (string, error) {
@@ -1082,23 +1109,21 @@ func newConfigCmd() *cobra.Command {
 		Short: "Configuration management",
 	}
 	cmd.AddCommand(&cobra.Command{
+		Use:   "init",
+		Short: "Create an example configuration file",
+		Long:  "Create an example configuration file with all available options and documentation.",
+		RunE:  runConfigInit,
+	})
+	cmd.AddCommand(&cobra.Command{
 		Use:   "validate",
 		Short: "Validate the current configuration",
 		RunE:  runConfigValidate,
 	})
 	cmd.AddCommand(&cobra.Command{
 		Use:   "show",
-		Short: "Show current configuration",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := loadConfig()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "No config file found at %s\n", filepath.Join(configDir(), "config.yaml"))
-				return nil
-			}
-			data, _ := yaml.Marshal(cfg)
-			fmt.Print(string(data))
-			return nil
-		},
+		Short: "Show current effective configuration",
+		Long:  "Display current effective configuration showing values from all sources (flags, environment, config file).",
+		RunE:  runConfigShow,
 	})
 	cmd.AddCommand(&cobra.Command{
 		Use:   "set <key> <value>",
@@ -1186,6 +1211,198 @@ func runConfigValidate(cmd *cobra.Command, _ []string) error {
 	}
 
 	fmt.Fprintln(os.Stderr, "\nConfiguration is valid.")
+	return nil
+}
+
+func runConfigInit(cmd *cobra.Command, _ []string) error {
+	// Determine the best config path to create
+	configPath := filepath.Join(configDir(), "config.yaml")
+
+	// Check if a config file already exists
+	existing := false
+	for _, path := range getConfigPaths() {
+		if _, err := os.Stat(path); err == nil {
+			existing = true
+			fmt.Fprintf(os.Stderr, "Configuration file already exists at: %s\n", path)
+			fmt.Fprintf(os.Stderr, "Use 'alcove config show' to view current configuration.\n")
+			break
+		}
+	}
+
+	if existing {
+		return fmt.Errorf("configuration file already exists")
+	}
+
+	// Create example configuration with extensive documentation
+	exampleConfig := `# Alcove CLI Configuration File
+# This file contains default values for Alcove CLI commands.
+# You can override any setting with command-line flags or environment variables.
+#
+# Precedence order (highest to lowest):
+# 1. Command-line flags (--server, --provider, etc.)
+# 2. Environment variables (ALCOVE_SERVER, ALCOVE_OUTPUT, etc.)
+# 3. This configuration file
+# 4. Built-in defaults
+
+# Bridge server URL (required)
+# This can also be set via ALCOVE_SERVER environment variable or --server flag
+# Example: https://alcove.example.com
+server: ""
+
+# Output format: "table" or "json" (optional, default: table)
+# This can also be set via ALCOVE_OUTPUT environment variable or --output flag
+output: "table"
+
+# Basic Authentication (optional)
+# If using Basic Auth instead of token-based authentication
+# These can also be set via ALCOVE_USERNAME/ALCOVE_PASSWORD environment variables
+# or --username/--password flags
+# username: ""
+# password: ""
+
+# HTTP Proxy Configuration (optional)
+# These can also be set via standard proxy environment variables
+# (HTTP_PROXY, HTTPS_PROXY, NO_PROXY) or --proxy-url/--no-proxy flags
+# proxy_url: "http://proxy.example.com:8080"
+# no_proxy: "localhost,127.0.0.1,.example.com"
+
+# Default values for common command options (optional)
+defaults:
+  # Default repository for 'run' command (optional)
+  # Example: "myorg/myproject"
+  # repo: ""
+
+  # Default LLM provider for 'run' command (optional)
+  # Example: "anthropic", "openai"
+  # provider: ""
+
+  # Default model for 'run' command (optional)
+  # Example: "claude-sonnet-4-20250514", "gpt-4"
+  # model: ""
+
+  # Default timeout for 'run' command (optional)
+  # Accepts Go duration syntax: 30m, 1h, 2h30m, etc.
+  # timeout: "30m"
+
+  # Default budget limit in USD for 'run' command (optional)
+  # Example: 5.00, 10.50
+  # budget: 0.0
+`
+
+	// Ensure config directory exists
+	if err := os.MkdirAll(configDir(), 0700); err != nil {
+		return fmt.Errorf("creating config directory: %w", err)
+	}
+
+	// Write example config
+	if err := os.WriteFile(configPath, []byte(exampleConfig), 0600); err != nil {
+		return fmt.Errorf("writing example config: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "Example configuration file created at: %s\n", configPath)
+	fmt.Fprintf(os.Stderr, "\nEdit the file to customize your settings, then run:\n")
+	fmt.Fprintf(os.Stderr, "  alcove config validate  # Check configuration\n")
+	fmt.Fprintf(os.Stderr, "  alcove config show      # View effective settings\n")
+
+	return nil
+}
+
+func runConfigShow(cmd *cobra.Command, _ []string) error {
+	// Show effective configuration from all sources
+	fmt.Fprintln(os.Stderr, "Effective configuration:")
+	fmt.Fprintln(os.Stderr, "")
+
+	// Server resolution
+	server, serverErr := resolveServer(cmd)
+	if serverErr != nil {
+		fmt.Fprintf(os.Stderr, "Server:       <not configured> (%v)\n", serverErr)
+	} else {
+		fmt.Fprintf(os.Stderr, "Server:       %s\n", server)
+	}
+
+	// Output format
+	output := "table" // default
+	if f, _ := cmd.Flags().GetString("output"); f != "" {
+		fmt.Fprintf(os.Stderr, "Output:       %s (from --output flag)\n", f)
+	} else if env := os.Getenv("ALCOVE_OUTPUT"); env != "" {
+		fmt.Fprintf(os.Stderr, "Output:       %s (from ALCOVE_OUTPUT env)\n", env)
+	} else if cfg, err := loadConfig(); err == nil && cfg.Output != "" {
+		fmt.Fprintf(os.Stderr, "Output:       %s (from config file)\n", cfg.Output)
+	} else {
+		fmt.Fprintf(os.Stderr, "Output:       %s (default)\n", output)
+	}
+
+	// Basic Auth
+	username, _ := resolveBasicAuth(cmd)
+	if username != "" {
+		fmt.Fprintf(os.Stderr, "Auth:         Basic Auth (username: %s)\n", username)
+	} else if token, err := loadToken(); err == nil && token != "" {
+		fmt.Fprintf(os.Stderr, "Auth:         Bearer token (%d chars)\n", len(token))
+	} else {
+		fmt.Fprintf(os.Stderr, "Auth:         <not configured>\n")
+	}
+
+	// Proxy configuration
+	if proxyConfig, err := resolveProxyConfig(cmd); err == nil {
+		if proxyConfig.ProxyURL != "" {
+			fmt.Fprintf(os.Stderr, "Proxy:        %s\n", proxyConfig.ProxyURL)
+			if len(proxyConfig.NoProxy) > 0 {
+				fmt.Fprintf(os.Stderr, "No Proxy:     %s\n", strings.Join(proxyConfig.NoProxy, ", "))
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "Proxy:        <none>\n")
+		}
+	}
+
+	// Defaults
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "Default values for 'run' command:")
+
+	if cfg, err := loadConfig(); err == nil {
+		if cfg.Defaults.Repo != "" {
+			fmt.Fprintf(os.Stderr, "  Repository: %s\n", cfg.Defaults.Repo)
+		} else {
+			fmt.Fprintf(os.Stderr, "  Repository: <none>\n")
+		}
+
+		if cfg.Defaults.Provider != "" {
+			fmt.Fprintf(os.Stderr, "  Provider:   %s\n", cfg.Defaults.Provider)
+		} else {
+			fmt.Fprintf(os.Stderr, "  Provider:   <none>\n")
+		}
+
+		if cfg.Defaults.Model != "" {
+			fmt.Fprintf(os.Stderr, "  Model:      %s\n", cfg.Defaults.Model)
+		} else {
+			fmt.Fprintf(os.Stderr, "  Model:      <none>\n")
+		}
+
+		if cfg.Defaults.Timeout != "" {
+			fmt.Fprintf(os.Stderr, "  Timeout:    %s\n", cfg.Defaults.Timeout)
+		} else {
+			fmt.Fprintf(os.Stderr, "  Timeout:    <none>\n")
+		}
+
+		if cfg.Defaults.Budget > 0 {
+			fmt.Fprintf(os.Stderr, "  Budget:     $%.2f\n", cfg.Defaults.Budget)
+		} else {
+			fmt.Fprintf(os.Stderr, "  Budget:     <none>\n")
+		}
+	} else {
+		fmt.Fprintf(os.Stderr, "  <no config file found>\n")
+	}
+
+	// Show config file locations
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "Configuration file search order:")
+	for i, path := range getConfigPaths() {
+		if _, err := os.Stat(path); err == nil {
+			fmt.Fprintf(os.Stderr, "  %d. %s ✓\n", i+1, path)
+		} else {
+			fmt.Fprintf(os.Stderr, "  %d. %s\n", i+1, path)
+		}
+	}
+
 	return nil
 }
 
