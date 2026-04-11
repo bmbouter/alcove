@@ -244,5 +244,4 @@ trigger:
     labels:
       - ready-for-dev
       - changes-requested
-    users: [bmbouter]
     delivery_mode: polling
