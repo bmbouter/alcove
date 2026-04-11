@@ -84,6 +84,7 @@ func main() {
 		newLogsCmd(),
 		newStatusCmd(),
 		newCancelCmd(),
+		newDeleteCmd(),
 		newLoginCmd(),
 		newConfigCmd(),
 		newVersionCmd(),
@@ -756,6 +757,216 @@ func runCancel(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintf(os.Stderr, "Cancel requested for session %s\n", sessionID)
+	return nil
+}
+
+func newDeleteCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "delete [session-id]",
+		Short: "Delete completed/errored/timed-out sessions",
+		Long: `Delete sessions in terminal states (completed, error, timeout, cancelled).
+
+Examples:
+  # Delete a specific session
+  alcove delete 12345678-abcd-1234-abcd-123456789012
+
+  # Delete all error sessions older than 7 days
+  alcove delete --status error --before 7d
+
+  # Delete all completed sessions before a specific date
+  alcove delete --status completed --before 2023-01-01T00:00:00Z
+
+  # Dry run to see what would be deleted
+  alcove delete --status error --before 30d --dry-run
+`,
+		RunE: runDelete,
+	}
+
+	cmd.Flags().String("status", "", "Delete sessions with specific status: completed, error, timeout, cancelled")
+	cmd.Flags().String("before", "", "Delete sessions finished before date/time (RFC3339) or duration (e.g., '7d', '30d')")
+	cmd.Flags().Bool("dry-run", false, "Show what would be deleted without actually deleting")
+
+	return cmd
+}
+
+func runDelete(cmd *cobra.Command, args []string) error {
+	status, _ := cmd.Flags().GetString("status")
+	before, _ := cmd.Flags().GetString("before")
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+
+	// Single session deletion
+	if len(args) == 1 {
+		sessionID := args[0]
+
+		if dryRun {
+			return fmt.Errorf("--dry-run is not supported for single session deletion")
+		}
+
+		// Make delete request with action=delete to distinguish from cancel
+		resp, err := apiRequest(cmd, http.MethodDelete, "/api/v1/sessions/"+sessionID+"?action=delete", nil)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		}
+
+		if isJSONOutput(cmd) {
+			return outputJSON(map[string]string{"session_id": sessionID, "status": "deleted"})
+		}
+
+		fmt.Fprintf(os.Stderr, "Session %s deleted\n", sessionID)
+		return nil
+	}
+
+	// Bulk deletion
+	if len(args) > 1 {
+		return fmt.Errorf("too many arguments: either provide one session ID or use flags for bulk deletion")
+	}
+
+	// No session ID provided - use bulk deletion with filters
+	if status == "" && before == "" {
+		return fmt.Errorf("either provide a session ID or use --status and/or --before flags for bulk deletion")
+	}
+
+	// Validate status if provided
+	if status != "" {
+		validStatuses := map[string]bool{"completed": true, "error": true, "timeout": true, "cancelled": true}
+		if !validStatuses[status] {
+			return fmt.Errorf("invalid status: must be one of completed, error, timeout, cancelled")
+		}
+	}
+
+	if dryRun {
+		// Dry run: list sessions that would be deleted
+		return runDeleteDryRun(cmd, status, before)
+	}
+
+	// Build request body for bulk deletion
+	reqBody := map[string]any{}
+	if status != "" {
+		reqBody["status"] = status
+	}
+	if before != "" {
+		reqBody["before"] = before
+	}
+
+	reqJSON, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	resp, err := apiRequest(cmd, http.MethodDelete, "/api/v1/sessions", bytes.NewReader(reqJSON))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if isJSONOutput(cmd) {
+		return outputJSON(result)
+	}
+
+	deletedCount := result["deleted_count"]
+	fmt.Fprintf(os.Stderr, "Deleted %v sessions\n", deletedCount)
+	return nil
+}
+
+func runDeleteDryRun(cmd *cobra.Command, status, before string) error {
+	// Build query parameters for listing sessions
+	params := url.Values{}
+	if status != "" {
+		params.Set("status", status)
+	}
+	if before != "" {
+		// For listing, we need to convert the "before" parameter to "until"
+		var untilTime time.Time
+		var err error
+
+		if strings.HasSuffix(before, "d") {
+			// Duration format like "7d", "30d"
+			daysStr := strings.TrimSuffix(before, "d")
+			days, parseErr := strconv.Atoi(daysStr)
+			if parseErr != nil {
+				return fmt.Errorf("invalid before parameter: must be RFC3339 datetime or duration like '7d'")
+			}
+			untilTime = time.Now().UTC().AddDate(0, 0, -days)
+		} else {
+			// RFC3339 datetime format
+			untilTime, err = time.Parse(time.RFC3339, before)
+			if err != nil {
+				return fmt.Errorf("invalid before parameter: must be RFC3339 datetime or duration like '7d'")
+			}
+		}
+		params.Set("until", untilTime.Format(time.RFC3339))
+	}
+
+	// Get all pages of sessions that match the criteria
+	page := 1
+	perPage := 100
+	totalSessions := 0
+
+	for {
+		params.Set("page", strconv.Itoa(page))
+		params.Set("per_page", strconv.Itoa(perPage))
+
+		resp, err := apiRequest(cmd, http.MethodGet, "/api/v1/sessions?"+params.Encode(), nil)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		}
+
+		var result struct {
+			Sessions []map[string]any `json:"sessions"`
+			Count    int              `json:"count"`
+			Total    int              `json:"total"`
+			Pages    int              `json:"pages"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			return fmt.Errorf("failed to decode response: %w", err)
+		}
+
+		if page == 1 {
+			if result.Total == 0 {
+				fmt.Fprintf(os.Stderr, "No sessions found matching the criteria\n")
+				return nil
+			}
+			fmt.Fprintf(os.Stderr, "Would delete %d sessions:\n", result.Total)
+		}
+
+		for _, session := range result.Sessions {
+			fmt.Fprintf(os.Stderr, "  %s (%s) - %s\n",
+				session["id"], session["status"], session["started_at"])
+		}
+
+		totalSessions += result.Count
+
+		if page >= result.Pages {
+			break
+		}
+		page++
+	}
+
+	fmt.Fprintf(os.Stderr, "\nTotal sessions to delete: %d\n", totalSessions)
+	fmt.Fprintf(os.Stderr, "To confirm deletion, run without --dry-run\n")
 	return nil
 }
 
