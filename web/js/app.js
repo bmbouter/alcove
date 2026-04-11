@@ -3213,6 +3213,7 @@
                 const username = u.username || u.name || '-';
                 const created = formatTime(u.created_at || u.created);
                 const isUserAdmin = u.is_admin || false;
+                const sessionCount = u.session_count || 0;
                 const isSelf = username === currentUser;
                 const roleBadge = isUserAdmin
                     ? '<span class="badge badge-running">admin</span>'
@@ -3234,6 +3235,7 @@
                     '<td>' + escapeHtml(username) + selfLabel + '</td>' +
                     '<td>' + escapeHtml(created) + '</td>' +
                     '<td>' + roleBadge + '</td>' +
+                    '<td>' + sessionCount + '</td>' +
                     '<td>' + actions + '</td>' +
                     '</tr>';
             }).join('');
@@ -3303,7 +3305,7 @@
         } catch (err) {
             hide(loading);
             if (err.message !== 'unauthorized') {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--status-error);">Failed to load users.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--status-error);">Failed to load users.</td></tr>';
             }
         }
     }
