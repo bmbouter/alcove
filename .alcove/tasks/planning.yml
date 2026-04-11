@@ -21,37 +21,17 @@ prompt: |
 
   ## Step 1: Understand the request
 
-  Extract the issue number from the event context at the end of this prompt.
-  The event context is appended as JSON after "[event: {...}]" or "[webhook: {...}]".
+  Read the "Event Context" section above — it contains the full issue details
+  including title, body, all comments, and labels.
 
-  # Extract issue number from event context
-  ISSUE_NUMBER=""
-  if echo "$0" | grep -q '\[event:'; then
+  The issue number is in the context header (e.g., "### Issue #88: ...").
+  Extract it for use in the comment POST at the end.
+
+  If the Event Context is empty or missing, fall back to extracting from the
+  appended event metadata ("[event: {...}]" or "[webhook: {...}]"):
     ISSUE_NUMBER=$(echo "$0" | sed -n 's/.*\[event: \(.*\)\].*/\1/p' | grep -o '"GITHUB_ISSUE_NUMBER":"[^"]*"' | cut -d'"' -f4)
-  elif echo "$0" | grep -q '\[webhook:'; then
-    ISSUE_NUMBER=$(echo "$0" | sed -n 's/.*\[webhook: \(.*\)\].*/\1/p' | grep -o '"GITHUB_ISSUE_NUMBER":"[^"]*"' | cut -d'"' -f4)
-  fi
 
-  if [ -z "$ISSUE_NUMBER" ]; then
-    echo "Error: No issue number found in event context. Falling back to most recent issue with needs-planning label."
-    # Fallback to original behavior if issue number is not available
-    curl -s -H "Authorization: token $GITHUB_TOKEN" \
-      "$GITHUB_API_URL/repos/bmbouter/alcove/issues?state=open&labels=needs-planning&sort=updated&direction=desc&per_page=1" \
-      | jq -r '.[0].number' > /tmp/issue_number.txt
-    ISSUE_NUMBER=$(cat /tmp/issue_number.txt)
-  fi
-
-  echo "Working on issue #$ISSUE_NUMBER"
-
-  # Fetch the specific issue
-  curl -s -H "Authorization: token $GITHUB_TOKEN" \
-    "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$ISSUE_NUMBER"
-
-  Read the issue title, body, and ALL comments thoroughly.
-
-  Also fetch all comments on the issue:
-    curl -s -H "Authorization: token $GITHUB_TOKEN" \
-      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$ISSUE_NUMBER/comments"
+  Read the issue title, body, and ALL comments thoroughly from the Event Context.
 
   ## Step 2: Form a team of specialist agents for multi-agent deliberation
 

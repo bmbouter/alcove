@@ -24,7 +24,9 @@ prompt: |
 
   First, determine the trigger type:
   - **Cron trigger**: Check for unreleased commits, exit early if none exist
-  - **Label trigger**: Proceed with release (human explicitly requested it)
+  - **Label trigger**: Proceed with release (human explicitly requested it).
+    For label-triggered runs, the "Event Context" section above (if present)
+    contains the issue details for the "immediate-release" labeled issue.
 
   Check if there are commits since the last release:
     LAST_TAG=$(git describe --tags --abbrev=0)
