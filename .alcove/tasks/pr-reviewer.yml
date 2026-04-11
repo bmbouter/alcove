@@ -73,16 +73,31 @@ prompt: |
     exit 0
   fi
 
-  ## Step 3: Request self as reviewer
+  ## Step 3: Request self as reviewer or assign
 
-  # Make the PR reviewer agent visible in GitHub UI by requesting alcove-bot as reviewer
-  cat > /tmp/reviewer.json << 'EOF'
-  {"reviewers":["alcove-bot"]}
-  EOF
-  curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d @/tmp/reviewer.json \
-    "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER/requested_reviewers" || true
+  # Check PR author to determine approach (needed early for visibility)
+  PR_AUTHOR=$(jq -r '.user.login' /tmp/pr.json)
+
+  # For self-authored PRs, assign instead of requesting review
+  # (GitHub blocks self-review requests with 422)
+  if [ "$PR_AUTHOR" = "alcove-bot" ]; then
+    cat > /tmp/assignee.json << 'EOF'
+    {"assignees":["alcove-bot"]}
+    EOF
+    curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d @/tmp/assignee.json \
+      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/assignees"
+  else
+    # For external PRs, request formal review (this works)
+    cat > /tmp/reviewer.json << 'EOF'
+    {"reviewers":["alcove-bot"]}
+    EOF
+    curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d @/tmp/reviewer.json \
+      "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER/requested_reviewers"
+  fi
 
   ## Step 4: Check revision count
 
@@ -142,7 +157,7 @@ prompt: |
   ## Step 6: Check PR author and review approach
 
   # Determine if this is a self-authored PR (alcove-bot authored)
-  PR_AUTHOR=$(jq -r '.user.login' /tmp/pr.json)
+  # Note: PR_AUTHOR was already determined in Step 3
   echo "PR authored by: $PR_AUTHOR"
 
   IS_SELF_AUTHORED="false"
