@@ -23,7 +23,7 @@ LABEL org.opencontainers.image.title="alcove-skiff-base" \
       org.opencontainers.image.vendor="Alcove" \
       org.opencontainers.image.licenses="Apache-2.0"
 
-# Install system packages: git, python3, and basic dev tools
+# Install system packages: git, python3, basic dev tools, and Chromium for Puppeteer
 RUN dnf install -y \
         git \
         python3 \
@@ -36,6 +36,7 @@ RUN dnf install -y \
         which \
         tar \
         gzip \
+        chromium \
     && dnf clean all
 
 # Install Go for local build/test validation
@@ -62,6 +63,14 @@ RUN curl -sL "https://gitlab.com/gitlab-org/cli/-/releases/permalink/latest/down
 
 # Install Claude Code CLI via npm
 RUN npm install -g @anthropic-ai/claude-code
+
+# Install Puppeteer for wireframe screenshot generation
+RUN npm install -g puppeteer && \
+    npm cache clean --force
+
+# Configure Puppeteer to use system Chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Install uv and lola as root, then make accessible to all users.
 # Lola requires Python >= 3.13; uv manages its own Python runtime.
