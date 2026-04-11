@@ -40,6 +40,10 @@ type RHIdentity struct {
 		User *struct {
 			Username string `json:"username"`
 		} `json:"user,omitempty"`
+		Registry *struct {
+			OrgID    string `json:"org_id"`
+			Username string `json:"username"`
+		} `json:"registry,omitempty"`
 		OrgID string `json:"org_id,omitempty"`
 	} `json:"identity"`
 }
@@ -73,11 +77,8 @@ func ParseRHIdentity(headerValue string) (*RHIdentity, error) {
 		return nil, fmt.Errorf("unmarshaling identity: %w", err)
 	}
 
-	// Log raw header and decoded identity type for debugging
+	// Log decoded identity type for debugging
 	log.Printf("rh-identity: parsed header type=%s auth_type=%s", id.Identity.Type, id.Identity.AuthType)
-	if id.Identity.Type == "Registry" {
-		log.Printf("rh-identity: registry identity raw payload: %s", string(decoded))
-	}
 
 	// Validate SAML Associate identity
 	if id.Identity.Associate != nil {
@@ -100,15 +101,32 @@ func ParseRHIdentity(headerValue string) (*RHIdentity, error) {
 		return &id, nil
 	}
 
-	return nil, fmt.Errorf("identity missing both associate and user fields")
+	// Validate Registry identity (TBR via Turnpike registry auth).
+	// Turnpike sends: {"identity": {"type": "Registry", "auth_type": "registry-auth", "registry": {"org_id": "...", "username": "..."}}}
+	if id.Identity.Registry != nil {
+		if id.Identity.Registry.OrgID == "" || id.Identity.Registry.Username == "" {
+			return nil, fmt.Errorf("missing org_id or username in Registry identity")
+		}
+		log.Printf("rh-identity: valid Registry identity org_id=%s username=%s", id.Identity.Registry.OrgID, id.Identity.Registry.Username)
+		return &id, nil
+	}
+
+	return nil, fmt.Errorf("identity missing associate, user, and registry fields")
 }
 
-// ExtractTBRIdentity extracts TBR identity information from RHIdentity if present
+// ExtractTBRIdentity extracts TBR identity information from RHIdentity if present.
+// Supports both User-type TBR identities and Registry-type identities from Turnpike.
 func ExtractTBRIdentity(id *RHIdentity) *TBRIdentity {
 	if id.Identity.User != nil && id.Identity.OrgID != "" && id.Identity.User.Username != "" {
 		return &TBRIdentity{
 			OrgID:    id.Identity.OrgID,
 			Username: id.Identity.User.Username,
+		}
+	}
+	if id.Identity.Registry != nil && id.Identity.Registry.OrgID != "" && id.Identity.Registry.Username != "" {
+		return &TBRIdentity{
+			OrgID:    id.Identity.Registry.OrgID,
+			Username: id.Identity.Registry.Username,
 		}
 	}
 	return nil
