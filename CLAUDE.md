@@ -13,7 +13,7 @@ a complete session transcript. No persistent state crosses task boundaries.
 | Name | Role | Binary | k8s Resource |
 |------|------|--------|-------------|
 | **Bridge** | Controller, REST API, dashboard, scheduler | `cmd/bridge` | Deployment |
-| **Skiff** | Ephemeral Claude Code worker | `cmd/skiff-init` | Job / `podman run --rm` |
+| **Skiff** | Ephemeral Claude Code worker | `cmd/skiff-init` | Job / `podman run --rm` / `docker run --rm` |
 | **Gate** | Auth proxy sidecar (token swap, LLM proxy, SCM proxy, scope enforcement) | `cmd/gate` | Sidecar in Skiff pod |
 | **Hail** | Message bus (NATS) | external | Deployment |
 | **Ledger** | Session store (PostgreSQL) | external | Deployment + PVC |
@@ -28,7 +28,7 @@ Bridge → Hail (NATS) → Skiff Pod [skiff container + gate sidecar] → Gate �
 - Skiff pods are ephemeral: one task, one container, then destroyed
 - Gate is a sidecar (shares network namespace with Skiff)
 - Gate proxies ALL external traffic including LLM API calls (Skiff has no real credentials)
-- NetworkPolicy enforces this on OpenShift; dual-network isolation (`--internal` flag) on podman
+- NetworkPolicy enforces this on OpenShift; dual-network isolation (`--internal` flag) on podman; no network isolation on Docker (see Key Decisions)
 
 ## Design Documents
 
@@ -61,12 +61,18 @@ make dev-up                   # Start full environment (Bridge + NATS + PostgreS
 make dev-down                 # Stop everything
 make dev-reset                # Stop + remove volumes
 
-# Run Bridge locally (after make dev-infra)
+# Run Bridge locally with Podman (after make dev-infra)
 LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
 HAIL_URL="nats://localhost:4222" \
 RUNTIME=podman \
 ALCOVE_NETWORK="alcove-internal" \
 ALCOVE_EXTERNAL_NETWORK="alcove-external" \
+./bin/bridge
+
+# Run Bridge locally with Docker (after infrastructure setup)
+LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
+HAIL_URL="nats://localhost:4222" \
+RUNTIME=docker \
 ./bin/bridge
 ```
 
@@ -88,7 +94,7 @@ ALCOVE_EXTERNAL_NETWORK="alcove-external" \
 - **Fresh git clone per task** — `git clone --depth=1`, no persistent volumes
 - **NATS for messaging** — status updates and cancellation only (task config via env vars)
 - **PostgreSQL only** for Ledger (no S3 in Phase 1)
-- **Podman + k8s** dual runtime via `Runtime` interface in `internal/runtime/`
+- **Podman, Docker + k8s** triple runtime via `Runtime` interface in `internal/runtime/` — Docker is for environments where Podman is unavailable (e.g., NAS devices, some CI systems); network isolation is reduced with Docker (no `--internal` flag support), so Skiff containers can reach the internet directly; credential security is maintained (dummy tokens, Gate injection), but adversarial prompt injection could bypass Gate; acceptable for personal/trusted deployments, use Podman or Kubernetes for production/shared deployments
 - **Credential management via Bridge** — Bridge pre-fetches OAuth2 tokens, Gate receives only short-lived tokens
 - **Three auth backends** — `AUTH_BACKEND=memory` (default), `postgres`, or `rh-identity` (trusted `X-RH-Identity` header from Red Hat Turnpike, JIT user provisioning, no passwords)
 - **SCM and tool APIs proxied through Gate** — `/github/`, `/gitlab/`, and `/jira/` endpoints with dummy tokens, operation-level scope enforcement, real credentials never enter Skiff
