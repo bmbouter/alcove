@@ -5108,12 +5108,65 @@
         }
     }
 
+    function parseGoDuration(durationStr) {
+        // Parse Go duration strings like "7m15.54144s", "2m21.385475s", "13m46.715466s"
+        // Returns total seconds as integer
+        if (!durationStr || typeof durationStr !== 'string') {
+            return 0;
+        }
+
+        let totalSeconds = 0;
+
+        // Extract hours (e.g., "1h23m45s" -> 1)
+        const hoursMatch = durationStr.match(/(\d+(?:\.\d+)?)h/);
+        if (hoursMatch) {
+            totalSeconds += parseFloat(hoursMatch[1]) * 3600;
+        }
+
+        // Extract minutes (e.g., "7m15.54144s" -> 7)
+        // Use word boundary to avoid matching "ms"
+        const minutesMatch = durationStr.match(/(\d+(?:\.\d+)?)m(?!s)/);
+        if (minutesMatch) {
+            totalSeconds += parseFloat(minutesMatch[1]) * 60;
+        }
+
+        // Extract seconds (e.g., "7m15.54144s" -> 15.54144)
+        // Make sure we don't match "ms" or "µs"/"us" or "ns"
+        const secondsMatch = durationStr.match(/(\d+(?:\.\d+)?)s(?![aeiou])/);
+        if (secondsMatch) {
+            totalSeconds += parseFloat(secondsMatch[1]);
+        }
+
+        // Extract milliseconds (e.g., "500ms")
+        const msMatch = durationStr.match(/(\d+(?:\.\d+)?)ms/);
+        if (msMatch) {
+            totalSeconds += parseFloat(msMatch[1]) / 1000;
+        }
+
+        // Extract microseconds (e.g., "500µs" or "500us")
+        const usMatch = durationStr.match(/(\d+(?:\.\d+)?)[µu]s/);
+        if (usMatch) {
+            totalSeconds += parseFloat(usMatch[1]) / 1000000;
+        }
+
+        // Extract nanoseconds (e.g., "500ns")
+        const nsMatch = durationStr.match(/(\d+(?:\.\d+)?)ns/);
+        if (nsMatch) {
+            totalSeconds += parseFloat(nsMatch[1]) / 1000000000;
+        }
+
+        // Round to whole seconds as requested
+        return Math.round(totalSeconds);
+    }
+
     function formatDuration(startedAt, finishedAt, durationField) {
         if (durationField) {
             if (typeof durationField === 'number') {
                 return humanDuration(durationField);
             }
-            return String(durationField);
+            // Parse Go duration string (e.g., "7m15.54144s" -> seconds)
+            const seconds = parseGoDuration(String(durationField));
+            return humanDuration(seconds);
         }
         if (!startedAt) return '-';
         const start = new Date(startedAt);
@@ -5125,12 +5178,22 @@
     }
 
     function humanDuration(seconds) {
+        // Handle edge cases
+        if (seconds < 1) return '<1s';
         if (seconds < 60) return seconds + 's';
+
         const m = Math.floor(seconds / 60);
         const s = seconds % 60;
-        if (m < 60) return m + 'm ' + s + 's';
+
+        if (m < 60) {
+            // Format as "7m 16s" with space between units
+            return m + 'm ' + s + 's';
+        }
+
         const h = Math.floor(m / 60);
         const rm = m % 60;
+
+        // For durations over 1 hour: show "1h 23m" (drop seconds)
         return h + 'h ' + rm + 'm';
     }
 
