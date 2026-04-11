@@ -27,6 +27,9 @@ parameters:
   value: ""
 - name: NAMESPACE
   value: ${NAMESPACE}
+- name: CREATE_ROUTE
+  description: Whether to create an OpenShift Route for alcove-bridge
+  value: "true"
 objects:
 
 # --- ServiceAccount ---
@@ -262,6 +265,26 @@ objects:
       targetPort: 4222
       protocol: TCP
       name: nats
+
+# --- Route ---
+- apiVersion: route.openshift.io/v1
+  kind: Route
+  metadata:
+    name: alcove-bridge
+    labels:
+      app.kubernetes.io/name: bridge
+      app.kubernetes.io/part-of: alcove
+  spec:
+    port:
+      targetPort: 8080
+    to:
+      kind: Service
+      name: alcove-bridge
+      weight: 100
+    tls:
+      termination: edge
+      insecureEdgeTerminationPolicy: Redirect
+  condition: ${CREATE_ROUTE}
 
 # --- NetworkPolicies ---
 # All policies are scoped to Alcove pods only (app.kubernetes.io/part-of: alcove)
