@@ -58,6 +58,35 @@ alcove --help
 | `-u, --username <user>` | Username for Basic Auth (overrides `ALCOVE_USERNAME`) |
 | `-p, --password <pass>` | Password for Basic Auth (overrides `ALCOVE_PASSWORD`) |
 
+### Authentication Methods
+
+The CLI supports two authentication methods:
+
+1. **Token-based authentication** (default): Authenticates with stored token from `alcove login`
+2. **Basic Auth**: Uses username/password (set via flags, environment variables, or config file)
+
+Basic Auth takes precedence over token-based authentication when provided.
+
+## Environment Variables
+
+The Alcove CLI respects several environment variables for configuration:
+
+| Variable | Description |
+|----------|-------------|
+| `ALCOVE_SERVER` | Bridge server URL |
+| `ALCOVE_OUTPUT` | Output format: `json` or `table` |
+| `ALCOVE_USERNAME` | Username for Basic Auth |
+| `ALCOVE_PASSWORD` | Password for Basic Auth |
+| `HTTP_PROXY` | HTTP proxy URL for API requests |
+| `HTTPS_PROXY` | HTTPS proxy URL for API requests (takes precedence) |
+| `NO_PROXY` | Comma-separated list of hosts to exclude from proxy |
+| `http_proxy` | Alternative lowercase version of `HTTP_PROXY` |
+| `https_proxy` | Alternative lowercase version of `HTTPS_PROXY` |
+| `no_proxy` | Alternative lowercase version of `NO_PROXY` |
+| `XDG_CONFIG_HOME` | Override for config directory (default: `~/.config`) |
+
+---
+
 ## Proxy Configuration
 
 The Alcove CLI supports HTTP and HTTPS proxies for connecting to Bridge instances
@@ -78,7 +107,7 @@ supports both environment variables and command-line flags.
 ### Configuration Precedence
 
 1. CLI flags (`--proxy-url`, `--no-proxy`) -- highest priority
-2. Environment variables (`HTTPS_PROXY`/`HTTP_PROXY`, `NO_PROXY`)
+2. Environment variables (`HTTPS_PROXY`/`https_proxy`, `HTTP_PROXY`/`http_proxy`, `NO_PROXY`/`no_proxy`)
 3. Config file (`~/.config/alcove/config.yaml`)
 4. No proxy (default)
 
@@ -131,6 +160,8 @@ alcove login https://alcove.internal.company.com
 - **Certificate issues**: Corporate proxies may require custom CA certificates
 - **Scope violations**: Use `--no-proxy` to exclude internal Bridge instances
 - **Debugging**: Check proxy logs and use `alcove config validate` to verify configuration
+- **Timeouts**: The CLI uses a 30-second timeout for all HTTP requests
+- **SSL/TLS**: For HTTPS servers with custom certificates, ensure the system's certificate store is configured correctly
 
 ## Server Resolution
 
@@ -141,6 +172,32 @@ The CLI resolves the Bridge server URL using the following precedence:
 3. Config file at `~/.config/alcove/config.yaml` (set by `alcove login`)
 
 If none are configured, commands that contact the Bridge will fail with an error.
+
+## Output Formatting
+
+The Alcove CLI supports two output formats:
+
+- **table** (default): Human-readable tabular format
+- **json**: Machine-readable JSON format for scripting
+
+Output format can be controlled via:
+1. `--output` flag (highest priority)
+2. `ALCOVE_OUTPUT` environment variable
+3. Config file `output` setting
+4. Default: `table`
+
+### JSON Output Examples
+
+```bash
+# Get session ID from run command for scripting
+SESSION_ID=$(alcove run --output json "Fix the bug" | jq -r '.id')
+
+# Filter sessions programmatically
+alcove list --output json | jq '.sessions[] | select(.status == "completed")'
+
+# Get version information
+alcove version --output json | jq -r '.version'
+```
 
 ## Configuration File
 
@@ -319,6 +376,11 @@ alcove logs --proxy abc123
 
 # Show only denied requests (scope violations)
 alcove logs --proxy --denied abc123
+
+# Stream both transcript and follow a running session
+alcove logs -f abc123
+
+# For large buffer sizes with SSE streaming, the CLI handles up to 1MB message buffers
 ```
 
 ---
@@ -422,6 +484,10 @@ the server URL and authentication token locally. Configuration is stored in
 - `credentials` -- authentication token
 
 Both files are created with `0600` permissions.
+
+**Note**: The `login` command cannot be used with Basic Auth flags (`--username`/`--password`) or 
+environment variables (`ALCOVE_USERNAME`/`ALCOVE_PASSWORD`) as it creates a token-based 
+authentication session. Use either token-based auth (via `login`) or Basic Auth, but not both.
 
 ### Examples
 

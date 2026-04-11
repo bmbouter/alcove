@@ -113,7 +113,7 @@ alcove run "Fix the bug in the login function"
 # List recent sessions
 alcove list --since 24h
 
-# Follow logs in real-time
+# Stream logs in real-time
 alcove logs <session-id> --follow
 ```
 

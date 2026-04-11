@@ -163,6 +163,7 @@ If downloads fail:
 2. **Certificate issues**: Try adding `-k` flag to curl: `curl -fsSLk ...`
 3. **Rate limiting**: Wait a few minutes and try again
 4. **Manual download**: Download directly from the GitHub releases page in a browser
+5. **Proxy settings**: The install script respects `HTTP_PROXY`/`HTTPS_PROXY` environment variables
 
 ### Checksum Verification Failures
 
@@ -171,6 +172,7 @@ If checksum verification fails:
 1. **Corrupted download**: Try downloading again
 2. **Wrong binary**: Ensure you downloaded the correct platform binary
 3. **Manual verification**: Download the checksums file and verify manually
+4. **Platform detection**: The install script auto-detects your platform, but you can manually specify the binary name if needed
 
 ## Using the CLI
 
@@ -270,4 +272,13 @@ cd alcove
 make build-cli-all
 ```
 
-This will create binaries for all platforms in the `dist/` directory.
+This will create binaries for all platforms (Linux, macOS, Windows, AMD64/ARM64) 
+in the `dist/` directory along with SHA256 checksums.
+
+For development, you can build just the current platform:
+
+```bash
+make build
+```
+
+This creates binaries in the `bin/` directory for the current platform only.
