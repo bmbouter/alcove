@@ -359,6 +359,66 @@ func TestIsTBRIdentity(t *testing.T) {
 	}
 }
 
+// --- Registry Identity Tests ---
+
+func makeRegistryIdentityHeader(orgID, username string) string {
+	identity := map[string]interface{}{
+		"identity": map[string]interface{}{
+			"type":      "Registry",
+			"auth_type": "registry-auth",
+			"registry": map[string]interface{}{
+				"org_id":   orgID,
+				"username": username,
+			},
+		},
+	}
+	data, _ := json.Marshal(identity)
+	return base64.StdEncoding.EncodeToString(data)
+}
+
+func TestParseRHIdentity_ValidRegistry(t *testing.T) {
+	header := makeRegistryIdentityHeader("13409664", "alcove-dev")
+	id, err := ParseRHIdentity(header)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if id.Identity.Type != "Registry" {
+		t.Errorf("expected type Registry, got %q", id.Identity.Type)
+	}
+	if id.Identity.Registry == nil {
+		t.Fatal("expected non-nil Registry field")
+	}
+	if id.Identity.Registry.OrgID != "13409664" {
+		t.Errorf("expected org_id 13409664, got %q", id.Identity.Registry.OrgID)
+	}
+	if id.Identity.Registry.Username != "alcove-dev" {
+		t.Errorf("expected username alcove-dev, got %q", id.Identity.Registry.Username)
+	}
+}
+
+func TestExtractTBRIdentity_FromRegistry(t *testing.T) {
+	header := makeRegistryIdentityHeader("13409664", "alcove-dev")
+	id, _ := ParseRHIdentity(header)
+	tbr := ExtractTBRIdentity(id)
+	if tbr == nil {
+		t.Fatal("expected non-nil TBRIdentity from Registry identity")
+	}
+	if tbr.OrgID != "13409664" {
+		t.Errorf("expected org_id 13409664, got %q", tbr.OrgID)
+	}
+	if tbr.Username != "alcove-dev" {
+		t.Errorf("expected username alcove-dev, got %q", tbr.Username)
+	}
+}
+
+func TestIsTBRIdentity_Registry(t *testing.T) {
+	header := makeRegistryIdentityHeader("13409664", "alcove-dev")
+	id, _ := ParseRHIdentity(header)
+	if !IsTBRIdentity(id) {
+		t.Error("expected true for Registry identity")
+	}
+}
+
 // --- RHIdentityStore interface compliance ---
 
 func TestRHIdentityStore_Authenticate_ReturnsError(t *testing.T) {
