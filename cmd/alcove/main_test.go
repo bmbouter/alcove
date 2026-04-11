@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -221,4 +223,331 @@ func TestResolveProxyConfig(t *testing.T) {
 			t.Errorf("NoProxy = %v, expected empty slice", config.NoProxy)
 		}
 	})
+}
+func setupConfigDir(t *testing.T) string {
+	t.Helper()
+	tmpDir := t.TempDir()
+	alcoveDir := filepath.Join(tmpDir, "alcove")
+	if err := os.MkdirAll(alcoveDir, 0700); err != nil {
+		t.Fatalf("creating alcove config dir: %v", err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+	return alcoveDir
+}
+
+func TestLoadConfigWithDefaults(t *testing.T) {
+	alcoveDir := setupConfigDir(t)
+
+	configYAML := `server: https://alcove.example.com
+output: table
+username: myuser
+password: mypass
+proxy_url: http://proxy:3128
+no_proxy: localhost,127.0.0.1
+defaults:
+  repo: https://github.com/org/repo.git
+  provider: google-vertex
+  model: claude-sonnet-4-20250514
+  timeout: 30m
+  budget: 5.00
+`
+	if err := os.WriteFile(filepath.Join(alcoveDir, "config.yaml"), []byte(configYAML), 0600); err != nil {
+		t.Fatalf("writing config file: %v", err)
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if cfg.Server != "https://alcove.example.com" {
+		t.Errorf("expected server %q, got %q", "https://alcove.example.com", cfg.Server)
+	}
+	if cfg.Output != "table" {
+		t.Errorf("expected output %q, got %q", "table", cfg.Output)
+	}
+	if cfg.Username != "myuser" {
+		t.Errorf("expected username %q, got %q", "myuser", cfg.Username)
+	}
+	if cfg.Password != "mypass" {
+		t.Errorf("expected password %q, got %q", "mypass", cfg.Password)
+	}
+	if cfg.ProxyURL != "http://proxy:3128" {
+		t.Errorf("expected proxy_url %q, got %q", "http://proxy:3128", cfg.ProxyURL)
+	}
+	if cfg.NoProxy != "localhost,127.0.0.1" {
+		t.Errorf("expected no_proxy %q, got %q", "localhost,127.0.0.1", cfg.NoProxy)
+	}
+	if cfg.Defaults.Repo != "https://github.com/org/repo.git" {
+		t.Errorf("expected defaults.repo %q, got %q", "https://github.com/org/repo.git", cfg.Defaults.Repo)
+	}
+	if cfg.Defaults.Provider != "google-vertex" {
+		t.Errorf("expected defaults.provider %q, got %q", "google-vertex", cfg.Defaults.Provider)
+	}
+	if cfg.Defaults.Model != "claude-sonnet-4-20250514" {
+		t.Errorf("expected defaults.model %q, got %q", "claude-sonnet-4-20250514", cfg.Defaults.Model)
+	}
+	if cfg.Defaults.Timeout != "30m" {
+		t.Errorf("expected defaults.timeout %q, got %q", "30m", cfg.Defaults.Timeout)
+	}
+	if cfg.Defaults.Budget != 5.00 {
+		t.Errorf("expected defaults.budget %v, got %v", 5.00, cfg.Defaults.Budget)
+	}
+}
+
+func TestLoadConfigPartial(t *testing.T) {
+	alcoveDir := setupConfigDir(t)
+
+	configYAML := `server: https://partial.example.com
+defaults:
+  repo: https://github.com/org/repo.git
+`
+	if err := os.WriteFile(filepath.Join(alcoveDir, "config.yaml"), []byte(configYAML), 0600); err != nil {
+		t.Fatalf("writing config file: %v", err)
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if cfg.Server != "https://partial.example.com" {
+		t.Errorf("expected server %q, got %q", "https://partial.example.com", cfg.Server)
+	}
+	if cfg.Defaults.Repo != "https://github.com/org/repo.git" {
+		t.Errorf("expected defaults.repo %q, got %q", "https://github.com/org/repo.git", cfg.Defaults.Repo)
+	}
+
+	// All other fields should be zero values
+	if cfg.Output != "" {
+		t.Errorf("expected output to be empty, got %q", cfg.Output)
+	}
+	if cfg.Username != "" {
+		t.Errorf("expected username to be empty, got %q", cfg.Username)
+	}
+	if cfg.Password != "" {
+		t.Errorf("expected password to be empty, got %q", cfg.Password)
+	}
+	if cfg.ProxyURL != "" {
+		t.Errorf("expected proxy_url to be empty, got %q", cfg.ProxyURL)
+	}
+	if cfg.NoProxy != "" {
+		t.Errorf("expected no_proxy to be empty, got %q", cfg.NoProxy)
+	}
+	if cfg.Defaults.Provider != "" {
+		t.Errorf("expected defaults.provider to be empty, got %q", cfg.Defaults.Provider)
+	}
+	if cfg.Defaults.Model != "" {
+		t.Errorf("expected defaults.model to be empty, got %q", cfg.Defaults.Model)
+	}
+	if cfg.Defaults.Timeout != "" {
+		t.Errorf("expected defaults.timeout to be empty, got %q", cfg.Defaults.Timeout)
+	}
+	if cfg.Defaults.Budget != 0 {
+		t.Errorf("expected defaults.budget to be 0, got %v", cfg.Defaults.Budget)
+	}
+}
+
+func TestLoadConfigEmpty(t *testing.T) {
+	alcoveDir := setupConfigDir(t)
+
+	if err := os.WriteFile(filepath.Join(alcoveDir, "config.yaml"), []byte(""), 0600); err != nil {
+		t.Fatalf("writing config file: %v", err)
+	}
+
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if cfg.Server != "" {
+		t.Errorf("expected server to be empty, got %q", cfg.Server)
+	}
+	if cfg.Output != "" {
+		t.Errorf("expected output to be empty, got %q", cfg.Output)
+	}
+	if cfg.Username != "" {
+		t.Errorf("expected username to be empty, got %q", cfg.Username)
+	}
+	if cfg.Password != "" {
+		t.Errorf("expected password to be empty, got %q", cfg.Password)
+	}
+	if cfg.ProxyURL != "" {
+		t.Errorf("expected proxy_url to be empty, got %q", cfg.ProxyURL)
+	}
+	if cfg.NoProxy != "" {
+		t.Errorf("expected no_proxy to be empty, got %q", cfg.NoProxy)
+	}
+	if cfg.Defaults.Repo != "" {
+		t.Errorf("expected defaults.repo to be empty, got %q", cfg.Defaults.Repo)
+	}
+	if cfg.Defaults.Provider != "" {
+		t.Errorf("expected defaults.provider to be empty, got %q", cfg.Defaults.Provider)
+	}
+	if cfg.Defaults.Model != "" {
+		t.Errorf("expected defaults.model to be empty, got %q", cfg.Defaults.Model)
+	}
+	if cfg.Defaults.Timeout != "" {
+		t.Errorf("expected defaults.timeout to be empty, got %q", cfg.Defaults.Timeout)
+	}
+	if cfg.Defaults.Budget != 0 {
+		t.Errorf("expected defaults.budget to be 0, got %v", cfg.Defaults.Budget)
+	}
+}
+
+func TestSaveAndLoadConfig(t *testing.T) {
+	setupConfigDir(t)
+
+	original := &CLIConfig{
+		Server:   "https://save-test.example.com",
+		Output:   "json",
+		Username: "testuser",
+		Password: "testpass",
+		ProxyURL: "http://proxy:8080",
+		NoProxy:  "localhost,10.0.0.0/8",
+	}
+	original.Defaults.Repo = "https://github.com/test/repo.git"
+	original.Defaults.Provider = "google-vertex"
+	original.Defaults.Model = "claude-sonnet-4-20250514"
+	original.Defaults.Timeout = "1h"
+	original.Defaults.Budget = 10.50
+
+	if err := saveConfig(original); err != nil {
+		t.Fatalf("saveConfig error: %v", err)
+	}
+
+	loaded, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig error: %v", err)
+	}
+
+	if loaded.Server != original.Server {
+		t.Errorf("server: got %q, want %q", loaded.Server, original.Server)
+	}
+	if loaded.Output != original.Output {
+		t.Errorf("output: got %q, want %q", loaded.Output, original.Output)
+	}
+	if loaded.Username != original.Username {
+		t.Errorf("username: got %q, want %q", loaded.Username, original.Username)
+	}
+	if loaded.Password != original.Password {
+		t.Errorf("password: got %q, want %q", loaded.Password, original.Password)
+	}
+	if loaded.ProxyURL != original.ProxyURL {
+		t.Errorf("proxy_url: got %q, want %q", loaded.ProxyURL, original.ProxyURL)
+	}
+	if loaded.NoProxy != original.NoProxy {
+		t.Errorf("no_proxy: got %q, want %q", loaded.NoProxy, original.NoProxy)
+	}
+	if loaded.Defaults.Repo != original.Defaults.Repo {
+		t.Errorf("defaults.repo: got %q, want %q", loaded.Defaults.Repo, original.Defaults.Repo)
+	}
+	if loaded.Defaults.Provider != original.Defaults.Provider {
+		t.Errorf("defaults.provider: got %q, want %q", loaded.Defaults.Provider, original.Defaults.Provider)
+	}
+	if loaded.Defaults.Model != original.Defaults.Model {
+		t.Errorf("defaults.model: got %q, want %q", loaded.Defaults.Model, original.Defaults.Model)
+	}
+	if loaded.Defaults.Timeout != original.Defaults.Timeout {
+		t.Errorf("defaults.timeout: got %q, want %q", loaded.Defaults.Timeout, original.Defaults.Timeout)
+	}
+	if loaded.Defaults.Budget != original.Defaults.Budget {
+		t.Errorf("defaults.budget: got %v, want %v", loaded.Defaults.Budget, original.Defaults.Budget)
+	}
+}
+
+func TestConfigPriorityFlagsOverrideConfig(t *testing.T) {
+	alcoveDir := setupConfigDir(t)
+
+	// Write config with a server value
+	configYAML := `server: https://config-server.example.com
+`
+	if err := os.WriteFile(filepath.Join(alcoveDir, "config.yaml"), []byte(configYAML), 0600); err != nil {
+		t.Fatalf("writing config file: %v", err)
+	}
+
+	// Clear env to avoid interference
+	t.Setenv("ALCOVE_SERVER", "")
+
+	// Create a command with the server flag set
+	cmd := &cobra.Command{}
+	cmd.PersistentFlags().String("server", "", "")
+	cmd.PersistentFlags().String("output", "", "")
+	cmd.PersistentFlags().StringP("username", "u", "", "")
+	cmd.PersistentFlags().StringP("password", "p", "", "")
+	cmd.PersistentFlags().String("proxy-url", "", "")
+	cmd.PersistentFlags().String("no-proxy", "", "")
+	cmd.ParseFlags([]string{"--server", "https://flag-server.example.com"})
+
+	// resolveServer should pick up the flag value, not the config file value
+	server, err := resolveServer(cmd)
+	if err != nil {
+		t.Fatalf("resolveServer error: %v", err)
+	}
+	if server != "https://flag-server.example.com" {
+		t.Errorf("expected flag server %q, got %q", "https://flag-server.example.com", server)
+	}
+}
+
+func TestConfigPriorityEnvOverrideConfig(t *testing.T) {
+	alcoveDir := setupConfigDir(t)
+
+	// Write config with a server value
+	configYAML := `server: https://config-server.example.com
+`
+	if err := os.WriteFile(filepath.Join(alcoveDir, "config.yaml"), []byte(configYAML), 0600); err != nil {
+		t.Fatalf("writing config file: %v", err)
+	}
+
+	// Set env var to override
+	t.Setenv("ALCOVE_SERVER", "https://env-server.example.com")
+
+	// Create a command with no flags set
+	cmd := &cobra.Command{}
+	cmd.PersistentFlags().String("server", "", "")
+	cmd.PersistentFlags().String("output", "", "")
+	cmd.PersistentFlags().StringP("username", "u", "", "")
+	cmd.PersistentFlags().StringP("password", "p", "", "")
+	cmd.PersistentFlags().String("proxy-url", "", "")
+	cmd.PersistentFlags().String("no-proxy", "", "")
+
+	// resolveServer should pick up the env var, not the config file value
+	server, err := resolveServer(cmd)
+	if err != nil {
+		t.Fatalf("resolveServer error: %v", err)
+	}
+	if server != "https://env-server.example.com" {
+		t.Errorf("expected env server %q, got %q", "https://env-server.example.com", server)
+	}
+}
+
+
+
+func TestLoadConfigNoFile(t *testing.T) {
+	setupConfigDir(t)
+
+	// Don't create any config file
+	_, err := loadConfig()
+	if err == nil {
+		t.Error("expected error when config file does not exist, got nil")
+	}
+}
+
+func TestSaveConfigCreatesDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Point to a subdir that doesn't exist yet (alcove dir not pre-created)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmpDir, "nested", "dir"))
+
+	cfg := &CLIConfig{Server: "https://test.example.com"}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatalf("saveConfig error: %v", err)
+	}
+
+	loaded, err := loadConfig()
+	if err != nil {
+		t.Fatalf("loadConfig error after save: %v", err)
+	}
+	if loaded.Server != "https://test.example.com" {
+		t.Errorf("server: got %q, want %q", loaded.Server, "https://test.example.com")
+	}
 }

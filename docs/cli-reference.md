@@ -77,9 +77,10 @@ supports both environment variables and command-line flags.
 
 ### Configuration Precedence
 
-1. CLI flags (`--proxy-url`, `--no-proxy`) — highest priority
+1. CLI flags (`--proxy-url`, `--no-proxy`) -- highest priority
 2. Environment variables (`HTTPS_PROXY`/`HTTP_PROXY`, `NO_PROXY`)
-3. No proxy (default)
+3. Config file (`~/.config/alcove/config.yaml`)
+4. No proxy (default)
 
 ### Proxy URL Format
 
@@ -140,6 +141,52 @@ The CLI resolves the Bridge server URL using the following precedence:
 3. Config file at `~/.config/alcove/config.yaml` (set by `alcove login`)
 
 If none are configured, commands that contact the Bridge will fail with an error.
+
+## Configuration File
+
+Alcove CLI reads configuration from `~/.config/alcove/config.yaml` (or
+`$XDG_CONFIG_HOME/alcove/config.yaml`). Settings in the config file are used as
+defaults when flags and environment variables are not set.
+
+### Example config.yaml
+
+```yaml
+server: https://alcove.example.com
+output: table
+username: myuser
+password: mypassword
+proxy_url: http://proxy.example.com:8080
+no_proxy: localhost,127.0.0.1,.internal.com
+defaults:
+  repo: https://github.com/myorg/myrepo.git
+  provider: google-vertex
+  model: claude-sonnet-4-20250514
+  timeout: 30m
+  budget: 5.00
+```
+
+### Priority Order (highest to lowest)
+
+1. CLI flags (e.g., `--server`, `--repo`)
+2. Environment variables (e.g., `ALCOVE_SERVER`, `ALCOVE_OUTPUT`)
+3. Config file (`~/.config/alcove/config.yaml`)
+4. Built-in defaults
+
+### Managing Configuration
+
+```bash
+# Show current configuration
+alcove config show
+
+# Set individual values
+alcove config set server https://alcove.example.com
+alcove config set defaults.repo https://github.com/myorg/myrepo.git
+alcove config set defaults.timeout 30m
+alcove config set defaults.budget 5.00
+
+# Validate configuration
+alcove config validate
+```
 
 ---
 
@@ -384,6 +431,94 @@ alcove login https://alcove.example.com
 
 # Log in to a local development Bridge
 alcove login http://localhost:8080
+```
+
+---
+
+## alcove config show
+
+Show the current configuration file contents.
+
+```
+alcove config show
+```
+
+### Flags
+
+No command-specific flags.
+
+### Description
+
+Displays the parsed contents of the config file at `~/.config/alcove/config.yaml`.
+If no config file exists, prints a message to stderr indicating the expected path.
+
+### Examples
+
+```bash
+# Show current config
+alcove config show
+```
+
+Sample output:
+
+```yaml
+server: https://alcove.example.com
+output: table
+defaults:
+  repo: https://github.com/myorg/myrepo.git
+  provider: google-vertex
+  timeout: 30m
+  budget: 5
+```
+
+---
+
+## alcove config set
+
+Set a configuration value.
+
+```
+alcove config set <key> <value>
+```
+
+### Flags
+
+No command-specific flags.
+
+### Description
+
+Sets a single configuration key in the config file. Creates the config file and
+directory if they don't exist. Valid keys:
+
+| Key | Description |
+|-----|-------------|
+| `server` | Bridge server URL |
+| `output` | Output format (`json` or `table`) |
+| `username` | Basic Auth username |
+| `password` | Basic Auth password |
+| `proxy_url` | HTTP/HTTPS proxy URL |
+| `no_proxy` | Comma-separated no-proxy hosts |
+| `defaults.repo` | Default repository |
+| `defaults.provider` | Default LLM provider |
+| `defaults.model` | Default model |
+| `defaults.timeout` | Default timeout (e.g., `30m`, `1h`) |
+| `defaults.budget` | Default budget in USD |
+
+### Examples
+
+```bash
+# Set the default server
+alcove config set server https://alcove.example.com
+
+# Set default repository and provider
+alcove config set defaults.repo https://github.com/myorg/myrepo.git
+alcove config set defaults.provider google-vertex
+
+# Set a budget limit
+alcove config set defaults.budget 5.00
+
+# Set a timeout
+alcove config set defaults.timeout 30m
 ```
 
 ---

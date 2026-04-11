@@ -27,6 +27,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -40,7 +41,19 @@ var Version = "dev"
 
 // CLIConfig holds the user-level CLI configuration.
 type CLIConfig struct {
-	Server string `yaml:"server"`
+	Server   string `yaml:"server"`
+	Output   string `yaml:"output,omitempty"`    // "json" or "table"
+	Username string `yaml:"username,omitempty"`  // Basic Auth username
+	Password string `yaml:"password,omitempty"`  // Basic Auth password
+	ProxyURL string `yaml:"proxy_url,omitempty"` // HTTP proxy
+	NoProxy  string `yaml:"no_proxy,omitempty"`  // Comma-separated no-proxy hosts
+	Defaults struct {
+		Repo     string  `yaml:"repo,omitempty"`     // Default repository
+		Provider string  `yaml:"provider,omitempty"` // Default LLM provider
+		Model    string  `yaml:"model,omitempty"`    // Default model
+		Timeout  string  `yaml:"timeout,omitempty"`  // Default timeout (e.g., "30m")
+		Budget   float64 `yaml:"budget,omitempty"`   // Default budget in USD
+	} `yaml:"defaults,omitempty"`
 }
 
 // ProxyConfig holds HTTP proxy configuration.
@@ -100,8 +113,8 @@ func resolveServer(cmd *cobra.Command) (string, error) {
 	return "", fmt.Errorf("no Bridge server configured; use --server, ALCOVE_SERVER, or 'alcove login'")
 }
 
-// resolveBasicAuth determines username/password from flags or environment variables.
-// Returns empty strings if not configured.
+// resolveBasicAuth determines username/password from flags, environment variables,
+// or config file. Returns empty strings if not configured.
 func resolveBasicAuth(cmd *cobra.Command) (string, string) {
 	// 1. Flags
 	username, _ := cmd.Flags().GetString("username")
@@ -113,6 +126,15 @@ func resolveBasicAuth(cmd *cobra.Command) (string, string) {
 	// 2. Environment variables
 	username = os.Getenv("ALCOVE_USERNAME")
 	password = os.Getenv("ALCOVE_PASSWORD")
+	if username != "" {
+		return username, password
+	}
+
+	// 3. Config file
+	if cfg, err := loadConfig(); err == nil {
+		username = cfg.Username
+		password = cfg.Password
+	}
 	return username, password
 }
 
@@ -160,6 +182,18 @@ func resolveProxyConfig(cmd *cobra.Command) (*ProxyConfig, error) {
 		}
 		if noProxy != "" {
 			config.NoProxy = parseNoProxy(noProxy)
+		}
+	}
+
+	// 3. Config file
+	if config.ProxyURL == "" {
+		if cfg, err := loadConfig(); err == nil && cfg.ProxyURL != "" {
+			if err := validateProxyURL(cfg.ProxyURL); err == nil {
+				config.ProxyURL = cfg.ProxyURL
+			}
+			if cfg.NoProxy != "" && len(config.NoProxy) == 0 {
+				config.NoProxy = parseNoProxy(cfg.NoProxy)
+			}
 		}
 	}
 
@@ -361,8 +395,16 @@ func outputJSON(v interface{}) error {
 }
 
 func isJSONOutput(cmd *cobra.Command) bool {
-	o, _ := cmd.Flags().GetString("output")
-	return strings.EqualFold(o, "json")
+	if f, _ := cmd.Flags().GetString("output"); f == "json" {
+		return true
+	}
+	if os.Getenv("ALCOVE_OUTPUT") == "json" {
+		return true
+	}
+	if cfg, err := loadConfig(); err == nil && cfg.Output == "json" {
+		return true
+	}
+	return false
 }
 
 // ---------- run ----------
@@ -412,6 +454,27 @@ func runRun(cmd *cobra.Command, args []string) error {
 		reqBody.Timeout = int(t.Seconds())
 	}
 	reqBody.Debug, _ = cmd.Flags().GetBool("debug")
+
+	// Fall back to config file defaults
+	if cfg, err := loadConfig(); err == nil {
+		if reqBody.Repo == "" {
+			reqBody.Repo = cfg.Defaults.Repo
+		}
+		if reqBody.Provider == "" {
+			reqBody.Provider = cfg.Defaults.Provider
+		}
+		if reqBody.Model == "" {
+			reqBody.Model = cfg.Defaults.Model
+		}
+		if reqBody.Budget == 0 && cfg.Defaults.Budget > 0 {
+			reqBody.Budget = cfg.Defaults.Budget
+		}
+		if reqBody.Timeout == 0 && cfg.Defaults.Timeout != "" {
+			if d, err := time.ParseDuration(cfg.Defaults.Timeout); err == nil {
+				reqBody.Timeout = int(d.Seconds())
+			}
+		}
+	}
 
 	resp, err := apiRequest(cmd, http.MethodPost, "/api/v1/tasks", reqBody)
 	if err != nil {
@@ -765,27 +828,42 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 
 	// Save config and credentials
-	dir := configDir()
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("creating config dir: %w", err)
+	cfg, _ := loadConfig()
+	if cfg == nil {
+		cfg = &CLIConfig{}
 	}
-
-	cfg := CLIConfig{Server: bridgeURL}
-	cfgData, _ := yaml.Marshal(cfg)
-	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), cfgData, 0600); err != nil {
+	cfg.Server = bridgeURL
+	if err := saveConfig(cfg); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}
 
+	dir := configDir()
 	if err := os.WriteFile(filepath.Join(dir, "credentials"), []byte(tokenResp.Token), 0600); err != nil {
 		return fmt.Errorf("saving credentials: %w", err)
 	}
 
 	fmt.Fprintf(os.Stderr, "Logged in to %s\n", bridgeURL)
-	fmt.Fprintf(os.Stderr, "Config saved to %s\n", filepath.Join(dir, "config.yaml"))
 	return nil
 }
 
 // ---------- config ----------
+
+func saveConfig(cfg *CLIConfig) error {
+	dir := configDir()
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("creating config dir: %w", err)
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshaling config: %w", err)
+	}
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return fmt.Errorf("writing config: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "Configuration saved to %s\n", path)
+	return nil
+}
 
 func newConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -796,6 +874,63 @@ func newConfigCmd() *cobra.Command {
 		Use:   "validate",
 		Short: "Validate the current configuration",
 		RunE:  runConfigValidate,
+	})
+	cmd.AddCommand(&cobra.Command{
+		Use:   "show",
+		Short: "Show current configuration",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := loadConfig()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "No config file found at %s\n", filepath.Join(configDir(), "config.yaml"))
+				return nil
+			}
+			data, _ := yaml.Marshal(cfg)
+			fmt.Print(string(data))
+			return nil
+		},
+	})
+	cmd.AddCommand(&cobra.Command{
+		Use:   "set <key> <value>",
+		Short: "Set a configuration value",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, _ := loadConfig()
+			if cfg == nil {
+				cfg = &CLIConfig{}
+			}
+			key, value := args[0], args[1]
+			switch key {
+			case "server":
+				cfg.Server = value
+			case "output":
+				cfg.Output = value
+			case "username":
+				cfg.Username = value
+			case "password":
+				cfg.Password = value
+			case "proxy_url":
+				cfg.ProxyURL = value
+			case "no_proxy":
+				cfg.NoProxy = value
+			case "defaults.repo":
+				cfg.Defaults.Repo = value
+			case "defaults.provider":
+				cfg.Defaults.Provider = value
+			case "defaults.model":
+				cfg.Defaults.Model = value
+			case "defaults.timeout":
+				cfg.Defaults.Timeout = value
+			case "defaults.budget":
+				if b, err := strconv.ParseFloat(value, 64); err == nil {
+					cfg.Defaults.Budget = b
+				} else {
+					return fmt.Errorf("invalid budget value: %s", value)
+				}
+			default:
+				return fmt.Errorf("unknown config key: %s\nValid keys: server, output, username, password, proxy_url, no_proxy, defaults.repo, defaults.provider, defaults.model, defaults.timeout, defaults.budget", key)
+			}
+			return saveConfig(cfg)
+		},
 	})
 	return cmd
 }
