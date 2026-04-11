@@ -330,11 +330,9 @@ func (m *CIGateMonitor) handleCIFailure(ctx context.Context, sessionID, repo str
 	}
 	json.Unmarshal(prData, &prInfo)
 
-	// Compose retry prompt using system LLM if available, otherwise use template.
-	retryPrompt := m.composeRetryPrompt(ctx, repo, prNumber, prInfo.Head.Ref, prInfo.Title, failureSummary.String(), retryCount+1, maxRetries)
-
-	// Look up original task definition for profiles, repo, provider, timeout.
+	// Look up original task definition for full prompt, profiles, repo, provider, timeout.
 	var taskReq TaskRequest
+	var originalPrompt string
 	if sourceKey != "" {
 		var parsedJSON []byte
 		_ = m.db.QueryRow(ctx,
@@ -344,12 +342,29 @@ func (m *CIGateMonitor) handleCIFailure(ctx context.Context, sessionID, repo str
 			var td TaskDefinition
 			if json.Unmarshal(parsedJSON, &td) == nil {
 				taskReq = td.ToTaskRequest()
+				originalPrompt = td.Prompt
 			}
 		}
 	}
 
-	// Override prompt with retry-specific one.
-	taskReq.Prompt = retryPrompt
+	// Fallback: recover key fields from the original session if task def lookup fails.
+	if taskReq.Repo == "" || originalPrompt == "" {
+		var origPrompt, origProvider string
+		_ = m.db.QueryRow(ctx,
+			`SELECT COALESCE(prompt, ''), COALESCE(provider, '') FROM sessions WHERE id = $1`,
+			originalSessionID,
+		).Scan(&origPrompt, &origProvider)
+		if taskReq.Provider == "" {
+			taskReq.Provider = origProvider
+		}
+		if originalPrompt == "" {
+			originalPrompt = origPrompt
+		}
+	}
+
+	// Compose the retry prompt: CI failure context + modified original prompt.
+	ciContext := m.composeCIFailureContext(ctx, repo, prNumber, prInfo.Head.Ref, prInfo.Title, failureSummary.String(), retryCount+1, maxRetries)
+	taskReq.Prompt = ciContext + "\n\n" + modifyPromptForRetry(originalPrompt, prInfo.Head.Ref, repo, prNumber)
 
 	// Dispatch retry task.
 	newSession, err := m.dispatcher.DispatchTask(ctx, taskReq, owner)
@@ -371,98 +386,68 @@ func (m *CIGateMonitor) handleCIFailure(ctx context.Context, sessionID, repo str
 		newSession.ID, repo, prNumber, retryCount+1, maxRetries, originalSessionID, sourceKey, owner)
 }
 
-// composeRetryPrompt uses the system LLM to create a targeted retry prompt,
-// or falls back to a template if no LLM is available.
-func (m *CIGateMonitor) composeRetryPrompt(ctx context.Context, repo string, prNumber int, branch, title, failureLogs string, attempt, maxAttempts int) string {
+// composeCIFailureContext generates the CI failure preamble (not a full prompt).
+// It uses the system LLM to analyze failure logs if available, otherwise includes raw logs.
+func (m *CIGateMonitor) composeCIFailureContext(ctx context.Context, repo string, prNumber int, branch, title, failureLogs string, attempt, maxAttempts int) string {
+	var analysis string
 	if m.llm != nil && m.llm.Available() {
-		systemPrompt := `You are a CI failure analysis assistant. Given CI failure logs from a GitHub pull request, compose a concise, actionable prompt for an AI coding agent that will fix the failures. The agent has the repo cloned and can read/edit files and push to the branch. Focus on:
-1. What specifically failed (compilation errors, test failures, lint issues)
-2. The likely root cause
-3. Specific files/lines to investigate
-4. A clear action plan
-
-Output ONLY the prompt text, no explanations or markdown fencing.`
-
-		userPrompt := fmt.Sprintf(`PR: %s#%d
-Branch: %s
-Title: %s
-Attempt: %d of %d
-
-CI Failure Logs:
-%s`, repo, prNumber, branch, title, attempt, maxAttempts, failureLogs)
-
-		analysis, err := m.llm.Complete(ctx, systemPrompt, userPrompt, 2000)
-		if err == nil && analysis != "" {
-			return fmt.Sprintf(`You are fixing CI failures on an existing pull request.
-
-## Context
-- Repository: %s
-- PR: #%d (branch: %s)
-- Title: %s
-- This is CI fix attempt %d of %d
-
-## Environment
-Use curl with $GITHUB_API_URL and $GITHUB_TOKEN for GitHub API calls.
-Write JSON payloads to files before POSTing.
-
-## Instructions
-1. The repo is already cloned. Fetch and checkout the PR branch:
-   git fetch origin %s && git checkout %s
-2. Read the CI failure analysis below and fix the issues
-3. Run local validation before pushing: go build ./... && go vet ./...
-4. Commit and push to the same branch:
-   git add -A && git commit -m "Fix CI failures" && git push origin %s
-5. Do NOT create a new PR — push to the existing branch
-6. Write the PR artifact file so Bridge can continue monitoring:
-   echo '{"repo": "%s", "number": %d}' > /tmp/alcove-pr.json
-
-## CI Failure Analysis
-%s
-
-## Important
-- Fix ONLY the CI failures — do not refactor or add features
-- Run local validation before pushing
-- If you cannot fix a failure, leave a comment on PR #%d explaining what you tried
-`, repo, prNumber, branch, title, attempt, maxAttempts, branch, branch, branch, repo, prNumber, analysis, prNumber)
+		systemPrompt := `You are a CI failure analysis assistant. Given CI failure logs, compose a brief analysis of what failed and why. Be specific about files and errors. Output only the analysis, no fencing.`
+		userPrompt := fmt.Sprintf("PR: %s#%d\nBranch: %s\nAttempt: %d of %d\n\nCI Logs:\n%s", repo, prNumber, branch, attempt, maxAttempts, failureLogs)
+		result, err := m.llm.Complete(ctx, systemPrompt, userPrompt, 1500)
+		if err == nil && result != "" {
+			analysis = result
+		} else {
+			log.Printf("cigate: LLM analysis failed: %v", err)
+			analysis = failureLogs
 		}
-		log.Printf("cigate: LLM analysis failed, using template: %v", err)
+	} else {
+		analysis = failureLogs
 	}
 
-	// Fallback template.
-	return fmt.Sprintf(`You are fixing CI failures on an existing pull request.
+	return fmt.Sprintf(`## CI Retry Context
 
-## Context
+**IMPORTANT**: You are fixing CI failures on an existing PR, NOT implementing from scratch.
+
 - Repository: %s
 - PR: #%d (branch: %s)
 - Title: %s
-- This is CI fix attempt %d of %d
+- CI fix attempt: %d of %d
 
-## Environment
-Use curl with $GITHUB_API_URL and $GITHUB_TOKEN for GitHub API calls.
-Write JSON payloads to files before POSTing.
-
-## Instructions
+### What You Must Do
 1. The repo is already cloned. Fetch and checkout the PR branch:
    git fetch origin %s && git checkout %s
-2. Fetch the CI check runs to understand what failed:
-   curl -s -H "Authorization: token $GITHUB_TOKEN" "$GITHUB_API_URL/repos/%s/commits/%s/check-runs"
-3. For each failed check, fetch the log and analyze the error
-4. Fix the issues in the code
-5. Run local validation before pushing: go build ./... && go vet ./...
-6. Commit and push to the same branch:
-   git add -A && git commit -m "Fix CI failures" && git push origin %s
-7. Do NOT create a new PR — push to the existing branch
-8. Write the PR artifact file so Bridge can continue monitoring:
-   echo '{"repo": "%s", "number": %d}' > /tmp/alcove-pr.json
+2. Fix the CI failures described below
+3. Run local validation: go build ./... && go vet ./...
+4. Commit and push: git add -A && git commit -m "Fix CI failures (attempt %d)" && git push origin %s
+5. Write the PR artifact: echo '{"repo": "%s", "number": %d}' > /tmp/alcove-pr.json
+6. Do NOT create a new PR or new branch
 
-## CI Failure Summary
+### CI Failure Analysis
 %s
 
-## Important
-- Fix ONLY the CI failures — do not refactor or add features
-- Run local validation before pushing
-- If you cannot fix a failure, leave a comment on PR #%d explaining what you tried
-`, repo, prNumber, branch, title, attempt, maxAttempts, branch, branch, repo, branch, branch, repo, prNumber, failureLogs, prNumber)
+---
+`, repo, prNumber, branch, title, attempt, maxAttempts,
+		branch, branch, attempt, branch, repo, prNumber, analysis)
+}
+
+// modifyPromptForRetry prepends a CI-retry override to the original task prompt.
+func modifyPromptForRetry(originalPrompt, branch, repo string, prNumber int) string {
+	override := fmt.Sprintf(`## OVERRIDE: CI Retry Mode
+
+This task is running in CI retry mode. An existing PR needs CI fixes.
+- Do NOT create a new branch or new PR
+- Work on branch: %s
+- Fix ONLY the CI failures in the CI Retry Context above
+- Push to the existing branch when done
+- Write PR artifact: echo '{"repo": "%s", "number": %d}' > /tmp/alcove-pr.json
+
+The original task instructions follow below for project context and conventions.
+Ignore any instructions about creating branches or PRs — use the existing one.
+
+---
+
+`, branch, repo, prNumber)
+	return override + originalPrompt
 }
 
 // githubGet performs an authenticated GET request to the GitHub API.
