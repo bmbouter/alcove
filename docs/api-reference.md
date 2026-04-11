@@ -382,7 +382,15 @@ curl http://localhost:8080/api/v1/sessions/f47ac10b-58cc-4372-a567-0e02b2c3d479 
 
 ### DELETE /api/v1/sessions/{id}
 
-Cancel a running session. Sends a cancel signal via NATS and stops the Skiff pod.
+Cancel a running session or delete a completed session.
+
+**Query parameters:**
+
+- `action=delete` - Delete the session permanently (default is cancel)
+
+**Cancel a running session:**
+
+Sends a cancel signal via NATS and stops the Skiff pod.
 
 **Response (200):**
 
@@ -393,18 +401,94 @@ Cancel a running session. Sends a cancel signal via NATS and stops the Skiff pod
 }
 ```
 
+**Delete a completed session:**
+
+Permanently removes the session record, transcript, and proxy log. Only sessions in terminal states (`completed`, `error`, `timeout`, `cancelled`) can be deleted.
+
+**Response (200):**
+
+```json
+{
+  "status": "deleted",
+  "session": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+}
+```
+
 **Status codes:**
 
 | Code | Meaning |
 |------|---------|
-| 200  | Session cancelled |
-| 400  | Session not found or not running |
+| 200  | Session cancelled or deleted |
+| 400  | Session not found, not running (for cancel), or not in terminal state (for delete) |
+| 403  | Access denied (not session owner) |
 
-**curl example:**
+**curl examples:**
 
 ```bash
+# Cancel a running session
 curl -X DELETE http://localhost:8080/api/v1/sessions/f47ac10b-58cc-4372-a567-0e02b2c3d479 \
   -H "Authorization: Bearer $TOKEN"
+
+# Delete a completed session
+curl -X DELETE "http://localhost:8080/api/v1/sessions/f47ac10b-58cc-4372-a567-0e02b2c3d479?action=delete" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### DELETE /api/v1/sessions
+
+Bulk delete sessions based on criteria. Only sessions in terminal states can be deleted.
+
+**Request body:**
+
+```json
+{
+  "status": "error",
+  "before": "7d"
+}
+```
+
+**Parameters:**
+
+- `status` (optional): Delete sessions with specific status (`completed`, `error`, `timeout`, `cancelled`)
+- `before` (optional): Delete sessions finished before date/time (RFC3339) or duration (e.g., `7d`, `30d`)
+- `ids` (optional): Array of specific session IDs to delete
+
+**Response (200):**
+
+```json
+{
+  "deleted_count": 42
+}
+```
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200  | Sessions deleted successfully |
+| 400  | Invalid request parameters |
+| 401  | Authentication required |
+
+**curl examples:**
+
+```bash
+# Delete all error sessions older than 7 days
+curl -X DELETE http://localhost:8080/api/v1/sessions \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "error", "before": "7d"}'
+
+# Delete specific sessions by ID
+curl -X DELETE http://localhost:8080/api/v1/sessions \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"ids": ["f47ac10b-58cc-4372-a567-0e02b2c3d479", "550e8400-e29b-41d4-a716-446655440000"]}'
+
+# Delete all completed sessions before a specific date
+curl -X DELETE http://localhost:8080/api/v1/sessions \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "completed", "before": "2023-01-01T00:00:00Z"}'
 ```
 
 ### GET /api/v1/sessions/{id}/transcript

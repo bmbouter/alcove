@@ -203,45 +203,48 @@ func (a *API) handleTasks(w http.ResponseWriter, r *http.Request) {
 // --- Sessions ---
 
 func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
+		query := r.URL.Query()
+		status := query.Get("status")
+		repo := query.Get("repo")
+		since := query.Get("since")
+		until := query.Get("until")
+		user := r.Header.Get("X-Alcove-User")
+
+		pageStr := query.Get("page")
+		perPageStr := query.Get("per_page")
+
+		page := 1
+		perPage := 50
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+		if pp, err := strconv.Atoi(perPageStr); err == nil && pp > 0 && pp <= 100 {
+			perPage = pp
+		}
+
+		sessions, total, err := a.listSessions(r.Context(), status, repo, since, until, user, page, perPage)
+		if err != nil {
+			log.Printf("error: listing sessions: %v", err)
+			respondError(w, http.StatusInternalServerError, "failed to list sessions")
+			return
+		}
+
+		respondJSON(w, http.StatusOK, map[string]any{
+			"sessions": sessions,
+			"count":    len(sessions),
+			"total":    total,
+			"page":     page,
+			"per_page": perPage,
+			"pages":    (total + perPage - 1) / perPage,
+		})
+	case http.MethodDelete:
+		// Bulk delete sessions
+		a.handleBulkDeleteSessions(w, r)
+	default:
 		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
 	}
-
-	query := r.URL.Query()
-	status := query.Get("status")
-	repo := query.Get("repo")
-	since := query.Get("since")
-	until := query.Get("until")
-	user := r.Header.Get("X-Alcove-User")
-
-	pageStr := query.Get("page")
-	perPageStr := query.Get("per_page")
-
-	page := 1
-	perPage := 50
-	if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
-		page = p
-	}
-	if pp, err := strconv.Atoi(perPageStr); err == nil && pp > 0 && pp <= 100 {
-		perPage = pp
-	}
-
-	sessions, total, err := a.listSessions(r.Context(), status, repo, since, until, user, page, perPage)
-	if err != nil {
-		log.Printf("error: listing sessions: %v", err)
-		respondError(w, http.StatusInternalServerError, "failed to list sessions")
-		return
-	}
-
-	respondJSON(w, http.StatusOK, map[string]any{
-		"sessions": sessions,
-		"count":    len(sessions),
-		"total":    total,
-		"page":     page,
-		"per_page": perPage,
-		"pages":    (total + perPage - 1) / perPage,
-	})
 }
 
 func (a *API) handleSessionByID(w http.ResponseWriter, r *http.Request) {
@@ -290,7 +293,12 @@ func (a *API) handleSessionByID(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		a.handleGetSession(w, r, sessionID, user)
 	case http.MethodDelete:
-		a.handleCancelSession(w, r, sessionID, user)
+		// Check if this is a delete request (vs cancel)
+		if r.URL.Query().Get("action") == "delete" {
+			a.handleDeleteSession(w, r, sessionID, user)
+		} else {
+			a.handleCancelSession(w, r, sessionID, user)
+		}
 	default:
 		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
@@ -346,6 +354,146 @@ func (a *API) handleCancelSession(w http.ResponseWriter, r *http.Request, sessio
 	respondJSON(w, http.StatusOK, map[string]string{
 		"status":  "cancelled",
 		"session": sessionID,
+	})
+}
+
+func (a *API) handleDeleteSession(w http.ResponseWriter, r *http.Request, sessionID string, user string) {
+	if err := a.checkOwnership(r.Context(), sessionID, user); err != nil {
+		respondError(w, http.StatusForbidden, "access denied")
+		return
+	}
+
+	// Get the current session to check its status
+	session, err := a.getSession(r.Context(), sessionID)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "session not found")
+		return
+	}
+
+	// Only allow deleting sessions in terminal states
+	terminalStates := map[string]bool{
+		"completed": true,
+		"error":     true,
+		"timeout":   true,
+		"cancelled": true,
+	}
+
+	if !terminalStates[session.Status] {
+		respondError(w, http.StatusBadRequest, "can only delete sessions in terminal states (completed, error, timeout, cancelled). Running sessions must be cancelled first.")
+		return
+	}
+
+	// Delete the session record, transcript, and proxy log
+	result, err := a.db.Exec(r.Context(), `DELETE FROM sessions WHERE id = $1`, sessionID)
+	if err != nil {
+		log.Printf("error: deleting session %s: %v", sessionID, err)
+		respondError(w, http.StatusInternalServerError, "failed to delete session")
+		return
+	}
+
+	if result.RowsAffected() == 0 {
+		respondError(w, http.StatusNotFound, "session not found")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{
+		"status":  "deleted",
+		"session": sessionID,
+	})
+}
+
+func (a *API) handleBulkDeleteSessions(w http.ResponseWriter, r *http.Request) {
+	user := r.Header.Get("X-Alcove-User")
+	if user == "" {
+		respondError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	var req struct {
+		Status string   `json:"status,omitempty"`
+		Before string   `json:"before,omitempty"` // RFC3339 datetime or duration like "7d", "30d"
+		IDs    []string `json:"ids,omitempty"`    // Specific session IDs to delete
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
+
+	// Build WHERE clause for deletion criteria
+	whereClause := " WHERE submitter = $1"
+	args := []any{user}
+	argN := 2
+
+	// Only allow deleting terminal state sessions
+	terminalStates := []string{"completed", "error", "timeout", "cancelled"}
+	whereClause += fmt.Sprintf(" AND outcome = ANY($%d)", argN)
+	args = append(args, terminalStates)
+	argN++
+
+	if req.Status != "" {
+		// Validate status is a terminal state
+		validStatus := false
+		for _, state := range terminalStates {
+			if req.Status == state {
+				validStatus = true
+				break
+			}
+		}
+		if !validStatus {
+			respondError(w, http.StatusBadRequest, "status must be one of: completed, error, timeout, cancelled")
+			return
+		}
+		whereClause += fmt.Sprintf(" AND outcome = $%d", argN)
+		args = append(args, req.Status)
+		argN++
+	}
+
+	if req.Before != "" {
+		// Parse "before" parameter - can be RFC3339 datetime or duration
+		var beforeTime time.Time
+		var err error
+
+		if strings.HasSuffix(req.Before, "d") {
+			// Duration format like "7d", "30d"
+			daysStr := strings.TrimSuffix(req.Before, "d")
+			days, parseErr := strconv.Atoi(daysStr)
+			if parseErr != nil {
+				respondError(w, http.StatusBadRequest, "invalid before parameter: must be RFC3339 datetime or duration like '7d'")
+				return
+			}
+			beforeTime = time.Now().UTC().AddDate(0, 0, -days)
+		} else {
+			// RFC3339 datetime format
+			beforeTime, err = time.Parse(time.RFC3339, req.Before)
+			if err != nil {
+				respondError(w, http.StatusBadRequest, "invalid before parameter: must be RFC3339 datetime or duration like '7d'")
+				return
+			}
+		}
+
+		whereClause += fmt.Sprintf(" AND finished_at < $%d", argN)
+		args = append(args, beforeTime)
+		argN++
+	}
+
+	if len(req.IDs) > 0 {
+		whereClause += fmt.Sprintf(" AND id = ANY($%d)", argN)
+		args = append(args, req.IDs)
+		argN++
+	}
+
+	// Execute the deletion
+	result, err := a.db.Exec(r.Context(),
+		`DELETE FROM sessions`+whereClause, args...)
+	if err != nil {
+		log.Printf("error: bulk deleting sessions: %v", err)
+		respondError(w, http.StatusInternalServerError, "failed to delete sessions")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"deleted_count": result.RowsAffected(),
 	})
 }
 
@@ -1082,9 +1230,9 @@ func (a *API) handleCredentials(w http.ResponseWriter, r *http.Request) {
 				if !scmProviders[c.Provider] {
 					respondJSON(w, http.StatusConflict, map[string]any{
 						"error":               "you already have an LLM credential configured",
-						"existing_credential":  c.Name,
-						"existing_provider":    c.Provider,
-						"existing_id":          c.ID,
+						"existing_credential": c.Name,
+						"existing_provider":   c.Provider,
+						"existing_id":         c.ID,
 					})
 					return
 				}

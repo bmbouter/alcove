@@ -462,6 +462,54 @@ alcove cancel --output json abc123
 
 ---
 
+## alcove delete
+
+Delete completed, errored, timed-out, or cancelled sessions.
+
+```
+alcove delete [session-id] [flags]
+```
+
+### Flags
+
+- `--status string`: Delete sessions with specific status (`completed`, `error`, `timeout`, `cancelled`)
+- `--before string`: Delete sessions finished before date/time (RFC3339) or duration (e.g., `7d`, `30d`)
+- `--dry-run`: Show what would be deleted without actually deleting
+
+### Description
+
+Permanently deletes session records, transcripts, and proxy logs from the database. 
+Only sessions in terminal states can be deleted -- running sessions must be cancelled first.
+
+For single session deletion, provide the session ID as an argument. For bulk deletion, 
+use the `--status` and/or `--before` flags to filter sessions to delete.
+
+The `--dry-run` flag is useful for previewing bulk deletions before executing them.
+
+### Examples
+
+```bash
+# Delete a specific session
+alcove delete 12345678-abcd-1234-abcd-123456789012
+
+# Delete all error sessions older than 7 days
+alcove delete --status error --before 7d
+
+# Delete all completed sessions before a specific date
+alcove delete --status completed --before 2023-01-01T00:00:00Z
+
+# Dry run to see what would be deleted (bulk only)
+alcove delete --status error --before 30d --dry-run
+
+# Delete all cancelled sessions
+alcove delete --status cancelled
+
+# Delete all sessions older than 90 days regardless of status
+alcove delete --before 90d
+```
+
+---
+
 ## alcove login
 
 Authenticate to a Bridge instance.
