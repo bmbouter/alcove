@@ -126,22 +126,20 @@
                     </div>
                 </div>
                 <div id="sessions-table-container" class="table-container">
-                    <table class="data-table">
+                    <table class="data-table" id="sessions-table">
                         <thead>
                             <tr>
-                                <th>ID</th>
+                                <th style="width:40px"></th>
+                                <th>Task</th>
                                 <th>Submitter</th>
-                                <th>Status</th>
                                 <th>When</th>
-                                <th>Task Name</th>
                                 <th>Duration</th>
-                                <th>Trigger Context</th>
+                                <th>Trigger</th>
                             </tr>
                         </thead>
                         <tbody id="sessions-tbody"></tbody>
                     </table>
-                    <div id="sessions-empty" class="empty-state" hidden>
-                        <p>No tasks found.</p>
+                    <div id="sessions-empty" hidden>
                     </div>
                     <div id="sessions-loading" class="loading-state" hidden>
                         <div class="spinner"></div>
