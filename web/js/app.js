@@ -1225,8 +1225,15 @@
         if (!triggerContext || triggerContext === 'Manual') return '<span class="text-muted">Manual</span>';
         if (triggerContext === 'Scheduled' || triggerContext === 'cron') return '<span class="text-muted">Scheduled</span>';
 
+        // Strip any prefix before the repo reference (e.g., "event: " or "webhook: ")
+        var cleanRef = triggerContext;
+        var colonIndex = triggerContext.indexOf(': ');
+        if (colonIndex !== -1) {
+            cleanRef = triggerContext.substring(colonIndex + 2);
+        }
+
         // Parse "owner/repo#number" format
-        var match = triggerContext.match(/^(.+?)#(\d+)$/);
+        var match = cleanRef.match(/^(.+?)#(\d+)$/);
         if (match) {
             var repo = match[1];
             var number = match[2];
