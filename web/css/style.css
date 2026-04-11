@@ -2221,7 +2221,7 @@ select.input {
 
 /* Running duration live counter */
 .duration-live {
-    color: #3498db;
+    color: var(--text);
     font-weight: 500;
     font-variant-numeric: tabular-nums;
 }
