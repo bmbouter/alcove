@@ -26,24 +26,21 @@ prompt: |
 
   ## Step 1: Identify the PR
 
-  Extract the PR number from the event context at the end of this prompt.
-  The event context is appended as JSON after "[event: {...}]" or "[webhook: {...}]".
+  Read the "Event Context" section above — it contains the full PR details
+  including title, body, branch, labels, reviews, and CI status.
 
-  PR_NUMBER=""
-  if echo "$0" | grep -q '\[event:'; then
+  The PR number is in the context header (e.g., "### PR #42: ...").
+  Extract it:
+  PR_NUMBER=[extract from Event Context header]
+
+  If the Event Context is empty or missing, fall back to extracting from the
+  appended event metadata ("[event: {...}]" or "[webhook: {...}]"):
     PR_NUMBER=$(echo "$0" | sed -n 's/.*\[event: \(.*\)\].*/\1/p' | grep -o '"GITHUB_PR_NUMBER":"[^"]*"' | cut -d'"' -f4)
-  elif echo "$0" | grep -q '\[webhook:'; then
-    PR_NUMBER=$(echo "$0" | sed -n 's/.*\[webhook: \(.*\)\].*/\1/p' | grep -o '"GITHUB_PR_NUMBER":"[^"]*"' | cut -d'"' -f4)
-  fi
-
-  if [ -z "$PR_NUMBER" ]; then
-    echo "Error: No PR number found in event context."
-    exit 1
-  fi
-
-  echo "Reviewing PR #$PR_NUMBER"
 
   ## Step 2: Fetch PR details and verify CI
+
+  The PR state and CI status are available in the Event Context. However,
+  always fetch fresh PR details for the merge step later:
 
   curl -s -H "Authorization: token $GITHUB_TOKEN" \
     "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER" > /tmp/pr.json
@@ -61,7 +58,8 @@ prompt: |
     exit 0
   fi
 
-  # Verify CI passed
+  # Verify CI passed — check Event Context "### CI Status" section first,
+  # but also fetch fresh check status for accuracy:
   curl -s -H "Authorization: token $GITHUB_TOKEN" \
     "$GITHUB_API_URL/repos/bmbouter/alcove/commits/$HEAD_SHA/check-runs" > /tmp/checks.json
 
