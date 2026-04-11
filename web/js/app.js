@@ -423,12 +423,14 @@
             var r = taskReposList[i];
             var isEnabled = r.enabled === undefined || r.enabled === null || r.enabled === true;
             var displayUrl = (r.url || '').replace(/^https?:\/\//, '').replace(/\.git$/, '');
-            html += '<div class="repo-item' + (isEnabled ? '' : ' repo-item-disabled') + '">';
-            html += '<label class="repo-item-toggle"><input type="checkbox" class="repo-item-enabled" data-index="' + i + '"' + (isEnabled ? ' checked' : '') + '> </label>';
+            var toggleTitle = isEnabled ? 'Pause tasks from this repo' : 'Resume tasks from this repo';
+            html += '<div class="repo-item ' + (isEnabled ? 'repo-active' : 'repo-paused') + '">';
+            html += '<label class="toggle-switch" title="' + toggleTitle + '"><input type="checkbox" class="repo-item-enabled" data-index="' + i + '"' + (isEnabled ? ' checked' : '') + '><span class="toggle-slider"></span></label>';
+            html += '<span class="' + (isEnabled ? 'toggle-label-active' : 'toggle-label-paused') + '">' + (isEnabled ? 'Active' : 'Paused') + '</span>';
             html += '<span class="repo-item-url">' + escapeHtml(displayUrl) + '</span>';
             if (r.ref && r.ref !== 'main') html += ' <span class="repo-item-ref">' + escapeHtml(r.ref) + '</span>';
-            if (!isEnabled) html += ' <span class="repo-item-badge-disabled">disabled</span>';
             html += ' <button class="btn btn-small btn-outline repo-item-remove" data-index="' + i + '" style="color:var(--status-error);border-color:var(--status-error);padding:2px 8px;font-size:11px;">Remove</button>';
+            if (!isEnabled) html += '<div class="repo-paused-message">Tasks from this repo are paused. Schedules and event-driven tasks will not run.</div>';
             html += '</div>';
         }
         listEl.innerHTML = html;
@@ -442,7 +444,7 @@
                 if (statusEl) {
                     statusEl.removeAttribute('hidden');
                     statusEl.style.color = 'var(--text-muted)';
-                    statusEl.textContent = (cb.checked ? 'Enabled' : 'Disabled') + ' ' + (taskReposList[idx].name || taskReposList[idx].url) + '. Changes take effect on next sync.';
+                    statusEl.textContent = (cb.checked ? 'Resumed' : 'Paused') + ' ' + (taskReposList[idx].name || taskReposList[idx].url) + '. Changes take effect on next sync.';
                 }
                 setTimeout(function() { loadUnifiedSchedules(); }, 2000);
             });
@@ -596,12 +598,27 @@
             return;
         }
 
-        // Sort alphabetically by name
+        // Sort: paused-by-repo items to bottom, then alphabetically by name
         allItems.sort(function(a, b) {
+            var aPaused = (a._type === 'task-def' && (a.data.repo_disabled || false)) ? 1 : 0;
+            var bPaused = (b._type === 'task-def' && (b.data.repo_disabled || false)) ? 1 : 0;
+            if (aPaused !== bPaused) return aPaused - bPaused;
             if (a._name < b._name) return -1;
             if (a._name > b._name) return 1;
             return 0;
         });
+
+        // Update Schedules nav tab with paused count
+        var pausedCount = 0;
+        allItems.forEach(function(item) {
+            if (item._type === 'task-def' && (item.data.repo_disabled || false)) {
+                pausedCount++;
+            }
+        });
+        var schedulesTab = document.querySelector('.nav-tab[data-tab="schedules"]');
+        if (schedulesTab) {
+            schedulesTab.textContent = pausedCount > 0 ? 'Schedules (' + pausedCount + ' paused)' : 'Schedules';
+        }
 
         var html = '';
         for (var i = 0; i < allItems.length; i++) {
@@ -749,15 +766,22 @@
         var desc = d.description || '';
         var repo = d.source_repo || d.repo || '';
         var id = d.id || '';
+        var repoPaused = d.repo_disabled || false;
 
-        var html = '<div class="task-def-card">';
+        var html = '<div class="task-def-card' + (repoPaused ? ' task-def-paused-repo' : '') + '">';
+
+        // Paused-by-repo badge
+        if (repoPaused) {
+            html += '<div style="margin-bottom:8px;"><span class="badge-paused-repo">Paused — repo disabled</span></div>';
+        }
 
         // Header row: name + actions
         html += '<div class="task-def-header">';
         html += '<div class="task-def-name">' + escapeHtml(name) + '</div>';
         html += '<div class="task-def-actions">';
-        if (d.sync_error) {
-            html += '<button class="btn btn-small btn-primary task-def-run" data-id="' + escapeHtml(id) + '" disabled title="' + escapeHtml(d.sync_error) + '">Run Now</button>';
+        if (d.sync_error || repoPaused) {
+            var disabledTitle = repoPaused ? 'Repo is paused' : escapeHtml(d.sync_error);
+            html += '<button class="btn btn-small btn-primary task-def-run" data-id="' + escapeHtml(id) + '" disabled title="' + disabledTitle + '" style="' + (repoPaused ? 'opacity:0.4;cursor:not-allowed;' : '') + '">Run Now</button>';
         } else {
             html += '<button class="btn btn-small btn-primary task-def-run" data-id="' + escapeHtml(id) + '">Run Now</button>';
         }
@@ -811,6 +835,11 @@
         // Sync error
         if (d.sync_error) {
             html += '<div class="task-def-error">Sync error: ' + escapeHtml(d.sync_error) + '</div>';
+        }
+
+        // Paused-by-repo link
+        if (repoPaused) {
+            html += '<div style="margin-top:8px;"><a href="#repos" class="task-def-paused-link">Go to Repos to re-enable</a></div>';
         }
 
         html += '</div>';

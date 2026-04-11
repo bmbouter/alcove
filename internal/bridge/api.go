@@ -925,6 +925,29 @@ func (a *API) handleSchedules(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusInternalServerError, "failed to list schedules")
 			return
 		}
+
+		// Annotate schedules with repo_disabled by joining through task definitions.
+		disabledRepos := a.buildDisabledReposMap(r.Context(), user)
+		if len(disabledRepos) > 0 {
+			// Build source_key -> source_repo map from task definitions.
+			defs, defErr := a.defStore.ListTaskDefinitions(r.Context(), user)
+			if defErr == nil {
+				sourceKeyToRepo := make(map[string]string)
+				for _, d := range defs {
+					if d.SourceKey != "" {
+						sourceKeyToRepo[d.SourceKey] = d.SourceRepo
+					}
+				}
+				for i := range schedules {
+					if sourceRepo, ok := sourceKeyToRepo[schedules[i].SourceKey]; ok {
+						if disabledRepos[sourceRepo] {
+							schedules[i].RepoDisabled = true
+						}
+					}
+				}
+			}
+		}
+
 		respondJSON(w, http.StatusOK, map[string]any{
 			"schedules": schedules,
 			"count":     len(schedules),
@@ -1612,6 +1635,16 @@ func (a *API) handleTaskDefinitions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fetch user's task repos to check disabled status.
+	disabledRepos := a.buildDisabledReposMap(r.Context(), user)
+
+	// Annotate each task definition with repo_disabled.
+	for i := range defs {
+		if disabledRepos[defs[i].SourceRepo] {
+			defs[i].RepoDisabled = true
+		}
+	}
+
 	respondJSON(w, http.StatusOK, map[string]any{
 		"task_definitions": defs,
 		"count":            len(defs),
@@ -2172,6 +2205,21 @@ func (a *API) handleTBRAssociationByID(w http.ResponseWriter, r *http.Request) {
 	default:
 		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+// buildDisabledReposMap returns a set of repo URLs that are disabled for the given user.
+func (a *API) buildDisabledReposMap(ctx context.Context, username string) map[string]bool {
+	taskRepos, err := a.settingsStore.GetUserTaskRepos(ctx, username)
+	if err != nil {
+		return nil
+	}
+	disabledRepos := make(map[string]bool)
+	for _, repo := range taskRepos {
+		if !repo.IsEnabled() {
+			disabledRepos[repo.URL] = true
+		}
+	}
+	return disabledRepos
 }
 
 // --- Helpers ---

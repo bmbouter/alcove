@@ -57,8 +57,9 @@ type TaskDefinition struct {
 	RawYAML    string     `json:"raw_yaml,omitempty"`
 	SyncError  string     `json:"sync_error,omitempty"`
 	LastSynced time.Time  `json:"last_synced"`
-	NextRun    *time.Time `json:"next_run,omitempty"`
-	LastRun    *time.Time `json:"last_run,omitempty"`
+	NextRun      *time.Time `json:"next_run,omitempty"`
+	LastRun      *time.Time `json:"last_run,omitempty"`
+	RepoDisabled bool       `json:"repo_disabled"`
 }
 
 // TaskDefSchedule defines an optional cron schedule for a task definition.
