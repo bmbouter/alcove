@@ -1179,6 +1179,54 @@
     // ---------------------
     // Sessions list
     // ---------------------
+
+    function getTaskType(taskName) {
+        if (!taskName) return { label: 'TASK', color: 'neutral' };
+        var name = taskName.toLowerCase();
+        if (name.includes('review')) return { label: 'REVIEW', color: 'review' };
+        if (name.includes('plan')) return { label: 'PLAN', color: 'plan' };
+        if (name.includes('release')) return { label: 'RELEASE', color: 'release' };
+        if (name.includes('developer') || name.includes('dev')) return { label: 'DEV', color: 'dev' };
+        if (name.includes('retry') || name.includes('ci')) return { label: 'CI FIX', color: 'dev' };
+        var firstWord = taskName.split(/[\s-]/)[0].toUpperCase();
+        return { label: firstWord.substring(0, 8), color: 'neutral' };
+    }
+
+    function formatTriggerRef(triggerContext) {
+        if (!triggerContext || triggerContext === 'Manual') return '<span class="text-muted">Manual</span>';
+        if (triggerContext === 'Scheduled' || triggerContext === 'cron') return '<span class="text-muted">Scheduled</span>';
+
+        // Parse "owner/repo#number" format
+        var match = triggerContext.match(/^(.+?)#(\d+)$/);
+        if (match) {
+            var repo = match[1];
+            var number = match[2];
+            var url = 'https://github.com/' + repo + '/issues/' + number;
+            var shortRef = '#' + number;
+            return '<a href="' + escapeHtml(url) + '" class="trigger-link" target="_blank" rel="noopener" onclick="event.stopPropagation()">' + escapeHtml(shortRef) + '</a>';
+        }
+        return '<span class="text-muted">' + escapeHtml(triggerContext) + '</span>';
+    }
+
+    function formatSubmitter(submitter) {
+        if (!submitter) return '-';
+        // Strip @domain from email addresses
+        var atIdx = submitter.indexOf('@');
+        if (atIdx > 0) return submitter.substring(0, atIdx);
+        return submitter;
+    }
+
+    function startRunningTimers() {
+        if (window._runningTimer) clearInterval(window._runningTimer);
+        window._runningTimer = setInterval(function () {
+            document.querySelectorAll('[data-started-at]').forEach(function (el) {
+                var started = new Date(el.dataset.startedAt);
+                var elapsed = Math.floor((Date.now() - started) / 1000);
+                el.textContent = humanDuration(elapsed);
+            });
+        }, 1000);
+    }
+
     async function loadSessions(silent) {
         const tbody = $('#sessions-tbody');
         const loading = $('#sessions-loading');
@@ -1197,7 +1245,7 @@
 
             const sessions = Array.isArray(data) ? data : (data.sessions || data.items || []);
             if (sessions.length === 0) {
-                show(empty);
+                renderEmptyState();
                 return;
             }
 
@@ -1207,59 +1255,135 @@
         } catch (err) {
             hide(loading);
             if (err.message !== 'unauthorized') {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--status-error);">Failed to load tasks. Check your connection and try again.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--status-error);padding:24px;">Failed to load tasks. Check your connection and try again.</td></tr>';
             }
         }
     }
 
-    function renderSessions(sessions) {
-        const tbody = $('#sessions-tbody');
-        const statusFilter = $('#filter-status').value;
-        const searchFilter = $('#filter-search').value.toLowerCase();
+    function renderEmptyState() {
+        var tbody = $('#sessions-tbody');
+        var empty = $('#sessions-empty');
+        var table = $('#sessions-table');
+        tbody.innerHTML = '';
+        if (table) table.hidden = true;
+        empty.innerHTML = '<div class="empty-state-redesign">' +
+            '<h2>No tasks yet</h2>' +
+            '<p>Tasks appear here when they run -- triggered by events, on a schedule, or submitted manually.</p>' +
+            '<div class="empty-state-cards">' +
+                '<a href="#task/new" class="empty-card">' +
+                    '<div class="empty-card-icon">&gt;_</div>' +
+                    '<div class="empty-card-title">Run a task</div>' +
+                    '<div class="empty-card-desc">Submit a prompt to an AI agent</div>' +
+                '</a>' +
+                '<a href="#repos" class="empty-card">' +
+                    '<div class="empty-card-icon">&#9201;</div>' +
+                    '<div class="empty-card-title">Set up automation</div>' +
+                    '<div class="empty-card-desc">Connect a task repo for event-driven agents</div>' +
+                '</a>' +
+                '<a href="#credentials" class="empty-card">' +
+                    '<div class="empty-card-icon">&#128273;</div>' +
+                    '<div class="empty-card-title">Add credentials</div>' +
+                    '<div class="empty-card-desc">Configure LLM and platform credentials</div>' +
+                '</a>' +
+            '</div>' +
+        '</div>';
+        show(empty);
+    }
 
-        const filtered = sessions.filter((s) => {
+    function renderSessionRow(s) {
+        var status = s.status || 'unknown';
+        var taskName = s.task_name || 'Manual Task';
+        var taskType = getTaskType(s.task_name);
+        var submitter = formatSubmitter(s.submitter);
+        var when = formatRelativeTime(s.started_at);
+        var triggerHtml = formatTriggerRef(s.trigger_context);
+        var isRunning = status === 'running';
+
+        // Duration: for running tasks, show live counter
+        var durationHtml;
+        if (isRunning && s.started_at) {
+            var elapsed = Math.floor((Date.now() - new Date(s.started_at).getTime()) / 1000);
+            durationHtml = '<span class="duration-live" data-started-at="' + escapeHtml(s.started_at) + '">' + humanDuration(elapsed) + '</span>';
+        } else {
+            durationHtml = escapeHtml(formatDuration(s.started_at, s.finished_at, s.duration));
+        }
+
+        return '<tr class="clickable session-row session-row-' + escapeHtml(status) + '" data-session-id="' + escapeHtml(s.id) + '" tabindex="0" role="link">' +
+            '<td><span class="status-dot status-dot-' + escapeHtml(status) + '" title="' + escapeHtml(status) + '"></span></td>' +
+            '<td><span class="task-type-pill task-type-' + escapeHtml(taskType.color) + '">' + escapeHtml(taskType.label) + '</span>' + escapeHtml(taskName) + '</td>' +
+            '<td>' + escapeHtml(submitter) + '</td>' +
+            '<td>' + escapeHtml(when) + '</td>' +
+            '<td class="mono">' + durationHtml + '</td>' +
+            '<td>' + triggerHtml + '</td>' +
+            '</tr>';
+    }
+
+    function renderSessions(sessions) {
+        var tbody = $('#sessions-tbody');
+        var table = $('#sessions-table');
+        var statusFilter = $('#filter-status').value;
+        var searchFilter = $('#filter-search').value.toLowerCase();
+
+        if (table) table.hidden = false;
+
+        var filtered = sessions.filter(function (s) {
             if (statusFilter && s.status !== statusFilter) return false;
             if (searchFilter) {
-                const text = (s.id + ' ' + (s.task_name || '') + ' ' + (s.trigger_context || '') + ' ' + (s.prompt || '')).toLowerCase();
+                var text = (s.id + ' ' + (s.task_name || '') + ' ' + (s.trigger_context || '') + ' ' + (s.prompt || '')).toLowerCase();
                 if (!text.includes(searchFilter)) return false;
             }
             return true;
         });
 
-        const empty = $('#sessions-empty');
+        var empty = $('#sessions-empty');
         if (filtered.length === 0) {
             tbody.innerHTML = '';
+            empty.innerHTML = '<p>No tasks match your filters.</p>';
             show(empty);
             return;
         }
         hide(empty);
 
-        tbody.innerHTML = filtered.map((s) => {
-            const idShort = (s.id || '').substring(0, 12);
-            const submitter = s.submitter || '-';
-            const status = s.status || 'unknown';
-            const taskName = s.task_name || 'Manual Task';
-            const duration = formatDuration(s.started_at, s.finished_at, s.duration);
-            const triggerContext = s.trigger_context || 'Manual';
-            const when = formatRelativeTime(s.started_at);
+        // Split into running and recent
+        var running = filtered.filter(function (s) { return s.status === 'running'; });
+        var recent = filtered.filter(function (s) { return s.status !== 'running'; });
 
-            return '<tr class="clickable" data-session-id="' + escapeHtml(s.id) + '" tabindex="0" role="link">' +
-                '<td class="mono" title="' + escapeHtml(s.id) + '">' + escapeHtml(idShort) + '</td>' +
-                '<td>' + escapeHtml(submitter) + '</td>' +
-                '<td><span class="badge badge-' + escapeHtml(status) + '">' + escapeHtml(status) + '</span></td>' +
-                '<td>' + escapeHtml(when) + '</td>' +
-                '<td>' + escapeHtml(taskName) + '</td>' +
-                '<td class="mono">' + escapeHtml(duration) + '</td>' +
-                '<td class="truncate">' + escapeHtml(triggerContext) + '</td>' +
-                '</tr>';
-        }).join('');
+        var html = '';
+
+        // Running section
+        if (running.length > 0) {
+            html += '<tr><td colspan="6" class="section-label section-label-running">RUNNING (' + running.length + ')</td></tr>';
+            running.forEach(function (s) {
+                html += renderSessionRow(s);
+            });
+        }
+
+        // Recent section
+        if (recent.length > 0) {
+            if (running.length > 0) {
+                html += '<tr><td colspan="6" class="section-label">RECENT</td></tr>';
+            }
+            recent.forEach(function (s) {
+                html += renderSessionRow(s);
+            });
+        }
+
+        tbody.innerHTML = html;
+
+        // Start live timers for running tasks
+        if (running.length > 0) {
+            startRunningTimers();
+        } else if (window._runningTimer) {
+            clearInterval(window._runningTimer);
+            window._runningTimer = null;
+        }
 
         // Click and keyboard handlers
-        tbody.querySelectorAll('tr.clickable').forEach((row) => {
-            row.addEventListener('click', () => {
+        tbody.querySelectorAll('tr.clickable').forEach(function (row) {
+            row.addEventListener('click', function () {
                 navigate('session/' + row.dataset.sessionId);
             });
-            row.addEventListener('keydown', (e) => {
+            row.addEventListener('keydown', function (e) {
                 if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
                     navigate('session/' + row.dataset.sessionId);
@@ -1316,6 +1440,10 @@
         if (durationInterval) {
             clearInterval(durationInterval);
             durationInterval = null;
+        }
+        if (window._runningTimer) {
+            clearInterval(window._runningTimer);
+            window._runningTimer = null;
         }
     }
 

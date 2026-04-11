@@ -188,6 +188,8 @@ func (a *API) handleTasks(w http.ResponseWriter, r *http.Request) {
 		submitter = "anonymous"
 	}
 
+	req.TriggerType = "manual"
+
 	session, err := a.dispatcher.DispatchTask(r.Context(), req, submitter)
 	if err != nil {
 		log.Printf("error: dispatch failed: %v", err)
@@ -754,9 +756,12 @@ func (a *API) listSessions(ctx context.Context, status, repo, since, until, subm
 		return nil, 0, err
 	}
 
-	// Main query with pagination - include LEFT JOIN to potentially get task names
+	// Main query with pagination - include LEFT JOIN as fallback for old sessions
 	query := `SELECT s.id, s.task_id, s.submitter, s.prompt, s.scope, s.provider, s.outcome, s.started_at, s.finished_at, s.exit_code, s.artifacts, s.parent_id,
-		COALESCE(td.name, '') as task_name
+		COALESCE(s.task_name, td.name, '') as task_name,
+		COALESCE(s.trigger_type, '') as trigger_type,
+		COALESCE(s.trigger_ref, '') as trigger_ref,
+		COALESCE(s.repo, '') as repo
 		FROM sessions s
 		LEFT JOIN schedules sc ON s.prompt LIKE '%[' || sc.source_key || ']%' AND sc.source_key IS NOT NULL AND sc.source_key != ''
 		LEFT JOIN task_definitions td ON sc.source_key = td.source_key` +
@@ -779,11 +784,11 @@ func (a *API) listSessions(ctx context.Context, status, repo, since, until, subm
 		var finishedAt *time.Time
 		var exitCode *int
 		var parentID *string
-		var taskName string
+		var taskName, triggerType, triggerRef, repo string
 
 		if err := rows.Scan(&s.ID, &s.TaskID, &s.Submitter, &s.Prompt,
 			&scopeJSON, &s.Provider, &s.Status, &s.StartedAt, &finishedAt,
-			&exitCode, &artifactsJSON, &parentID, &taskName); err != nil {
+			&exitCode, &artifactsJSON, &parentID, &taskName, &triggerType, &triggerRef, &repo); err != nil {
 			return nil, 0, err
 		}
 
@@ -805,6 +810,7 @@ func (a *API) listSessions(ctx context.Context, status, repo, since, until, subm
 		if parentID != nil {
 			s.ParentID = *parentID
 		}
+		s.Repo = repo
 
 		// Set task name with fallback
 		if taskName != "" {
@@ -813,8 +819,19 @@ func (a *API) listSessions(ctx context.Context, status, repo, since, until, subm
 			s.TaskName = "Manual Task"
 		}
 
-		// Parse trigger context from prompt
-		s.TriggerContext = parseEventContext(s.Prompt)
+		// Set trigger type and ref from stored metadata
+		s.TriggerType = triggerType
+		s.TriggerRef = triggerRef
+
+		// Parse trigger context from prompt as fallback for old sessions
+		if triggerType != "" {
+			s.TriggerContext = triggerType
+			if triggerRef != "" {
+				s.TriggerContext = triggerType + ": " + triggerRef
+			}
+		} else {
+			s.TriggerContext = parseEventContext(s.Prompt)
+		}
 
 		sessions = append(sessions, s)
 	}
@@ -832,18 +849,21 @@ func (a *API) getSession(ctx context.Context, id string) (*internal.Session, err
 	var finishedAt *time.Time
 	var exitCode *int
 	var parentID *string
-	var taskName string
+	var taskName, triggerType, triggerRef, repo string
 
 	err := a.db.QueryRow(ctx,
 		`SELECT s.id, s.task_id, s.submitter, s.prompt, s.scope, s.provider, s.outcome, s.started_at, s.finished_at, s.exit_code, s.artifacts, s.parent_id,
-		COALESCE(td.name, '') as task_name
+		COALESCE(s.task_name, td.name, '') as task_name,
+		COALESCE(s.trigger_type, '') as trigger_type,
+		COALESCE(s.trigger_ref, '') as trigger_ref,
+		COALESCE(s.repo, '') as repo
 		FROM sessions s
 		LEFT JOIN schedules sc ON s.prompt LIKE '%[' || sc.source_key || ']%' AND sc.source_key IS NOT NULL AND sc.source_key != ''
 		LEFT JOIN task_definitions td ON sc.source_key = td.source_key
 		WHERE s.id = $1`, id,
 	).Scan(&s.ID, &s.TaskID, &s.Submitter, &s.Prompt,
 		&scopeJSON, &s.Provider, &s.Status, &s.StartedAt, &finishedAt,
-		&exitCode, &artifactsJSON, &parentID, &taskName)
+		&exitCode, &artifactsJSON, &parentID, &taskName, &triggerType, &triggerRef, &repo)
 	if err != nil {
 		return nil, err
 	}
@@ -866,6 +886,7 @@ func (a *API) getSession(ctx context.Context, id string) (*internal.Session, err
 	if parentID != nil {
 		s.ParentID = *parentID
 	}
+	s.Repo = repo
 
 	// Set task name with fallback
 	if taskName != "" {
@@ -874,8 +895,19 @@ func (a *API) getSession(ctx context.Context, id string) (*internal.Session, err
 		s.TaskName = "Manual Task"
 	}
 
-	// Parse trigger context from prompt
-	s.TriggerContext = parseEventContext(s.Prompt)
+	// Set trigger type and ref from stored metadata
+	s.TriggerType = triggerType
+	s.TriggerRef = triggerRef
+
+	// Parse trigger context from prompt as fallback for old sessions
+	if triggerType != "" {
+		s.TriggerContext = triggerType
+		if triggerRef != "" {
+			s.TriggerContext = triggerType + ": " + triggerRef
+		}
+	} else {
+		s.TriggerContext = parseEventContext(s.Prompt)
+	}
 
 	return &s, nil
 }
@@ -1659,6 +1691,8 @@ func (a *API) handleTaskDefinitionRun(w http.ResponseWriter, r *http.Request, id
 	}
 
 	req := def.ToTaskRequest()
+	req.TaskName = def.Name
+	req.TriggerType = "manual"
 	session, err := a.dispatcher.DispatchTask(r.Context(), req, submitter)
 	if err != nil {
 		log.Printf("error: dispatching task definition %s: %v", id, err)
@@ -1943,11 +1977,18 @@ func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
 
 		// Build TaskRequest with webhook context as env vars.
 		taskReq := TaskRequest{
-			Prompt:   sched.Prompt,
-			Repo:     sched.Repo,
-			Provider: sched.Provider,
-			Timeout:  sched.Timeout,
-			Debug:    sched.Debug,
+			Prompt:      sched.Prompt,
+			Repo:        sched.Repo,
+			Provider:    sched.Provider,
+			Timeout:     sched.Timeout,
+			Debug:       sched.Debug,
+			TaskName:    sched.Name,
+			TriggerType: "webhook",
+		}
+		if issueNumber != "" {
+			taskReq.TriggerRef = fmt.Sprintf("%s#%s", repo, issueNumber)
+		} else if prNumber != "" {
+			taskReq.TriggerRef = fmt.Sprintf("%s#%s", repo, prNumber)
 		}
 
 		session, err := a.dispatcher.DispatchTask(ctx, taskReq, sched.Owner)

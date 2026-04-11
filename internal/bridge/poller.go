@@ -474,6 +474,15 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 			// Enrich event context with full GitHub data.
 			enrichedContext := p.enrichEventContext(ctx, token, baseURL, eventType, action, meta)
 
+			// Set task metadata for session storage.
+			taskReq.TaskName = sched.Name
+			taskReq.TriggerType = "event"
+			if issueNumber != "" {
+				taskReq.TriggerRef = fmt.Sprintf("%s#%s", eventRepo, issueNumber)
+			} else if prNumber != "" {
+				taskReq.TriggerRef = fmt.Sprintf("%s#%s", eventRepo, prNumber)
+			}
+
 			// Prepend enriched context, keep raw metadata for backward compatibility.
 			metaJSON, _ := json.Marshal(meta)
 			taskReq.Prompt = taskReq.Prompt + "\n\n" + enrichedContext + "\n\n[event: " + string(metaJSON) + "]"

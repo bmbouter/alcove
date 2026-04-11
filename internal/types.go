@@ -59,7 +59,9 @@ type Session struct {
 	Artifacts      []Artifact `json:"artifacts,omitempty"`
 	ParentID       string     `json:"parent_id,omitempty"`
 	TaskName       string     `json:"task_name,omitempty"`
-	TriggerContext string     `json:"trigger_context,omitempty"`
+	TriggerContext string     `json:"trigger_context,omitempty"` // keep for backward compat
+	TriggerType    string     `json:"trigger_type,omitempty"`
+	TriggerRef     string     `json:"trigger_ref,omitempty"`
 }
 
 // Artifact represents an output produced by a task (PR, commit, etc.).

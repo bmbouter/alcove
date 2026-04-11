@@ -351,11 +351,13 @@ func (s *Scheduler) tick(ctx context.Context) {
 		log.Printf("scheduler: dispatching schedule %s (%s)", sched.Name, sched.ID)
 
 		req := TaskRequest{
-			Prompt:   sched.Prompt,
-			Repo:     sched.Repo,
-			Provider: sched.Provider,
-			Timeout:  sched.Timeout,
-			Debug:    sched.Debug,
+			Prompt:      sched.Prompt,
+			Repo:        sched.Repo,
+			Provider:    sched.Provider,
+			Timeout:     sched.Timeout,
+			Debug:       sched.Debug,
+			TaskName:    sched.Name,
+			TriggerType: "cron",
 		}
 
 		if _, err := s.dispatcher.DispatchTask(ctx, req, sched.Owner); err != nil {
