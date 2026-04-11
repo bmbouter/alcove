@@ -142,7 +142,7 @@ func mapGitHubOperation(method, subpath string) string {
 	case strings.HasPrefix(normalized, "pulls/N") && method == "PATCH":
 		return "update_pr"
 
-	// Issues
+	// Issues and labels
 	case strings.HasPrefix(normalized, "issues") && method == "GET":
 		return "read_issues"
 	case normalized == "issues" && method == "POST":
@@ -151,6 +151,10 @@ func mapGitHubOperation(method, subpath string) string {
 		return "update_issue"
 	case strings.HasPrefix(normalized, "issues/N/comments") && method == "POST":
 		return "create_comment"
+	case strings.HasPrefix(normalized, "issues/N/labels") && (method == "POST" || method == "DELETE"):
+		return "update_issue"
+	case strings.HasPrefix(normalized, "labels") && method == "GET":
+		return "read_issues"
 
 	// Contents / files
 	case strings.HasPrefix(normalized, "contents") && method == "GET":
