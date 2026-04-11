@@ -371,7 +371,7 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 			}
 		}
 
-		// Extract user from comment or issue.
+		// Extract user from comment, issue, or pull request.
 		var users []string
 		if comment, ok := payload["comment"].(map[string]interface{}); ok {
 			if user, ok := comment["user"].(map[string]interface{}); ok {
@@ -381,6 +381,12 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 			}
 		} else if issue, ok := payload["issue"].(map[string]interface{}); ok {
 			if user, ok := issue["user"].(map[string]interface{}); ok {
+				if login, ok := user["login"].(string); ok {
+					users = append(users, login)
+				}
+			}
+		} else if pr, ok := payload["pull_request"].(map[string]interface{}); ok {
+			if user, ok := pr["user"].(map[string]interface{}); ok {
 				if login, ok := user["login"].(string); ok {
 					users = append(users, login)
 				}
