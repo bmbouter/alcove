@@ -34,9 +34,11 @@ alcove/
 ├── internal/
 │   ├── types.go                ✅ Shared types (Task, Session, Scope, TranscriptEvent, etc.)
 │   ├── runtime/
-│   │   ├── runtime.go          ✅ Runtime interface (RunTask, CancelTask, EnsureService, etc.)
+│   │   ├── runtime.go          ✅ Runtime interface (RunTask, CancelTask, EnsureService, etc.) with Podman, Docker, and Kubernetes backends
 │   │   ├── podman.go           ✅ PodmanRuntime implementation (podman CLI wrapper)
 │   │   ├── podman_test.go      ✅ 14 tests (TestHelperProcess pattern)
+│   │   ├── docker.go           ✅ DockerRuntime implementation (Docker CLI wrapper, no --internal network isolation)
+│   │   ├── docker_test.go      ✅ Docker runtime tests
 │   │   ├── kubernetes.go       ✅ KubernetesRuntime implementation (client-go, Jobs with native sidecars, NetworkPolicy)
 │   │   └── kubernetes_test.go  ✅ Kubernetes runtime tests
 │   ├── bridge/
@@ -291,6 +293,19 @@ alcove/
     one of the listed GitHub labels. This provides a safety gate that prevents
     unauthorized issues from triggering automated development tasks.
 
+26. **Docker Runtime** — `DockerRuntime` in `internal/runtime/docker.go`
+    implements the `Runtime` interface using the Docker CLI. Works identically
+    to PodmanRuntime except: Docker does not support the `--internal` flag on
+    network create, so Skiff containers have unrestricted network access (a
+    warning is logged at startup). Uses `/var/run/docker.sock` and
+    `host.docker.internal` instead of Podman equivalents. Set `RUNTIME=docker`
+    to use. Intended for environments where Podman is unavailable (e.g., NAS
+    devices, some CI systems). Credential security is maintained (Skiff still
+    gets dummy tokens, Gate still injects real credentials), but the reduced
+    network isolation means adversarial prompt injection could make Claude Code
+    bypass Gate. Acceptable for personal/trusted deployments; use Podman or
+    Kubernetes for production/shared deployments.
+
 ## What's NOT Working Yet
 
 ### 1. NATS Dead Code
@@ -417,7 +432,7 @@ See the full roadmap in [architecture-decisions.md](architecture-decisions.md#ro
 |----------|---------|-------------|
 | `LEDGER_DATABASE_URL` | (required) | PostgreSQL connection string |
 | `HAIL_URL` | (required) | NATS server URL |
-| `RUNTIME` | `podman` | Container runtime (`podman` or `kubernetes`) |
+| `RUNTIME` | `podman` | Container runtime (`podman`, `docker`, or `kubernetes`) |
 | `BRIDGE_PORT` | `8080` | HTTP server port |
 | `SKIFF_IMAGE` | `localhost/alcove-skiff-base:dev` | Skiff container image |
 | `GATE_IMAGE` | `localhost/alcove-gate:dev` | Gate container image |

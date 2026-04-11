@@ -60,14 +60,15 @@ provider endpoint over TLS.
 2-30s for LLM calls). This prevents prompt injection attacks from exfiltrating
 LLM credentials, which could be used for expensive unauthorized API usage.
 
-### 4. Skiff Lifecycle: Kubernetes Jobs + `podman run --rm`
+### 4. Skiff Lifecycle: Kubernetes Jobs + `podman run --rm` + `docker run --rm`
 
-**Decision**: Use Kubernetes Jobs on OpenShift, `podman run --rm` on laptop.
+**Decision**: Use Kubernetes Jobs on OpenShift, `podman run --rm` or `docker run --rm` on laptop/server.
 
 | Environment | Primitive | Creation | Cleanup |
 |---|---|---|---|
 | Kubernetes/OpenShift | `batch/v1 Job` with `ttlSecondsAfterFinished: 300` | Bridge creates via k8s API | Automatic TTL |
-| Podman (laptop) | `podman run --rm` | Bridge calls podman API | Automatic via `--rm` |
+| Podman (laptop) | `podman run --rm` | Bridge calls podman CLI | Automatic via `--rm` |
+| Docker | `docker run --rm` | Bridge calls Docker CLI | Automatic via `--rm` |
 
 **Rationale** (Platform): Jobs provide the exact semantic model needed — run one
 task, exit, report success/failure. Exit code 0 = success, non-zero = failure.
@@ -129,9 +130,9 @@ stream — no updates or deletes to session records. Gate writes its proxy log
 independently, providing a second audit stream that cannot be tampered with by
 the Skiff pod.
 
-### 7. Podman Compatibility: Go Runtime Abstraction
+### 7. Container Runtime Abstraction
 
-**Decision**: Go `Runtime` interface with `KubeRuntime` and `PodmanRuntime` backends.
+**Decision**: Go `Runtime` interface with `KubeRuntime`, `PodmanRuntime`, and `DockerRuntime` backends.
 
 ```go
 type Runtime interface {
@@ -151,6 +152,14 @@ containers are attached only to `alcove-internal` (created with `--internal`,
 no gateway, no internet route). Gate and infrastructure services are attached
 to both `alcove-internal` and `alcove-external`. This provides kernel-level
 isolation — Skiff cannot reach the internet even if `HTTP_PROXY` is bypassed.
+
+**Network isolation on Docker**: Docker does not support the `--internal` flag
+on network create, so Skiff containers have unrestricted network access. A
+warning is logged at startup. Credential security is maintained (dummy tokens,
+Gate injection), but adversarial prompt injection could bypass Gate. The Docker
+runtime is intended for environments where Podman is unavailable (e.g., NAS
+devices, some CI systems). Acceptable for personal/trusted deployments; use
+Podman or Kubernetes for production/shared deployments.
 
 ### 8. Claude Code Invocation
 
@@ -238,6 +247,10 @@ alcove-external network (normal, internet access)
 `make dev-up` starts the infrastructure. Bridge dynamically creates Skiff pods on
 the same network when tasks are dispatched.
 
+On Docker, the same topology applies but without the `--internal` flag — all
+containers share a single network with internet access. See Decision 7 for the
+security implications.
+
 ### 14. Auth Model: Argon2id + Rate Limiting
 
 **Decision**: Basic built-in auth with security hardening from day one.
@@ -319,8 +332,8 @@ The CLI stores its Bridge URL in `~/.config/alcove/config.yaml` (set by
 
 ### Phase 1: Foundation
 - Go monorepo with `cmd/bridge`, `cmd/gate`, `cmd/skiff-init`
-- `KubeRuntime` and `PodmanRuntime` backends
-- Skiff pods as Jobs (k8s) / `podman run --rm` (laptop)
+- `KubeRuntime`, `PodmanRuntime`, and `DockerRuntime` backends
+- Skiff pods as Jobs (k8s) / `podman run --rm` / `docker run --rm`
 - Gate as sidecar with HTTP_PROXY + git credential helper + LLM API proxy
 - NATS (core, no persistence) for Hail
 - PostgreSQL for Ledger (append-only writes)
@@ -382,7 +395,7 @@ alcove/
 │   ├── gate/           # Authorization proxy binary
 │   └── skiff-init/     # Skiff init process binary
 ├── internal/
-│   ├── runtime/        # KubeRuntime + PodmanRuntime
+│   ├── runtime/        # KubeRuntime + PodmanRuntime + DockerRuntime
 │   ├── hail/           # NATS client wrapper
 │   ├── ledger/         # PostgreSQL client
 │   ├── gate/           # Proxy logic, scope enforcement, token swap, LLM proxy

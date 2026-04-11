@@ -409,6 +409,22 @@ This provides kernel-level network isolation on podman, comparable to
 NetworkPolicy on OpenShift. See
 [podman-network-isolation.md](podman-network-isolation.md) for full details.
 
+#### Docker Network Isolation (Reduced)
+
+Docker does not support the `--internal` flag on network create, so the
+dual-network isolation used by Podman is not available. Skiff containers on
+Docker have unrestricted network access. A warning is logged at startup.
+
+Credential security is maintained: Skiff still receives dummy tokens and Gate
+still injects real credentials at proxy time. However, the reduced network
+isolation means adversarial prompt injection could make Claude Code bypass Gate
+and reach external services directly.
+
+The Docker runtime (`RUNTIME=docker`) is intended for environments where Podman
+is unavailable (e.g., NAS devices, some CI systems). It uses
+`/var/run/docker.sock` and `host.docker.internal` instead of the Podman
+equivalents. For production or shared deployments, use Podman or Kubernetes.
+
 ### LLM Provider Configuration
 
 Bridge manages provider credentials and injects them into Gate sidecars at task
@@ -427,7 +443,7 @@ time. Skiff containers never hold LLM API keys.
 
 - Bridge with basic dashboard (submit prompt, view tasks)
 - Bridge REST API
-- Skiff pods as k8s Jobs / `podman run --rm`
+- Skiff pods as k8s Jobs / `podman run --rm` / `docker run --rm`
 - Gate as sidecar with HTTP_PROXY + git credential helper + LLM API proxy
 - Hail via NATS (core, no persistence)
 - Ledger via PostgreSQL (append-only session records)
@@ -485,7 +501,7 @@ time. Skiff containers never hold LLM API keys.
 | Component | Name | k8s Resource | Long-lived | Purpose |
 |-----------|------|-------------|------------|---------|
 | Controller | **Bridge** | Deployment | Yes | Coordination, dashboard, API, scheduler |
-| Worker | **Skiff** | Job / `podman run --rm` | No (ephemeral) | Execute Claude Code prompts |
+| Worker | **Skiff** | Job / `podman run --rm` / `docker run --rm` | No (ephemeral) | Execute Claude Code prompts |
 | Auth Proxy | **Gate** | Sidecar in Skiff pod | No (per-task) | Network sandbox, token swap, LLM proxy |
 | Message Bus | **Hail** | Deployment (NATS) | Yes | Task dispatch, status updates |
 | Session Store | **Ledger** | Deployment + PVC | Yes | Audit trail, session history |
