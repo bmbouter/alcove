@@ -47,8 +47,9 @@ type Schedule struct {
 	Debug       bool          `json:"debug,omitempty"`
 	Source      string        `json:"source,omitempty"`
 	SourceKey   string        `json:"source_key,omitempty"`
-	TriggerType string        `json:"trigger_type,omitempty"`
-	EventConfig *EventTrigger `json:"event_config,omitempty"`
+	TriggerType  string        `json:"trigger_type,omitempty"`
+	EventConfig  *EventTrigger `json:"event_config,omitempty"`
+	RepoDisabled bool          `json:"repo_disabled"`
 }
 
 // CronExpr represents a parsed 5-field cron expression.
