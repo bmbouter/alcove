@@ -232,6 +232,14 @@ func AuthMiddleware(store Authenticator, mgr UserManager) func(http.Handler) htt
 					}
 					username = resolvedUser
 					log.Printf("auth: TBR identity resolved to SSO user=%s for %s %s", username, r.Method, path)
+
+					// Update last accessed time (async to avoid blocking the request)
+					go func() {
+						ctx := context.Background()
+						if err := rhStore.UpdateTBRLastAccessed(ctx, tbrID.OrgID, tbrID.Username); err != nil {
+							log.Printf("auth: warning - failed to update TBR last accessed for %s %s: %v", tbrID.OrgID, tbrID.Username, err)
+						}
+					}()
 				} else {
 					// SAML identity - provision/update user as before
 					username, err = rhStore.UpsertUser(r.Context(), identity)
