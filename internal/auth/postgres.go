@@ -203,8 +203,19 @@ func (s *PgStore) DeleteUser(ctx context.Context, username string) error {
 
 // ListUsers returns all users ordered by creation time.
 func (s *PgStore) ListUsers(ctx context.Context) ([]UserInfo, error) {
-	rows, err := s.db.Query(ctx,
-		"SELECT username, created_at, is_admin FROM auth_users ORDER BY created_at")
+	rows, err := s.db.Query(ctx, `
+		SELECT
+			u.username,
+			u.created_at,
+			u.is_admin,
+			COALESCE(s.session_count, 0) as session_count
+		FROM auth_users u
+		LEFT JOIN (
+			SELECT submitter, COUNT(*) as session_count
+			FROM sessions
+			GROUP BY submitter
+		) s ON u.username = s.submitter
+		ORDER BY u.created_at`)
 	if err != nil {
 		return nil, fmt.Errorf("listing users: %w", err)
 	}
@@ -213,7 +224,7 @@ func (s *PgStore) ListUsers(ctx context.Context) ([]UserInfo, error) {
 	users := []UserInfo{} // empty slice, not nil
 	for rows.Next() {
 		var u UserInfo
-		if err := rows.Scan(&u.Username, &u.CreatedAt, &u.IsAdmin); err != nil {
+		if err := rows.Scan(&u.Username, &u.CreatedAt, &u.IsAdmin, &u.SessionCount); err != nil {
 			return nil, fmt.Errorf("scanning user: %w", err)
 		}
 		users = append(users, u)

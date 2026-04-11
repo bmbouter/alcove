@@ -61,9 +61,10 @@ type UserManager interface {
 
 // UserInfo contains metadata about a user.
 type UserInfo struct {
-	Username  string    `json:"username"`
-	CreatedAt time.Time `json:"created_at"`
-	IsAdmin   bool      `json:"is_admin"`
+	Username     string    `json:"username"`
+	CreatedAt    time.Time `json:"created_at"`
+	IsAdmin      bool      `json:"is_admin"`
+	SessionCount int       `json:"session_count"`
 }
 
 // HashPassword produces an argon2id hash suitable for storage in config.
