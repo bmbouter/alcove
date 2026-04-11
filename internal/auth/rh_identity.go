@@ -56,12 +56,13 @@ type TBRIdentity struct {
 
 // TBRAssociation represents a TBR identity association record
 type TBRAssociation struct {
-	ID          string    `json:"id"`
-	UserID      string    `json:"user_id"`
-	TBROrgID    string    `json:"tbr_org_id"`
-	TBRUsername string    `json:"tbr_username"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID             string     `json:"id"`
+	UserID         string     `json:"user_id"`
+	TBROrgID       string     `json:"tbr_org_id"`
+	TBRUsername    string     `json:"tbr_username"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	LastAccessedAt *time.Time `json:"last_accessed_at"`
 }
 
 // ParseRHIdentity decodes a base64-encoded X-RH-Identity header value
@@ -223,7 +224,7 @@ func (s *RHIdentityStore) GetTBRAssociations(ctx context.Context, username strin
 	log.Printf("rh-identity: fetching TBR associations for user=%s", username)
 
 	rows, err := s.db.Query(ctx,
-		"SELECT id, user_id, tbr_org_id, tbr_username, created_at, updated_at FROM tbr_identity_associations WHERE user_id = $1 ORDER BY created_at",
+		"SELECT id, user_id, tbr_org_id, tbr_username, created_at, updated_at, last_accessed_at FROM tbr_identity_associations WHERE user_id = $1 ORDER BY created_at",
 		username)
 	if err != nil {
 		return nil, fmt.Errorf("querying TBR associations: %w", err)
@@ -233,7 +234,7 @@ func (s *RHIdentityStore) GetTBRAssociations(ctx context.Context, username strin
 	var associations []TBRAssociation
 	for rows.Next() {
 		var assoc TBRAssociation
-		if err := rows.Scan(&assoc.ID, &assoc.UserID, &assoc.TBROrgID, &assoc.TBRUsername, &assoc.CreatedAt, &assoc.UpdatedAt); err != nil {
+		if err := rows.Scan(&assoc.ID, &assoc.UserID, &assoc.TBROrgID, &assoc.TBRUsername, &assoc.CreatedAt, &assoc.UpdatedAt, &assoc.LastAccessedAt); err != nil {
 			return nil, fmt.Errorf("scanning TBR association: %w", err)
 		}
 		associations = append(associations, assoc)
@@ -267,8 +268,8 @@ func (s *RHIdentityStore) CreateTBRAssociation(ctx context.Context, username, or
 	err = s.db.QueryRow(ctx,
 		`INSERT INTO tbr_identity_associations (user_id, tbr_org_id, tbr_username, created_at, updated_at)
 		 VALUES ($1, $2, $3, NOW(), NOW())
-		 RETURNING id, user_id, tbr_org_id, tbr_username, created_at, updated_at`,
-		username, orgID, tbrUsername).Scan(&assoc.ID, &assoc.UserID, &assoc.TBROrgID, &assoc.TBRUsername, &assoc.CreatedAt, &assoc.UpdatedAt)
+		 RETURNING id, user_id, tbr_org_id, tbr_username, created_at, updated_at, last_accessed_at`,
+		username, orgID, tbrUsername).Scan(&assoc.ID, &assoc.UserID, &assoc.TBROrgID, &assoc.TBRUsername, &assoc.CreatedAt, &assoc.UpdatedAt, &assoc.LastAccessedAt)
 	if err != nil {
 		return nil, fmt.Errorf("creating TBR association: %w", err)
 	}
@@ -277,7 +278,27 @@ func (s *RHIdentityStore) CreateTBRAssociation(ctx context.Context, username, or
 	return &assoc, nil
 }
 
-// DeleteTBRAssociation removes a TBR identity association (user must own it)
+// UpdateTBRLastAccessed updates the last_accessed_at timestamp for a TBR identity association
+// It includes throttling to avoid excessive writes under heavy usage
+func (s *RHIdentityStore) UpdateTBRLastAccessed(ctx context.Context, orgID, tbrUsername string) error {
+	// Only update if the existing value is older than 1 minute to avoid excessive writes
+	result, err := s.db.Exec(ctx,
+		`UPDATE tbr_identity_associations
+		 SET last_accessed_at = NOW()
+		 WHERE tbr_org_id = $1 AND tbr_username = $2
+		 AND (last_accessed_at IS NULL OR last_accessed_at < NOW() - INTERVAL '1 minute')`,
+		orgID, tbrUsername)
+	if err != nil {
+		return fmt.Errorf("updating TBR last accessed: %w", err)
+	}
+
+	if result.RowsAffected() > 0 {
+		log.Printf("rh-identity: updated last_accessed_at for TBR org_id=%s username=%s", orgID, tbrUsername)
+	}
+
+	return nil
+}
+
 func (s *RHIdentityStore) DeleteTBRAssociation(ctx context.Context, username, associationID string) error {
 	log.Printf("rh-identity: deleting TBR association id=%s user=%s", associationID, username)
 

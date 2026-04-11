@@ -47,6 +47,33 @@
         return div.innerHTML;
     }
 
+    // Format relative time for last accessed timestamps
+    function formatRelativeTime(timestamp) {
+        if (!timestamp) {
+            return 'Never';
+        }
+
+        const now = new Date();
+        const then = new Date(timestamp);
+        const diffMs = now.getTime() - then.getTime();
+        const diffMinutes = Math.floor(diffMs / (1000 * 60));
+        const diffHours = Math.floor(diffMinutes / 60);
+        const diffDays = Math.floor(diffHours / 24);
+        const diffMonths = Math.floor(diffDays / 30);
+
+        if (diffMinutes < 1) {
+            return 'just now';
+        } else if (diffMinutes < 60) {
+            return `${diffMinutes} minute${diffMinutes === 1 ? '' : 's'} ago`;
+        } else if (diffHours < 24) {
+            return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+        } else if (diffDays < 30) {
+            return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+        } else {
+            return `${diffMonths} month${diffMonths === 1 ? '' : 's'} ago`;
+        }
+    }
+
     // ---------------------
     // State
     // ---------------------
@@ -5373,11 +5400,13 @@
             associations.forEach(assoc => {
                 const row = document.createElement('tr');
                 const createdDate = new Date(assoc.created_at).toLocaleDateString();
+                const lastActive = formatRelativeTime(assoc.last_accessed_at);
 
                 row.innerHTML = `
                     <td>${escapeHtml(assoc.tbr_org_id)}</td>
                     <td>${escapeHtml(assoc.tbr_username)}</td>
                     <td>${createdDate}</td>
+                    <td>${lastActive}</td>
                     <td>
                         <button class="btn btn-small btn-outline btn-danger" onclick="deleteTBRAssociation('${assoc.id}')">
                             Remove
@@ -5389,7 +5418,7 @@
 
         } catch (error) {
             console.error('Error loading TBR associations:', error);
-            tbody.innerHTML = '<tr><td colspan="4" class="error">Error loading associations</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" class="error">Error loading associations</td></tr>';
             show(table);
             hide(empty);
         }
