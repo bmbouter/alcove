@@ -89,3 +89,80 @@ When resumed:
 - Poller immediately fetches pending events
 - Dedup table prevents double-dispatch
 - Scheduler resumes from next_run
+
+## Database Migration Policy
+
+All database migrations MUST be additive to ensure safe rolling updates:
+
+### Allowed
+- `CREATE TABLE`
+- `ALTER TABLE ADD COLUMN` (nullable or with default)
+- `CREATE INDEX`
+- New rows in reference tables
+
+### Not Allowed
+- `ALTER TABLE DROP COLUMN`
+- `ALTER TABLE RENAME COLUMN`
+- `ALTER TABLE ALTER COLUMN SET NOT NULL` (without default)
+- `DROP TABLE`
+- `ALTER TABLE RENAME`
+
+During a rolling update, the old Bridge pod continues serving while the
+new pod runs migrations. Both versions must be able to query the same
+schema simultaneously. The advisory lock in `migrate.go` prevents
+concurrent migration execution.
+
+## Deployment Configuration
+
+### OpenShift/Kubernetes
+
+The Bridge Deployment includes:
+
+- **preStop hook**: 5-second sleep before SIGTERM, allowing the load
+  balancer to drain connections
+- **terminationGracePeriodSeconds: 60**: Bridge has 60 seconds for
+  graceful shutdown (HTTP server drain, NATS drain, final status updates)
+- **Readiness probe**: `/api/v1/health` — new pod only receives traffic
+  after database connectivity is confirmed
+- **Rolling update strategy**: Old pod serves traffic while new pod
+  starts, ensuring zero downtime
+
+### Image Version Management
+
+After upgrade:
+- New sessions use the new `SKIFF_IMAGE` and `GATE_IMAGE`
+- Old sessions continue with their original images until completion
+- No version conflict — sessions are fully isolated containers
+
+## Troubleshooting
+
+### Sessions stuck as "running" after upgrade
+
+The reconciliation loop (every 2 minutes) automatically detects and
+cleans up these sessions. If a session is stuck for more than 5 minutes:
+
+1. Check if the Skiff container still exists:
+   ```bash
+   oc get pods -l task-id=<task-id>
+   ```
+
+2. If the pod is gone, the next reconciliation cycle will clean it up.
+
+3. To force cleanup immediately, restart Bridge — `RecoverHandles()`
+   runs on startup.
+
+### Events not being processed after upgrade
+
+1. Check system mode: `GET /api/v1/admin/system-state`
+2. If paused, resume: `PUT /api/v1/admin/system-state {"mode": "active"}`
+3. Check poller logs: `oc logs deployment/alcove-bridge | grep poller`
+4. Events in GitHub's API are retained for ~90 minutes. As long as
+   Bridge resumes polling within that window, no events are lost.
+
+### CI Gate monitors not resuming
+
+CI Gate monitors are recovered on startup from the `ci_gate_state`
+table. If a monitor isn't running:
+
+1. Check the state: `SELECT * FROM ci_gate_state WHERE status = 'monitoring'`
+2. Restart Bridge to trigger `RecoverMonitors()`

@@ -167,6 +167,10 @@ objects:
               port: http
             initialDelaySeconds: 3
             periodSeconds: 10
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
           resources:
             requests:
               cpu: 100m
@@ -174,6 +178,7 @@ objects:
             limits:
               cpu: 500m
               memory: 512Mi
+        terminationGracePeriodSeconds: 60
         volumes:
         - name: vertex-ai-credentials
           secret:
