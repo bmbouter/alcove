@@ -74,6 +74,10 @@ LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disa
 HAIL_URL="nats://localhost:4222" \
 RUNTIME=docker \
 ./bin/bridge
+
+# Upgrade Bridge (running sessions continue undisturbed)
+make build-images
+podman run -d --replace --name alcove-bridge ...  # same args as dev-up
 ```
 
 ## Code Conventions
