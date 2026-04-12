@@ -178,6 +178,12 @@ func main() {
 		log.Fatalf("subscribing to status updates: %v", err)
 	}
 
+	// Recover state from previous Bridge instance.
+	dispatcher.RecoverHandles(context.Background())
+	go dispatcher.ReconcileLoop(context.Background())
+	ciGateMonitor.RecoverMonitors(context.Background())
+	log.Println("session reconciliation initialized")
+
 	// Create agent definition store.
 	defStore := bridge.NewAgentDefStore(dbpool)
 

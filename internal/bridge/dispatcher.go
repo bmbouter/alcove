@@ -692,6 +692,78 @@ func stripURLToHost(apiHost string) string {
 	return h
 }
 
+// RecoverHandles rebuilds the in-memory handles map from sessions still
+// marked as running in the database. This handles Bridge restarts where
+// the map is lost. Sessions whose containers have already exited are
+// marked as completed.
+func (d *Dispatcher) RecoverHandles(ctx context.Context) {
+	if d.db == nil {
+		return
+	}
+	rows, err := d.db.Query(ctx,
+		`SELECT id, task_id FROM sessions WHERE outcome = 'running'`)
+	if err != nil {
+		log.Printf("reconcile: error querying running sessions: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	var recovered, orphaned int
+	for rows.Next() {
+		var sessionID, taskID string
+		if err := rows.Scan(&sessionID, &taskID); err != nil {
+			continue
+		}
+
+		// Check if the container/job still exists via Runtime.
+		handle := runtime.TaskHandle{ID: taskID}
+		status, err := d.rt.TaskStatus(ctx, handle)
+		if err != nil || status == "not_found" {
+			// Container is gone — mark session as completed.
+			now := time.Now().UTC()
+			d.updateSessionStatus(ctx, sessionID, "completed", nil, &now)
+			orphaned++
+			log.Printf("reconcile: marked orphaned session %s as completed (container gone)", sessionID)
+			continue
+		}
+
+		if status == "exited" || status == "stopped" {
+			now := time.Now().UTC()
+			d.updateSessionStatus(ctx, sessionID, "completed", nil, &now)
+			orphaned++
+			log.Printf("reconcile: marked exited session %s as completed", sessionID)
+			continue
+		}
+
+		// Container still running — add to handles map.
+		d.mu.Lock()
+		d.handles[sessionID] = handle
+		d.mu.Unlock()
+		recovered++
+	}
+
+	if recovered > 0 || orphaned > 0 {
+		log.Printf("reconcile: recovered %d running session(s), cleaned up %d orphaned session(s)", recovered, orphaned)
+	}
+}
+
+// ReconcileLoop periodically checks for sessions stuck in "running" state
+// whose containers have exited. This catches status updates lost during
+// Bridge restarts or NATS message drops.
+func (d *Dispatcher) ReconcileLoop(ctx context.Context) {
+	ticker := time.NewTicker(2 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			d.RecoverHandles(ctx)
+		}
+	}
+}
+
 func (d *Dispatcher) updateSessionArtifacts(ctx context.Context, sessionID string, artifacts []internal.Artifact) {
 	artifactsJSON, _ := json.Marshal(artifacts)
 	_, err := d.db.Exec(ctx, `
