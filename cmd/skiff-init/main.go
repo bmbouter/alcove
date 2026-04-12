@@ -451,6 +451,9 @@ func setupEnv(task internal.Task) {
 	// Load skill/agent repos if specified.
 	loadSkillRepos()
 
+	// Install plugins declared in agent definition.
+	installPlugins()
+
 	// Apply task-specific env vars
 	for k, v := range task.Env {
 		os.Setenv(k, v)
@@ -639,6 +642,78 @@ func installLolaModules() {
 	}
 
 	log.Printf("installed %d lola module(s)", len(lolaModuleDirs))
+}
+
+// installPlugins reads ALCOVE_PLUGINS and installs each plugin.
+// Marketplace plugins use "claude plugin install <name>".
+// Git-sourced plugins are cloned and loaded via --plugin-dir.
+func installPlugins() {
+	pluginsJSON := os.Getenv("ALCOVE_PLUGINS")
+	if pluginsJSON == "" {
+		return
+	}
+
+	type pluginSpec struct {
+		Name   string `json:"name"`
+		Source string `json:"source,omitempty"`
+		Ref    string `json:"ref,omitempty"`
+	}
+
+	var plugins []pluginSpec
+	if err := json.Unmarshal([]byte(pluginsJSON), &plugins); err != nil {
+		log.Printf("warning: invalid ALCOVE_PLUGINS JSON: %v", err)
+		return
+	}
+
+	for _, p := range plugins {
+		if p.Name == "" {
+			continue
+		}
+
+		switch {
+		case p.Source == "" || p.Source == "marketplace":
+			// Install from Claude Code marketplace.
+			log.Printf("installing plugin from marketplace: %s", p.Name)
+			cmd := exec.Command("claude", "plugin", "install", p.Name)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				log.Printf("warning: failed to install marketplace plugin %s: %v", p.Name, err)
+			}
+
+		case p.Source == "claude-plugins-official":
+			// Install from the official Anthropic plugin repo.
+			log.Printf("installing official plugin: %s", p.Name)
+			cmd := exec.Command("claude", "plugin", "install", p.Name+"@claude-plugins-official")
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				log.Printf("warning: failed to install official plugin %s: %v", p.Name, err)
+			}
+
+		default:
+			// Git URL source -- clone and use as --plugin-dir.
+			log.Printf("cloning plugin from git: %s (%s)", p.Name, p.Source)
+			cloneDir := filepath.Join("/tmp/alcove-plugins", p.Name)
+			args := []string{"clone", "--depth=1"}
+			if p.Ref != "" {
+				args = append(args, "--branch", p.Ref)
+			}
+			args = append(args, p.Source, cloneDir)
+
+			cmd := exec.Command("git", args...)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				log.Printf("warning: failed to clone plugin %s: %v", p.Name, err)
+				continue
+			}
+
+			// Add to plugin dirs for --plugin-dir flag.
+			skillPluginDirs = append(skillPluginDirs, cloneDir)
+			log.Printf("loaded git plugin: %s from %s", p.Name, p.Source)
+		}
+	}
 }
 
 // cloneRepo performs a shallow clone of the given repo.

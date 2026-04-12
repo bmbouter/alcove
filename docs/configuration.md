@@ -439,6 +439,12 @@ profiles:
   - read-only-github
 tools:
   - github
+plugins:
+  - name: code-review
+    source: claude-plugins-official
+  - name: my-custom-plugin
+    source: https://github.com/org/my-plugin.git
+    ref: main
 schedule: "0 2 * * *"
 ```
 
@@ -453,6 +459,7 @@ schedule: "0 2 * * *"
 | `budget_usd`| float    | no       | Maximum spend |
 | `profiles`  | string[] | no       | Security profile names to apply |
 | `tools`     | string[] | no       | MCP tool names to enable |
+| `plugins`   | PluginSpec[] | no   | Claude Code plugins to install (see [Plugins](#plugins)) |
 | `schedule`  | string   | no       | Cron expression for automatic execution |
 | `labels`    | string[] | no       | GitHub issue/PR labels for event filtering (see below) |
 | `users`     | string[] | no       | GitHub usernames for event filtering (see below) |
@@ -572,6 +579,49 @@ security profiles (see [API Reference](api-reference.md#security)).
   (as a user-created or YAML profile), a sync error is reported.
 - YAML profiles are synced on the same interval as agent definitions
   (configurable via `TASK_REPO_SYNC_INTERVAL`, default 5 minutes).
+
+---
+
+## Plugins
+
+Agent definitions can declare Claude Code plugins to install at Skiff startup.
+Plugins are installed before Claude Code runs, so all declared plugins are
+available for the entire session.
+
+```yaml
+name: my-developer-agent
+prompt: |
+  Review the codebase and suggest improvements.
+plugins:
+  - name: code-review
+    source: claude-plugins-official
+  - name: gopls-lsp
+    source: claude-plugins-official
+  - name: my-custom-plugin
+    source: https://github.com/org/my-plugin.git
+    ref: main
+```
+
+### Plugin Sources
+
+| Source | Description | Example |
+|--------|-------------|---------|
+| `claude-plugins-official` | Official Anthropic plugins | `code-review`, `gopls-lsp` |
+| `marketplace` (or empty) | Claude Code plugin marketplace | Any published plugin |
+| Git URL | Custom plugin from a git repo | `https://github.com/org/plugin.git` |
+
+### PluginSpec Fields
+
+| Field    | Type   | Required | Description |
+|----------|--------|----------|-------------|
+| `name`   | string | yes      | Plugin name |
+| `source` | string | no       | Plugin source: `claude-plugins-official`, `marketplace`, a git URL, or empty (defaults to marketplace) |
+| `ref`    | string | no       | Branch or tag for git-sourced plugins |
+
+Marketplace and official plugins are installed via `claude plugin install`.
+Git-sourced plugins are cloned and loaded via `--plugin-dir` flags passed to
+Claude Code. The `ALCOVE_PLUGINS` environment variable is set on the Skiff
+container with the JSON-serialized plugin list.
 
 ---
 
