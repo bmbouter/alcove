@@ -160,6 +160,7 @@ Skiff is the ephemeral worker container (`cmd/skiff-init`). These variables are
 | `ANTHROPIC_BASE_URL` | string | _(injected)_ | Points to Gate for LLM API proxying (`http://gate-<taskID>:8443`). |
 | `ANTHROPIC_API_KEY` | string | `sk-placeholder-routed-through-gate` | Placeholder key that satisfies Claude Code validation. Real key is held by Gate. |
 | `ALCOVE_SKILL_REPOS` | string (JSON) | _(injected)_ | JSON array of skill repo objects. Skiff clones each repo and passes them to Claude Code via `--plugin-dir` flags. |
+| `ALCOVE_PLUGINS` | string (JSON) | _(injected)_ | JSON array of plugin specs from the agent definition. Skiff installs each plugin at startup (marketplace, official, or git-sourced). |
 
 The following SCM-related environment variables are injected by Bridge when the
 task's scope includes a `github` or `gitlab` service. They configure the `gh`
