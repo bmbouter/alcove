@@ -25,6 +25,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// PluginSpec declares a Claude Code plugin to install for an agent.
+type PluginSpec struct {
+	Name   string `json:"name" yaml:"name"`                           // Plugin name (e.g., "code-review")
+	Source string `json:"source,omitempty" yaml:"source,omitempty"`   // "claude-plugins-official", git URL, or empty (marketplace default)
+	Ref    string `json:"ref,omitempty" yaml:"ref,omitempty"`         // Branch/tag for git sources
+}
+
 // CIGate configures Bridge-driven CI monitoring for PRs created by a task.
 type CIGate struct {
 	MaxRetries int `json:"max_retries" yaml:"max_retries"`
@@ -48,6 +55,7 @@ type TaskDefinition struct {
 	Schedule    *TaskDefSchedule      `json:"schedule,omitempty" yaml:"schedule"`
 	Trigger     *EventTrigger         `json:"trigger,omitempty" yaml:"trigger"`
 	CIGate      *CIGate               `json:"ci_gate,omitempty" yaml:"ci_gate"`
+	Plugins     []PluginSpec          `json:"plugins,omitempty" yaml:"plugins,omitempty"`
 
 	// Metadata (not from YAML).
 	Owner      string     `json:"owner,omitempty"`
@@ -114,6 +122,7 @@ func (td *TaskDefinition) ToTaskRequest() TaskRequest {
 		Model:    td.Model,
 		Budget:   td.BudgetUSD,
 		Debug:    td.Debug,
+		Plugins:  td.Plugins,
 	}
 }
 
@@ -233,6 +242,7 @@ func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, owner string
 			td.Tools = parsed.Tools
 			td.Schedule = parsed.Schedule
 			td.Trigger = parsed.Trigger
+			td.Plugins = parsed.Plugins
 		}
 	}
 

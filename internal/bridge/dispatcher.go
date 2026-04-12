@@ -79,6 +79,7 @@ type TaskRequest struct {
 	Model    string                `json:"model,omitempty"`
 	Budget   float64               `json:"budget_usd,omitempty"`
 	Debug    bool                  `json:"debug,omitempty"`
+	Plugins  []PluginSpec `json:"-"` // Set internally from agent definition
 	// Task metadata — set by dispatch code paths, stored in sessions table.
 	TaskName    string `json:"-"` // Schedule/agent definition name
 	TriggerType string `json:"-"` // "event", "cron", "manual", "webhook"
@@ -551,6 +552,13 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 	if len(skillRepos) > 0 {
 		reposJSON, _ := json.Marshal(skillRepos)
 		skiffEnv["ALCOVE_SKILL_REPOS"] = string(reposJSON)
+	}
+
+	// Resolve plugins from agent definition.
+	// Plugins are specified in the task definition and passed to Skiff for installation.
+	if len(req.Plugins) > 0 {
+		pluginsJSON, _ := json.Marshal(req.Plugins)
+		skiffEnv["ALCOVE_PLUGINS"] = string(pluginsJSON)
 	}
 
 	// Start Skiff pod via Runtime.
