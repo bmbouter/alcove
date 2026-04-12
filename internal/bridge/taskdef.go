@@ -51,11 +51,11 @@ type TaskDefinition struct {
 	BudgetUSD   float64               `json:"budget_usd,omitempty" yaml:"budget_usd"`
 	Debug       bool                  `json:"debug,omitempty" yaml:"debug"`
 	Profiles    []string              `json:"profiles,omitempty" yaml:"profiles"`
+	Plugins     []PluginSpec          `json:"plugins,omitempty" yaml:"plugins"`
 	Tools       map[string]ToolConfig `json:"tools,omitempty" yaml:"tools"`
 	Schedule    *TaskDefSchedule      `json:"schedule,omitempty" yaml:"schedule"`
 	Trigger     *EventTrigger         `json:"trigger,omitempty" yaml:"trigger"`
 	CIGate      *CIGate               `json:"ci_gate,omitempty" yaml:"ci_gate"`
-	Plugins     []PluginSpec          `json:"plugins,omitempty" yaml:"plugins,omitempty"`
 
 	// Metadata (not from YAML).
 	Owner      string     `json:"owner,omitempty"`

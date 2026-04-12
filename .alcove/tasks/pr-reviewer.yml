@@ -394,6 +394,10 @@ timeout: 1800
 profiles:
   - alcove-reviewer
 
+plugins:
+  - name: code-review
+    source: claude-plugins-official
+
 trigger:
   github:
     events:
