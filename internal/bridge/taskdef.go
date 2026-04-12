@@ -349,6 +349,52 @@ func (s *AgentDefStore) ListAgentDefinitionsByRepo(ctx context.Context, repoURL,
 	return defs, nil
 }
 
+// PluginBundles maps bundle names to their constituent plugins.
+var PluginBundles = map[string][]PluginSpec{
+	"sdlc-go": {
+		{Name: "code-review", Source: "claude-plugins-official"},
+		{Name: "gopls-lsp", Source: "claude-plugins-official"},
+		{Name: "commit-commands", Source: "claude-plugins-official"},
+	},
+	"sdlc-python": {
+		{Name: "code-review", Source: "claude-plugins-official"},
+		{Name: "commit-commands", Source: "claude-plugins-official"},
+	},
+	"sdlc-typescript": {
+		{Name: "code-review", Source: "claude-plugins-official"},
+		{Name: "commit-commands", Source: "claude-plugins-official"},
+	},
+	"content": {
+		{Name: "claude-md-management", Source: "claude-plugins-official"},
+	},
+}
+
+// ResolvePluginBundles expands any bundle references in the plugin list.
+// A bundle is referenced by setting Source to "bundle".
+func ResolvePluginBundles(plugins []PluginSpec) []PluginSpec {
+	var resolved []PluginSpec
+	seen := make(map[string]bool) // deduplicate by name
+
+	for _, p := range plugins {
+		if p.Source == "bundle" {
+			if bundle, ok := PluginBundles[p.Name]; ok {
+				for _, bp := range bundle {
+					if !seen[bp.Name] {
+						resolved = append(resolved, bp)
+						seen[bp.Name] = true
+					}
+				}
+			}
+			continue
+		}
+		if !seen[p.Name] {
+			resolved = append(resolved, p)
+			seen[p.Name] = true
+		}
+	}
+	return resolved
+}
+
 // nilIfEmpty returns nil if the string is empty, otherwise a pointer to it.
 func nilIfEmpty(s string) *string {
 	if s == "" {
