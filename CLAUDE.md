@@ -3,8 +3,8 @@
 ## What This Is
 
 Alcove runs AI coding agents (Claude Code) in ephemeral, network-isolated
-containers. Each task gets a fresh container, a scoped authorization proxy, and
-a complete session transcript. No persistent state crosses task boundaries.
+containers. Each session gets a fresh container, a scoped authorization proxy, and
+a complete session transcript. No persistent state crosses session boundaries.
 
 **Language:** Go 1.25 | **License:** Apache-2.0
 
@@ -12,7 +12,7 @@ a complete session transcript. No persistent state crosses task boundaries.
 
 | Name | Role | Binary | k8s Resource |
 |------|------|--------|-------------|
-| **Bridge** | Controller, REST API, dashboard, scheduler | `cmd/bridge` | Deployment |
+| **Bridge** | Controller, REST API, dashboard, scheduler, agent repo syncer | `cmd/bridge` | Deployment |
 | **Skiff** | Ephemeral Claude Code worker | `cmd/skiff-init` | Job / `podman run --rm` / `docker run --rm` |
 | **Gate** | Auth proxy sidecar (token swap, LLM proxy, SCM proxy, scope enforcement) | `cmd/gate` | Sidecar in Skiff pod |
 | **Hail** | Message bus (NATS) | external | Deployment |
@@ -25,7 +25,7 @@ Bridge → Hail (NATS) → Skiff Pod [skiff container + gate sidecar] → Gate �
                                                                   → Ledger (PostgreSQL)
 ```
 
-- Skiff pods are ephemeral: one task, one container, then destroyed
+- Skiff pods are ephemeral: one session, one container, then destroyed
 - Gate is a sidecar (shares network namespace with Skiff)
 - Gate proxies ALL external traffic including LLM API calls (Skiff has no real credentials)
 - NetworkPolicy enforces this on OpenShift; dual-network isolation (`--internal` flag) on podman; no network isolation on Docker (see Key Decisions)
@@ -91,8 +91,8 @@ RUNTIME=docker \
 - **Gate is a sidecar** per Skiff pod (not shared service) — credential isolation
 - **No MITM TLS** — protocol-level interception (HTTP_PROXY, git credential helpers)
 - **LLM keys never enter Skiff** — Gate proxies LLM API calls, injects keys; Gate also translates Anthropic API format to Vertex AI format when using Vertex AI (`GATE_VERTEX_PROJECT`, `GATE_VERTEX_REGION`)
-- **Fresh git clone per task** — `git clone --depth=1`, no persistent volumes
-- **NATS for messaging** — status updates and cancellation only (task config via env vars)
+- **Fresh git clone per session** — `git clone --depth=1`, no persistent volumes
+- **NATS for messaging** — status updates and cancellation only (session config via env vars)
 - **PostgreSQL only** for Ledger (no S3 in Phase 1)
 - **Podman, Docker + k8s** triple runtime via `Runtime` interface in `internal/runtime/` — Docker is for environments where Podman is unavailable (e.g., NAS devices, some CI systems); network isolation is reduced with Docker (no `--internal` flag support), so Skiff containers can reach the internet directly; credential security is maintained (dummy tokens, Gate injection), but adversarial prompt injection could bypass Gate; acceptable for personal/trusted deployments, use Podman or Kubernetes for production/shared deployments
 - **Credential management via Bridge** — Bridge pre-fetches OAuth2 tokens, Gate receives only short-lived tokens

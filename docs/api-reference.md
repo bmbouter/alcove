@@ -170,11 +170,11 @@ curl -X DELETE http://localhost:8080/api/v1/auth/tbr-associations/550e8400-e29b-
 
 ---
 
-## Tasks
+## Sessions (Start)
 
 ### POST /api/v1/tasks
 
-Submit a new task for execution. Bridge creates a session, dispatches the task to a Skiff pod, and returns the session record.
+Start a new session for execution. Bridge creates a session, dispatches it to a Skiff pod, and returns the session record.
 
 The submitter is read from the `X-Alcove-User` header (set automatically by the auth middleware). If absent, defaults to `"anonymous"`.
 
@@ -206,12 +206,12 @@ The submitter is read from the `X-Alcove-User` header (set automatically by the 
 
 | Field       | Type   | Required | Default          | Description |
 |-------------|--------|----------|------------------|-------------|
-| `prompt`    | string | yes      |                  | The task instruction for Claude Code |
+| `prompt`    | string | yes      |                  | The instruction for Claude Code |
 | `repo`      | string | no       |                  | Git repository URL to clone |
 | `provider`  | string | no       | first configured | LLM provider name |
 | `model`     | string | no       | provider default | Model override |
-| `timeout`   | int    | no       | 3600             | Task timeout in seconds |
-| `budget_usd`| float  | no       |                  | Maximum spend for this task |
+| `timeout`   | int    | no       | 3600             | Session timeout in seconds |
+| `budget_usd`| float  | no       |                  | Maximum spend for this session |
 | `debug`     | bool   | no       | false            | Enable debug mode |
 | `scope`     | object | no       | empty (no access)| Authorized external operations |
 
@@ -242,7 +242,7 @@ The submitter is read from the `X-Alcove-User` header (set automatically by the 
 
 | Code | Meaning |
 |------|---------|
-| 201  | Task dispatched, session created |
+| 201  | Session dispatched and created |
 | 400  | Invalid body or missing `prompt` |
 | 401  | Missing or invalid token |
 | 500  | Dispatch failed |
@@ -1459,16 +1459,16 @@ curl -X DELETE http://localhost:8080/api/v1/tools/my-tool \
 
 ## Security
 
-Manage security profiles that define per-tool access rules for tasks. YAML-sourced profiles are read-only and cannot be modified or deleted.
+Manage security profiles that define per-tool access rules for sessions. YAML-sourced profiles are read-only and cannot be modified or deleted.
 
 Each profile includes a `source` field indicating its origin:
 
 | Source    | Description |
 |-----------|-------------|
 | `user`    | Created via the API or dashboard |
-| `yaml`    | Loaded from a `.alcove/security-profiles/*.yml` file in a task repo |
+| `yaml`    | Loaded from a `.alcove/security-profiles/*.yml` file in an agent repo |
 
-YAML-sourced profiles also include `source_repo` (the task repo URL) and
+YAML-sourced profiles also include `source_repo` (the agent repo URL) and
 `source_key` (the file path within the repo, e.g.
 `.alcove/security-profiles/my-profile.yml`).
 
@@ -1796,13 +1796,13 @@ Both system-wide and per-user skill repos are merged at dispatch time and passed
 
 ---
 
-## Task Repos
+## Agent Repos
 
-Configure git repositories containing YAML task definitions (`.alcove/tasks/*.yml`). Task repos are synced automatically every 5 minutes.
+Configure git repositories containing YAML agent definitions (`.alcove/tasks/*.yml`). Agent repos are synced automatically every 5 minutes.
 
 ### GET /api/v1/admin/settings/task-repos
 
-Get the system-wide task repos (admin only).
+Get the system-wide agent repos (admin only).
 
 **Response (200):**
 
@@ -1812,7 +1812,7 @@ Get the system-wide task repos (admin only).
     {
       "url": "https://github.com/org/task-definitions.git",
       "ref": "main",
-      "name": "Org Tasks"
+      "name": "Org Agents"
     }
   ]
 }
@@ -1820,27 +1820,27 @@ Get the system-wide task repos (admin only).
 
 ### PUT /api/v1/admin/settings/task-repos
 
-Set the system-wide task repos (admin only). Replaces the entire list.
+Set the system-wide agent repos (admin only). Replaces the entire list.
 
 **Request/Response:** same shape as skill repos.
 
 ### GET /api/v1/user/settings/task-repos
 
-Get the current user's personal task repos.
+Get the current user's personal agent repos.
 
 ### PUT /api/v1/user/settings/task-repos
 
-Set the current user's personal task repos.
+Set the current user's personal agent repos.
 
 ---
 
-## Task Definitions
+## Agent Definitions
 
-Task definitions are YAML files discovered from registered task repos. They define reusable, parameterized tasks.
+Agent definitions are YAML files discovered from registered agent repos. They define reusable, parameterized agents.
 
 ### GET /api/v1/task-definitions
 
-List all task definitions from synced task repos.
+List all agent definitions from synced agent repos.
 
 **Response (200):**
 
@@ -1867,17 +1867,17 @@ List all task definitions from synced task repos.
 
 ### GET /api/v1/task-definitions/{name}
 
-Get a single task definition by name.
+Get a single agent definition by name.
 
 ### POST /api/v1/task-definitions/{name}/run
 
-Run a task definition immediately as a new task. Returns the created session.
+Run an agent definition immediately as a new session. Returns the created session.
 
 **Response (201):** same shape as `POST /api/v1/tasks`.
 
 ### POST /api/v1/task-definitions/sync
 
-Trigger an immediate sync of all task repos (normally happens every 5 minutes).
+Trigger an immediate sync of all agent repos (normally happens every 5 minutes).
 
 **Response (200):**
 
@@ -1889,7 +1889,7 @@ Trigger an immediate sync of all task repos (normally happens every 5 minutes).
 
 ### Event Trigger Delivery Modes
 
-Task definitions with event triggers (e.g., GitHub `issues.opened`) support two delivery modes via the `delivery_mode` field in the trigger configuration:
+Agent definitions with event triggers (e.g., GitHub `issues.opened`) support two delivery modes via the `delivery_mode` field in the trigger configuration:
 
 - **`polling`** (default) — Alcove polls the GitHub Events API every 60 seconds. No webhook setup required. Suitable for local development and environments without a public URL.
 - **`webhook`** — GitHub pushes events to `POST /api/v1/webhooks/github`. Requires a publicly accessible Bridge URL and a configured webhook secret.
@@ -1913,7 +1913,7 @@ See [Configuration Reference](configuration.md#label-based-trigger-filtering) fo
 
 ### Event Trigger User Filtering
 
-The trigger configuration supports an optional `users` field (string array). When specified, the event is only dispatched if the user who authored the comment or issue matches at least one of the listed GitHub usernames (case-insensitive). This prevents automated agents' own comments from re-triggering tasks and limits dispatch to trusted users.
+The trigger configuration supports an optional `users` field (string array). When specified, the event is only dispatched if the user who authored the comment or issue matches at least one of the listed GitHub usernames (case-insensitive). This prevents automated agents' own comments from re-triggering sessions and limits dispatch to trusted users.
 
 ```yaml
 trigger:
@@ -1931,9 +1931,9 @@ See [Configuration Reference](configuration.md#user-based-trigger-filtering) for
 
 ---
 
-## Task Templates
+## Agent Templates
 
-Starter templates for creating task definitions.
+Starter templates for creating agent definitions.
 
 ### GET /api/v1/task-templates
 

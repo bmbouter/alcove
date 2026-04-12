@@ -12,9 +12,9 @@ and Integration architecture.
 **Rationale** (Security):
 - A shared Gate holds all credentials for all concurrent sessions in one process.
   A memory-disclosure vulnerability exposes everything. A sidecar loads only the
-  credentials for its specific task.
+  credentials for its specific session.
 - A compromised shared Gate affects all Skiff pods. A compromised sidecar affects
-  only one task.
+  only one session.
 - 1:1 session-to-process mapping eliminates session confusion bugs (Skiff A's
   request evaluated against Skiff B's scope).
 - At 3-20 concurrent workers, the resource cost is negligible (~20-50 MB RAM per
@@ -71,12 +71,12 @@ LLM credentials, which could be used for expensive unauthorized API usage.
 | Docker | `docker run --rm` | Bridge calls Docker CLI | Automatic via `--rm` |
 
 **Rationale** (Platform): Jobs provide the exact semantic model needed — run one
-task, exit, report success/failure. Exit code 0 = success, non-zero = failure.
+session, exit, report success/failure. Exit code 0 = success, non-zero = failure.
 `activeDeadlineSeconds` provides hard timeout for free. `ttlSecondsAfterFinished`
 handles garbage collection.
 
 **Warm pool optimization** (Phase 4): For lower latency, maintain 2-3 idle Skiff
-pods as a Deployment with `restart: Always`. Each picks up one task, executes,
+pods as a Deployment with `restart: Always`. Each picks up one session, executes,
 exits. The Deployment controller restarts it, giving a fresh pod. This is a
 self-reprovisioning single-use worker pool.
 
@@ -93,8 +93,8 @@ self-reprovisioning single-use worker pool.
 - JetStream adds persistence later without API changes.
 
 **Security requirement** (Security): Authenticate and encrypt the bus. Use NATS
-credentials + TLS. Sign task messages with HMAC so Skiff pods verify they came
-from Bridge. Encrypt the Gate token in task messages.
+credentials + TLS. Sign session messages with HMAC so Skiff pods verify they came
+from Bridge. Encrypt the Gate token in session messages.
 
 ### 6. Ledger: PostgreSQL Only (Phase 1)
 
@@ -215,10 +215,10 @@ claude \
 Gate sidecar (not Skiff container). Gate proxies LLM calls, adding auth.
 Workload Identity Federation on OpenShift (Phase 2).
 
-### 12. Git Workflow: Fresh Clone Per Task
+### 12. Git Workflow: Fresh Clone Per Session
 
 **Decision**: Claude Code clones repos itself through Gate. `git clone --depth=1`
-per task. No persistent volumes. No pre-cloning by the init process.
+per session. No persistent volumes. No pre-cloning by the init process.
 
 For repos >500MB (Phase 4): read-only git mirror maintained by Bridge, mounted
 into Skiff pods. `git clone --reference /mnt/mirror --dissociate` copies objects
@@ -291,7 +291,7 @@ supported from Phase 1. No separate vault service. HashiCorp Vault or External
 Secrets Operator integration deferred to Phase 5.
 
 Bridge reads service credentials from k8s Secrets (or env vars) and injects them
-into Gate sidecars at task creation time. Defense-in-depth within Bridge is
+into Gate sidecars at session creation time. Defense-in-depth within Bridge is
 sufficient for Phase 1 (minimal RBAC, audit logging on all API endpoints).
 
 
@@ -300,12 +300,12 @@ sufficient for Phase 1 (minimal RBAC, audit logging on all API endpoints).
 ### Phase 1 Commands
 
 ```
-alcove run          Submit a task (optionally --watch for live stream)
+alcove run          Start a session (optionally --watch for live stream)
 alcove list         List sessions (filterable by status, repo, date)
 alcove logs         Stream or fetch session transcript / proxy log
 alcove status       Show single session status
 alcove cancel       Cancel a running session
-alcove schedule     Create/list/enable/disable/delete scheduled tasks
+alcove schedule     Create/list/enable/disable/delete scheduled sessions
 alcove login        Authenticate to a Bridge instance
 alcove config       Validate and show effective configuration
 alcove version      Print client and server versions
@@ -313,7 +313,7 @@ alcove version      Print client and server versions
 
 **Design principles**:
 - Session IDs are 8-char alphanumeric (human-friendly), full UUIDs stored internally
-- Default to non-blocking (`alcove run` dispatches and returns; `--watch` for live)
+- Default to non-blocking (`alcove run` starts a session and returns; `--watch` for live)
 - Every command supports `--output json` for machine-readable output
 - Stderr for progress/spinners, stdout for results (enables piping)
 
@@ -339,7 +339,7 @@ The CLI stores its Bridge URL in `~/.config/alcove/config.yaml` (set by
 - PostgreSQL for Ledger (append-only writes)
 - Built-in auth (argon2id, rate limiting, CSRF)
 - CLI: `run`, `list`, `logs`, `status`, `cancel`, `login`
-- Dashboard: task list, new task, scope approval, live monitor, task review
+- Dashboard: session list, new session, scope approval, live monitor, session review
 - Vertex AI provider (key in Gate, not in Skiff)
 - Manual scope configuration (no AI resolution)
 - k8s Secrets + env vars for credentials
@@ -355,24 +355,24 @@ The CLI stores its Bridge URL in `~/.config/alcove/config.yaml` (set by
 - DNS removal from Skiff pods (hostAliases for internal services)
 - NATS authentication + TLS
 - Ledger encryption at rest
-- Token rotation (every 5 min within a task)
+- Token rotation (every 5 min within a session)
 - Anthropic API provider
 - `alcove schedule` command + cron scheduler in Bridge
 - Scope escalation notifications (dashboard modal + CLI prompt)
 
 ### Phase 3: Human-in-the-Loop + Review
-- Task review workflow (approve/reject/follow-up/rerun)
+- Session review workflow (approve/reject/follow-up/rerun)
 - Proxy log correlation with transcripts
-- Task annotation sidebar in dashboard
-- Follow-up task chaining (linked sessions)
+- Session annotation sidebar in dashboard
+- Follow-up session chaining (linked sessions)
 - Claude Pro/Max account support
-- Notification webhooks (Slack, email) for scheduled task approvals
+- Notification webhooks (Slack, email) for scheduled session approvals
 
 ### Phase 4: Dynamic Workers + Scale
 - Custom Skiff images per-project (Containerfile generation)
 - Warm pool (Deployment-based self-reprovisioning workers)
-- Parallel task execution
-- Resource limit configuration per task
+- Parallel session execution
+- Resource limit configuration per session
 - Git mirror volumes for large repos (>500MB)
 - ~~nftables-based network isolation on podman~~ — **Done** (implemented via dual-network with `--internal` flag)
 

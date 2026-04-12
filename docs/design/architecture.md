@@ -18,12 +18,12 @@ future, but the architecture is not designed around that goal today.
 
 The central coordinator. Runs as a long-lived Deployment. Provides:
 
-- **Dashboard** — web UI for submitting tasks, reviewing session transcripts,
+- **Dashboard** — web UI for starting sessions, reviewing session transcripts,
   configuring proxy scopes, and managing workers
 - **REST API** — programmatic access to all dashboard functionality
-- **Task Dispatcher** — interprets incoming prompts, determines authorization
+- **Session Dispatcher** — interprets incoming prompts, determines authorization
   scope (see [Scope Resolution](#scope-resolution)), provisions proxy rules,
-  and dispatches work to the message bus
+  and dispatches sessions to the message bus
 - **Provider Registry** — manages LLM provider credentials (Google Vertex AI,
   Anthropic API keys, Claude Pro accounts) and injects them into worker pods.
   LLM API keys are never placed in Skiff pods — Bridge injects them into the
@@ -33,9 +33,9 @@ The central coordinator. Runs as a long-lived Deployment. Provides:
 
 Bridge never runs LLM prompts itself. It coordinates and observes.
 
-#### Scheduled Tasks (Cron)
+#### Scheduled Sessions (Cron)
 
-Bridge includes a built-in scheduler for recurring tasks. Users define schedules
+Bridge includes a built-in scheduler for recurring sessions. Users define schedules
 via the dashboard or API:
 
 ```yaml
@@ -57,14 +57,14 @@ schedules:
     timeout: 45m
 ```
 
-Bridge evaluates cron expressions and dispatches tasks to Hail at the scheduled
-time. Scheduled tasks follow the same scope resolution, Gate authorization, and
-Ledger recording as interactive tasks. The dashboard shows schedule history
+Bridge evaluates cron expressions and dispatches sessions to Hail at the scheduled
+time. Scheduled sessions follow the same scope resolution, Gate authorization, and
+Ledger recording as interactive sessions. The dashboard shows schedule history
 (last run, next run, outcome) and allows enabling/disabling individual schedules.
 
 Schedules can use either a `scope_preset` (a named, pre-approved scope from the
 service catalog) or go through the normal scope resolution process. For
-autonomous scheduled tasks, scope presets are recommended — they skip the
+autonomous scheduled sessions, scope presets are recommended — they skip the
 approval step because the scope was approved when the schedule was created.
 
 ### Skiff — The Workers
@@ -73,21 +73,21 @@ Ephemeral containers that execute Claude Code prompts. Each Skiff pod:
 
 1. Starts from a clean, purpose-built container image (Claude Code pre-installed,
    project tooling included)
-2. Connects to the message bus and waits for a task message
-3. Receives a task (prompt text + configuration)
+2. Connects to the message bus and receives session configuration
+3. Reads the session config (prompt text + configuration)
 4. Executes `claude` with the prompt
 5. Streams session output to the Ledger
 6. Exits when the prompt concludes (or hits a timeout)
 7. The container terminates, and Kubernetes reprovisions a fresh pod
 
 **Filesystem sandbox**: because each Skiff pod starts clean and is destroyed after
-every task, there is no persistent state that can be poisoned across sessions. The
+every session, there is no persistent state that can be poisoned across sessions. The
 container image is the only input; the session transcript is the only output.
 
 **Stopping conditions** (in priority order):
 
 1. Claude Code exits normally (prompt complete)
-2. Configurable hard timeout (default: 60 minutes, set per-task by Bridge)
+2. Configurable hard timeout (default: 60 minutes, set per-session by Bridge)
 3. Manual cancellation via Bridge dashboard/API
 4. Heartbeat timeout — if Claude Code stops producing output for N minutes
    (default: 10), the pod is terminated
@@ -97,7 +97,7 @@ The Skiff image is built with:
 - Project-specific tooling (language runtimes, build tools, linters)
 - A thin init process that handles message bus connection, session streaming,
   and timeout enforcement
-- Git (for cloning repos at task start)
+- Git (for cloning repos at session start)
 - `gh` and `glab` CLIs (for GitHub/GitLab interaction via Gate's SCM proxy)
 - A git credential helper that routes authentication through Gate
 - **Puppeteer for wireframe generation** — enables planning agents to create
@@ -111,7 +111,7 @@ namespace). Every outbound connection from a Skiff pod routes through its
 Gate sidecar. Gate provides:
 
 - **Operation-level authorization** — not just "can access GitHub" but "can create
-  a PR on repo X but not merge it." Scopes are defined per-task by Bridge.
+  a PR on repo X but not merge it." Scopes are defined per-session by Bridge.
 - **Token replacement** — Skiff pods never hold real credentials. They present a
   session-scoped opaque token. Gate maps this token to actual credentials
   (GitHub PAT, GitLab token, Jira API key, etc.) at request time.
@@ -135,8 +135,8 @@ Gate sidecar. Gate provides:
 **Prompt injection defense**: because neither real service tokens nor LLM API keys
 enter the Skiff pod, a prompt injection attack that exfiltrates environment
 variables or config files gets only the opaque session token, which is:
-- Scoped to a single task's authorized operations
-- Short-lived (expires when the task ends)
+- Scoped to a single session's authorized operations
+- Short-lived (expires when the session ends)
 - Revocable by Bridge at any time
 
 **HTTPS interception approach**: protocol-level, not MITM TLS.
@@ -151,10 +151,10 @@ variables or config files gets only the opaque session token, which is:
 
 ### Ledger — Session Storage
 
-A persistent store for complete session records. Each task execution produces a
+A persistent store for complete session records. Each session produces a
 session record containing:
 
-- **Task metadata** — prompt text, submitter, timestamp, authorization scope,
+- **Session metadata** — prompt text, submitter, timestamp, authorization scope,
   timeout settings, provider used
 - **Claude transcript** — full input/output record from Claude Code (the
   `--output-format stream-json` session dump)
@@ -179,7 +179,7 @@ stream — no updates or deletes to session records.
 
 Connects Bridge to Skiff pods. Carries:
 
-- **Task messages** (Bridge → Skiff) — prompt text, repo URL, branch, Gate token,
+- **Session messages** (Bridge → Skiff) — prompt text, repo URL, branch, Gate token,
   timeout, provider config
 - **Status updates** (Skiff → Bridge) — heartbeats, progress, completion
 - **Control messages** (Bridge → Skiff) — cancellation signals
@@ -191,7 +191,7 @@ needed). Subject-based messaging maps to Alcove's needs: `tasks.dispatch`,
 
 ## Scope Resolution
 
-When a user submits a task, Bridge must determine what external services the Skiff
+When a user starts a session, Bridge must determine what external services the Skiff
 pod should be authorized to access and what operations are permitted. This is
 called **scope resolution**.
 
@@ -209,7 +209,7 @@ called **scope resolution**.
      # jira not included — prompt doesn't mention it
    ```
 4. **In supervised mode** (default): the proposed scope is shown to the user in
-   the dashboard for approval/modification before the task is dispatched
+   the dashboard for approval/modification before the session is dispatched
 5. **In autonomous mode** (opt-in): the proposed scope is applied automatically,
    but logged for audit
 
@@ -429,8 +429,8 @@ equivalents. For production or shared deployments, use Podman or Kubernetes.
 
 ### LLM Provider Configuration
 
-Bridge manages provider credentials and injects them into Gate sidecars at task
-time. Skiff containers never hold LLM API keys.
+Bridge manages provider credentials and injects them into Gate sidecars at session
+dispatch time. Skiff containers never hold LLM API keys.
 
 | Provider | Credential | Gate Behavior |
 |----------|-----------|---------------|
@@ -443,7 +443,7 @@ time. Skiff containers never hold LLM API keys.
 
 ### Phase 1: Foundation
 
-- Bridge with basic dashboard (submit prompt, view tasks)
+- Bridge with basic dashboard (submit prompt, view sessions)
 - Bridge REST API
 - Skiff pods as k8s Jobs / `podman run --rm` / `docker run --rm`
 - Gate as sidecar with HTTP_PROXY + git credential helper + LLM API proxy
@@ -466,25 +466,25 @@ time. Skiff containers never hold LLM API keys.
 - DNS removal from Skiff pods (hostAliases for internal services)
 - NATS authentication + TLS
 - Ledger encryption at rest
-- Token rotation (every 5 min within a task)
+- Token rotation (every 5 min within a session)
 - Anthropic API provider support
 - `alcove schedule` command + cron scheduler in Bridge
 
 ### Phase 3: Human-in-the-Loop + Review
 
 - Scope escalation notifications (Gate block → Bridge notification → user approval)
-- Task review workflow (approve/reject/follow-up/rerun)
+- Session review workflow (approve/reject/follow-up/rerun)
 - Proxy log correlation with session transcripts in dashboard
-- Follow-up task chaining (linked sessions)
+- Follow-up session chaining (linked sessions)
 - Claude Pro/Max account support
-- Notification webhooks (Slack, email) for scheduled task approvals
+- Notification webhooks (Slack, email) for scheduled session approvals
 
 ### Phase 4: Dynamic Workers + Scale
 
 - Custom Skiff images per-project (Containerfile generation)
 - Warm pool (Deployment-based self-reprovisioning workers)
-- Parallel task execution
-- Resource limit configuration per task
+- Parallel session execution
+- Resource limit configuration per session
 - Git mirror volumes for large repos (>500MB)
 - ~~nftables-based network isolation on podman~~ — **Done** (implemented via dual-network with `--internal` flag)
 
@@ -504,6 +504,6 @@ time. Skiff containers never hold LLM API keys.
 |-----------|------|-------------|------------|---------|
 | Controller | **Bridge** | Deployment | Yes | Coordination, dashboard, API, scheduler |
 | Worker | **Skiff** | Job / `podman run --rm` / `docker run --rm` | No (ephemeral) | Execute Claude Code prompts |
-| Auth Proxy | **Gate** | Sidecar in Skiff pod | No (per-task) | Network sandbox, token swap, LLM proxy |
-| Message Bus | **Hail** | Deployment (NATS) | Yes | Task dispatch, status updates |
+| Auth Proxy | **Gate** | Sidecar in Skiff pod | No (per-session) | Network sandbox, token swap, LLM proxy |
+| Message Bus | **Hail** | Deployment (NATS) | Yes | Session dispatch, status updates |
 | Session Store | **Ledger** | Deployment + PVC | Yes | Audit trail, session history |

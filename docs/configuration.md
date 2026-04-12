@@ -97,7 +97,7 @@ can also be set in `alcove.yaml` (see [alcove.yaml](#alcoveyaml) above).
 | `BRIDGE_URL` | string | `http://alcove-bridge:<port>` | URL where Bridge can be reached by Skiff/Gate containers. |
 | `SKIFF_HAIL_URL` | string | `nats://alcove-hail:4222` | NATS URL injected into Skiff containers (may differ from Bridge's own `HAIL_URL`). |
 | `ALCOVE_SKILL_REPOS` | string (JSON) | _(unset)_ | JSON array of skill repo objects. Overrides database-configured skill repos. Each object has `url` (required), `ref` (optional, default `main`), and `name` (optional). |
-| `TASK_REPO_SYNC_INTERVAL` | string (duration) | `5m` | How often Bridge syncs YAML task definitions from registered task repos. Accepts Go duration syntax. |
+| `TASK_REPO_SYNC_INTERVAL` | string (duration) | `5m` | How often Bridge syncs YAML agent definitions from registered agent repos. Accepts Go duration syntax. |
 | `BRIDGE_LLM_PROVIDER` | string | _(unset)_ | System LLM provider: `anthropic` or `google-vertex`. Overrides `llm_provider` in alcove.yaml. |
 | `BRIDGE_LLM_API_KEY` | string | _(unset)_ | Anthropic API key for the system LLM. Overrides `llm_api_key` in alcove.yaml. |
 | `BRIDGE_LLM_MODEL` | string | _(unset)_ | Model name for the system LLM. Overrides `llm_model` in alcove.yaml. |
@@ -412,19 +412,19 @@ provide a default list without using the database.
 
 ---
 
-## Task Repos and Task Definitions
+## Agent Repos and Agent Definitions
 
-Task repos are git repositories containing YAML task definitions in
+Agent repos are git repositories containing YAML agent definitions in
 `.alcove/tasks/*.yml`. They allow teams to define reusable, version-controlled
-tasks that appear in the dashboard.
+agents that appear in the dashboard.
 
-Configure task repos in the dashboard or via the API:
+Configure agent repos in the dashboard or via the API:
 
 - **System-wide (admin):** `GET/PUT /api/v1/admin/settings/task-repos`
 - **Per-user:** `GET/PUT /api/v1/user/settings/task-repos`
 
-Bridge syncs task repos automatically every 5 minutes (configurable via
-`TASK_REPO_SYNC_INTERVAL`). Each YAML file defines a task:
+Bridge syncs agent repos automatically every 5 minutes (configurable via
+`TASK_REPO_SYNC_INTERVAL`). Each YAML file defines an agent:
 
 ```yaml
 name: run-tests
@@ -444,8 +444,8 @@ schedule: "0 2 * * *"
 
 | Field       | Type     | Required | Description |
 |-------------|----------|----------|-------------|
-| `name`      | string   | yes      | Unique task name |
-| `prompt`    | string   | yes      | The task instruction |
+| `name`      | string   | yes      | Unique agent name |
+| `prompt`    | string   | yes      | The agent instruction |
 | `repo`      | string   | no       | Git repository URL to clone |
 | `provider`  | string   | no       | LLM provider name |
 | `model`     | string   | no       | Model override |
@@ -459,7 +459,7 @@ schedule: "0 2 * * *"
 
 ### Event Delivery Mode
 
-Task definitions with event triggers support two delivery modes:
+Agent definitions with event triggers support two delivery modes:
 
 - **`polling`** (default) — Alcove polls the GitHub Events API every 60 seconds for new events. Works in any environment including local development. No GitHub webhook configuration required.
 - **`webhook`** — GitHub pushes events to Alcove's webhook endpoint (`/api/v1/webhooks/github`). Requires a publicly accessible URL and webhook secret configuration.
@@ -475,7 +475,7 @@ trigger:
     delivery_mode: polling
 ```
 
-Polling uses GitHub's conditional request support (ETags) to minimize API usage. On first poll, existing events are skipped to avoid a flood of retroactive task dispatches.
+Polling uses GitHub's conditional request support (ETags) to minimize API usage. On first poll, existing events are skipped to avoid a flood of retroactive session dispatches.
 
 ### Label-Based Trigger Filtering
 
@@ -505,8 +505,8 @@ of labels on the issue or PR.
 The `users` field provides a safety gate for event triggers. When specified,
 an event is only dispatched if the user who authored the comment or issue
 matches at least one of the listed GitHub usernames (case-insensitive). This
-prevents automated agents' own comments from re-triggering tasks and limits
-task dispatch to trusted users.
+prevents automated agents' own comments from re-triggering sessions and limits
+session dispatch to trusted users.
 
 ```yaml
 name: auto-fix
@@ -525,7 +525,7 @@ trigger:
 If `users` is omitted or empty, all matching events are dispatched regardless
 of the event author.
 
-Task definitions appear in the dashboard where users can run them directly or
+Agent definitions appear in the dashboard where users can run them directly or
 view the source YAML. Starter templates are also available via
 `GET /api/v1/task-templates`.
 
@@ -533,9 +533,9 @@ view the source YAML. Starter templates are also available via
 
 ## YAML Security Profiles
 
-Security profiles can also be defined in YAML files inside task repos,
-alongside task definitions. Profile files live in `.alcove/security-profiles/*.yml`
-(parallel to `.alcove/tasks/`) and are synced from the same registered task repos.
+Security profiles can also be defined in YAML files inside agent repos,
+alongside agent definitions. Profile files live in `.alcove/security-profiles/*.yml`
+(parallel to `.alcove/tasks/`) and are synced from the same registered agent repos.
 
 ### Format
 
@@ -567,10 +567,10 @@ security profiles (see [API Reference](api-reference.md#security)).
 - YAML security profiles are **read-only** in the dashboard and API. They
   cannot be modified or deleted through the UI.
 - Profile names from YAML take precedence alongside user-created profiles.
-- Task definitions can reference YAML-defined profiles in their `profiles`
-  field. If a task definition references a profile name that does not exist
+- Agent definitions can reference YAML-defined profiles in their `profiles`
+  field. If an agent definition references a profile name that does not exist
   (as a user-created or YAML profile), a sync error is reported.
-- YAML profiles are synced on the same interval as task definitions
+- YAML profiles are synced on the same interval as agent definitions
   (configurable via `TASK_REPO_SYNC_INTERVAL`, default 5 minutes).
 
 ---

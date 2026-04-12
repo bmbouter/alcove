@@ -4,7 +4,7 @@
 
 **Goal:** Support Anthropic API keys, Vertex AI service account JSON, and Vertex AI ADC credentials — stored in PostgreSQL, resolved at dispatch time, with token refresh for long-running tasks.
 
-**Architecture:** Bridge stores encrypted credentials in PostgreSQL, pre-fetches OAuth2 tokens at task dispatch, and passes short-lived tokens to Gate. Gate injects headers and retries on 401 by calling Bridge's token refresh endpoint. Raw credentials never enter Gate or Skiff containers.
+**Architecture:** Bridge stores encrypted credentials in PostgreSQL, pre-fetches OAuth2 tokens at session dispatch, and passes short-lived tokens to Gate. Gate injects headers and retries on 401 by calling Bridge's token refresh endpoint. Raw credentials never enter Gate or Skiff containers.
 
 **Tech Stack:** Go 1.25, `golang.org/x/oauth2` + `google.golang.org/api/option`, AES-256-GCM encryption, PostgreSQL BYTEA column, `net/http` REST endpoints.
 

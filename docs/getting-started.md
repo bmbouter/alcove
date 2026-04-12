@@ -82,10 +82,10 @@ Change the default password after first login.
 > **Note:** The database is ephemeral. Each `make down` + `make up` cycle wipes
 > all data (containers run with `--rm`).
 
-### 4. Submit your first task
+### 4. Start your first session
 
 From the dashboard:
-1. Click "New Task"
+1. Click "New Session"
 2. Enter a prompt like "Write a hello world Python script"
 3. Select your provider
 4. Click Submit
@@ -98,7 +98,7 @@ make build
 # Login
 ./bin/alcove login http://localhost:8080
 
-# Submit a task
+# Start a session
 ./bin/alcove run "Write a hello world Python script"
 
 # Watch it live
@@ -113,7 +113,7 @@ TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
   -d '{"username":"admin","password":"YOUR_PASSWORD"}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
 
-# Submit a task
+# Start a session
 curl -X POST http://localhost:8080/api/v1/tasks \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -176,10 +176,10 @@ ALCOVE_DEBUG=true
 
 See `docs/configuration.md` for the complete list.
 
-## Skill / Agent Repos and Task Definitions
+## Skill / Agent Repos and Agent Definitions
 
 After configuring your LLM provider, you can optionally set up skill repos and
-task definitions to extend and automate your workflow.
+agent definitions to extend and automate your workflow.
 
 ### Skill / Agent Repos
 
@@ -193,17 +193,17 @@ loaded as a lola module. You just add a repo URL and Skiff figures out the
 format automatically. At task dispatch time, all configured repos are cloned
 into the Skiff container and loaded accordingly.
 
-### Task Definitions
+### Agent Definitions
 
-Task definitions are YAML files stored in git repositories under
-`.alcove/tasks/*.yml`. They let you define reusable, version-controlled tasks
+Agent definitions are YAML files stored in git repositories under
+`.alcove/tasks/*.yml`. They let you define reusable, version-controlled agents
 that appear in the dashboard for one-click execution.
 
 1. Create a git repo with a `.alcove/tasks/` directory
-2. Add YAML task files (see `docs/configuration.md` for the schema)
-3. Register the repo in the dashboard under **Task Repos** (user menu)
+2. Add YAML agent files (see `docs/configuration.md` for the schema)
+3. Register the repo in the dashboard under **Agent Repos** (user menu)
 
-Bridge syncs task repos every 5 minutes. Once synced, task definitions appear
+Bridge syncs agent repos every 5 minutes. Once synced, agent definitions appear
 on the dashboard where you can run them or view the source YAML. Starter
 templates are available to help you get started.
 
@@ -225,11 +225,11 @@ templates are available to help you get started.
 └─────────────────────────────────────────┘
 ```
 
-Each task gets a fresh Skiff container with a Gate sidecar on a dual-network
+Each session gets a fresh Skiff container with a Gate sidecar on a dual-network
 setup. Skiff is attached only to the internal network (`alcove-internal`,
 created with `--internal` so it has no external access). Gate bridges both
 the internal and external (`alcove-external`) networks, proxying all external
-traffic and injecting LLM credentials. When the task finishes, both containers
+traffic and injecting LLM credentials. When the session finishes, both containers
 are destroyed.
 
 ## GitHub/GitLab/JIRA Integration
@@ -244,7 +244,7 @@ curl -X POST http://localhost:8080/api/v1/credentials \
   -H "Content-Type: application/json" \
   -d '{"name":"github","provider":"github","auth_type":"pat","credential":"ghp_your_token"}'
 
-# Submit a task with GitHub scope
+# Start a session with GitHub scope
 curl -X POST http://localhost:8080/api/v1/tasks \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -256,7 +256,7 @@ curl -X POST http://localhost:8080/api/v1/credentials \
   -H "Content-Type: application/json" \
   -d '{"name":"jira","provider":"jira","auth_type":"basic","credential":"user@example.com:your-api-token"}'
 
-# Submit a task with JIRA scope
+# Start a session with JIRA scope
 curl -X POST http://localhost:8080/api/v1/tasks \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \

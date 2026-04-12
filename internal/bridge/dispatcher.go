@@ -67,7 +67,7 @@ func (d *Dispatcher) SetCIGateMonitor(m *CIGateMonitor) {
 	d.ciGate = m
 }
 
-// TaskRequest is the JSON body for POST /api/v1/tasks.
+// TaskRequest is the JSON body for POST /api/v1/sessions.
 type TaskRequest struct {
 	Prompt   string                `json:"prompt"`
 	Repo     string                `json:"repo,omitempty"`
@@ -80,7 +80,7 @@ type TaskRequest struct {
 	Budget   float64               `json:"budget_usd,omitempty"`
 	Debug    bool                  `json:"debug,omitempty"`
 	// Task metadata — set by dispatch code paths, stored in sessions table.
-	TaskName    string `json:"-"` // Schedule/task definition name
+	TaskName    string `json:"-"` // Schedule/agent definition name
 	TriggerType string `json:"-"` // "event", "cron", "manual", "webhook"
 	TriggerRef  string `json:"-"` // e.g., "bmbouter/alcove#107" for GitHub events
 }

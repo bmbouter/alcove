@@ -558,7 +558,7 @@ func TestAuthMiddleware_RHIdentity_MissingHeader(t *testing.T) {
 		t.Fatal("handler should not be called")
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions", nil)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
@@ -607,7 +607,7 @@ func TestAuthMiddleware_RHIdentity_InvalidHeader(t *testing.T) {
 				t.Fatal("handler should not be called for invalid header")
 			}))
 
-			req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/sessions", nil)
 			req.Header.Set("X-RH-Identity", tc.header)
 			rr := httptest.NewRecorder()
 			handler.ServeHTTP(rr, req)

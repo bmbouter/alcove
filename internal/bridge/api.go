@@ -53,13 +53,13 @@ type API struct {
 	profileStore  *ProfileStore
 	settingsStore *SettingsStore
 	llm           *BridgeLLM
-	defStore      *TaskDefStore
-	syncer        *TaskRepoSyncer
+	defStore      *AgentDefStore
+	syncer        *AgentRepoSyncer
 	authStore     auth.Authenticator // for TBR associations (rh-identity backend)
 }
 
 // NewAPI creates the API handler set.
-func NewAPI(dispatcher *Dispatcher, db *pgxpool.Pool, cfg *Config, scheduler *Scheduler, credStore *CredentialStore, toolStore *ToolStore, profileStore *ProfileStore, settingsStore *SettingsStore, llm *BridgeLLM, defStore *TaskDefStore, syncer *TaskRepoSyncer, authStore auth.Authenticator) *API {
+func NewAPI(dispatcher *Dispatcher, db *pgxpool.Pool, cfg *Config, scheduler *Scheduler, credStore *CredentialStore, toolStore *ToolStore, profileStore *ProfileStore, settingsStore *SettingsStore, llm *BridgeLLM, defStore *AgentDefStore, syncer *AgentRepoSyncer, authStore auth.Authenticator) *API {
 	return &API{
 		dispatcher:    dispatcher,
 		db:            db,
@@ -79,7 +79,6 @@ func NewAPI(dispatcher *Dispatcher, db *pgxpool.Pool, cfg *Config, scheduler *Sc
 // RegisterRoutes registers all API routes on the given mux.
 func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/health", a.handleHealth)
-	mux.HandleFunc("/api/v1/tasks", a.handleTasks)
 	mux.HandleFunc("/api/v1/sessions", a.handleSessions)
 	mux.HandleFunc("/api/v1/sessions/", a.handleSessionByID)
 	mux.HandleFunc("/api/v1/providers", a.handleProviders)
@@ -96,12 +95,12 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/admin/settings/llm", a.handleAdminSettingsLLM)
 	mux.HandleFunc("/api/v1/admin/settings/skill-repos", a.handleAdminSettingsSkillRepos)
 	mux.HandleFunc("/api/v1/user/settings/skill-repos", a.handleUserSettingsSkillRepos)
-	mux.HandleFunc("/api/v1/user/settings/task-repos", a.handleUserSettingsTaskRepos)
-	mux.HandleFunc("/api/v1/task-repos/validate", a.handleTaskRepoValidate)
-	mux.HandleFunc("/api/v1/task-definitions", a.handleTaskDefinitions)
-	mux.HandleFunc("/api/v1/task-definitions/sync", a.handleTaskDefinitionsSync)
-	mux.HandleFunc("/api/v1/task-definitions/", a.handleTaskDefinitionByID)
-	mux.HandleFunc("/api/v1/task-templates", a.handleTaskTemplates)
+	mux.HandleFunc("/api/v1/user/settings/agent-repos", a.handleUserSettingsAgentRepos)
+	mux.HandleFunc("/api/v1/agent-repos/validate", a.handleAgentRepoValidate)
+	mux.HandleFunc("/api/v1/agent-definitions", a.handleAgentDefinitions)
+	mux.HandleFunc("/api/v1/agent-definitions/sync", a.handleAgentDefinitionsSync)
+	mux.HandleFunc("/api/v1/agent-definitions/", a.handleAgentDefinitionByID)
+	mux.HandleFunc("/api/v1/agent-templates", a.handleAgentTemplates)
 	mux.HandleFunc("/api/v1/webhooks/github", a.handleWebhookGitHub)
 	mux.HandleFunc("/api/v1/admin/settings/webhook", a.handleAdminSettingsWebhook)
 	mux.HandleFunc("/api/v1/system-info", a.handleSystemInfo)
@@ -165,46 +164,37 @@ func (a *API) handleSystemInfo(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// --- Tasks ---
-
-func (a *API) handleTasks(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-
-	var req TaskRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
-		return
-	}
-
-	if req.Prompt == "" {
-		respondError(w, http.StatusBadRequest, "prompt is required")
-		return
-	}
-
-	submitter := r.Header.Get("X-Alcove-User")
-	if submitter == "" {
-		submitter = "anonymous"
-	}
-
-	req.TriggerType = "manual"
-
-	session, err := a.dispatcher.DispatchTask(r.Context(), req, submitter)
-	if err != nil {
-		log.Printf("error: dispatch failed: %v", err)
-		respondError(w, http.StatusInternalServerError, "failed to dispatch task: "+err.Error())
-		return
-	}
-
-	respondJSON(w, http.StatusCreated, session)
-}
-
 // --- Sessions ---
 
 func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
+	case http.MethodPost:
+		var req TaskRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+			return
+		}
+
+		if req.Prompt == "" {
+			respondError(w, http.StatusBadRequest, "prompt is required")
+			return
+		}
+
+		submitter := r.Header.Get("X-Alcove-User")
+		if submitter == "" {
+			submitter = "anonymous"
+		}
+
+		req.TriggerType = "manual"
+
+		session, err := a.dispatcher.DispatchTask(r.Context(), req, submitter)
+		if err != nil {
+			log.Printf("error: dispatch failed: %v", err)
+			respondError(w, http.StatusInternalServerError, "failed to dispatch session: "+err.Error())
+			return
+		}
+
+		respondJSON(w, http.StatusCreated, session)
 	case http.MethodGet:
 		query := r.URL.Query()
 		status := query.Get("status")
@@ -913,7 +903,7 @@ func (a *API) listSessions(ctx context.Context, status, repo, since, until, subm
 		COALESCE(s.repo, '') as repo
 		FROM sessions s
 		LEFT JOIN schedules sc ON s.prompt LIKE '%[' || sc.source_key || ']%' AND sc.source_key IS NOT NULL AND sc.source_key != ''
-		LEFT JOIN task_definitions td ON sc.source_key = td.source_key` +
+		LEFT JOIN agent_definitions td ON sc.source_key = td.source_key` +
 		whereClause + " ORDER BY s.started_at DESC"
 
 	offset := (page - 1) * perPage
@@ -965,7 +955,7 @@ func (a *API) listSessions(ctx context.Context, status, repo, since, until, subm
 		if taskName != "" {
 			s.TaskName = taskName
 		} else {
-			s.TaskName = "Manual Task"
+			s.TaskName = "Manual Session"
 		}
 
 		// Set trigger type and ref from stored metadata
@@ -1008,7 +998,7 @@ func (a *API) getSession(ctx context.Context, id string) (*internal.Session, err
 		COALESCE(s.repo, '') as repo
 		FROM sessions s
 		LEFT JOIN schedules sc ON s.prompt LIKE '%[' || sc.source_key || ']%' AND sc.source_key IS NOT NULL AND sc.source_key != ''
-		LEFT JOIN task_definitions td ON sc.source_key = td.source_key
+		LEFT JOIN agent_definitions td ON sc.source_key = td.source_key
 		WHERE s.id = $1`, id,
 	).Scan(&s.ID, &s.TaskID, &s.Submitter, &s.Prompt,
 		&scopeJSON, &s.Provider, &s.Status, &s.StartedAt, &finishedAt,
@@ -1041,7 +1031,7 @@ func (a *API) getSession(ctx context.Context, id string) (*internal.Session, err
 	if taskName != "" {
 		s.TaskName = taskName
 	} else {
-		s.TaskName = "Manual Task"
+		s.TaskName = "Manual Session"
 	}
 
 	// Set trigger type and ref from stored metadata
@@ -1075,11 +1065,11 @@ func (a *API) handleSchedules(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Annotate schedules with repo_disabled by joining through task definitions.
+		// Annotate schedules with repo_disabled by joining through agent definitions.
 		disabledRepos := a.buildDisabledReposMap(r.Context(), user)
 		if len(disabledRepos) > 0 {
-			// Build source_key -> source_repo map from task definitions.
-			defs, defErr := a.defStore.ListTaskDefinitions(r.Context(), user)
+			// Build source_key -> source_repo map from agent definitions.
+			defs, defErr := a.defStore.ListAgentDefinitions(r.Context(), user)
 			if defErr == nil {
 				sourceKeyToRepo := make(map[string]string)
 				for _, d := range defs {
@@ -1703,9 +1693,9 @@ func (a *API) handleUserSettingsSkillRepos(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-// --- Task Repos Settings ---
+// --- Agent Repos Settings ---
 
-func (a *API) handleUserSettingsTaskRepos(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleUserSettingsAgentRepos(w http.ResponseWriter, r *http.Request) {
 	username := r.Header.Get("X-Alcove-User")
 	if username == "" {
 		respondError(w, http.StatusUnauthorized, "authentication required")
@@ -1714,7 +1704,7 @@ func (a *API) handleUserSettingsTaskRepos(w http.ResponseWriter, r *http.Request
 
 	switch r.Method {
 	case http.MethodGet:
-		repos, err := a.settingsStore.GetUserTaskRepos(r.Context(), username)
+		repos, err := a.settingsStore.GetUserAgentRepos(r.Context(), username)
 		if err != nil {
 			repos = []SkillRepo{}
 		}
@@ -1730,8 +1720,8 @@ func (a *API) handleUserSettingsTaskRepos(w http.ResponseWriter, r *http.Request
 		if req.Repos == nil {
 			req.Repos = []SkillRepo{}
 		}
-		if err := a.settingsStore.SetUserTaskRepos(r.Context(), username, req.Repos); err != nil {
-			respondError(w, http.StatusInternalServerError, "failed to save task repos")
+		if err := a.settingsStore.SetUserAgentRepos(r.Context(), username, req.Repos); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to save agent repos")
 			return
 		}
 		go a.syncer.SyncAll(context.Background())
@@ -1741,9 +1731,9 @@ func (a *API) handleUserSettingsTaskRepos(w http.ResponseWriter, r *http.Request
 	}
 }
 
-// --- Task Repo Validation ---
+// --- Agent Repo Validation ---
 
-func (a *API) handleTaskRepoValidate(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleAgentRepoValidate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -1765,29 +1755,29 @@ func (a *API) handleTaskRepoValidate(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, http.StatusBadRequest, map[string]any{"valid": false, "error": err.Error()})
 		return
 	}
-	respondJSON(w, http.StatusOK, map[string]any{"valid": true, "task_count": len(names), "tasks": names})
+	respondJSON(w, http.StatusOK, map[string]any{"valid": true, "agent_definition_count": len(names), "agent_definitions": names})
 }
 
-// --- Task Definitions ---
+// --- Agent Definitions ---
 
-func (a *API) handleTaskDefinitions(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleAgentDefinitions(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	user := r.Header.Get("X-Alcove-User")
-	defs, err := a.defStore.ListTaskDefinitions(r.Context(), user)
+	defs, err := a.defStore.ListAgentDefinitions(r.Context(), user)
 	if err != nil {
-		log.Printf("error: listing task definitions: %v", err)
-		respondError(w, http.StatusInternalServerError, "failed to list task definitions")
+		log.Printf("error: listing agent definitions: %v", err)
+		respondError(w, http.StatusInternalServerError, "failed to list agent definitions")
 		return
 	}
 
-	// Fetch user's task repos to check disabled status.
+	// Fetch user's agent repos to check disabled status.
 	disabledRepos := a.buildDisabledReposMap(r.Context(), user)
 
-	// Annotate each task definition with repo_disabled.
+	// Annotate each agent definition with repo_disabled.
 	for i := range defs {
 		if disabledRepos[defs[i].SourceRepo] {
 			defs[i].RepoDisabled = true
@@ -1795,24 +1785,24 @@ func (a *API) handleTaskDefinitions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, http.StatusOK, map[string]any{
-		"task_definitions": defs,
+		"agent_definitions": defs,
 		"count":            len(defs),
 	})
 }
 
-func (a *API) handleTaskDefinitionsSync(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleAgentDefinitionsSync(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	if a.syncer == nil {
-		respondError(w, http.StatusServiceUnavailable, "task repo syncer not configured")
+		respondError(w, http.StatusServiceUnavailable, "agent repo syncer not configured")
 		return
 	}
 
 	if err := a.syncer.SyncAll(r.Context()); err != nil {
-		log.Printf("error: manual task sync: %v", err)
+		log.Printf("error: manual agent sync: %v", err)
 		respondError(w, http.StatusInternalServerError, "sync failed: "+err.Error())
 		return
 	}
@@ -1820,23 +1810,23 @@ func (a *API) handleTaskDefinitionsSync(w http.ResponseWriter, r *http.Request) 
 	respondJSON(w, http.StatusOK, map[string]bool{"synced": true})
 }
 
-func (a *API) handleTaskDefinitionByID(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/api/v1/task-definitions/")
+func (a *API) handleAgentDefinitionByID(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/agent-definitions/")
 	parts := strings.SplitN(path, "/", 2)
 	id := parts[0]
 
 	if id == "" {
-		respondError(w, http.StatusBadRequest, "task definition id required")
+		respondError(w, http.StatusBadRequest, "agent definition id required")
 		return
 	}
 
-	// Handle /api/v1/task-definitions/{id}/run
+	// Handle /api/v1/agent-definitions/{id}/run
 	if len(parts) == 2 && parts[1] == "run" {
 		if r.Method != http.MethodPost {
 			respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		a.handleTaskDefinitionRun(w, r, id)
+		a.handleAgentDefinitionRun(w, r, id)
 		return
 	}
 
@@ -1846,29 +1836,29 @@ func (a *API) handleTaskDefinitionByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := r.Header.Get("X-Alcove-User")
-	def, err := a.defStore.GetTaskDefinition(r.Context(), id, user)
+	def, err := a.defStore.GetAgentDefinition(r.Context(), id, user)
 	if err != nil {
-		respondError(w, http.StatusNotFound, "task definition not found")
+		respondError(w, http.StatusNotFound, "agent definition not found")
 		return
 	}
 
 	respondJSON(w, http.StatusOK, def)
 }
 
-func (a *API) handleTaskDefinitionRun(w http.ResponseWriter, r *http.Request, id string) {
+func (a *API) handleAgentDefinitionRun(w http.ResponseWriter, r *http.Request, id string) {
 	submitter := r.Header.Get("X-Alcove-User")
 	if submitter == "" {
 		submitter = "anonymous"
 	}
 
-	def, err := a.defStore.GetTaskDefinition(r.Context(), id, submitter)
+	def, err := a.defStore.GetAgentDefinition(r.Context(), id, submitter)
 	if err != nil {
-		respondError(w, http.StatusNotFound, "task definition not found")
+		respondError(w, http.StatusNotFound, "agent definition not found")
 		return
 	}
 
 	if def.SyncError != "" {
-		respondError(w, http.StatusBadRequest, "task definition has sync error: "+def.SyncError)
+		respondError(w, http.StatusBadRequest, "agent definition has sync error: "+def.SyncError)
 		return
 	}
 
@@ -1877,17 +1867,17 @@ func (a *API) handleTaskDefinitionRun(w http.ResponseWriter, r *http.Request, id
 	req.TriggerType = "manual"
 	session, err := a.dispatcher.DispatchTask(r.Context(), req, submitter)
 	if err != nil {
-		log.Printf("error: dispatching task definition %s: %v", id, err)
-		respondError(w, http.StatusInternalServerError, "failed to dispatch task: "+err.Error())
+		log.Printf("error: dispatching agent definition %s: %v", id, err)
+		respondError(w, http.StatusInternalServerError, "failed to dispatch session: "+err.Error())
 		return
 	}
 
 	respondJSON(w, http.StatusCreated, session)
 }
 
-// --- Task Templates ---
+// --- Agent Templates ---
 
-func (a *API) handleTaskTemplates(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleAgentTemplates(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
@@ -2358,12 +2348,12 @@ func (a *API) handleTBRAssociationByID(w http.ResponseWriter, r *http.Request) {
 
 // buildDisabledReposMap returns a set of repo URLs that are disabled for the given user.
 func (a *API) buildDisabledReposMap(ctx context.Context, username string) map[string]bool {
-	taskRepos, err := a.settingsStore.GetUserTaskRepos(ctx, username)
+	agentRepos, err := a.settingsStore.GetUserAgentRepos(ctx, username)
 	if err != nil {
 		return nil
 	}
 	disabledRepos := make(map[string]bool)
-	for _, repo := range taskRepos {
+	for _, repo := range agentRepos {
 		if !repo.IsEnabled() {
 			disabledRepos[repo.URL] = true
 		}

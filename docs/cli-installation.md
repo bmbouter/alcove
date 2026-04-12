@@ -192,7 +192,7 @@ Once installed, you can start using the CLI:
 
 ### Basic Usage
 
-1. **Submit a task:**
+1. **Start a session:**
    ```bash
    alcove run "Fix the bug in the authentication module"
    ```

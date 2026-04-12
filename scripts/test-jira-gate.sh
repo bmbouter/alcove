@@ -126,7 +126,7 @@ log "Blocked profile created."
 
 # Dispatch a task with the blocked profile
 log "Dispatching task for blocked scope..."
-TASK_RESP=$(curl -s -X POST "${BRIDGE_URL}/api/v1/tasks" \
+TASK_RESP=$(curl -s -X POST "${BRIDGE_URL}/api/v1/sessions" \
     -H "Authorization: Bearer ${TOKEN}" \
     -H "Content-Type: application/json" \
     -d "{
@@ -322,7 +322,7 @@ log "Read-only profile created."
 
 # Dispatch a task with the readonly profile
 log "Dispatching task for read-only scope..."
-TASK_RESP=$(curl -s -X POST "${BRIDGE_URL}/api/v1/tasks" \
+TASK_RESP=$(curl -s -X POST "${BRIDGE_URL}/api/v1/sessions" \
     -H "Authorization: Bearer ${TOKEN}" \
     -H "Content-Type: application/json" \
     -d "{

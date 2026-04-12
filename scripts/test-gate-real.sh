@@ -108,7 +108,7 @@ log "Profile created."
 # ---------------------------------------------------------------------------
 log "Dispatching task to start Gate container..."
 
-TASK_RESP=$(curl -s -X POST "${BRIDGE_URL}/api/v1/tasks" \
+TASK_RESP=$(curl -s -X POST "${BRIDGE_URL}/api/v1/sessions" \
     -H "Authorization: Bearer ${TOKEN}" \
     -H "Content-Type: application/json" \
     -d "{

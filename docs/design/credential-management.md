@@ -18,7 +18,7 @@ Bridge to Gate. This works for Anthropic API keys but not for Vertex AI, which
 requires OAuth2 token acquisition and periodic refresh.
 
 In production (OpenShift), multiple users will have different credentials. File
-mounts (SA JSON, ADC) are not viable per-task. Credentials must flow through
+mounts (SA JSON, ADC) are not viable per-session. Credentials must flow through
 the system programmatically.
 
 ## Architecture
@@ -51,13 +51,13 @@ User registers credentials
    libraries, or credential types. It receives a token string and a provider
    type, and injects the appropriate header.
 
-3. **Token refresh via Bridge API.** For tasks that outlast a token's lifetime
+3. **Token refresh via Bridge API.** For sessions that outlast a token's lifetime
    (>1 hour), Gate calls Bridge's token refresh endpoint using its session token
    for authentication.
 
 4. **Multi-user ready.** Credentials are stored per-provider in PostgreSQL,
    associated with the user or team that registered them. At dispatch time,
-   Bridge resolves which credential to use based on the task's provider and
+   Bridge resolves which credential to use based on the session's provider and
    submitter.
 
 ## Credential Storage
@@ -95,10 +95,10 @@ token acquisition time, in memory.
 
 ## Token Flow
 
-### At Task Dispatch (Bridge)
+### At Session Dispatch (Bridge)
 
 ```
-1. Resolve provider for the task (from request or default)
+1. Resolve provider for the session (from request or default)
 2. Look up credential for that provider in provider_credentials table
 3. Decrypt the credential material
 4. Based on auth_type:
@@ -125,7 +125,7 @@ When proxying an LLM request:
       set header "Authorization: Bearer <token>"
 ```
 
-### Token Refresh (for tasks > 1 hour)
+### Token Refresh (for sessions > 1 hour)
 
 ```
 Gate detects a 401 from the upstream LLM provider
@@ -175,7 +175,7 @@ The dashboard credential management page:
 2. **Credentials list** showing name, provider, type, created date.
    Never displays the actual credential material.
 
-3. **New Task form** updated to select a credential (or use default).
+3. **New Session form** updated to select a credential (or use default).
 
 ## Phase 1 Simplification
 

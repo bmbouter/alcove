@@ -6,14 +6,14 @@ Alcove's security model is built around five north-star principles that define h
 
 ## 1. Safe Sandboxing
 
-**Principle:** Every task runs in an ephemeral, network-isolated container. Containers are never reused across tasks. NetworkPolicy (OpenShift) and dual-network isolation (podman) enforce this.
+**Principle:** Every session runs in an ephemeral, network-isolated container. Containers are never reused across sessions. NetworkPolicy (OpenShift) and dual-network isolation (podman) enforce this.
 
 ### Implementation
 
 **Ephemeral Containers (Skiff):**
-- Each task spawns a fresh Kubernetes Job or podman container
-- Containers are destroyed immediately after task completion (success or failure)
-- No persistent filesystem state survives between tasks
+- Each session spawns a fresh Kubernetes Job or podman container
+- Containers are destroyed immediately after session completion (success or failure)
+- No persistent filesystem state survives between sessions
 - Container images are read-only base layers plus task-specific volumes
 
 **Network Isolation:**
@@ -76,7 +76,7 @@ See [Credential Management](credential-management.md) for detailed implementatio
 
 ## 3. Human-in-the-Loop Controls
 
-**Principle:** Security profiles define what each task is allowed to do. Scope enforcement, task approval, and label-gated triggers ensure humans remain in control of what automated agents can access and modify.
+**Principle:** Security profiles define what each session is allowed to do. Scope enforcement, session approval, and label-gated triggers ensure humans remain in control of what automated agents can access and modify.
 
 ### Implementation
 
@@ -88,10 +88,10 @@ See [Credential Management](credential-management.md) for detailed implementatio
 - Profile changes require explicit user action
 
 **Scope Enforcement:**
-- Every task specifies its required scope at submission time
+- Every session specifies its required scope at submission time
 - Bridge validates scope against available credentials and user permissions
 - Gate enforces scope at runtime with operation-level granularity
-- No scope escalation possible once task is running
+- No scope escalation possible once session is running
 
 **Operation Classification:**
 - **Read operations:** `clone`, `fetch`, `read_prs`, `read_issues`, `read_contents`
@@ -102,7 +102,7 @@ See [Credential Management](credential-management.md) for detailed implementatio
 - Ready-for-dev label requirement for autonomous issue processing
 - Human review required for dangerous operations
 - Pull request review workflow for code changes
-- Task termination controls in dashboard
+- Session termination controls in dashboard
 
 **Repository Access Controls:**
 - Explicit repository allowlists (no wildcard defaults)
@@ -126,10 +126,10 @@ See [Security Profiles and System LLM](security-profiles-and-system-llm.md) for 
 - Network tunnel creation and termination
 
 **Session Transcripts:**
-- Complete LLM conversation history per task
+- Complete LLM conversation history per session
 - Tool invocations with input parameters and outputs
 - Error conditions and retry attempts
-- Task start/completion timestamps and status
+- Session start/completion timestamps and status
 - Resource usage metrics (CPU, memory, duration)
 
 **Structured Audit Data:**
@@ -164,7 +164,7 @@ See existing session storage implementation in Bridge's PostgreSQL schema.
 
 ## 5. Least Privilege
 
-**Principle:** Gate's network proxy is DENY by default. Only explicitly allowed operations (defined in security profiles) are permitted. Tasks cannot reach arbitrary network endpoints.
+**Principle:** Gate's network proxy is DENY by default. Only explicitly allowed operations (defined in security profiles) are permitted. Sessions cannot reach arbitrary network endpoints.
 
 ### Implementation
 
@@ -189,13 +189,13 @@ See existing session storage implementation in Bridge's PostgreSQL schema.
 **Network Segmentation:**
 - Skiff can only reach Gate sidecar (same pod/network namespace)
 - Gate can only reach explicitly approved external services
-- No cross-task network communication
+- No cross-session network communication
 - No persistent network connections
 
 **Credential Scoping:**
 - Credentials limited to approved repositories/projects
 - Token scopes minimized (read-only when possible)
-- Per-task credential isolation
+- Per-session credential isolation
 - No shared credential state
 
 **Example Scope Validation:**

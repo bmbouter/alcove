@@ -1337,7 +1337,7 @@ select.input {
 .vertex-guide-panel a { color: var(--accent); text-decoration: underline; }
 .vertex-guide-note { font-size: 12px; color: var(--text-muted); margin-top: 10px; margin-bottom: 4px; }
 
-/* Tools section on New Task form */
+/* Tools section on New Session form */
 .tools-section { margin: 16px 0; }
 .tools-section summary { cursor: pointer; color: var(--accent-light); font-size: 14px; font-weight: 500; }
 .tools-section-content { padding: 12px 0; }
@@ -1606,15 +1606,15 @@ select.input {
 }
 
 
-/* === Task Form Warnings === */
-.task-warnings {
+/* === Session Form Warnings === */
+.session-warnings {
     display: flex;
     flex-direction: column;
     gap: 8px;
     margin-bottom: 12px;
 }
 
-.task-warning {
+.session-warning {
     display: flex;
     align-items: flex-start;
     gap: 8px;
@@ -1624,24 +1624,24 @@ select.input {
     line-height: 1.4;
 }
 
-.task-warning-caution {
+.session-warning-caution {
     background: rgba(243, 156, 18, 0.1);
     border: 1px solid rgba(243, 156, 18, 0.3);
     color: var(--status-cancelled);
 }
 
-.task-warning-info {
+.session-warning-info {
     background: rgba(52, 152, 219, 0.1);
     border: 1px solid rgba(52, 152, 219, 0.3);
     color: var(--status-running);
 }
 
-.task-warning-icon {
+.session-warning-icon {
     flex-shrink: 0;
     font-size: 14px;
 }
 
-.task-warning a {
+.session-warning a {
     color: inherit;
     text-decoration: underline;
 }
@@ -1711,8 +1711,8 @@ select.input {
     padding: 12px 0;
 }
 
-/* Task Repos */
-.task-repo-item {
+/* Agent Repos */
+.agent-repo-item {
     display: flex;
     align-items: center;
     gap: 12px;
@@ -1722,23 +1722,23 @@ select.input {
     margin-bottom: 8px;
 }
 
-.task-repo-item .task-repo-url {
+.agent-repo-item .agent-repo-url {
     flex: 1;
     font-family: var(--font-mono);
     font-size: 13px;
 }
 
-.task-repo-item .task-repo-ref {
+.agent-repo-item .agent-repo-ref {
     color: var(--text-muted);
     font-size: 12px;
 }
 
-.task-repo-item .task-repo-name {
+.agent-repo-item .agent-repo-name {
     color: var(--text-muted);
     font-size: 12px;
 }
 
-.task-repo-item .task-repo-delete {
+.agent-repo-item .agent-repo-delete {
     cursor: pointer;
     color: var(--status-error);
     background: none;
@@ -1746,24 +1746,24 @@ select.input {
     font-size: 16px;
 }
 
-.task-repo-item .task-repo-delete:hover {
+.agent-repo-item .agent-repo-delete:hover {
     opacity: 0.8;
 }
 
-.task-repo-add h4 {
+.agent-repo-add h4 {
     color: var(--text);
     font-size: 14px;
     margin-bottom: 12px;
 }
 
-.task-repos-empty {
+.agent-repos-empty {
     color: var(--text-muted);
     font-size: 13px;
     padding: 12px 0;
 }
 
-/* Task Definition Cards */
-.task-def-card {
+/* Agent Definition Cards */
+.agent-def-card {
     background: var(--bg-card);
     border-radius: 8px;
     padding: 16px;
@@ -1771,38 +1771,38 @@ select.input {
     border: 1px solid var(--border);
 }
 
-.task-def-header {
+.agent-def-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 16px;
 }
 
-.task-def-name {
+.agent-def-name {
     font-weight: 600;
     font-size: 15px;
 }
 
-.task-def-actions {
+.agent-def-actions {
     display: flex;
     gap: 8px;
     flex-shrink: 0;
 }
 
-.task-def-desc {
+.agent-def-desc {
     font-size: 13px;
     color: var(--text-muted);
     margin-top: 4px;
 }
 
-.task-def-tags {
+.agent-def-tags {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
     margin-top: 10px;
 }
 
-.task-def-tag {
+.agent-def-tag {
     display: inline-block;
     padding: 2px 8px;
     border-radius: 4px;
@@ -1810,27 +1810,27 @@ select.input {
     font-weight: 500;
 }
 
-.task-def-tag-profile {
+.agent-def-tag-profile {
     background: rgba(46, 204, 113, 0.15);
     color: #2ecc71;
 }
 
-.task-def-tag-repo {
+.agent-def-tag-repo {
     background: rgba(52, 152, 219, 0.15);
     color: var(--status-running);
 }
 
-.task-def-tag-yaml {
+.agent-def-tag-yaml {
     background: rgba(46, 204, 113, 0.15);
     color: #2ecc71;
 }
 
-.task-def-tag-manual {
+.agent-def-tag-manual {
     background: rgba(243, 156, 18, 0.15);
     color: var(--status-cancelled);
 }
 
-.task-def-details {
+.agent-def-details {
     display: flex;
     flex-wrap: wrap;
     gap: 16px;
@@ -1839,14 +1839,14 @@ select.input {
     color: var(--text-muted);
 }
 
-.task-def-detail-item code {
+.agent-def-detail-item code {
     background: var(--bg-input);
     padding: 1px 5px;
     border-radius: 3px;
     font-size: 11px;
 }
 
-.task-def-label {
+.agent-def-label {
     color: var(--text-secondary);
     font-weight: 600;
     text-transform: uppercase;
@@ -1855,11 +1855,11 @@ select.input {
     margin-right: 4px;
 }
 
-.task-def-dim {
+.agent-def-dim {
     opacity: 0.6;
 }
 
-.task-def-error {
+.agent-def-error {
     color: var(--status-error);
     font-size: 12px;
     margin-top: 8px;
@@ -2081,25 +2081,25 @@ select.input {
     font-weight: 600;
 }
 
-/* Task def card paused state */
-.task-def-paused-repo {
+/* Agent def card paused state */
+.agent-def-paused-repo {
     opacity: 0.6;
     border-left: 3px solid #f39c12;
 }
-.task-def-paused-link {
+.agent-def-paused-link {
     font-size: 12px;
     color: #3498db;
     cursor: pointer;
 }
-.task-def-paused-link:hover { text-decoration: underline; }
+.agent-def-paused-link:hover { text-decoration: underline; }
 
 /* Text utility */
 .text-muted { color: var(--text-muted); }
 
-/* === Task List Redesign === */
+/* === Session List Redesign === */
 
-/* Task type pills */
-.task-type-pill {
+/* Agent type pills */
+.agent-type-pill {
     display: inline-block;
     font-size: 10px;
     padding: 2px 6px;
@@ -2110,11 +2110,11 @@ select.input {
     vertical-align: middle;
     text-transform: uppercase;
 }
-.task-type-dev { background: rgba(52,152,219,0.15); color: #3498db; }
-.task-type-review { background: rgba(155,89,182,0.15); color: #9b59b6; }
-.task-type-plan { background: rgba(46,204,113,0.15); color: #2ecc71; }
-.task-type-release { background: rgba(243,156,18,0.15); color: #f39c12; }
-.task-type-neutral { background: rgba(127,127,127,0.12); color: #888; }
+.agent-type-dev { background: rgba(52,152,219,0.15); color: #3498db; }
+.agent-type-review { background: rgba(155,89,182,0.15); color: #9b59b6; }
+.agent-type-plan { background: rgba(46,204,113,0.15); color: #2ecc71; }
+.agent-type-release { background: rgba(243,156,18,0.15); color: #f39c12; }
+.agent-type-neutral { background: rgba(127,127,127,0.12); color: #888; }
 
 /* Status left border on rows */
 .session-row { border-left: 4px solid transparent; transition: background 0.15s; }
@@ -2168,7 +2168,7 @@ select.input {
 }
 .trigger-link:hover { text-decoration: underline; }
 
-/* Empty state (task list redesign) */
+/* Empty state (session list redesign) */
 .empty-state-redesign {
     text-align: center;
     padding: 60px 20px;

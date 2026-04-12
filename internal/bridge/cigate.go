@@ -88,7 +88,7 @@ func (m *CIGateMonitor) OnTaskCompleted(ctx context.Context, sessionID string, a
 		return
 	}
 
-	// Look up task definition to check for ci_gate config.
+	// Look up agent definition to check for ci_gate config.
 	var sourceKey string
 	var owner string
 	err := m.db.QueryRow(ctx,
@@ -101,11 +101,11 @@ func (m *CIGateMonitor) OnTaskCompleted(ctx context.Context, sessionID string, a
 		_ = m.db.QueryRow(ctx, `SELECT submitter FROM sessions WHERE id = $1`, sessionID).Scan(&owner)
 	}
 
-	// Look up ci_gate config from task definition.
+	// Look up ci_gate config from agent definition.
 	var parsedJSON []byte
 	if sourceKey != "" {
 		_ = m.db.QueryRow(ctx,
-			`SELECT parsed FROM task_definitions WHERE source_key = $1`, sourceKey,
+			`SELECT parsed FROM agent_definitions WHERE source_key = $1`, sourceKey,
 		).Scan(&parsedJSON)
 	}
 
@@ -114,7 +114,7 @@ func (m *CIGateMonitor) OnTaskCompleted(ctx context.Context, sessionID string, a
 		_ = m.db.QueryRow(ctx,
 			`SELECT td.parsed FROM sessions sess
              JOIN schedules sch ON sch.source_key != ''
-             JOIN task_definitions td ON td.source_key = sch.source_key
+             JOIN agent_definitions td ON td.source_key = sch.source_key
              WHERE sess.id = $1 LIMIT 1`, sessionID,
 		).Scan(&parsedJSON)
 	}
@@ -330,13 +330,13 @@ func (m *CIGateMonitor) handleCIFailure(ctx context.Context, sessionID, repo str
 	}
 	json.Unmarshal(prData, &prInfo)
 
-	// Look up original task definition for full prompt, profiles, repo, provider, timeout.
+	// Look up original agent definition for full prompt, profiles, repo, provider, timeout.
 	var taskReq TaskRequest
 	var originalPrompt string
 	if sourceKey != "" {
 		var parsedJSON []byte
 		_ = m.db.QueryRow(ctx,
-			`SELECT parsed FROM task_definitions WHERE source_key = $1`, sourceKey,
+			`SELECT parsed FROM agent_definitions WHERE source_key = $1`, sourceKey,
 		).Scan(&parsedJSON)
 		if parsedJSON != nil {
 			var td TaskDefinition

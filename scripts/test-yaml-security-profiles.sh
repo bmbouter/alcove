@@ -1,7 +1,7 @@
 #!/bin/bash
-# test-yaml-security-profiles.sh — Tests for YAML security profiles synced from task repos.
+# test-yaml-security-profiles.sh — Tests for YAML security profiles synced from agent repos.
 #
-# Verifies that YAML-defined security profiles are synced from task repos,
+# Verifies that YAML-defined security profiles are synced from agent repos,
 # are read-only (cannot be modified or deleted), and are cleaned up when
 # repos are removed.
 #
@@ -39,11 +39,11 @@ ADMIN_TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" \
 ALCOVE_TESTING_URL="https://github.com/bmbouter/alcove-testing.git"
 
 # Clear any existing repos first to start clean
-curl -s -X PUT "$BRIDGE_URL/api/v1/user/settings/task-repos" \
+curl -s -X PUT "$BRIDGE_URL/api/v1/user/settings/agent-repos" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"repos":[]}' > /dev/null
-curl -s -X POST "$BRIDGE_URL/api/v1/task-definitions/sync" \
+curl -s -X POST "$BRIDGE_URL/api/v1/agent-definitions/sync" \
   -H "Authorization: Bearer $ADMIN_TOKEN" > /dev/null
 sleep 3
 
@@ -54,7 +54,7 @@ log "=== Group 1: Add repo and sync ==="
 
 # Test 1.1: Add alcove-testing repo
 log "Test 1.1: Add alcove-testing repo"
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$BRIDGE_URL/api/v1/user/settings/task-repos" \
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$BRIDGE_URL/api/v1/user/settings/agent-repos" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"repos\":[{\"url\":\"$ALCOVE_TESTING_URL\",\"name\":\"alcove-testing\"}]}")
@@ -66,7 +66,7 @@ fi
 
 # Test 1.2: Trigger sync
 log "Test 1.2: Trigger sync"
-SYNC_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BRIDGE_URL/api/v1/task-definitions/sync" \
+SYNC_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BRIDGE_URL/api/v1/agent-definitions/sync" \
   -H "Authorization: Bearer $ADMIN_TOKEN")
 if [ "$SYNC_CODE" = "200" ]; then
   pass "Sync triggered successfully (200)"
@@ -162,13 +162,13 @@ fi
 # =====================================================================
 log "=== Group 3: Task definitions have no sync_error ==="
 
-# Test 3.1: Verify synced task definitions do not have sync_error
+# Test 3.1: Verify synced agent definitions do not have sync_error
 log "Test 3.1: Task definitions from alcove-testing have no sync_error"
-DEFS_JSON=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" "$BRIDGE_URL/api/v1/task-definitions")
+DEFS_JSON=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" "$BRIDGE_URL/api/v1/agent-definitions")
 SYNC_ERRORS=$(echo "$DEFS_JSON" | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
-defs = data.get('task_definitions', [])
+defs = data.get('agent_definitions', [])
 errors = [d['name'] for d in defs if d.get('sync_error', '')]
 if errors:
     print('ERRORS: ' + ', '.join(errors))
@@ -176,7 +176,7 @@ else:
     print('NONE')
 ")
 if [ "$SYNC_ERRORS" = "NONE" ]; then
-  pass "No task definitions have sync_error"
+  pass "No agent definitions have sync_error"
 else
   fail "Task definitions with sync_error: $SYNC_ERRORS"
 fi
@@ -186,21 +186,21 @@ fi
 # =====================================================================
 log "=== Group 4: Cleanup ==="
 
-# Test 4.1: Remove task repos
-log "Test 4.1: Remove task repos"
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$BRIDGE_URL/api/v1/user/settings/task-repos" \
+# Test 4.1: Remove agent repos
+log "Test 4.1: Remove agent repos"
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "$BRIDGE_URL/api/v1/user/settings/agent-repos" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"repos":[]}')
 if [ "$HTTP_CODE" = "200" ]; then
-  pass "Removed task repos (200)"
+  pass "Removed agent repos (200)"
 else
   fail "Failed to remove repos: $HTTP_CODE"
 fi
 
 # Test 4.2: Trigger sync after removing repos
 log "Test 4.2: Trigger sync after cleanup"
-SYNC_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BRIDGE_URL/api/v1/task-definitions/sync" \
+SYNC_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BRIDGE_URL/api/v1/agent-definitions/sync" \
   -H "Authorization: Bearer $ADMIN_TOKEN")
 if [ "$SYNC_CODE" = "200" ]; then
   pass "Cleanup sync triggered (200)"

@@ -38,8 +38,8 @@
                 <h1 class="brand">Alcove</h1>
             </div>
             <nav class="top-bar-nav" aria-label="Main navigation">
-                <a href="#task/new" class="nav-tab" data-tab="task/new">New Task</a>
-                <a href="#sessions" class="nav-tab" data-tab="sessions">Tasks</a>
+                <a href="#task/new" class="nav-tab" data-tab="task/new">New Session</a>
+                <a href="#sessions" class="nav-tab" data-tab="sessions">Sessions</a>
                 <a href="#schedules" class="nav-tab" data-tab="schedules">Schedules</a>
                 <a href="#credentials" class="nav-tab" data-tab="credentials">Credentials</a>
                 <a href="#security" class="nav-tab" data-tab="security">Security</a>
@@ -83,7 +83,7 @@
             <div id="page-sessions" class="page" hidden>
 
                 <div class="page-header">
-                    <h2>Tasks</h2>
+                    <h2>Sessions</h2>
                     <div class="filters">
                         <select id="filter-status" class="input input-small" aria-label="Filter by status">
                             <option value="">All Statuses</option>
@@ -93,7 +93,7 @@
                             <option value="cancelled">Cancelled</option>
                             <option value="timeout">Timeout</option>
                         </select>
-                        <input type="text" id="filter-search" class="input input-small" placeholder="Search tasks..." aria-label="Search tasks">
+                        <input type="text" id="filter-search" class="input input-small" placeholder="Search sessions..." aria-label="Search sessions">
                     </div>
                 </div>
                 <div id="sessions-table-container" class="table-container">
@@ -101,7 +101,7 @@
                         <thead>
                             <tr>
                                 <th style="width:40px"></th>
-                                <th>Task</th>
+                                <th>Session</th>
                                 <th>Submitter</th>
                                 <th>When</th>
                                 <th>Duration</th>
@@ -114,20 +114,20 @@
                     </div>
                     <div id="sessions-loading" class="loading-state" hidden>
                         <div class="spinner"></div>
-                        <p>Loading tasks...</p>
+                        <p>Loading sessions...</p>
                     </div>
                 </div>
             </div>
 
-            <!-- New Task -->
+            <!-- New Session -->
             <div id="page-task-new" class="page" hidden>
                 <div class="page-header">
-                    <h2>New Task</h2>
+                    <h2>New Session</h2>
                 </div>
                 <form id="task-form" class="form-card">
                     <div class="form-group">
                         <label for="task-prompt">Prompt <span class="required">*</span></label>
-                        <textarea id="task-prompt" class="input" rows="6" required placeholder="Describe the task for the AI agent..."></textarea>
+                        <textarea id="task-prompt" class="input" rows="6" required placeholder="Describe what the agent should do..."></textarea>
                     </div>
                     <div class="form-row">
                         <div class="form-group form-group-half">
@@ -145,14 +145,14 @@
                         <div class="form-group form-group-half">
                             <label for="task-timeout">Timeout (minutes): <span id="timeout-value">60</span></label>
                             <input type="range" id="task-timeout" class="input-range" min="5" max="240" value="60" step="5">
-                            <small class="form-help">Task will be stopped if it exceeds this duration.</small>
+                            <small class="form-help">Session will be stopped if it exceeds this duration.</small>
                         </div>
                         <div class="form-group form-group-half">
                             <label class="checkbox-label">
                                 <input type="checkbox" id="task-debug">
                                 <span>Debug mode</span>
                             </label>
-                            <small class="form-help">Preserves worker containers after completion for debugging failed tasks.</small>
+                            <small class="form-help">Preserves worker containers after completion for debugging failed sessions.</small>
                         </div>
                     </div>
                     <div class="form-group">
@@ -169,10 +169,10 @@
                             <strong>Tip: Stack profiles for mixed repo scoping.</strong> For example, use a "read-all" profile (all repos) with a "pulp-contributor" profile (specific repos) to read broadly but write only to selected repos.
                         </div>
                     </div>
-                    <div id="task-warnings" class="task-warnings" hidden></div>
+                    <div id="task-warnings" class="session-warnings" hidden></div>
                     <div id="task-error" class="error-message" role="alert" hidden></div>
                     <div id="task-success" class="success-message" role="status" hidden></div>
-                    <button type="submit" class="btn btn-primary">Submit Task</button>
+                    <button type="submit" class="btn btn-primary">Start Session</button>
                 </form>
             </div>
 
@@ -305,7 +305,7 @@
                     <button id="browse-templates" class="btn btn-small btn-primary">Browse Templates</button>
                 </div>
                 <div id="unified-schedules-list"></div>
-                <div id="unified-schedules-empty" class="empty-state" hidden><p>No schedules or task definitions found.</p></div>
+                <div id="unified-schedules-empty" class="empty-state" hidden><p>No schedules or agent definitions found.</p></div>
                 <div id="unified-schedules-loading" class="loading-state" hidden><div class="spinner"></div><p>Loading...</p></div>
 
             </div>
@@ -424,12 +424,12 @@
 
                 <div class="profile-stacking-hint" style="margin-bottom:16px;">
                     <strong>How profiles work:</strong> Each profile grants a set of operations, optionally scoped to specific repositories.
-                    To allow broad read access but restrict writes to certain repos, create separate profiles and select them together on a task.
+                    To allow broad read access but restrict writes to certain repos, create separate profiles and select them together on a session.
                     Permissions are merged (union) across all selected profiles.
                 </div>
 
                 <div id="security-profiles-list"></div>
-                <div id="security-empty" class="empty-state" hidden><p>No security profiles yet. Create one or add profiles to a task repo.</p></div>
+                <div id="security-empty" class="empty-state" hidden><p>No security profiles yet. Create one or add profiles to an agent repo.</p></div>
                 <div id="security-loading" class="loading-state" hidden><div class="spinner"></div><p>Loading profiles...</p></div>
 
                 <div style="margin-top:24px;">
@@ -443,10 +443,10 @@
                     <h2>Repos</h2>
                 </div>
 
-                <!-- Task Repos section -->
+                <!-- Agent Repos section -->
                 <div style="margin-bottom:32px;">
-                    <h3>Task Repos</h3>
-                    <p class="form-help" style="margin-bottom:12px;">Git repositories containing <code>.alcove/tasks/</code> with YAML task definitions and <code>.alcove/security-profiles/</code> with security profiles.</p>
+                    <h3>Agent Repos</h3>
+                    <p class="form-help" style="margin-bottom:12px;">Git repositories containing <code>.alcove/tasks/</code> with YAML agent definitions and <code>.alcove/security-profiles/</code> with security profiles.</p>
                     <div id="task-repos-inline-list"></div>
                     <div class="repo-add-form" style="margin-top:12px;">
                         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
@@ -469,7 +469,7 @@
                 <!-- Skill / Agent Repos section -->
                 <div>
                     <h3>Skill / Agent Repos</h3>
-                    <p class="form-help" style="margin-bottom:12px;">Git repositories with Claude Code plugins or lola modules, loaded into task containers.</p>
+                    <p class="form-help" style="margin-bottom:12px;">Git repositories with Claude Code plugins or lola modules, loaded into session containers.</p>
                     <div id="skill-repos-inline-list"></div>
                     <div class="repo-add-form" style="margin-top:12px;">
                         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
@@ -676,7 +676,7 @@
             <!-- Session Detail -->
             <div id="page-session-detail" class="page" hidden>
                 <div class="page-header">
-                    <button id="back-to-sessions" class="btn btn-small btn-outline">Back to Tasks</button>
+                    <button id="back-to-sessions" class="btn btn-small btn-outline">Back to Sessions</button>
                     <h2 id="detail-title">Session Detail</h2>
                 </div>
                 <div class="session-meta-grid" id="session-meta"></div>
@@ -791,7 +791,7 @@
     <!-- View YAML Modal -->
     <div id="view-yaml-modal" class="modal-overlay" hidden>
         <div class="modal-card modal-card-wide">
-            <h3 id="view-yaml-title">Task Definition</h3>
+            <h3 id="view-yaml-title">Agent Definition</h3>
             <pre id="view-yaml-content" style="background:var(--bg-input);padding:16px;border-radius:8px;overflow-x:auto;font-size:13px;max-height:60vh;overflow-y:auto;"></pre>
             <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;">
                 <button id="view-yaml-copy" class="btn btn-small btn-outline">Copy YAML</button>
@@ -834,7 +834,7 @@
     <div id="templates-modal" class="modal-overlay" hidden>
         <div class="modal-card modal-card-wide">
             <h3>Starter Templates</h3>
-            <p class="form-help">Copy these YAML templates into your repo's <code>.alcove/tasks/</code> directory.</p>
+            <p class="form-help">Copy these YAML templates into your repo's <code>.alcove/tasks/</code> directory to create agent definitions.</p>
             <div id="templates-list"></div>
             <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;">
                 <button id="templates-close" class="btn btn-outline">Close</button>

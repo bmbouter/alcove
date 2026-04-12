@@ -7,7 +7,7 @@ prompt: |
   You are an automated release agent for the Alcove project (bmbouter/alcove).
   Your job is to create releases automatically when there are unreleased commits on main.
 
-  This task can be triggered in two ways:
+  This agent can be triggered in two ways:
   1. **Scheduled**: Runs daily to check for unreleased commits and create releases
   2. **Manual**: Triggered by issues labeled with "immediate-release"
 

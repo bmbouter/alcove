@@ -31,7 +31,7 @@ type CIGate struct {
 	Timeout    int `json:"timeout" yaml:"timeout"` // seconds to wait for CI, default 900
 }
 
-// TaskDefinition represents a task defined in a YAML file within a task repo.
+// TaskDefinition represents an agent definition defined in a YAML file within an agent repo.
 type TaskDefinition struct {
 	ID          string                `json:"id"`
 	Name        string                `json:"name" yaml:"name"`
@@ -62,7 +62,7 @@ type TaskDefinition struct {
 	RepoDisabled bool       `json:"repo_disabled"`
 }
 
-// TaskDefSchedule defines an optional cron schedule for a task definition.
+// TaskDefSchedule defines an optional cron schedule for an agent definition.
 type TaskDefSchedule struct {
 	Cron    string `json:"cron" yaml:"cron"`
 	Enabled bool   `json:"enabled" yaml:"enabled"`
@@ -77,10 +77,10 @@ func ParseTaskDefinition(data []byte) (*TaskDefinition, error) {
 	}
 
 	if td.Name == "" {
-		return nil, fmt.Errorf("task definition missing required field: name")
+		return nil, fmt.Errorf("agent definition missing required field: name")
 	}
 	if td.Prompt == "" {
-		return nil, fmt.Errorf("task definition missing required field: prompt")
+		return nil, fmt.Errorf("agent definition missing required field: prompt")
 	}
 
 	if td.Schedule != nil {
@@ -117,30 +117,30 @@ func (td *TaskDefinition) ToTaskRequest() TaskRequest {
 	}
 }
 
-// TaskDefStore manages task definitions in PostgreSQL.
-type TaskDefStore struct {
+// AgentDefStore manages agent definitions in PostgreSQL.
+type AgentDefStore struct {
 	db *pgxpool.Pool
 }
 
-// NewTaskDefStore creates a TaskDefStore with the given database pool.
-func NewTaskDefStore(db *pgxpool.Pool) *TaskDefStore {
-	return &TaskDefStore{db: db}
+// NewAgentDefStore creates an AgentDefStore with the given database pool.
+func NewAgentDefStore(db *pgxpool.Pool) *AgentDefStore {
+	return &AgentDefStore{db: db}
 }
 
-// ListTaskDefinitions returns task definitions owned by the given user, with parsed data and schedule info.
-func (s *TaskDefStore) ListTaskDefinitions(ctx context.Context, owner string) ([]TaskDefinition, error) {
+// ListAgentDefinitions returns agent definitions owned by the given user, with parsed data and schedule info.
+func (s *AgentDefStore) ListAgentDefinitions(ctx context.Context, owner string) ([]TaskDefinition, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT td.id, td.name, td.description, td.source_repo, td.source_file, td.source_key,
 		       td.parsed, td.has_schedule, td.sync_error, td.last_synced,
 		       td.created_at, td.updated_at,
 		       s.next_run, s.last_run
-		FROM task_definitions td
+		FROM agent_definitions td
 		LEFT JOIN schedules s ON s.source_key = td.source_key AND s.source = 'yaml'
 		WHERE td.owner = $1
 		ORDER BY td.name ASC
 	`, owner)
 	if err != nil {
-		return nil, fmt.Errorf("querying task definitions: %w", err)
+		return nil, fmt.Errorf("querying agent definitions: %w", err)
 	}
 	defer rows.Close()
 
@@ -158,7 +158,7 @@ func (s *TaskDefStore) ListTaskDefinitions(ctx context.Context, owner string) ([
 			&createdAt, &updatedAt,
 			&td.NextRun, &td.LastRun,
 		); err != nil {
-			return nil, fmt.Errorf("scanning task definition: %w", err)
+			return nil, fmt.Errorf("scanning agent definition: %w", err)
 		}
 
 		if syncError != nil {
@@ -179,7 +179,7 @@ func (s *TaskDefStore) ListTaskDefinitions(ctx context.Context, owner string) ([
 		defs = append(defs, td)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating task definitions: %w", err)
+		return nil, fmt.Errorf("iterating agent definitions: %w", err)
 	}
 
 	if defs == nil {
@@ -188,8 +188,8 @@ func (s *TaskDefStore) ListTaskDefinitions(ctx context.Context, owner string) ([
 	return defs, nil
 }
 
-// GetTaskDefinition retrieves a single task definition by ID, scoped to the given owner.
-func (s *TaskDefStore) GetTaskDefinition(ctx context.Context, id, owner string) (*TaskDefinition, error) {
+// GetAgentDefinition retrieves a single agent definition by ID, scoped to the given owner.
+func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, owner string) (*TaskDefinition, error) {
 	var td TaskDefinition
 	var parsedJSON []byte
 	var syncError *string
@@ -201,7 +201,7 @@ func (s *TaskDefStore) GetTaskDefinition(ctx context.Context, id, owner string) 
 		       td.raw_yaml, td.parsed, td.has_schedule, td.sync_error, td.last_synced,
 		       td.created_at, td.updated_at,
 		       s.next_run, s.last_run
-		FROM task_definitions td
+		FROM agent_definitions td
 		LEFT JOIN schedules s ON s.source_key = td.source_key AND s.source = 'yaml'
 		WHERE td.id = $1 AND td.owner = $2
 	`, id, owner).Scan(
@@ -211,7 +211,7 @@ func (s *TaskDefStore) GetTaskDefinition(ctx context.Context, id, owner string) 
 		&td.NextRun, &td.LastRun,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("querying task definition %s: %w", id, err)
+		return nil, fmt.Errorf("querying agent definition %s: %w", id, err)
 	}
 
 	if syncError != nil {
@@ -239,22 +239,22 @@ func (s *TaskDefStore) GetTaskDefinition(ctx context.Context, id, owner string) 
 	return &td, nil
 }
 
-// UpsertTaskDefinition inserts or updates a task definition by source_key.
-func (s *TaskDefStore) UpsertTaskDefinition(ctx context.Context, def *TaskDefinition) error {
+// UpsertAgentDefinition inserts or updates a agent definition by source_key.
+func (s *AgentDefStore) UpsertAgentDefinition(ctx context.Context, def *TaskDefinition) error {
 	if def.ID == "" {
 		def.ID = uuid.New().String()
 	}
 
 	parsedJSON, err := json.Marshal(def)
 	if err != nil {
-		return fmt.Errorf("marshaling parsed task definition: %w", err)
+		return fmt.Errorf("marshaling parsed agent definition: %w", err)
 	}
 
 	hasSchedule := def.Schedule != nil
 	now := time.Now().UTC()
 
 	_, err = s.db.Exec(ctx, `
-		INSERT INTO task_definitions (id, name, description, source_repo, source_file,
+		INSERT INTO agent_definitions (id, name, description, source_repo, source_file,
 		    source_key, raw_yaml, parsed, has_schedule, sync_error, last_synced, owner, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		ON CONFLICT (source_key) DO UPDATE SET
@@ -274,31 +274,31 @@ func (s *TaskDefStore) UpsertTaskDefinition(ctx context.Context, def *TaskDefini
 		now, def.Owner, now, now,
 	)
 	if err != nil {
-		return fmt.Errorf("upserting task definition: %w", err)
+		return fmt.Errorf("upserting agent definition: %w", err)
 	}
 
 	return nil
 }
 
-// DeleteTaskDefinitionsByRepo removes all task definitions from a given repo URL and owner.
-func (s *TaskDefStore) DeleteTaskDefinitionsByRepo(ctx context.Context, repoURL, owner string) error {
-	_, err := s.db.Exec(ctx, `DELETE FROM task_definitions WHERE source_repo = $1 AND owner = $2`, repoURL, owner)
+// DeleteAgentDefinitionsByRepo removes all agent definitions from a given repo URL and owner.
+func (s *AgentDefStore) DeleteAgentDefinitionsByRepo(ctx context.Context, repoURL, owner string) error {
+	_, err := s.db.Exec(ctx, `DELETE FROM agent_definitions WHERE source_repo = $1 AND owner = $2`, repoURL, owner)
 	if err != nil {
-		return fmt.Errorf("deleting task definitions for repo %s: %w", repoURL, err)
+		return fmt.Errorf("deleting agent definitions for repo %s: %w", repoURL, err)
 	}
 	return nil
 }
 
-// ListTaskDefinitionsByRepo returns all task definitions from a given repo URL and owner.
-func (s *TaskDefStore) ListTaskDefinitionsByRepo(ctx context.Context, repoURL, owner string) ([]TaskDefinition, error) {
+// ListAgentDefinitionsByRepo returns all agent definitions from a given repo URL and owner.
+func (s *AgentDefStore) ListAgentDefinitionsByRepo(ctx context.Context, repoURL, owner string) ([]TaskDefinition, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, name, description, source_repo, source_file, source_key,
 		       has_schedule, sync_error, last_synced, created_at, updated_at, parsed
-		FROM task_definitions WHERE source_repo = $1 AND owner = $2
+		FROM agent_definitions WHERE source_repo = $1 AND owner = $2
 		ORDER BY name ASC
 	`, repoURL, owner)
 	if err != nil {
-		return nil, fmt.Errorf("querying task definitions for repo %s: %w", repoURL, err)
+		return nil, fmt.Errorf("querying agent definitions for repo %s: %w", repoURL, err)
 	}
 	defer rows.Close()
 
@@ -315,7 +315,7 @@ func (s *TaskDefStore) ListTaskDefinitionsByRepo(ctx context.Context, repoURL, o
 			&td.SourceKey, &hasSchedule, &syncError, &td.LastSynced,
 			&createdAt, &updatedAt, &parsedJSON,
 		); err != nil {
-			return nil, fmt.Errorf("scanning task definition: %w", err)
+			return nil, fmt.Errorf("scanning agent definition: %w", err)
 		}
 
 		if syncError != nil {
@@ -330,7 +330,7 @@ func (s *TaskDefStore) ListTaskDefinitionsByRepo(ctx context.Context, repoURL, o
 		defs = append(defs, td)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating task definitions: %w", err)
+		return nil, fmt.Errorf("iterating agent definitions: %w", err)
 	}
 
 	if defs == nil {
