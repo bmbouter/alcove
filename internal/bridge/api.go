@@ -104,6 +104,7 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/webhooks/github", a.handleWebhookGitHub)
 	mux.HandleFunc("/api/v1/admin/settings/webhook", a.handleAdminSettingsWebhook)
 	mux.HandleFunc("/api/v1/system-info", a.handleSystemInfo)
+	mux.HandleFunc("/api/v1/admin/system-state", a.handleSystemState)
 	mux.HandleFunc("/api/v1/auth/tbr-associations", a.handleTBRAssociations)
 	mux.HandleFunc("/api/v1/auth/tbr-associations/", a.handleTBRAssociationByID)
 }
@@ -169,6 +170,12 @@ func (a *API) handleSystemInfo(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
+		// Check system mode before dispatching.
+		if mode, _ := a.settingsStore.GetSystemMode(r.Context()); mode == "paused" {
+			respondError(w, http.StatusServiceUnavailable, "system is paused for maintenance — new sessions are not being accepted")
+			return
+		}
+
 		var req TaskRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
@@ -1846,6 +1853,12 @@ func (a *API) handleAgentDefinitionByID(w http.ResponseWriter, r *http.Request) 
 }
 
 func (a *API) handleAgentDefinitionRun(w http.ResponseWriter, r *http.Request, id string) {
+	// Check system mode before dispatching.
+	if mode, _ := a.settingsStore.GetSystemMode(r.Context()); mode == "paused" {
+		respondError(w, http.StatusServiceUnavailable, "system is paused for maintenance — new sessions are not being accepted")
+		return
+	}
+
 	submitter := r.Header.Get("X-Alcove-User")
 	if submitter == "" {
 		submitter = "anonymous"
@@ -2091,6 +2104,12 @@ func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check system mode before dispatching.
+	if mode, _ := a.settingsStore.GetSystemMode(ctx); mode == "paused" {
+		respondJSON(w, http.StatusOK, map[string]any{"matched": 0, "dispatched": 0, "paused": true})
+		return
+	}
+
 	// Query schedules with event triggers.
 	rows, queryErr := a.db.Query(ctx, `
 		SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, owner, debug, trigger_type, event_config
@@ -2193,6 +2212,54 @@ func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
 		matched, deliveryID)
 
 	respondJSON(w, http.StatusOK, map[string]any{"matched": matched, "dispatched": dispatched})
+}
+
+// --- Admin Settings: System State ---
+
+func (a *API) handleSystemState(w http.ResponseWriter, r *http.Request) {
+	// Admin-only.
+	if r.Header.Get("X-Alcove-Admin") != "true" {
+		respondError(w, http.StatusForbidden, "admin access required")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		mode, _ := a.settingsStore.GetSystemMode(r.Context())
+
+		// Count running sessions.
+		var running int
+		_ = a.db.QueryRow(r.Context(), "SELECT COUNT(*) FROM sessions WHERE outcome = 'running'").Scan(&running)
+
+		respondJSON(w, http.StatusOK, map[string]any{
+			"mode":             mode,
+			"running_sessions": running,
+		})
+
+	case http.MethodPut:
+		var req struct {
+			Mode string `json:"mode"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		if req.Mode != "active" && req.Mode != "paused" {
+			respondError(w, http.StatusBadRequest, "mode must be 'active' or 'paused'")
+			return
+		}
+
+		if err := a.settingsStore.SetSystemMode(r.Context(), req.Mode); err != nil {
+			respondError(w, http.StatusInternalServerError, "failed to set system mode")
+			return
+		}
+
+		log.Printf("system mode changed to %s by admin", req.Mode)
+		respondJSON(w, http.StatusOK, map[string]any{"mode": req.Mode})
+
+	default:
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
 }
 
 // --- Admin Settings: Webhook ---

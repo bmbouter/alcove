@@ -2330,3 +2330,25 @@ details[open] > .tx-tool-expand-toggle::before {
     background: rgba(239, 68, 68, 0.15);
     color: #fca5a5;
 }
+
+/* Maintenance banner */
+.maintenance-banner {
+    background: rgba(243, 156, 18, 0.15);
+    border-bottom: 2px solid #f39c12;
+    color: #f39c12;
+    padding: 10px 16px;
+    text-align: center;
+    font-size: 14px;
+    font-weight: 500;
+    display: none;
+}
+.maintenance-banner .btn-sm {
+    margin-left: 12px;
+    padding: 4px 12px;
+    font-size: 12px;
+    background: #f39c12;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}

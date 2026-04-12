@@ -169,6 +169,25 @@ func (s *SettingsStore) SetWebhookSecret(ctx context.Context, secret string) err
 	return err
 }
 
+// GetSystemMode returns the current system mode ("active" or "paused").
+func (s *SettingsStore) GetSystemMode(ctx context.Context) (string, error) {
+	var mode string
+	err := s.db.QueryRow(ctx, "SELECT value FROM system_state WHERE key = 'mode'").Scan(&mode)
+	if err != nil {
+		return "active", nil // default to active if not found
+	}
+	return mode, nil
+}
+
+// SetSystemMode sets the system mode to "active" or "paused".
+func (s *SettingsStore) SetSystemMode(ctx context.Context, mode string) error {
+	_, err := s.db.Exec(ctx, `
+		INSERT INTO system_state (key, value, updated_at) VALUES ('mode', $1, NOW())
+		ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()
+	`, mode)
+	return err
+}
+
 // ResolveEffectiveLLM reads LLM configuration from Config (config file + env vars)
 // and returns the effective config with source tracking.
 func ResolveEffectiveLLM(cfg *Config) *EffectiveSystemLLM {

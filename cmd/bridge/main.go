@@ -188,7 +188,7 @@ func main() {
 	defStore := bridge.NewAgentDefStore(dbpool)
 
 	// Create and start the scheduler.
-	scheduler := bridge.NewScheduler(dbpool, dispatcher, cfg, credStore, defStore)
+	scheduler := bridge.NewScheduler(dbpool, dispatcher, cfg, credStore, defStore, settingsStore)
 	scheduler.Start(context.Background())
 	defer scheduler.Stop()
 

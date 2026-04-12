@@ -59,3 +59,33 @@ Bridge runs a reconciliation loop every 2 minutes that:
 
 This ensures no session is stuck as "running" forever, even if a NATS
 status update was lost during a Bridge restart.
+
+## Maintenance Mode
+
+Admins can pause session dispatching before an upgrade:
+
+### API
+
+```bash
+# Pause dispatching
+curl -X PUT /api/v1/admin/system-state -d '{"mode": "paused"}'
+
+# Check status
+curl /api/v1/admin/system-state
+# {"mode": "paused", "running_sessions": 3}
+
+# Resume after upgrade
+curl -X PUT /api/v1/admin/system-state -d '{"mode": "active"}'
+```
+
+When paused:
+- Scheduler skips cron dispatches
+- Poller skips event processing (events remain in GitHub API)
+- Manual dispatch returns 503
+- Running sessions continue to completion
+- Dashboard shows a maintenance banner
+
+When resumed:
+- Poller immediately fetches pending events
+- Dedup table prevents double-dispatch
+- Scheduler resumes from next_run
