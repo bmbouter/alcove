@@ -511,6 +511,46 @@ func (m *CIGateMonitor) addLabel(ctx context.Context, repo string, prNumber int,
 	m.client.Do(req)
 }
 
+// RecoverMonitors resumes CI monitoring for sessions that were being
+// watched when Bridge last shut down. Called once on startup.
+func (m *CIGateMonitor) RecoverMonitors(ctx context.Context) {
+	rows, err := m.db.Query(ctx,
+		`SELECT session_id, pr_repo, pr_number, max_retries, owner
+		 FROM ci_gate_state WHERE status = 'monitoring'`)
+	if err != nil {
+		log.Printf("cigate: error recovering monitors: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	recovered := 0
+	for rows.Next() {
+		var sessionID, prRepo, owner string
+		var prNumber, maxRetries int
+		if err := rows.Scan(&sessionID, &prRepo, &prNumber, &maxRetries, &owner); err != nil {
+			continue
+		}
+
+		// Default timeout for recovered monitors (15 minutes).
+		timeout := 900
+
+		m.mu.Lock()
+		if m.watching[sessionID] {
+			m.mu.Unlock()
+			continue
+		}
+		m.watching[sessionID] = true
+		m.mu.Unlock()
+
+		go m.monitorPR(context.Background(), sessionID, prRepo, prNumber, timeout, owner)
+		recovered++
+	}
+
+	if recovered > 0 {
+		log.Printf("cigate: recovered %d PR monitor(s) from previous session", recovered)
+	}
+}
+
 // truncateStr shortens a string for log messages.
 func truncateStr(s string, n int) string {
 	if len(s) <= n {
