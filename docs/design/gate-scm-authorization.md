@@ -497,7 +497,7 @@ The dummy tokens have the following properties:
 
 ### 4.1 Environment variables set by Bridge and skiff-init
 
-For a task with GitHub and GitLab in scope, Skiff receives:
+For a session with GitHub and GitLab in scope, Skiff receives:
 
 ```bash
 # Git configuration (set by skiff-init setupEnv)
@@ -694,7 +694,7 @@ Content-Type: application/json
 }
 ```
 
-### 6.2 Task submission with scope
+### 6.2 Session submission with scope
 
 The existing `POST /api/v1/tasks` endpoint accepts a `scope` field. No API
 changes are needed:
@@ -871,7 +871,7 @@ Ordered list of tasks with file paths. Each task is independently testable.
 - Add `glab` CLI (from binary release)
 
 **Task 3.2: Validate gh/glab work through Gate proxy**
-- Manual testing: submit a task with GitHub scope, verify `gh pr create`
+- Manual testing: start a session with GitHub scope, verify `gh pr create`
   works through Gate
 - Verify `glab mr create` works through Gate
 
@@ -909,7 +909,7 @@ Ordered list of tasks with file paths. Each task is independently testable.
 
 1. **GitHub App vs PAT:** Should we prioritize GitHub App support (installation
    tokens with fine-grained permissions) or PATs (simpler, user-scoped)? PATs
-   are simpler for Phase 1, but Apps provide better security isolation per-task.
+   are simpler for Phase 1, but Apps provide better security isolation per-session.
 
 2. **Push enforcement granularity:** Can we distinguish `push_branch` from
    `push_main` at the Gate level? With PATs, no -- the credential has the same
@@ -921,9 +921,9 @@ Ordered list of tasks with file paths. Each task is independently testable.
    instances, or is one sufficient? Multiple instances would require the scope
    to specify which instance each project belongs to.
 
-4. **Rate limiting:** Should Gate enforce per-task rate limits on SCM API calls
+4. **Rate limiting:** Should Gate enforce per-session rate limits on SCM API calls
    to prevent abuse? This is separate from GitHub/GitLab's own rate limits.
 
-5. **Webhook verification:** If a task creates a PR, should Gate intercept the
+5. **Webhook verification:** If a session creates a PR, should Gate intercept the
    PR creation response and record the PR URL as an artifact? This would enable
    automatic artifact tracking without relying on Claude Code to report it.

@@ -8,33 +8,33 @@ its columns, and the migration system that manages the schema.
 
 | Table | Purpose |
 |-------|---------|
-| `sessions` | Records of Skiff task executions (prompts, transcripts, outcomes) |
+| `sessions` | Records of Skiff session executions (prompts, transcripts, outcomes) |
 | `provider_credentials` | Encrypted LLM provider credentials (API keys, service account tokens) |
 | `auth_users` | Local user accounts for Bridge authentication |
 | `auth_sessions` | Active login sessions (bearer tokens) |
-| `schedules` | Recurring task definitions (cron-based) |
+| `schedules` | Recurring agent definitions (cron-based) |
 | `schema_migrations` | Tracks which migrations have been applied (auto-created) |
 
 ## sessions
 
-Stores one row per Skiff task execution. This is the primary audit trail for
+Stores one row per Skiff session execution. This is the primary audit trail for
 all agent activity.
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | `id` | `UUID` | `PRIMARY KEY` | Session identifier, generated at dispatch time |
 | `task_id` | `UUID` | `NOT NULL` | Logical task ID (may differ from session ID for retries) |
-| `submitter` | `TEXT` | `NOT NULL` | Username of the person or system that submitted the task |
+| `submitter` | `TEXT` | `NOT NULL` | Username of the person or system that started the session |
 | `prompt` | `TEXT` | `NOT NULL` | The natural-language prompt sent to the agent |
-| `scope` | `JSONB` | `NOT NULL DEFAULT '{}'` | Scope definition controlling what services/operations the agent may access |
+| `scope` | `JSONB` | `NOT NULL DEFAULT '{}'` | Scope definition controlling what services/operations the session may access |
 | `provider` | `TEXT` | `NOT NULL` | LLM provider used (e.g., `anthropic`, `google-vertex`) |
 | `started_at` | `TIMESTAMPTZ` | `NOT NULL` | When the Skiff pod was created |
-| `finished_at` | `TIMESTAMPTZ` | nullable | When the task completed (null while running) |
+| `finished_at` | `TIMESTAMPTZ` | nullable | When the session completed (null while running) |
 | `exit_code` | `INT` | nullable | Process exit code from Claude Code (null while running) |
 | `outcome` | `TEXT` | nullable | Final status: `completed`, `error`, `timeout`, `cancelled` |
 | `transcript` | `JSONB` | nullable | Array of transcript events appended during execution |
 | `proxy_log` | `JSONB` | nullable | Array of Gate proxy log entries (method, URL, decision) |
-| `artifacts` | `JSONB` | nullable | Array of artifact descriptors produced by the task |
+| `artifacts` | `JSONB` | nullable | Array of artifact descriptors produced by the session |
 | `parent_id` | `UUID` | `REFERENCES sessions(id)` | Links to a parent session for chained/retry tasks |
 
 **Note:** The `sessions` table has no `repo` column. The `Session` Go struct has
@@ -97,7 +97,7 @@ removed via `ON DELETE CASCADE`.
 
 ## schedules
 
-Defines recurring tasks that Bridge's scheduler executes on a cron schedule.
+Defines recurring sessions that Bridge's scheduler executes on a cron schedule.
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
@@ -105,12 +105,12 @@ Defines recurring tasks that Bridge's scheduler executes on a cron schedule.
 | `name` | `TEXT` | `NOT NULL` | Human-readable schedule name |
 | `cron` | `TEXT` | `NOT NULL` | Cron expression (e.g., `0 */6 * * *` for every 6 hours) |
 | `prompt` | `TEXT` | `NOT NULL` | The prompt to send to the agent on each run |
-| `repo` | `TEXT` | nullable | Git repository URL to clone for the task |
+| `repo` | `TEXT` | nullable | Git repository URL to clone for the session |
 | `provider` | `TEXT` | nullable | LLM provider override (uses default if null) |
 | `scope_preset` | `TEXT` | nullable | Named scope preset to apply to scheduled runs |
-| `timeout` | `INT` | `DEFAULT 3600` | Maximum task duration in seconds |
+| `timeout` | `INT` | `DEFAULT 3600` | Maximum session duration in seconds |
 | `enabled` | `BOOLEAN` | `DEFAULT true` | Whether the schedule is active |
-| `last_run` | `TIMESTAMPTZ` | nullable | When the schedule last triggered a task |
+| `last_run` | `TIMESTAMPTZ` | nullable | When the schedule last triggered a session |
 | `next_run` | `TIMESTAMPTZ` | nullable | Computed next trigger time |
 | `created_at` | `TIMESTAMPTZ` | `NOT NULL DEFAULT NOW()` | When the schedule was created |
 

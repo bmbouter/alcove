@@ -7,7 +7,7 @@ All notable changes to Alcove are documented here. This project uses
 
 ### Features
 - Add CI Gate: Bridge-driven CI retry loop for autonomous developer tasks.
-  When a task definition includes `ci_gate`, Bridge monitors CI status on PRs
+  When a agent definition includes `ci_gate`, Bridge monitors CI status on PRs
   created by the task and automatically dispatches fresh retry agents on failure,
   using the system LLM to analyze failure logs and compose targeted fix prompts.
 - Add Go 1.25 toolchain to Skiff base image. Autonomous agents can now run
@@ -27,8 +27,8 @@ All notable changes to Alcove are documented here. This project uses
 ## v0.9.0
 
 ### Features
-- Add enable/disable toggle for task repos. When multiple Alcove instances
-  share the same task repo, disable it on one instance to prevent both
+- Add enable/disable toggle for agent repos. When multiple Alcove instances
+  share the same agent repo, disable it on one instance to prevent both
   from competing for the same events. Toggle via checkbox in the Repos page.
 
 ### Bug Fixes
@@ -67,7 +67,7 @@ All notable changes to Alcove are documented here. This project uses
 - PR reviewer agent now self-assigns as reviewer on PRs it reviews.
 
 ### Bug Fixes
-- Fix duplicate task dispatches when GitHub fires multiple events for the
+- Fix duplicate session dispatches when GitHub fires multiple events for the
   same issue (e.g., opened + labeled). Poller now deduplicates by issue/PR
   number within a single poll cycle.
 - Add missing `create_review` operation to alcove-reviewer security profile.
@@ -92,7 +92,7 @@ All notable changes to Alcove are documented here. This project uses
 
 ### Bug Fixes
 - Fix event metadata not reaching tasks. The poller was appending event
-  context (issue number, PR number, etc.) to the database after the task
+  context (issue number, PR number, etc.) to the database after the session
   container had already launched. Metadata is now included in the prompt
   before dispatch.
 - Fix label-on-ci-pass workflow permissions (needs `issues: write`).
@@ -100,7 +100,7 @@ All notable changes to Alcove are documented here. This project uses
 ## v0.5.0
 
 ### Features
-- Add automated release agent task definition. Runs daily at 6 AM UTC
+- Add automated release agent agent definition. Runs daily at 6 AM UTC
   and on-demand via `immediate-release` label. Handles changelog generation,
   PR creation, CI monitoring, tagging, and release build verification.
 - Improve transcript readability with collapsible sections and visual
@@ -111,7 +111,7 @@ All notable changes to Alcove are documented here. This project uses
 - Fix event metadata to include GITHUB_ISSUE_NUMBER for issue events,
   enabling event-triggered tasks to identify the correct issue.
 - Add `labeled` action to autonomous-dev trigger. Previously, adding
-  the `ready-for-dev` label didn't trigger the task.
+  the `ready-for-dev` label didn't trigger the agent.
 
 ### Improvements
 - Revise automated release agent trigger configuration: daily cron
@@ -232,32 +232,32 @@ All notable changes to Alcove are documented here. This project uses
   and includes full URL and response body on POST failures.
 
 ### Features
-- Add autonomous developer task definition and alcove-developer security profile
+- Add autonomous developer agent definition and alcove-developer security profile
   for fully autonomous software development lifecycle.
 
 ## v0.4.0
 
 ### Features
 - **YAML security profiles**: Define security profiles in `.alcove/security-profiles/*.yml`
-  alongside task definitions. Synced from task repos, read-only in UI, with profile
-  validation on task definitions (sync errors block dispatch).
+  alongside agent definitions. Synced from agent repos, read-only in UI, with profile
+  validation on agent definitions (sync errors block dispatch).
 - **GitHub event polling**: Poll GitHub Events API every 60 seconds for event-triggered
   tasks. Works in local dev without webhooks. Supports ETag conditional requests,
   deduplication, and per-user credentials.
-- **Per-user resource ownership**: All resources (task definitions, schedules, security
+- **Per-user resource ownership**: All resources (agent definitions, schedules, security
   profiles, sessions) are owned by real users. Removed `_system` submitter concept.
   Strict user isolation across all pages.
-- **Repos page**: New top-level nav tab for managing Task Repos and Skill / Agent Repos
+- **Repos page**: New top-level nav tab for managing Agent Repos and Skill / Agent Repos
   (moved from dropdown menu).
 - **Proxy log filtering and sorting**: Clickable column headers for sorting, dropdown
   filters for Service and Decision, summary counts.
-- **Task definition cards**: Show security profiles, schedule with next/last run times,
+- **Agent definition cards**: Show security profiles, schedule with next/last run times,
   event triggers, and sync errors with disabled Run button.
 - **PR review template**: New starter template for event-triggered PR reviews.
 
 ### UI/UX Improvements
 - Renamed Profiles section to Security, Sessions to Tasks in dashboard.
-- Unified Schedules page (task definitions + manual schedules in one list).
+- Unified Schedules page (agent definitions + manual schedules in one list).
 - Unified Security page (all profiles in one list, no section separators).
 - Session pagination (15 per page) with relative timestamp "When" column.
 - New Task tab moved to leftmost nav position, admin tabs right-aligned.
@@ -267,22 +267,22 @@ All notable changes to Alcove are documented here. This project uses
 
 ### Backend Changes
 - Removed builtin security profiles (replaced by YAML-defined profiles from repos).
-- Removed system task repos (all repos are per-user).
+- Removed system agent repos (all repos are per-user).
 - Added `GH_PROTOCOL=http` for gh CLI through Gate proxy.
 - Migration 014: YAML profile source tracking columns.
-- Migration 015: Task definition owner column with per-user source keys.
+- Migration 015: Agent definition owner column with per-user source keys.
 - Migration 016: GitHub poll state table for ETag and event ID tracking.
 
 ### Bug Fixes
 - Fix proxy log: gateEnvVars built before URL resolution.
 - Fix SyncAll cleanup for users with empty repo list.
-- Fix profile validation setting empty owner on task definitions.
+- Fix profile validation setting empty owner on agent definitions.
 - Fix `notsecret` annotations on test credentials.
 
 ### CI/CD
 - Added functional tests to CI (70+ API tests across 5 scripts).
 - Added `go vet` to release workflow.
-- Test scripts use per-user task repos endpoint.
+- Test scripts use per-user agent repos endpoint.
 
 ## v0.3.10
 
@@ -483,9 +483,9 @@ All notable changes to Alcove are documented here. This project uses
 - OpenShift deployment template and app-interface configuration for staging
 - Resource requests/limits on dynamically created Job pods
 
-### YAML Task Definitions
+### YAML Agent Definitions
 - Define reusable tasks in `.alcove/tasks/*.yml` files in git repos
-- Register task repos (system-wide or per-user) via API and dashboard
+- Register agent repos (system-wide or per-user) via API and dashboard
 - Auto-sync every 5 minutes with schedule reconciliation
 - Starter templates: dependency audit, code review, test coverage analysis
 - Run Now and View YAML from the dashboard
@@ -496,7 +496,7 @@ All notable changes to Alcove are documented here. This project uses
 - HMAC-SHA256 webhook signature validation
 - Idempotent delivery tracking via X-GitHub-Delivery header
 - Configurable per-schedule: event filters by repo, branch, and action
-- YAML trigger configuration in task definitions
+- YAML trigger configuration in agent definitions
 - Webhook setup modal in dashboard with secret generation
 
 ### Skill/Agent Repos
@@ -510,8 +510,8 @@ All notable changes to Alcove are documented here. This project uses
 - System LLM shown as read-only status in dashboard (configured via
   alcove.yaml only); shows guidance to edit alcove.yaml if not configured
 - SCM options (GitHub/GitLab/Jira) filtered out of the system LLM provider dropdown
-- Task Definitions section on Schedules page with source badges
-- Skill / Agent Repos and Task Repos configuration modals
+- Agent Definitions section on Schedules page with source badges
+- Skill / Agent Repos and Agent Repos configuration modals
 - Webhook configuration modal with setup instructions
 - Trigger type selector (cron, event, both) on schedule form
 
@@ -539,10 +539,10 @@ All notable changes to Alcove are documented here. This project uses
 - Strip trailing hyphens from job names after truncation
 
 ### Documentation
-- API reference: added Tools, Profiles, Admin Settings, Skill / Agent Repos, Task Repos,
-  Task Definitions, Task Templates, Webhook endpoints
+- API reference: added Tools, Profiles, Admin Settings, Skill / Agent Repos, Agent Repos,
+  Agent Definitions, Agent Templates, Webhook endpoints
 - CLI reference: added --model and --budget flags
-- Configuration guide: alcove.yaml format, Kubernetes secrets, skill/task repos
+- Configuration guide: alcove.yaml format, Kubernetes secrets, skill/agent repos
 - Implementation status updated for all new features
 - Test script documentation headers added
 - CONTRIBUTING.md created
@@ -553,14 +553,14 @@ All notable changes to Alcove are documented here. This project uses
 Initial release. Sandboxed AI coding agents on OpenShift/Kubernetes.
 
 ### Core Components
-- **Bridge**: Controller with REST API, web dashboard, and task scheduler
+- **Bridge**: Controller with REST API, web dashboard, and session scheduler
 - **Skiff**: Ephemeral Claude Code worker containers
 - **Gate**: Auth proxy sidecar (LLM API proxy, SCM proxy, scope enforcement)
 - **Hail**: NATS message bus for status updates and real-time streaming
 - **Ledger**: PostgreSQL session store with transcripts and audit trails
 
 ### Features
-- Ephemeral container execution: one task, one container, then destroy
+- Ephemeral container execution: one session, one container, then destroy
 - Podman dual-network isolation (internal + external) with Gate as bridge
 - Credential management with AES-256-GCM encryption at rest
 - OAuth2 token acquisition for Anthropic and Google Vertex AI

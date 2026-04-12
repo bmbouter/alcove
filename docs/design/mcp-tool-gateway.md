@@ -4,7 +4,7 @@
 
 This document designs a generalized MCP tool gateway for Alcove, extending the
 existing SCM proxy pattern (GitHub/GitLab API proxying, git credential helper)
-to support arbitrary MCP tool servers with per-task tool selection and
+to support arbitrary MCP tool servers with per-session tool selection and
 operation-level scoping.
 
 ---
@@ -18,14 +18,14 @@ Adding a new tool (Jira, Slack, a custom internal API) requires modifying Gate's
 Go code in multiple places.
 
 Claude Code supports MCP (Model Context Protocol) tool servers that run as
-child processes. Users want to enable specific MCP tools per task (e.g., "this
-task can use GitHub MCP + Jira MCP but not Slack") with operation-level
+child processes. Users want to enable specific MCP tools per session (e.g., "this
+session can use GitHub MCP + Jira MCP but not Slack") with operation-level
 controls (e.g., "can read Jira issues but not create them").
 
 The design must:
 1. Keep the security invariant: Skiff never holds real credentials.
 2. Allow users to register custom MCP tools without modifying Gate source.
-3. Scope each tool's operations per task (deny by default).
+3. Scope each tool's operations per session (deny by default).
 4. Integrate with the existing proxy/credential/scope architecture.
 
 ---
@@ -66,7 +66,7 @@ external services. Because Skiff's traffic is forced through Gate (via
 
 1. Intercept all API calls from MCP servers
 2. Classify each call by service and operation
-3. Check against the task's scope
+3. Check against the session's scope
 4. Inject real credentials before forwarding
 
 This means MCP servers run with **dummy credentials** and Gate handles the real
@@ -263,7 +263,7 @@ type ServiceScope struct {
 }
 ```
 
-The scope JSON in a task request:
+The scope JSON in a session request:
 ```json
 {
     "services": {
@@ -1120,7 +1120,7 @@ not change this -- read-only enforcement still depends on the token type
 
 ### 10.1 Tool Selection Panel
 
-The task creation form gets a new "Tools" panel that:
+The session creation form gets a new "Tools" panel that:
 
 1. **Lists available tools** from `GET /api/v1/tools`, grouped by type:
    - Builtin tools (GitHub, GitLab) shown first with icons
@@ -1150,10 +1150,10 @@ A new "Tools" page in the dashboard for managing the tool registry:
 3. **Register form**: for adding custom tools
 4. **Credential status**: shows which tools have credentials configured
 
-### 10.3 Task Detail Enhancements
+### 10.3 Session Detail Enhancements
 
-The task detail page shows:
-- Which tools were enabled for the task
+The session detail page shows:
+- Which tools were enabled for the session
 - Proxy log filtered by tool
 - Operation counts by tool (N reads, N writes, N denials)
 
@@ -1227,7 +1227,7 @@ the env var contract). Can be done in parallel with Phase 2 and 3.
 
 | # | File | Change | Depends On |
 |---|------|--------|------------|
-| 5.1 | `web/static/` | Tool selection panel in task creation form | Phase 1 (API) |
+| 5.1 | `web/static/` | Tool selection panel in session creation form | Phase 1 (API) |
 | 5.2 | `web/static/` | Operation picker with tier grouping and presets | 5.1 |
 | 5.3 | `web/static/` | Tool registry management page | Phase 1 (API) |
 | 5.4 | `web/static/` | Scope preview JSON viewer | 5.2 |

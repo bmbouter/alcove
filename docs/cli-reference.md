@@ -1,6 +1,6 @@
 # Alcove CLI Reference
 
-The `alcove` CLI dispatches and manages AI coding tasks via the Bridge API.
+The `alcove` CLI dispatches and manages AI coding sessions via the Bridge API.
 
 ```
 alcove [command] [flags]
@@ -249,7 +249,7 @@ alcove config validate
 
 ## alcove run
 
-Submit a coding task to the Bridge for execution in an ephemeral Skiff container.
+Start a coding session on the Bridge for execution in an ephemeral Skiff container.
 
 ```
 alcove run [prompt] [flags]
@@ -263,20 +263,20 @@ alcove run [prompt] [flags]
 | `--provider` | string | LLM provider name |
 | `--model` | string | Model override (e.g., `claude-sonnet-4-20250514`) |
 | `--budget` | float | Budget limit in USD (e.g., `5.00`) |
-| `--timeout` | duration | Task timeout (e.g., `30m`, `1h`) |
+| `--timeout` | duration | Session timeout (e.g., `30m`, `1h`) |
 | `--watch` | bool | Stream the session transcript via SSE after dispatch |
 | `--debug` | bool | Keep containers after exit for log inspection |
 
 ### Description
 
-Dispatches a task to the Bridge, which creates a session and launches a Skiff
+Starts a session on the Bridge, which launches a Skiff
 container. By default, the command prints the session ID and exits immediately.
 With `--watch`, it streams the live transcript until the session completes.
 
 ### Examples
 
 ```bash
-# Submit a task and get the session ID
+# Start a session and get the session ID
 alcove run "Fix the failing test in pkg/auth"
 
 # Submit and stream the transcript live

@@ -441,7 +441,7 @@ To add a new runtime:
    shared networking and proxy configuration.
 3. Wire it into Bridge startup based on the `RUNTIME` environment variable.
 
-## Skill / Agent Repos and Task Definitions
+## Skill / Agent Repos and Agent Definitions
 
 ### Skill / Agent Repos
 
@@ -482,9 +482,9 @@ The relevant code paths:
 - `cmd/skiff-init/main.go` -- `loadSkillRepos()` clones repos and builds
   `--plugin-dir` flags
 
-### Task Definition YAML Format
+### Agent Definition YAML Format
 
-Task definitions are YAML files in `.alcove/tasks/*.yml` within a task repo:
+Agent definitions are YAML files in `.alcove/tasks/*.yml` within an agent repo:
 
 ```yaml
 name: run-tests
@@ -506,17 +506,17 @@ All fields except `name` and `prompt` are optional. The `schedule` field uses
 standard 5-field cron syntax. When a schedule is present, Bridge creates a
 corresponding schedule entry automatically.
 
-### Testing with Task Repos
+### Testing with Agent Repos
 
-To test task repo syncing locally:
+To test agent repo syncing locally:
 
 1. Create a test git repo with a `.alcove/tasks/` directory containing YAML
-   task files.
+   agent files.
 2. Push it to a Git host or use a local bare repo.
 3. Register the repo via the API or dashboard.
 4. Wait for the sync interval (default 5 minutes) or trigger a manual sync
    via `POST /api/v1/task-definitions/sync`.
-5. Check the dashboard or `GET /api/v1/task-definitions` to verify the tasks
+5. Check the dashboard or `GET /api/v1/task-definitions` to verify the agents
    appear.
 
 ## Gate SCM Proxy Endpoints

@@ -13,7 +13,7 @@ all resolved decisions.
 
 | Component | Name | Purpose |
 |-----------|------|---------|
-| Controller | **Bridge** | REST API, dashboard, task dispatch, scheduler, admin settings, security profile builder |
+| Controller | **Bridge** | REST API, dashboard, session dispatch, scheduler, admin settings, security profile builder |
 | Worker | **Skiff** | Ephemeral Claude Code execution |
 | Auth Proxy | **Gate** | Sidecar proxy: token swap, LLM API proxy, SCM proxy (`/github/`, `/gitlab/`), scope enforcement, MCP tool configs |
 | Message Bus | **Hail** | NATS-based status, transcript ingestion, cancellation |
@@ -26,15 +26,15 @@ all resolved decisions.
 ```
 alcove/
 ├── cmd/
-│   ├── bridge/main.go          ✅ Controller: REST API, auth, task dispatch, migration, scheduling, admin settings
+│   ├── bridge/main.go          ✅ Controller: REST API, auth, session dispatch, migration, scheduling, admin settings
 │   ├── gate/main.go            ✅ HTTP proxy with scope enforcement, LLM proxying, SCM proxying (/github/, /gitlab/), token refresh, MCP tool configs
-│   ├── skiff-init/main.go      ✅ PID 1 init: reads task from env, runs claude, streams output, publishes transcript events to NATS
+│   ├── skiff-init/main.go      ✅ PID 1 init: reads session config from env, runs claude, streams output, publishes transcript events to NATS
 │   ├── hashpw/main.go          ✅ Utility: password hashing tool
 │   └── alcove/main.go          ✅ CLI: 8 subcommands (run, list, logs, status, cancel, login, config, version)
 ├── internal/
 │   ├── types.go                ✅ Shared types (Task, Session, Scope, TranscriptEvent, etc.)
 │   ├── runtime/
-│   │   ├── runtime.go          ✅ Runtime interface (RunTask, CancelTask, EnsureService, etc.) with Podman, Docker, and Kubernetes backends
+│   │   ├── runtime.go          ✅ Runtime interface (RunTask, CancelTask, EnsureService, etc.) with Podman, Docker, and Kubernetes backends (RunTask starts a session)
 │   │   ├── podman.go           ✅ PodmanRuntime implementation (podman CLI wrapper)
 │   │   ├── podman_test.go      ✅ 14 tests (TestHelperProcess pattern)
 │   │   ├── docker.go           ✅ DockerRuntime implementation (Docker CLI wrapper, no --internal network isolation)
@@ -42,8 +42,8 @@ alcove/
 │   │   ├── kubernetes.go       ✅ KubernetesRuntime implementation (client-go, Jobs with native sidecars, NetworkPolicy)
 │   │   └── kubernetes_test.go  ✅ Kubernetes runtime tests
 │   ├── bridge/
-│   │   ├── api.go              ✅ REST handlers (tasks, sessions, schedules, credentials, providers, profiles, tools, settings, health, transcript streaming, proxy-log ingestion)
-│   │   ├── dispatcher.go       ✅ Task dispatch: creates session, resolves security profiles, publishes to NATS, starts Skiff+Gate with LLM/SCM credentials and tool configs
+│   │   ├── api.go              ✅ REST handlers (sessions, schedules, credentials, providers, profiles, tools, settings, health, transcript streaming, proxy-log ingestion)
+│   │   ├── dispatcher.go       ✅ Session dispatch: creates session, resolves security profiles, publishes to NATS, starts Skiff+Gate with LLM/SCM credentials and tool configs
 │   │   ├── config.go           ✅ Config loading from env vars, auth backend selection, debug mode
 │   │   ├── runtime.go          ✅ Runtime factory (podman/kubernetes selection)
 │   │   ├── credentials.go      ✅ Credential CRUD, AES-256-GCM encryption, OAuth2 token acquisition, token refresh, AcquireSCMToken, AcquireSystemToken, owner scoping, system credentials, claude-oauth support
@@ -81,7 +81,7 @@ alcove/
 ├── web/
 │   ├── index.html              ✅ Dashboard SPA shell with all page views, setup checklist
 │   ├── css/style.css           ✅ Dark theme dashboard styles
-│   └── js/app.js               ✅ Full SPA: login, task list with pagination, new task form with profile selection, live transcript viewer (5-second polling from database), proxy log viewer, providers page, security profiles page, MCP tools page, schedules with NLP cron input, admin settings, user management, guided setup checklist, contextual warnings
+│   └── js/app.js               ✅ Full SPA: login, session list with pagination, new session form with profile selection, live transcript viewer (5-second polling from database), proxy log viewer, providers page, security profiles page, MCP tools page, schedules with NLP cron input, admin settings, user management, guided setup checklist, contextual warnings
 ├── build/
 │   ├── Containerfile.bridge    ✅ Multi-stage (golang:1.25 → ubi9/ubi)
 │   ├── Containerfile.gate      ✅ Multi-stage (golang:1.25 → ubi9-minimal)
@@ -118,7 +118,7 @@ alcove/
 - Database migrations run automatically on startup ✅
 - Auth works (login, token, rate limiting) with memory, postgres, and rh-identity backends ✅
 - `POST /api/v1/tasks` creates session in DB, publishes to NATS, starts Gate + Skiff containers ✅
-- Skiff containers boot, read task from env vars, attempt to run Claude Code ✅
+- Skiff containers boot, read session config from env vars, attempt to run Claude Code ✅
 - LLM credential flow works end-to-end: Bridge acquires tokens, Gate injects headers ✅
 - Containers exit and are cleaned up by `--rm` (or kept with `ALCOVE_DEBUG=true`) ✅
 - Dashboard accessible at http://localhost:8080 ✅
@@ -133,9 +133,9 @@ alcove/
    Dispatcher injects `GATE_LLM_TOKEN`, `GATE_LLM_PROVIDER`, `GATE_LLM_TOKEN_TYPE`
    into Gate env and `ANTHROPIC_BASE_URL` into Skiff env pointing at the Gate sidecar.
 
-2. **Dashboard Frontend** — Full SPA in `web/` with login form, task list with
-   status filters, search, and pagination, new task form with provider and profile
-   selection and debug toggle, task detail view with live transcript viewer
+2. **Dashboard Frontend** — Full SPA in `web/` with login form, session list with
+   status filters, search, and pagination, new session form with provider and profile
+   selection and debug toggle, session detail view with live transcript viewer
    (5-second polling from database, same as proxy log) and proxy log tabs,
    providers page, security profiles page, MCP tools page, schedules page with
    NLP-style cron input, admin settings page (system LLM shown as read-only
@@ -176,7 +176,7 @@ alcove/
    PostgreSQL advisory locking to prevent concurrent startup races. Schema versioning
    via `schema_migrations` table.
 
-8. **Debug Mode** — `ALCOVE_DEBUG=true` or `--debug` flag on task submission keeps
+8. **Debug Mode** — `ALCOVE_DEBUG=true` or `--debug` flag on session submission keeps
    Skiff containers after exit for log inspection.
 
 9. **Gate Vertex API Translation** — Gate translates Anthropic API requests to
@@ -193,7 +193,7 @@ alcove/
     acquires HTTPS git credentials from Gate. SCM-related environment variables
     (`GITHUB_TOKEN`, `GH_TOKEN`, `GITLAB_TOKEN`, `GITHUB_API_URL`, `GITLAB_API_URL`,
     `GH_HOST`, `GLAB_HOST`, `GATE_CREDENTIAL_URL`, `GIT_SSH_COMMAND`, etc.) are
-    injected by Bridge when the task scope includes a `github` or `gitlab` service.
+    injected by Bridge when the session scope includes a `github` or `gitlab` service.
 
 11. **Transcript Viewing** — Skiff flushes transcript events to the database
     every 5 seconds via `POST /api/v1/sessions/{id}/transcript`. The dashboard
@@ -250,8 +250,8 @@ alcove/
     Plugin structure: `.claude-plugin/plugin.json` with `skills/` and `agents/`
     directories.
 
-20. **YAML Task Definitions** — Tasks defined in `.alcove/tasks/*.yml` in git
-    repos. Task repo registration (system + per-user) via settings API.
+20. **YAML Agent Definitions** — Agents defined in `.alcove/tasks/*.yml` in git
+    repos. Agent repo registration (system + per-user) via settings API.
     YAML schema supports name, prompt, repo, provider, model, timeout, budget,
     profiles, tools, and schedule fields. Auto-sync every 5 minutes. Dashboard
     supports Run Now and View YAML actions. Starter templates available via
@@ -259,7 +259,7 @@ alcove/
 
 21. **Kubernetes Runtime** — `KubernetesRuntime` in `internal/runtime/kubernetes.go`
     implements the `Runtime` interface using direct client-go API calls (no
-    operator needed). Each task runs as a k8s Job with Gate as a native sidecar
+    operator needed). Each session runs as a k8s Job with Gate as a native sidecar
     (init container with `restartPolicy: Always`) and Skiff as the main
     container. Creates a per-task NetworkPolicy restricting egress. Compatible
     with OpenShift restricted-v2 SCC (runs as non-root, drops all capabilities,
@@ -271,27 +271,27 @@ alcove/
     v0.1.0 released.
 
 23. **YAML Security Profiles** — Security profiles defined in
-    `.alcove/security-profiles/*.yml` files in task repos, synced alongside
-    YAML task definitions. Profiles specify tool/repo/operation rules in the
+    `.alcove/security-profiles/*.yml` files in agent repos, synced alongside
+    YAML agent definitions. Profiles specify tool/repo/operation rules in the
     same format as API-created profiles. YAML profiles are read-only in the
     UI and API (PUT/DELETE return 403). Each profile carries a `source` field
     (`user` or `yaml`) plus `source_repo` and `source_key` for
-    traceability. Task definitions referencing unknown profiles receive sync
+    traceability. Agent definitions referencing unknown profiles receive sync
     errors. Profile validation requires `name` and at least one tool entry.
 
-24. **GitHub Event Polling** — Task definitions with event triggers support a
+24. **GitHub Event Polling** — Agent definitions with event triggers support a
     `polling` delivery mode (default) that polls the GitHub Events API every
     60 seconds for new events matching configured event types, actions, and
     repos. Uses GitHub's conditional request support (ETags) to minimize API
     usage. Event deduplication via the `webhook_deliveries` table prevents
-    duplicate task dispatches. On first poll, existing events are skipped to
+    duplicate session dispatches. On first poll, existing events are skipped to
     avoid retroactive dispatches. Works in any environment including local
     development with no webhook configuration required.
 
 25. **Label-Based Trigger Filtering** — Event triggers support an optional
     `labels` field that restricts dispatch to issues or PRs carrying at least
     one of the listed GitHub labels. This provides a safety gate that prevents
-    unauthorized issues from triggering automated development tasks.
+    unauthorized issues from triggering automated sessions.
 
 26. **Docker Runtime** — `DockerRuntime` in `internal/runtime/docker.go`
     implements the `Runtime` interface using the Docker CLI. Works identically
@@ -311,7 +311,7 @@ alcove/
 ### 1. NATS Dead Code
 
 The dispatcher still publishes to `tasks.dispatch` on NATS (line 125 of
-dispatcher.go) but nothing subscribes — Skiff reads tasks from environment
+dispatcher.go) but nothing subscribes — Skiff reads session config from environment
 variables, not NATS. This publish call is the remaining dead code.
 
 ### 2. Gate Log Flushing to Ledger
@@ -419,7 +419,7 @@ See the full roadmap in [architecture-decisions.md](architecture-decisions.md#ro
 | `github.com/nats-io/nats.go` | v1.50.0 | NATS client for Hail |
 | `github.com/jackc/pgx/v5` | v5.9.1 | PostgreSQL client for Ledger |
 | `github.com/spf13/cobra` | v1.10.2 | CLI framework |
-| `github.com/google/uuid` | v1.6.0 | Session/task ID generation |
+| `github.com/google/uuid` | v1.6.0 | Session ID generation |
 | `golang.org/x/crypto` | v0.49.0 | Argon2id password hashing |
 | `golang.org/x/oauth2` | — | Google OAuth2 token acquisition (Vertex AI) |
 | `gopkg.in/yaml.v3` | v3.0.1 | YAML parsing |

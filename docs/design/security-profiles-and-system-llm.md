@@ -13,7 +13,7 @@ This document designs three related features:
 
 ### 1.1 Problem
 
-Today, every task request must specify its full tool configuration inline:
+Today, every session request must specify its full tool configuration inline:
 
 ```json
 {
@@ -28,11 +28,11 @@ Today, every task request must specify its full tool configuration inline:
 }
 ```
 
-This is tedious and error-prone. Users repeatedly configure the same tool + repo + operation combinations. There is no way to share permission sets across tasks or enforce organizational defaults.
+This is tedious and error-prone. Users repeatedly configure the same tool + repo + operation combinations. There is no way to share permission sets across sessions or enforce organizational defaults.
 
 ### 1.2 Design Overview
 
-A **security profile** is a named, reusable, per-user bundle of tool permissions. Profiles are stored in the database and referenced by name at task submission time. Multiple profiles can be stacked on a single task; their scopes merge via union.
+A **security profile** is a named, reusable, per-user bundle of tool permissions. Profiles are stored in the database and referenced by name at session submission time. Multiple profiles can be stacked on a single session; their scopes merge via union.
 
 ### 1.3 Database Schema
 
@@ -141,7 +141,7 @@ the user's profile wins.
 
 ### 1.6 Profile Stacking (Merge Semantics)
 
-When a task request specifies `"profiles": ["pulp-contributor", "code-reader"]`,
+When a session request specifies `"profiles": ["pulp-contributor", "code-reader"]`,
 Bridge resolves each profile and merges their `tools` maps using **union**
 semantics:
 

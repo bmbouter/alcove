@@ -7,8 +7,8 @@ that stays alive across multiple tasks, accumulating context and maintaining
 state. This feels natural — it mirrors how humans work — but it creates
 fundamental problems in practice.
 
-Alcove takes the opposite approach: each task gets a fresh agent in a fresh
-container, with a clean context window, clean filesystem, and task-specific
+Alcove takes the opposite approach: each session gets a fresh agent in a fresh
+container, with a clean context window, clean filesystem, and session-specific
 network authorization. This document explains why.
 
 
@@ -37,9 +37,9 @@ partition prior context. Prompt engineering can mitigate this ("ignore all
 previous context") but cannot guarantee it — especially under adversarial
 conditions (prompt injection from Task A influencing behavior in Task B).
 
-**Alcove's approach**: each task starts a new Skiff pod with a completely fresh
-Claude Code session. There is zero context carryover between tasks. The context
-window contains only what is relevant to the current task.
+**Alcove's approach**: each session starts a new Skiff pod with a completely fresh
+Claude Code instance. There is zero context carryover between sessions. The context
+window contains only what is relevant to the current session.
 
 
 ## Problem 2: Network Authorization Drift
@@ -66,10 +66,10 @@ union of everything it has ever been granted. There is no clean way to revoke
 access to a running process that has already received credentials in its
 environment or memory.
 
-**Alcove's approach**: Gate provisions per-task authorization scopes. Each Skiff
+**Alcove's approach**: Gate provisions per-session authorization scopes. Each Skiff
 pod receives only an opaque session token that Gate maps to the specific
-operations authorized for that task. When the task ends, the token expires. The
-next task gets a new token with its own scope. There is no authorization
+operations authorized for that session. When the session ends, the token expires. The
+next session gets a new token with its own scope. There is no authorization
 accumulation.
 
 
@@ -99,10 +99,10 @@ agent behavior non-reproducible — the same prompt can produce different result
 depending on what tasks ran before it.
 
 **Alcove's approach**: each Skiff pod starts from a known-clean container image
-and is destroyed after the task completes. Kubernetes reprovisions a fresh pod
-for the next task. The container image is the only input; the session transcript
+and is destroyed after the session completes. Kubernetes reprovisions a fresh pod
+for the next session. The container image is the only input; the session transcript
 is the only durable output. There is no filesystem state that survives between
-tasks.
+sessions.
 
 
 ## Problem 4: Credential Exposure in Long-Lived Processes
@@ -138,9 +138,9 @@ credentials.
 
 | Problem | Long-running agents | Alcove (ephemeral) |
 |---------|--------------------|--------------------|
-| Context contamination | Prior tasks pollute current reasoning | Fresh context window per task |
-| Authorization drift | Credentials accumulate, scopes widen | Per-task scopes via Gate, token expires at task end |
-| Filesystem poisoning | State persists across tasks | Container destroyed after each task |
+| Context contamination | Prior sessions pollute current reasoning | Fresh context window per session |
+| Authorization drift | Credentials accumulate, scopes widen | Per-session scopes via Gate, token expires at session end |
+| Filesystem poisoning | State persists across sessions | Container destroyed after each session |
 | Credential exposure | All creds available for entire lifetime | Only opaque session token in Skiff pod (no LLM key) |
 | Reproducibility | Same prompt, different results depending on history | Same prompt, same clean starting point every time |
-| Auditability | Unclear which task caused which side effect | Each task is an isolated, fully recorded session |
+| Auditability | Unclear which session caused which side effect | Each session is an isolated, fully recorded unit |

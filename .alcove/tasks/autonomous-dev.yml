@@ -8,7 +8,7 @@ prompt: |
   A GitHub event just occurred — an issue was opened/reopened, or someone
   commented on an issue with new instructions.
 
-  The "ready-for-dev" label is enforced at the trigger level — this task
+  The "ready-for-dev" label is enforced at the trigger level — this agent
   only fires for issues that already have the label.
 
   ## Environment
@@ -61,7 +61,7 @@ prompt: |
 
   Based on the issue, determine what needs to change. Alcove is a Go project
   with these components:
-  - Bridge (cmd/bridge, internal/bridge) — REST API, scheduler, task sync
+  - Bridge (cmd/bridge, internal/bridge) — REST API, scheduler, agent sync
   - Gate (cmd/gate, internal/gate) — auth proxy sidecar
   - Skiff (cmd/skiff-init) — ephemeral worker container
   - Dashboard (web/) — HTML/JS/CSS single-page app
@@ -70,7 +70,7 @@ prompt: |
   - Config (deploy/) — OpenShift/k8s templates
 
   Consider ALL affected areas: Go code, API, dashboard UI, documentation,
-  functional tests, YAML task/profile definitions.
+  functional tests, YAML agent/profile definitions.
 
   ### Risk assessment for changes you cannot validate locally
 
