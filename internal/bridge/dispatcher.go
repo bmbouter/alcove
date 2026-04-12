@@ -556,8 +556,10 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 
 	// Resolve plugins from agent definition.
 	// Plugins are specified in the task definition and passed to Skiff for installation.
-	if len(req.Plugins) > 0 {
-		pluginsJSON, _ := json.Marshal(req.Plugins)
+	// Resolve plugin bundles before passing to Skiff.
+	plugins := ResolvePluginBundles(req.Plugins)
+	if len(plugins) > 0 {
+		pluginsJSON, _ := json.Marshal(plugins)
 		skiffEnv["ALCOVE_PLUGINS"] = string(pluginsJSON)
 	}
 

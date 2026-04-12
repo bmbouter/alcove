@@ -226,12 +226,8 @@ profiles:
   - alcove-developer
 
 plugins:
-  - name: code-review
-    source: claude-plugins-official
-  - name: commit-commands
-    source: claude-plugins-official
-  - name: gopls-lsp
-    source: claude-plugins-official
+  - name: sdlc-go
+    source: bundle
 
 ci_gate:
   max_retries: 3

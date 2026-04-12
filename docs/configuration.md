@@ -624,6 +624,38 @@ Git-sourced plugins are cloned and loaded via `--plugin-dir` flags passed to
 Claude Code. The `ALCOVE_PLUGINS` environment variable is set on the Skiff
 container with the JSON-serialized plugin list.
 
+### Plugin Bundles
+
+Bundles are pre-configured sets of plugins for common workflows. Reference a
+bundle by setting `source: bundle`:
+
+```yaml
+plugins:
+  - name: sdlc-go
+    source: bundle
+```
+
+Available bundles:
+
+| Bundle | Plugins Included | Use Case |
+|--------|-----------------|----------|
+| `sdlc-go` | code-review, gopls-lsp, commit-commands | Go development |
+| `sdlc-python` | code-review, commit-commands | Python development |
+| `sdlc-typescript` | code-review, commit-commands | TypeScript/JavaScript development |
+| `content` | claude-md-management | Documentation and content creation |
+
+Bundles can be combined with individual plugins:
+
+```yaml
+plugins:
+  - name: sdlc-go
+    source: bundle
+  - name: my-custom-plugin
+    source: https://github.com/org/plugin.git
+```
+
+Duplicate plugins are automatically deduplicated.
+
 ---
 
 ## Complete Environment Variable Example
