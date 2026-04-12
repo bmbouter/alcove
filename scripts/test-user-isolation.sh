@@ -117,14 +117,14 @@ fi
 log "Test: Session isolation"
 
 # Alice creates a session (may fail if no LLM provider configured)
-ALICE_SESSION=$(curl -s -X POST "$BRIDGE_URL/api/v1/tasks" \
+ALICE_SESSION=$(curl -s -X POST "$BRIDGE_URL/api/v1/sessions" \
   -H "Authorization: Bearer $ALICE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"prompt":"Alice test","provider":"default","timeout":10}' | python3 -c "import json,sys; print(json.load(sys.stdin).get('id','ERROR'))")
 echo "  Alice session: $ALICE_SESSION"
 
 # Bob creates a session
-BOB_SESSION=$(curl -s -X POST "$BRIDGE_URL/api/v1/tasks" \
+BOB_SESSION=$(curl -s -X POST "$BRIDGE_URL/api/v1/sessions" \
   -H "Authorization: Bearer $BOB_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"prompt":"Bob test","provider":"default","timeout":10}' | python3 -c "import json,sys; print(json.load(sys.stdin).get('id','ERROR'))")

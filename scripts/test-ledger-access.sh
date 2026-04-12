@@ -60,12 +60,12 @@ BOB_TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" \
 # --- Test 1: Create sessions as different users ---
 log "Test 1: Creating sessions as alice and bob..."
 
-ALICE_SESSION=$(curl -s -X POST "$BRIDGE_URL/api/v1/tasks" \
+ALICE_SESSION=$(curl -s -X POST "$BRIDGE_URL/api/v1/sessions" \
   -H "Authorization: Bearer $ALICE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"prompt":"Alice test prompt","provider":"default","timeout":10}' | python3 -c "import json,sys; print(json.load(sys.stdin).get('id','ERROR'))")
 
-BOB_SESSION=$(curl -s -X POST "$BRIDGE_URL/api/v1/tasks" \
+BOB_SESSION=$(curl -s -X POST "$BRIDGE_URL/api/v1/sessions" \
   -H "Authorization: Bearer $BOB_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"prompt":"Bob test prompt","provider":"default","timeout":10}' | python3 -c "import json,sys; print(json.load(sys.stdin).get('id','ERROR'))")

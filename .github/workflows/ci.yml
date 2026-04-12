@@ -181,8 +181,8 @@ jobs:
       - name: Test schedules
         run: ADMIN_PASSWORD=admin ./scripts/test-schedules.sh
 
-      - name: Test task repos
-        run: ADMIN_PASSWORD=admin ./scripts/test-task-repos.sh
+      - name: Test agent repos
+        run: ADMIN_PASSWORD=admin ./scripts/test-agent-repos.sh
 
       - name: Test user isolation
         run: ADMIN_PASSWORD=admin ./scripts/test-user-isolation.sh

@@ -536,7 +536,7 @@
             $('#task-repo-url-inline').value = '';
             $('#task-repo-ref-inline').value = '';
             statusEl.style.color = 'var(--status-running)';
-            statusEl.textContent = 'Found ' + data.task_count + ' agent definition(s): ' + data.tasks.join(', ');
+            statusEl.textContent = 'Found ' + data.agent_definition_count + ' agent definition(s): ' + data.agent_definitions.join(', ');
             await saveTaskRepos();
             // Reload agent definitions after sync completes (auto-triggered by save)
             setTimeout(function() { loadUnifiedSchedules(); }, 2000);
