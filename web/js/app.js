@@ -415,7 +415,7 @@
     });
 
     // ---------------------
-    // Task Repos (inline on Schedules page)
+    // Agent Repos (inline on Repos page)
     // ---------------------
     var taskReposList = [];
 
@@ -424,16 +424,16 @@
         if (!listEl) return;
         listEl.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Loading...</p></div>';
         try {
-            var resp = await api('GET', '/api/v1/user/settings/task-repos');
+            var resp = await api('GET', '/api/v1/user/settings/agent-repos');
             if (!resp.ok) {
-                listEl.innerHTML = '<p class="error-message">Failed to load task repos.</p>';
+                listEl.innerHTML = '<p class="error-message">Failed to load agent repos.</p>';
                 return;
             }
             var data = await resp.json();
             taskReposList = data.repos || [];
             renderTaskRepos();
         } catch (err) {
-            listEl.innerHTML = '<p class="error-message">Failed to load task repos.</p>';
+            listEl.innerHTML = '<p class="error-message">Failed to load agent repos.</p>';
         }
     }
 
@@ -441,7 +441,7 @@
         var listEl = $('#task-repos-inline-list');
         if (!listEl) return;
         if (taskReposList.length === 0) {
-            listEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">No task repos configured.</p>';
+            listEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">No agent repos configured.</p>';
             return;
         }
         var html = '';
@@ -449,14 +449,14 @@
             var r = taskReposList[i];
             var isEnabled = r.enabled === undefined || r.enabled === null || r.enabled === true;
             var displayUrl = (r.url || '').replace(/^https?:\/\//, '').replace(/\.git$/, '');
-            var toggleTitle = isEnabled ? 'Pause tasks from this repo' : 'Resume tasks from this repo';
+            var toggleTitle = isEnabled ? 'Pause sessions from this repo' : 'Resume sessions from this repo';
             html += '<div class="repo-item ' + (isEnabled ? 'repo-active' : 'repo-paused') + '">';
             html += '<label class="toggle-switch" title="' + toggleTitle + '"><input type="checkbox" class="repo-item-enabled" data-index="' + i + '"' + (isEnabled ? ' checked' : '') + '><span class="toggle-slider"></span></label>';
             html += '<span class="' + (isEnabled ? 'toggle-label-active' : 'toggle-label-paused') + '">' + (isEnabled ? 'Active' : 'Paused') + '</span>';
             html += '<span class="repo-item-url">' + escapeHtml(displayUrl) + '</span>';
             if (r.ref && r.ref !== 'main') html += ' <span class="repo-item-ref">' + escapeHtml(r.ref) + '</span>';
             html += ' <button class="btn btn-small btn-outline repo-item-remove" data-index="' + i + '" style="color:var(--status-error);border-color:var(--status-error);padding:2px 8px;font-size:11px;">Remove</button>';
-            if (!isEnabled) html += '<div class="repo-paused-message">Tasks from this repo are paused. Schedules and event-driven tasks will not run.</div>';
+            if (!isEnabled) html += '<div class="repo-paused-message">Sessions from this repo are paused. Schedules and event-driven sessions will not run.</div>';
             html += '</div>';
         }
         listEl.innerHTML = html;
@@ -486,9 +486,9 @@
                 if (statusEl) {
                     statusEl.removeAttribute('hidden');
                     statusEl.style.color = 'var(--text-muted)';
-                    statusEl.textContent = 'Removed ' + (removed.name || removed.url) + '. Task definitions from this repo have been deleted.';
+                    statusEl.textContent = 'Removed ' + (removed.name || removed.url) + '. Agent definitions from this repo have been deleted.';
                 }
-                // Reload task definitions after sync cleans up (2s delay for background sync)
+                // Reload agent definitions after sync cleans up (2s delay for background sync)
                 setTimeout(function() { loadUnifiedSchedules(); }, 2000);
             });
         });
@@ -496,13 +496,13 @@
 
     async function saveTaskRepos() {
         try {
-            var resp = await api('PUT', '/api/v1/user/settings/task-repos', { repos: taskReposList });
+            var resp = await api('PUT', '/api/v1/user/settings/agent-repos', { repos: taskReposList });
             if (!resp.ok) {
-                alert('Failed to save task repos.');
+                alert('Failed to save agent repos.');
             }
             renderTaskRepos();
         } catch (err) {
-            alert('Failed to save task repos.');
+            alert('Failed to save agent repos.');
         }
     }
 
@@ -523,7 +523,7 @@
         statusEl.textContent = 'Cloning and validating repository...';
 
         try {
-            var resp = await api('POST', '/api/v1/task-repos/validate', { url: url, ref: ref, name: name });
+            var resp = await api('POST', '/api/v1/agent-repos/validate', { url: url, ref: ref, name: name });
             var data = await resp.json();
             if (!data.valid) {
                 statusEl.style.color = 'var(--status-error)';
@@ -536,9 +536,9 @@
             $('#task-repo-url-inline').value = '';
             $('#task-repo-ref-inline').value = '';
             statusEl.style.color = 'var(--status-running)';
-            statusEl.textContent = 'Found ' + data.task_count + ' task definition(s): ' + data.tasks.join(', ');
+            statusEl.textContent = 'Found ' + data.task_count + ' agent definition(s): ' + data.tasks.join(', ');
             await saveTaskRepos();
-            // Reload task definitions after sync completes (auto-triggered by save)
+            // Reload agent definitions after sync completes (auto-triggered by save)
             setTimeout(function() { loadUnifiedSchedules(); }, 2000);
         } catch (err) {
             statusEl.style.color = 'var(--status-error)';
@@ -550,7 +550,7 @@
     });
 
     // ---------------------
-    // Unified Schedules (task definitions + manual schedules)
+    // Unified Schedules (agent definitions + manual schedules)
     // ---------------------
     function formatRelativeTime(dateStr) {
         if (!dateStr) return '';
@@ -587,14 +587,14 @@
 
         try {
             var results = await Promise.allSettled([
-                api('GET', '/api/v1/task-definitions'),
+                api('GET', '/api/v1/agent-definitions'),
                 api('GET', '/api/v1/schedules')
             ]);
 
-            // Process task definitions
+            // Process agent definitions
             if (results[0].status === 'fulfilled' && results[0].value.ok) {
                 var data = await results[0].value.json();
-                var defs = Array.isArray(data) ? data : (data.task_definitions || data.definitions || data.items || []);
+                var defs = Array.isArray(data) ? data : (data.agent_definitions || data.task_definitions || data.definitions || data.items || []);
                 defs.forEach(function(d) {
                     allItems.push({ _type: 'task-def', _name: (d.name || 'Unnamed').toLowerCase(), data: d });
                 });
@@ -605,7 +605,7 @@
                 var data2 = await results[1].value.json();
                 var schedules = Array.isArray(data2) ? data2 : (data2.schedules || data2.items || []);
                 schedules.forEach(function(s) {
-                    // Skip YAML-sourced schedules — they're already shown as task definition cards.
+                    // Skip YAML-sourced schedules — they're already shown as agent definition cards.
                     if (s.source === 'yaml') return;
                     allItems.push({ _type: 'schedule', _name: (s.name || '').toLowerCase(), data: s });
                 });
@@ -657,17 +657,17 @@
         }
         listEl.innerHTML = html;
 
-        // Attach event handlers for task definition cards
-        listEl.querySelectorAll('.task-def-run').forEach(function(btn) {
+        // Attach event handlers for agent definition cards
+        listEl.querySelectorAll('.agent-def-run').forEach(function(btn) {
             btn.addEventListener('click', async function() {
                 var defId = btn.getAttribute('data-id');
                 btn.disabled = true;
                 btn.textContent = 'Running...';
                 try {
-                    var resp = await api('POST', '/api/v1/task-definitions/' + defId + '/run');
+                    var resp = await api('POST', '/api/v1/agent-definitions/' + defId + '/run');
                     if (!resp.ok) {
                         var data = await resp.json().catch(function() { return {}; });
-                        alert(data.error || data.message || 'Failed to run task.');
+                        alert(data.error || data.message || 'Failed to start session.');
                     } else {
                         var session = await resp.json();
                         var sessionId = session.id || session.session_id || '';
@@ -675,7 +675,7 @@
                         var link = document.createElement('a');
                         link.href = '#session/' + sessionId;
                         link.className = 'btn btn-small btn-outline';
-                        link.textContent = 'View Task';
+                        link.textContent = 'View Session';
                         link.addEventListener('click', function(e) {
                             e.preventDefault();
                             navigate('session/' + sessionId);
@@ -685,7 +685,7 @@
                     }
                 } catch (err) {
                     if (err.message !== 'unauthorized') {
-                        alert('Failed to run task.');
+                        alert('Failed to start session.');
                     }
                 }
                 btn.textContent = 'Run Now';
@@ -693,7 +693,7 @@
             });
         });
 
-        listEl.querySelectorAll('.task-def-yaml').forEach(function(btn) {
+        listEl.querySelectorAll('.agent-def-yaml').forEach(function(btn) {
             btn.addEventListener('click', function() {
                 var repo = btn.getAttribute('data-repo') || '';
                 var file = btn.getAttribute('data-file') || '';
@@ -701,7 +701,7 @@
                 if (webUrl && file) {
                     window.open(webUrl + '/blob/main/.alcove/tasks/' + file, '_blank');
                 } else {
-                    showYaml(btn.closest('.task-def-card').querySelector('.task-def-run').getAttribute('data-id'));
+                    showYaml(btn.closest('.agent-def-card').querySelector('.agent-def-run').getAttribute('data-id'));
                 }
             });
         });
@@ -794,7 +794,7 @@
         var id = d.id || '';
         var repoPaused = d.repo_disabled || false;
 
-        var html = '<div class="task-def-card' + (repoPaused ? ' task-def-paused-repo' : '') + '">';
+        var html = '<div class="agent-def-card' + (repoPaused ? ' agent-def-paused-repo' : '') + '">';
 
         // Paused-by-repo badge
         if (repoPaused) {
@@ -802,70 +802,70 @@
         }
 
         // Header row: name + actions
-        html += '<div class="task-def-header">';
-        html += '<div class="task-def-name">' + escapeHtml(name) + '</div>';
-        html += '<div class="task-def-actions">';
+        html += '<div class="agent-def-header">';
+        html += '<div class="agent-def-name">' + escapeHtml(name) + '</div>';
+        html += '<div class="agent-def-actions">';
         if (d.sync_error || repoPaused) {
             var disabledTitle = repoPaused ? 'Repo is paused' : escapeHtml(d.sync_error);
-            html += '<button class="btn btn-small btn-primary task-def-run" data-id="' + escapeHtml(id) + '" disabled title="' + disabledTitle + '" style="' + (repoPaused ? 'opacity:0.4;cursor:not-allowed;' : '') + '">Run Now</button>';
+            html += '<button class="btn btn-small btn-primary agent-def-run" data-id="' + escapeHtml(id) + '" disabled title="' + disabledTitle + '" style="' + (repoPaused ? 'opacity:0.4;cursor:not-allowed;' : '') + '">Run Now</button>';
         } else {
-            html += '<button class="btn btn-small btn-primary task-def-run" data-id="' + escapeHtml(id) + '">Run Now</button>';
+            html += '<button class="btn btn-small btn-primary agent-def-run" data-id="' + escapeHtml(id) + '">Run Now</button>';
         }
-        html += '<button class="btn btn-small btn-outline task-def-yaml" data-repo="' + escapeHtml(d.source_repo || '') + '" data-file="' + escapeHtml(d.source_file || '') + '">View YAML</button>';
+        html += '<button class="btn btn-small btn-outline agent-def-yaml" data-repo="' + escapeHtml(d.source_repo || '') + '" data-file="' + escapeHtml(d.source_file || '') + '">View YAML</button>';
         html += '</div>';
         html += '</div>';
 
         // Description
         if (desc) {
-            html += '<div class="task-def-desc">' + escapeHtml(desc) + '</div>';
+            html += '<div class="agent-def-desc">' + escapeHtml(desc) + '</div>';
         }
 
         // Tags row: yaml tag, profiles, repo
         var tags = [];
-        tags.push('<span class="task-def-tag task-def-tag-yaml">yaml</span>');
+        tags.push('<span class="agent-def-tag agent-def-tag-yaml">yaml</span>');
         if (d.profiles && d.profiles.length > 0) {
             d.profiles.forEach(function(p) {
-                tags.push('<span class="task-def-tag task-def-tag-profile">' + escapeHtml(p) + '</span>');
+                tags.push('<span class="agent-def-tag agent-def-tag-profile">' + escapeHtml(p) + '</span>');
             });
         }
         if (repo) {
             var shortRepo = repo.replace(/^https?:\/\//, '').replace(/\.git$/, '');
-            tags.push('<span class="task-def-tag task-def-tag-repo">' + escapeHtml(shortRepo) + '</span>');
+            tags.push('<span class="agent-def-tag agent-def-tag-repo">' + escapeHtml(shortRepo) + '</span>');
         }
-        html += '<div class="task-def-tags">' + tags.join('') + '</div>';
+        html += '<div class="agent-def-tags">' + tags.join('') + '</div>';
 
         // Schedule and trigger details
         var details = [];
         if (d.schedule && d.schedule.cron) {
             var schedParts = ['<code>' + escapeHtml(d.schedule.cron) + '</code>'];
             if (!d.schedule.enabled) {
-                schedParts.push('<span class="task-def-dim">disabled</span>');
+                schedParts.push('<span class="agent-def-dim">disabled</span>');
             } else if (d.next_run) {
                 schedParts.push('next ' + formatRelativeTime(d.next_run));
             }
             if (d.last_run) {
                 schedParts.push('last ran ' + formatRelativeTime(d.last_run));
             }
-            details.push('<span class="task-def-detail-item"><span class="task-def-label">Schedule</span> ' + schedParts.join(' &middot; ') + '</span>');
+            details.push('<span class="agent-def-detail-item"><span class="agent-def-label">Schedule</span> ' + schedParts.join(' &middot; ') + '</span>');
         }
         if (d.trigger && d.trigger.github) {
             var gh = d.trigger.github;
             var evts = (gh.events || []).join(', ');
             var acts = (gh.actions || []).length > 0 ? ' (' + gh.actions.join(', ') + ')' : '';
-            details.push('<span class="task-def-detail-item"><span class="task-def-label">Trigger</span> ' + escapeHtml(evts + acts) + '</span>');
+            details.push('<span class="agent-def-detail-item"><span class="agent-def-label">Trigger</span> ' + escapeHtml(evts + acts) + '</span>');
         }
         if (details.length > 0) {
-            html += '<div class="task-def-details">' + details.join('') + '</div>';
+            html += '<div class="agent-def-details">' + details.join('') + '</div>';
         }
 
         // Sync error
         if (d.sync_error) {
-            html += '<div class="task-def-error">Sync error: ' + escapeHtml(d.sync_error) + '</div>';
+            html += '<div class="agent-def-error">Sync error: ' + escapeHtml(d.sync_error) + '</div>';
         }
 
         // Paused-by-repo link
         if (repoPaused) {
-            html += '<div style="margin-top:8px;"><a href="#repos" class="task-def-paused-link">Go to Repos to re-enable</a></div>';
+            html += '<div style="margin-top:8px;"><a href="#repos" class="agent-def-paused-link">Go to Repos to re-enable</a></div>';
         }
 
         html += '</div>';
@@ -881,12 +881,12 @@
         var enabled = s.enabled !== false;
         var triggerType = s.trigger_type || 'cron';
 
-        var html = '<div class="task-def-card">';
+        var html = '<div class="agent-def-card">';
 
         // Header row: name + actions
-        html += '<div class="task-def-header">';
-        html += '<div class="task-def-name">' + escapeHtml(name) + '</div>';
-        html += '<div class="task-def-actions">';
+        html += '<div class="agent-def-header">';
+        html += '<div class="agent-def-name">' + escapeHtml(name) + '</div>';
+        html += '<div class="agent-def-actions">';
         if (isYaml) {
             html += '<button class="btn btn-small btn-outline view-schedule-yaml-btn" data-id="' + escapeHtml(id) + '">View</button>';
         } else {
@@ -899,21 +899,21 @@
         // Tags row: source tag, repo
         var tags = [];
         if (isYaml) {
-            tags.push('<span class="task-def-tag task-def-tag-yaml">yaml</span>');
+            tags.push('<span class="agent-def-tag agent-def-tag-yaml">yaml</span>');
         } else {
-            tags.push('<span class="task-def-tag task-def-tag-manual">manual</span>');
+            tags.push('<span class="agent-def-tag agent-def-tag-manual">manual</span>');
         }
         if (s.repo) {
             var shortRepo = s.repo.replace(/^https?:\/\//, '').replace(/\.git$/, '');
-            tags.push('<span class="task-def-tag task-def-tag-repo">' + escapeHtml(shortRepo) + '</span>');
+            tags.push('<span class="agent-def-tag agent-def-tag-repo">' + escapeHtml(shortRepo) + '</span>');
         }
-        html += '<div class="task-def-tags">' + tags.join('') + '</div>';
+        html += '<div class="agent-def-tags">' + tags.join('') + '</div>';
 
         // Details: cron, trigger type, next run, last run, enabled/disabled
         var details = [];
         if (cron) {
             var cronDesc = describeCron(cron);
-            details.push('<span class="task-def-detail-item"><span class="task-def-label">Cron</span> <code>' + escapeHtml(cron) + '</code> <small>' + escapeHtml(cronDesc) + '</small></span>');
+            details.push('<span class="agent-def-detail-item"><span class="agent-def-label">Cron</span> <code>' + escapeHtml(cron) + '</code> <small>' + escapeHtml(cronDesc) + '</small></span>');
         }
 
         // Trigger type
@@ -922,51 +922,51 @@
             if (s.event_config && s.event_config.events && s.event_config.events.length > 0) {
                 triggerLabel += ' (' + s.event_config.events.join(', ') + ')';
             }
-            details.push('<span class="task-def-detail-item"><span class="task-def-label">Trigger</span> ' + escapeHtml(triggerLabel) + '</span>');
+            details.push('<span class="agent-def-detail-item"><span class="agent-def-label">Trigger</span> ' + escapeHtml(triggerLabel) + '</span>');
         } else if (triggerType === 'cron-and-event') {
             var triggerLabel2 = 'cron + event';
             if (s.event_config && s.event_config.events && s.event_config.events.length > 0) {
                 triggerLabel2 += ' (' + s.event_config.events.join(', ') + ')';
             }
-            details.push('<span class="task-def-detail-item"><span class="task-def-label">Trigger</span> ' + escapeHtml(triggerLabel2) + '</span>');
+            details.push('<span class="agent-def-detail-item"><span class="agent-def-label">Trigger</span> ' + escapeHtml(triggerLabel2) + '</span>');
         }
 
         var nextRun = s.next_run || s.next_run_at;
         var lastRun = s.last_run || s.last_run_at;
         if (nextRun) {
-            details.push('<span class="task-def-detail-item"><span class="task-def-label">Next</span> ' + formatRelativeTime(nextRun) + '</span>');
+            details.push('<span class="agent-def-detail-item"><span class="agent-def-label">Next</span> ' + formatRelativeTime(nextRun) + '</span>');
         }
         if (lastRun) {
-            details.push('<span class="task-def-detail-item"><span class="task-def-label">Last</span> ' + formatRelativeTime(lastRun) + '</span>');
+            details.push('<span class="agent-def-detail-item"><span class="agent-def-label">Last</span> ' + formatRelativeTime(lastRun) + '</span>');
         }
 
         // Enabled/disabled
         if (!enabled) {
-            details.push('<span class="task-def-detail-item"><span class="task-def-dim">disabled</span></span>');
+            details.push('<span class="agent-def-detail-item"><span class="agent-def-dim">disabled</span></span>');
         }
 
         if (details.length > 0) {
-            html += '<div class="task-def-details">' + details.join('') + '</div>';
+            html += '<div class="agent-def-details">' + details.join('') + '</div>';
         }
 
         html += '</div>';
         return html;
     }
 
-    // Sync task definitions
+    // Sync agent definitions
     $('#sync-task-defs').addEventListener('click', async function() {
         var btn = $('#sync-task-defs');
         btn.disabled = true;
         btn.textContent = 'Syncing...';
         try {
-            var resp = await api('POST', '/api/v1/task-definitions/sync');
+            var resp = await api('POST', '/api/v1/agent-definitions/sync');
             if (!resp.ok) {
                 var data = await resp.json().catch(function() { return {}; });
-                alert(data.error || data.message || 'Failed to sync task definitions.');
+                alert(data.error || data.message || 'Failed to sync agent definitions.');
             }
         } catch (err) {
             if (err.message !== 'unauthorized') {
-                alert('Failed to sync task definitions.');
+                alert('Failed to sync agent definitions.');
             }
         }
         btn.textContent = 'Sync Now';
@@ -984,23 +984,23 @@
         var titleEl = $('#view-yaml-title');
         var contentEl = $('#view-yaml-content');
 
-        titleEl.textContent = 'Task Definition';
+        titleEl.textContent = 'Agent Definition';
         contentEl.textContent = 'Loading...';
         show(modal);
 
         try {
-            var resp = await api('GET', '/api/v1/task-definitions/' + id);
+            var resp = await api('GET', '/api/v1/agent-definitions/' + id);
             if (!resp.ok) {
-                contentEl.textContent = 'Failed to load task definition.';
+                contentEl.textContent = 'Failed to load agent definition.';
                 return;
             }
             var data = await resp.json();
             currentYamlContent = data.raw_yaml || data.yaml || '';
-            titleEl.textContent = data.name || 'Task Definition';
+            titleEl.textContent = data.name || 'Agent Definition';
             contentEl.textContent = currentYamlContent || '(no YAML content)';
         } catch (err) {
             if (err.message !== 'unauthorized') {
-                contentEl.textContent = 'Failed to load task definition.';
+                contentEl.textContent = 'Failed to load agent definition.';
             }
         }
     }
@@ -1036,7 +1036,7 @@
         listEl.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Loading templates...</p></div>';
 
         try {
-            var resp = await api('GET', '/api/v1/task-templates');
+            var resp = await api('GET', '/api/v1/agent-templates');
             if (!resp.ok) {
                 listEl.innerHTML = '<p class="error-message">Failed to load templates.</p>';
                 return;
@@ -1234,7 +1234,7 @@
     // ---------------------
 
     function getTaskType(taskName) {
-        if (!taskName) return { label: 'TASK', color: 'neutral' };
+        if (!taskName) return { label: 'SESSION', color: 'neutral' };
         var name = taskName.toLowerCase();
         if (name.includes('review')) return { label: 'REVIEW', color: 'review' };
         if (name.includes('plan')) return { label: 'PLAN', color: 'plan' };
@@ -1315,7 +1315,7 @@
         } catch (err) {
             hide(loading);
             if (err.message !== 'unauthorized') {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--status-error);padding:24px;">Failed to load tasks. Check your connection and try again.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--status-error);padding:24px;">Failed to load sessions. Check your connection and try again.</td></tr>';
             }
         }
     }
@@ -1327,18 +1327,18 @@
         tbody.innerHTML = '';
         if (table) table.hidden = true;
         empty.innerHTML = '<div class="empty-state-redesign">' +
-            '<h2>No tasks yet</h2>' +
-            '<p>Tasks appear here when they run -- triggered by events, on a schedule, or submitted manually.</p>' +
+            '<h2>No sessions yet</h2>' +
+            '<p>Sessions appear here when they run -- triggered by events, on a schedule, or started manually.</p>' +
             '<div class="empty-state-cards">' +
                 '<a href="#task/new" class="empty-card">' +
                     '<div class="empty-card-icon">&gt;_</div>' +
-                    '<div class="empty-card-title">Run a task</div>' +
+                    '<div class="empty-card-title">Start a session</div>' +
                     '<div class="empty-card-desc">Submit a prompt to an AI agent</div>' +
                 '</a>' +
                 '<a href="#repos" class="empty-card">' +
                     '<div class="empty-card-icon">&#9201;</div>' +
                     '<div class="empty-card-title">Set up automation</div>' +
-                    '<div class="empty-card-desc">Connect a task repo for event-driven agents</div>' +
+                    '<div class="empty-card-desc">Connect an agent repo for event-driven agents</div>' +
                 '</a>' +
                 '<a href="#credentials" class="empty-card">' +
                     '<div class="empty-card-icon">&#128273;</div>' +
@@ -1352,7 +1352,7 @@
 
     function renderSessionRow(s) {
         var status = s.status || 'unknown';
-        var taskName = s.task_name || 'Manual Task';
+        var taskName = s.task_name || 'Manual Session';
         var taskType = getTaskType(s.task_name);
         var submitter = formatSubmitter(s.submitter);
         var when = formatRelativeTime(s.started_at);
@@ -1370,7 +1370,7 @@
 
         return '<tr class="clickable session-row session-row-' + escapeHtml(status) + '" data-session-id="' + escapeHtml(s.id) + '" tabindex="0" role="link">' +
             '<td><span class="status-dot status-dot-' + escapeHtml(status) + '" title="' + escapeHtml(status) + '"></span></td>' +
-            '<td><span class="task-type-pill task-type-' + escapeHtml(taskType.color) + '">' + escapeHtml(taskType.label) + '</span>' + escapeHtml(taskName) + '</td>' +
+            '<td><span class="agent-type-pill agent-type-' + escapeHtml(taskType.color) + '">' + escapeHtml(taskType.label) + '</span>' + escapeHtml(taskName) + '</td>' +
             '<td>' + escapeHtml(submitter) + '</td>' +
             '<td>' + escapeHtml(when) + '</td>' +
             '<td class="mono">' + durationHtml + '</td>' +
@@ -1398,7 +1398,7 @@
         var empty = $('#sessions-empty');
         if (filtered.length === 0) {
             tbody.innerHTML = '';
-            empty.innerHTML = '<p>No tasks match your filters.</p>';
+            empty.innerHTML = '<p>No sessions match your filters.</p>';
             show(empty);
             return;
         }
@@ -1463,7 +1463,7 @@
             tableContainer.parentNode.insertBefore(paginationEl, tableContainer.nextSibling);
         }
         if (pages <= 1) {
-            paginationEl.innerHTML = '<span>' + total + ' task' + (total !== 1 ? 's' : '') + '</span>';
+            paginationEl.innerHTML = '<span>' + total + ' session' + (total !== 1 ? 's' : '') + '</span>';
             return;
         }
         paginationEl.innerHTML =
@@ -1508,7 +1508,7 @@
     }
 
     // ---------------------
-    // New Task
+    // New Session
     // ---------------------
     async function loadProviders() {
         const select = $('#task-provider');
@@ -1540,7 +1540,7 @@
         $('#timeout-value').textContent = e.target.value;
     });
 
-    // Submit task
+    // Start session
     $('#task-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         const errEl = $('#task-error');
@@ -1560,7 +1560,7 @@
             return c.provider !== 'github' && c.provider !== 'gitlab' && c.provider !== 'jira';
         });
         if (llmCreds.length === 0) {
-            errEl.textContent = 'No LLM provider configured. Add an LLM credential on the Credentials page before submitting tasks.';
+            errEl.textContent = 'No LLM provider configured. Add an LLM credential on the Credentials page before starting sessions.';
             show(errEl);
             return;
         }
@@ -1581,18 +1581,18 @@
 
         const btn = e.target.querySelector('button[type="submit"]');
         btn.disabled = true;
-        btn.textContent = 'Submitting...';
+        btn.textContent = 'Starting...';
 
         try {
-            const resp = await api('POST', '/api/v1/tasks', payload);
+            const resp = await api('POST', '/api/v1/sessions', payload);
             if (!resp.ok) {
                 const data = await resp.json().catch(() => ({}));
-                throw new Error(data.error || data.message || 'Failed to submit task.');
+                throw new Error(data.error || data.message || 'Failed to start session.');
             }
             const data = await resp.json();
             const sessionId = data.session_id || data.id || '';
 
-            successEl.innerHTML = 'Task submitted! Task ID: <span class="mono">' +
+            successEl.innerHTML = 'Session started! Session ID: <span class="mono">' +
                 escapeHtml(sessionId) + '</span> &mdash; ' +
                 '<a href="#session/' + escapeHtml(sessionId) + '" style="color:var(--status-running)">Watch live</a>';
             show(successEl);
@@ -1618,7 +1618,7 @@
             }
         } finally {
             btn.disabled = false;
-            btn.textContent = 'Submit Task';
+            btn.textContent = 'Start Session';
         }
     });
 
@@ -2081,7 +2081,7 @@
             hide($('#transcript-loading'));
             hide($('#proxy-log-loading'));
             if (err.message !== 'unauthorized') {
-                $('#session-meta').innerHTML = '<div class="meta-card"><div class="meta-value" style="color:var(--status-error)">Failed to load task.</div></div>';
+                $('#session-meta').innerHTML = '<div class="meta-card"><div class="meta-value" style="color:var(--status-error)">Failed to load session.</div></div>';
             }
         }
     }
@@ -2125,9 +2125,9 @@
             const cancelBtn = document.createElement('button');
             cancelBtn.className = 'btn btn-small btn-outline';
             cancelBtn.style.cssText = 'margin-left: 1rem; color: var(--status-error); border-color: var(--status-error);';
-            cancelBtn.textContent = 'Cancel Task';
+            cancelBtn.textContent = 'Cancel Session';
             cancelBtn.addEventListener('click', async () => {
-                if (!confirm('Are you sure you want to cancel this task? The running task will be terminated.')) return;
+                if (!confirm('Are you sure you want to cancel this session? The running session will be terminated.')) return;
                 cancelBtn.disabled = true;
                 cancelBtn.textContent = 'Cancelling...';
                 try {
@@ -2136,15 +2136,15 @@
                         loadSessionDetail(s.id);
                     } else {
                         const data = await resp.json().catch(() => ({}));
-                        alert(data.error || data.message || 'Failed to cancel task.');
+                        alert(data.error || data.message || 'Failed to cancel session.');
                         cancelBtn.disabled = false;
-                        cancelBtn.textContent = 'Cancel Task';
+                        cancelBtn.textContent = 'Cancel Session';
                     }
                 } catch (err) {
                     if (err.message !== 'unauthorized') {
-                        alert('Failed to cancel task.');
+                        alert('Failed to cancel session.');
                         cancelBtn.disabled = false;
-                        cancelBtn.textContent = 'Cancel Task';
+                        cancelBtn.textContent = 'Cancel Session';
                     }
                 }
             });
@@ -2681,7 +2681,7 @@
             if (!model && ev.message) model = ev.message;
             var div = document.createElement('div');
             div.className = 'tx-system';
-            div.innerHTML = '<span class="tx-system-icon">&#9654;</span> Task started' +
+            div.innerHTML = '<span class="tx-system-icon">&#9654;</span> Session started' +
                 (model ? ' &middot; <span class="tx-system-model">' + escapeHtml(String(model)) + '</span>' : '') +
                 (toolCount ? ' &middot; ' + toolCount + ' tools available' : '');
             container.appendChild(div);
@@ -2721,7 +2721,7 @@
             div.className = 'tx-result ' + (isError ? 'tx-result-error' : 'tx-result-success');
 
             var headerParts = [];
-            headerParts.push(isError ? '<span class="tx-result-icon">&#10007;</span> Task failed' : '<span class="tx-result-icon">&#10003;</span> Task completed');
+            headerParts.push(isError ? '<span class="tx-result-icon">&#10007;</span> Session failed' : '<span class="tx-result-icon">&#10003;</span> Session completed');
             if (cost != null) headerParts.push(parseFloat(cost).toFixed(3) + ' USD');
             if (ev.num_turns) headerParts.push(ev.num_turns + (ev.num_turns === 1 ? ' turn' : ' turns'));
             if (ev.duration_seconds) headerParts.push(ev.duration_seconds.toFixed(1) + 's');
@@ -3946,7 +3946,7 @@
             typeBadge = '<span class="badge badge-custom">custom</span>';
         }
 
-        var actions = '<button class="btn btn-small btn-primary profile-use-btn" data-name="' + escapeHtml(name) + '">Use in New Task</button> ';
+        var actions = '<button class="btn btn-small btn-primary profile-use-btn" data-name="' + escapeHtml(name) + '">Use in New Session</button> ';
         actions += '<button class="btn btn-small btn-outline profile-duplicate-btn" data-name="' + escapeHtml(name) + '">Duplicate</button>';
         if (!isReadOnly) {
             actions += ' <button class="btn btn-small btn-outline profile-edit-btn" data-name="' + escapeHtml(name) + '">Edit</button>';
@@ -3964,7 +3964,7 @@
     }
 
     function attachProfileCardHandlers() {
-        // Use in New Task
+        // Use in New Session
         $$('.profile-use-btn').forEach(function (btn) {
             btn.addEventListener('click', function () {
                 var name = btn.dataset.name;
@@ -4565,7 +4565,7 @@
     });
 
     // ---------------------
-    // Task Profile Selector
+    // Session Profile Selector
     // ---------------------
     async function loadTaskProfiles() {
         var select = $('#task-profile-add');
@@ -4935,7 +4935,7 @@
     });
 
     // ---------------------
-    // Task Tools (New Task form)
+    // Session Tools (New Session form)
     // ---------------------
     async function loadTaskTools() {
         const content = $('#task-tools-content');
@@ -5233,7 +5233,7 @@
     }
 
     // ---------------------
-    // Task Prerequisites & Warnings
+    // Session Prerequisites & Warnings
     // ---------------------
     function checkTaskPrerequisites() {
         var container = $('#task-warnings');
@@ -5255,7 +5255,7 @@
         if (llmCreds.length === 0) {
             warnings.push({
                 type: 'caution',
-                text: 'No LLM provider configured. Your task won\'t be able to reach an AI model. <a href="#credentials">Add one on the Credentials page.</a>'
+                text: 'No LLM provider configured. Your session won\'t be able to reach an AI model. <a href="#credentials">Add one on the Credentials page.</a>'
             });
         }
 
@@ -5301,11 +5301,11 @@
         if (submitBtn) {
             if (llmCreds.length === 0) {
                 submitBtn.disabled = true;
-                submitBtn.textContent = 'Submit Task (LLM credential required)';
-                submitBtn.title = 'Add an LLM credential on the Credentials page before submitting tasks.';
+                submitBtn.textContent = 'Start Session (LLM credential required)';
+                submitBtn.title = 'Add an LLM credential on the Credentials page before starting sessions.';
             } else {
                 submitBtn.disabled = false;
-                submitBtn.textContent = 'Submit Task';
+                submitBtn.textContent = 'Start Session';
                 submitBtn.title = '';
             }
         }
@@ -5319,8 +5319,8 @@
 
         container.innerHTML = warnings.map(function (w) {
             var icon = w.type === 'caution' ? '&#9888;' : '&#8505;';
-            return '<div class="task-warning task-warning-' + w.type + '">' +
-                '<span class="task-warning-icon">' + icon + '</span>' +
+            return '<div class="session-warning session-warning-' + w.type + '">' +
+                '<span class="session-warning-icon">' + icon + '</span>' +
                 '<span>' + w.text + '</span>' +
                 '</div>';
         }).join('');
@@ -5342,7 +5342,7 @@
             if (!container) return;
 
             // Remove any previous prompt suggestions
-            container.querySelectorAll('.task-warning-prompt-hint').forEach(function (el) {
+            container.querySelectorAll('.session-warning-prompt-hint').forEach(function (el) {
                 el.remove();
             });
 
@@ -5415,8 +5415,8 @@
                 show(container);
                 suggestions.forEach(function (s) {
                     var div = document.createElement('div');
-                    div.className = 'task-warning task-warning-info task-warning-prompt-hint';
-                    div.innerHTML = '<span class="task-warning-icon">&#128161;</span><span>' + s + '</span>';
+                    div.className = 'session-warning session-warning-info session-warning-prompt-hint';
+                    div.innerHTML = '<span class="session-warning-icon">&#128161;</span><span>' + s + '</span>';
                     container.appendChild(div);
                 });
             }
