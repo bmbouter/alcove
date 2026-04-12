@@ -2736,24 +2736,78 @@
         // --- tool_result ---
         if (type === 'tool_result') {
             var output = '';
-            if (typeof ev.content === 'string') {
+            var stderr = '';
+
+            // Format 2: tool_use_result envelope (the problematic format)
+            if (ev.tool_use_result) {
+                output = ev.tool_use_result.stdout || '';
+                stderr = ev.tool_use_result.stderr || '';
+            }
+            // Format 1: direct content (string or array)
+            else if (typeof ev.content === 'string') {
                 output = ev.content;
             } else if (Array.isArray(ev.content)) {
                 output = ev.content
                     .filter(function(b) { return b.type === 'text'; })
                     .map(function(b) { return b.text; })
                     .join('\n');
-            } else if (ev.content) {
-                output = JSON.stringify(ev.content, null, 2);
+            } else if (ev.content && typeof ev.content === 'object') {
+                // Check if content itself has stdout/stderr
+                if (ev.content.stdout !== undefined) {
+                    output = ev.content.stdout || '';
+                    stderr = ev.content.stderr || '';
+                } else {
+                    output = JSON.stringify(ev.content, null, 2);
+                }
             } else if (ev.output) {
                 output = typeof ev.output === 'string' ? ev.output : JSON.stringify(ev.output, null, 2);
             }
-            if (!output) return; // skip empty tool results
 
-            var div = document.createElement('div');
-            div.className = 'tx-tool-output-block tx-hierarchy-tool';
+            if (!output && !stderr) return; // skip empty tool results
+
+            // Combine stderr + stdout for display
+            if (stderr) {
+                output = '\u26A0 stderr:\n' + stderr + (output ? '\n\n' + output : '');
+            }
+
             var isError = ev.is_error || false;
             var contentType = detectContentType(output);
+
+            // Try to pair with preceding tool_use card
+            var toolUseId = ev.tool_use_id || '';
+            var pairedCard = toolUseId ? container.querySelector('[data-tool-use-id="' + toolUseId + '"]') : null;
+
+            if (pairedCard) {
+                // Append output into the existing tool card
+                var outputDiv = document.createElement('div');
+                outputDiv.className = 'tx-tool-output-inline';
+
+                var autoCollapse = output.split('\n').length > 8 || output.length > 500;
+                var highlightedContent = applySyntaxHighlighting(output, contentType);
+                var contentClass = 'tx-tool-output-pre tx-content-' + contentType;
+                if (isError) contentClass += ' tx-tool-output-error';
+
+                if (autoCollapse) {
+                    var lineCount = output.split('\n').length;
+                    var preview = output.split('\n').slice(0, 4).join('\n');
+                    var previewHighlighted = applySyntaxHighlighting(preview, contentType);
+                    outputDiv.innerHTML =
+                        '<div class="tx-tool-output-preview"><pre class="' + contentClass + '">' + previewHighlighted + '</pre></div>' +
+                        '<details class="tx-tool-output-expand">' +
+                        '<summary class="tx-tool-expand-toggle">Show ' + (lineCount - 4) + ' more lines</summary>' +
+                        '<pre class="' + contentClass + '">' + highlightedContent + '</pre>' +
+                        '</details>';
+                } else {
+                    outputDiv.innerHTML = '<pre class="' + contentClass + '">' + highlightedContent + '</pre>';
+                }
+
+                pairedCard.appendChild(outputDiv);
+                return;
+            }
+
+            // Fallback: render as standalone block (for unpaired results)
+            var div = document.createElement('div');
+            div.className = 'tx-tool-output-block tx-hierarchy-tool';
             var autoCollapse = shouldAutoCollapse(output, contentType);
 
             // Generate intelligent summary
@@ -2847,10 +2901,19 @@
 
                     var div = document.createElement('div');
                     div.className = 'tx-tool tx-hierarchy-tool';
+                    if (block.id) {
+                        div.setAttribute('data-tool-use-id', block.id);
+                    }
+
+                    // Step counter for tool calls
+                    if (!container._stepCount) container._stepCount = 0;
+                    container._stepCount++;
+                    var stepNum = container._stepCount;
 
                     var toolIcon = '&#x1F527;';
 
                     var headerHtml = '<div class="tx-tool-header">' +
+                        '<span class="tx-step-num">Step ' + stepNum + '</span>' +
                         '<span class="tx-tool-icon">' + toolIcon + '</span>' +
                         '<span class="tx-tool-name">' + escapeHtml(toolName) + '</span>' +
                         '</div>';

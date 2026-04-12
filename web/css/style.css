@@ -2225,3 +2225,108 @@ select.input {
     font-weight: 500;
     font-variant-numeric: tabular-nums;
 }
+
+/* === Transcript Redesign: Unified Tool Steps === */
+
+/* Inline tool output (paired with tool_use card) */
+.tx-tool-output-inline {
+    border-top: 1px solid #334155;
+    padding: 0;
+    margin: 0;
+}
+
+.tx-tool-output-inline pre {
+    margin: 0;
+    padding: 10px 14px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* Output preview (first 4 lines shown before expand) */
+.tx-tool-output-preview pre {
+    margin: 0;
+    padding: 10px 14px;
+    border-bottom: none;
+}
+
+/* Expand toggle for long outputs */
+.tx-tool-output-expand {
+    border-top: 1px dashed #334155;
+}
+
+.tx-tool-expand-toggle {
+    padding: 6px 14px;
+    font-size: 12px;
+    color: #60a5fa;
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+}
+
+.tx-tool-expand-toggle::-webkit-details-marker {
+    display: none;
+}
+
+.tx-tool-expand-toggle::before {
+    content: "▶ ";
+    font-size: 10px;
+    transition: transform 0.15s;
+}
+
+details[open] > .tx-tool-expand-toggle::before {
+    content: "▼ ";
+}
+
+.tx-tool-output-expand pre {
+    margin: 0;
+    padding: 10px 14px;
+}
+
+/* Step numbers */
+.tx-step-num {
+    display: inline-block;
+    background: rgba(59, 130, 246, 0.2);
+    color: #93c5fd;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 7px;
+    border-radius: 10px;
+    margin-right: 8px;
+    vertical-align: middle;
+}
+
+/* Stderr styling */
+.tx-stderr-block {
+    color: #f87171;
+    border-left: 2px solid #ef4444;
+    padding-left: 10px;
+    margin-bottom: 4px;
+}
+
+/* Error exit code badge */
+.tx-exit-badge {
+    display: inline-block;
+    background: #7f1d1d;
+    color: #fca5a5;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 8px;
+    border-radius: 9999px;
+    margin-left: 8px;
+}
+
+/* Tool card with output gets bottom styling */
+.tx-tool.tx-has-output {
+    margin-bottom: 16px;
+}
+
+/* Diff highlighting for Edit tool results */
+.tx-diff-add {
+    background: rgba(34, 197, 94, 0.15);
+    color: #86efac;
+}
+
+.tx-diff-remove {
+    background: rgba(239, 68, 68, 0.15);
+    color: #fca5a5;
+}
