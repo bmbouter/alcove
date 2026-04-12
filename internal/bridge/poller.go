@@ -53,7 +53,7 @@ type GitHubPoller struct {
 	db         *pgxpool.Pool
 	dispatcher *Dispatcher
 	credStore  *CredentialStore
-	defStore   *TaskDefStore
+	defStore   *AgentDefStore
 	client     *http.Client
 }
 
@@ -445,7 +445,7 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 				}
 			}
 
-			// Build task request. Look up task definition for profiles.
+			// Build session request. Look up agent definition for profiles.
 			taskReq := TaskRequest{
 				Prompt:   sched.Prompt,
 				Repo:     sched.Repo,
@@ -456,7 +456,7 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 			if sched.SourceKey != "" {
 				var parsedJSON []byte
 				_ = p.db.QueryRow(ctx,
-					`SELECT parsed FROM task_definitions WHERE source_key = $1`, sched.SourceKey,
+					`SELECT parsed FROM agent_definitions WHERE source_key = $1`, sched.SourceKey,
 				).Scan(&parsedJSON)
 				if parsedJSON != nil {
 					var td TaskDefinition

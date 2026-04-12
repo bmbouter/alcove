@@ -66,7 +66,7 @@ func main() {
 	root := &cobra.Command{
 		Use:           "alcove",
 		Short:         "Alcove — sandboxed AI coding agents",
-		Long:          "Alcove CLI for dispatching and managing AI coding tasks via the Bridge API.",
+		Long:          "Alcove CLI for dispatching and managing AI coding sessions via the Bridge API.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -440,8 +440,8 @@ func isJSONOutput(cmd *cobra.Command) bool {
 func newRunCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run [prompt]",
-		Short: "Submit a task to the Bridge",
-		Long:  "Dispatch a coding task. By default returns the session ID immediately. Use --watch for live streaming.",
+		Short: "Submit a new session to the Bridge",
+		Long:  "Dispatch a coding session. By default returns the session ID immediately. Use --watch for live streaming.",
 		Args:  cobra.ExactArgs(1),
 		RunE:  runRun,
 	}
@@ -449,7 +449,7 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().String("provider", "", "LLM provider name")
 	cmd.Flags().String("model", "", "Model override (e.g., claude-sonnet-4-20250514)")
 	cmd.Flags().Float64("budget", 0, "Budget limit in USD (e.g., 5.00)")
-	cmd.Flags().Duration("timeout", 0, "Task timeout (e.g., 30m, 1h)")
+	cmd.Flags().Duration("timeout", 0, "Session timeout (e.g., 30m, 1h)")
 	cmd.Flags().Bool("watch", false, "Stream transcript via SSE after dispatch")
 	cmd.Flags().Bool("debug", false, "Keep containers after exit for log inspection")
 	return cmd
@@ -504,7 +504,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	resp, err := apiRequest(cmd, http.MethodPost, "/api/v1/tasks", reqBody)
+	resp, err := apiRequest(cmd, http.MethodPost, "/api/v1/sessions", reqBody)
 	if err != nil {
 		return err
 	}

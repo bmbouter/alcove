@@ -242,7 +242,7 @@ type Scheduler struct {
 }
 
 // NewScheduler creates a Scheduler with the given dependencies.
-func NewScheduler(db *pgxpool.Pool, dispatcher *Dispatcher, cfg *Config, credStore *CredentialStore, defStore *TaskDefStore) *Scheduler {
+func NewScheduler(db *pgxpool.Pool, dispatcher *Dispatcher, cfg *Config, credStore *CredentialStore, defStore *AgentDefStore) *Scheduler {
 	return &Scheduler{
 		db:         db,
 		dispatcher: dispatcher,

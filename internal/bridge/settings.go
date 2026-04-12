@@ -48,7 +48,7 @@ func NewSettingsStore(db *pgxpool.Pool) *SettingsStore {
 }
 
 // SkillRepo represents a git repository containing Claude Code skills/agents
-// or task definitions.
+// or agent definitions.
 type SkillRepo struct {
 	URL     string `json:"url"`
 	Ref     string `json:"ref,omitempty"`     // branch/tag/commit, default: main
@@ -115,28 +115,28 @@ func (s *SettingsStore) SetUserSkillRepos(ctx context.Context, username string, 
 	return err
 }
 
-// GetUserTaskRepos returns a user's personal task repos.
-func (s *SettingsStore) GetUserTaskRepos(ctx context.Context, username string) ([]SkillRepo, error) {
+// GetUserAgentRepos returns a user's personal agent repos.
+func (s *SettingsStore) GetUserAgentRepos(ctx context.Context, username string) ([]SkillRepo, error) {
 	var value json.RawMessage
-	err := s.db.QueryRow(ctx, "SELECT value FROM user_settings WHERE username = $1 AND key = 'task_repos'", username).Scan(&value)
+	err := s.db.QueryRow(ctx, "SELECT value FROM user_settings WHERE username = $1 AND key = 'agent_repos'", username).Scan(&value)
 	if err != nil {
-		return nil, fmt.Errorf("user task repos not found: %w", err)
+		return nil, fmt.Errorf("user agent repos not found: %w", err)
 	}
 	var repos []SkillRepo
 	if err := json.Unmarshal(value, &repos); err != nil {
-		return nil, fmt.Errorf("unmarshaling user task repos: %w", err)
+		return nil, fmt.Errorf("unmarshaling user agent repos: %w", err)
 	}
 	return repos, nil
 }
 
-// SetUserTaskRepos saves a user's personal task repos.
-func (s *SettingsStore) SetUserTaskRepos(ctx context.Context, username string, repos []SkillRepo) error {
+// SetUserAgentRepos saves a user's personal agent repos.
+func (s *SettingsStore) SetUserAgentRepos(ctx context.Context, username string, repos []SkillRepo) error {
 	value, err := json.Marshal(repos)
 	if err != nil {
-		return fmt.Errorf("marshaling user task repos: %w", err)
+		return fmt.Errorf("marshaling user agent repos: %w", err)
 	}
 	_, err = s.db.Exec(ctx, `
-		INSERT INTO user_settings (username, key, value, updated_at) VALUES ($1, 'task_repos', $2, $3)
+		INSERT INTO user_settings (username, key, value, updated_at) VALUES ($1, 'agent_repos', $2, $3)
 		ON CONFLICT (username, key) DO UPDATE SET value = $2, updated_at = $3
 	`, username, value, time.Now().UTC())
 	return err

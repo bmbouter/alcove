@@ -178,19 +178,19 @@ func main() {
 		log.Fatalf("subscribing to status updates: %v", err)
 	}
 
-	// Create task definition store.
-	defStore := bridge.NewTaskDefStore(dbpool)
+	// Create agent definition store.
+	defStore := bridge.NewAgentDefStore(dbpool)
 
 	// Create and start the scheduler.
 	scheduler := bridge.NewScheduler(dbpool, dispatcher, cfg, credStore, defStore)
 	scheduler.Start(context.Background())
 	defer scheduler.Stop()
 
-	// Create repo syncer.
-	syncer := bridge.NewTaskRepoSyncer(dbpool, settingsStore, scheduler, defStore, dispatcher, profileStore)
+	// Create agent repo syncer.
+	syncer := bridge.NewAgentRepoSyncer(dbpool, settingsStore, scheduler, defStore, dispatcher, profileStore)
 	syncer.Start(context.Background())
 	defer syncer.Stop()
-	log.Println("task repo syncer started")
+	log.Println("agent repo syncer started")
 
 	api := bridge.NewAPI(dispatcher, dbpool, cfg, scheduler, credStore, toolStore, profileStore, settingsStore, bridgeLLM, defStore, syncer, store)
 
