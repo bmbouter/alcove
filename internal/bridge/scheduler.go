@@ -233,20 +233,22 @@ func contains(vals []int, v int) bool {
 // Scheduler runs recurring tasks based on cron schedules stored in PostgreSQL
 // and polls GitHub Events API for event-triggered schedules.
 type Scheduler struct {
-	db         *pgxpool.Pool
-	dispatcher *Dispatcher
-	cfg        *Config
-	poller     *GitHubPoller
-	stopCh     chan struct{}
-	wg         sync.WaitGroup
+	db            *pgxpool.Pool
+	dispatcher    *Dispatcher
+	cfg           *Config
+	settingsStore *SettingsStore
+	poller        *GitHubPoller
+	stopCh        chan struct{}
+	wg            sync.WaitGroup
 }
 
 // NewScheduler creates a Scheduler with the given dependencies.
-func NewScheduler(db *pgxpool.Pool, dispatcher *Dispatcher, cfg *Config, credStore *CredentialStore, defStore *AgentDefStore) *Scheduler {
+func NewScheduler(db *pgxpool.Pool, dispatcher *Dispatcher, cfg *Config, credStore *CredentialStore, defStore *AgentDefStore, settingsStore *SettingsStore) *Scheduler {
 	return &Scheduler{
-		db:         db,
-		dispatcher: dispatcher,
-		cfg:        cfg,
+		db:            db,
+		dispatcher:    dispatcher,
+		cfg:           cfg,
+		settingsStore: settingsStore,
 		poller: &GitHubPoller{
 			db:         db,
 			dispatcher: dispatcher,
@@ -298,6 +300,11 @@ func (s *Scheduler) Stop() {
 
 // tick queries enabled schedules and dispatches any that are due.
 func (s *Scheduler) tick(ctx context.Context) {
+	// Check system mode — skip dispatch when paused.
+	if mode, _ := s.settingsStore.GetSystemMode(ctx); mode == "paused" {
+		return
+	}
+
 	now := time.Now().UTC()
 
 	rows, err := s.db.Query(ctx, `

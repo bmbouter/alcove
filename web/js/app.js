@@ -133,6 +133,7 @@
         }).catch(() => {});
         updateAdminUI(); // also call immediately with cached value
         updateRHIdentityUI();
+        startSystemStateCheck();
     }
 
     function updateRHIdentityUI() {
@@ -5628,6 +5629,46 @@
 
     // Make deleteTBRAssociation available globally for onclick handlers
     window.deleteTBRAssociation = deleteTBRAssociation;
+
+    // ---------------------
+    // System State (Maintenance Mode)
+    // ---------------------
+    var systemStateInterval = null;
+
+    function checkSystemState() {
+        api('GET', '/api/v1/admin/system-state')
+            .then(function(resp) { return resp.json(); })
+            .then(function(data) {
+                var banner = document.getElementById('maintenance-banner');
+                if (!banner) {
+                    banner = document.createElement('div');
+                    banner.id = 'maintenance-banner';
+                    banner.className = 'maintenance-banner';
+                    document.body.insertBefore(banner, document.body.firstChild);
+                }
+                if (data.mode === 'paused') {
+                    banner.style.display = 'block';
+                    banner.innerHTML = '<span class="maintenance-text">System paused for maintenance. New sessions will not be dispatched. ' + data.running_sessions + ' session(s) still running.</span>' +
+                        (isAdmin() ? ' <button class="btn btn-sm" onclick="resumeSystem()">Resume</button>' : '');
+                } else {
+                    banner.style.display = 'none';
+                }
+            })
+            .catch(function() {}); // silently fail for non-admins
+    }
+
+    function resumeSystem() {
+        api('PUT', '/api/v1/admin/system-state', {mode: 'active'})
+            .then(function() { checkSystemState(); })
+            .catch(function(err) { alert('Failed to resume: ' + err); });
+    }
+    window.resumeSystem = resumeSystem;
+
+    function startSystemStateCheck() {
+        if (systemStateInterval) clearInterval(systemStateInterval);
+        checkSystemState();
+        systemStateInterval = setInterval(checkSystemState, 30000);
+    }
 
     // ---------------------
     // Init

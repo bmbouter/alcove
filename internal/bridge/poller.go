@@ -73,6 +73,13 @@ type pollSchedule struct {
 
 // PollAll queries all polling-mode event schedules, groups by repo, and polls each.
 func (p *GitHubPoller) PollAll(ctx context.Context) {
+	// Check system mode — skip polling when paused.
+	var mode string
+	_ = p.db.QueryRow(ctx, "SELECT value FROM system_state WHERE key = 'mode'").Scan(&mode)
+	if mode == "paused" {
+		return
+	}
+
 	rows, err := p.db.Query(ctx, `
 		SELECT id, name, prompt, repo, provider, timeout, owner, debug, event_config, COALESCE(source_key, '')
 		FROM schedules
