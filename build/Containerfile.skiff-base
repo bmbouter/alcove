@@ -44,6 +44,9 @@ ENV PATH="/usr/local/go/bin:${PATH}" \
     GOPATH="/home/skiff/go" \
     GOBIN="/home/skiff/go/bin"
 
+# Install Go language server (gopls) for LSP-powered code intelligence
+RUN GOBIN=/usr/local/bin go install golang.org/x/tools/gopls@latest
+
 # Install Node.js (LTS) for Claude Code CLI
 RUN dnf module enable -y nodejs:20 && \
     dnf install -y nodejs npm && \
