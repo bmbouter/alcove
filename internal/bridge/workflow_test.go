@@ -17,6 +17,7 @@ package bridge
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -108,7 +109,7 @@ workflow:
 	if err == nil {
 		t.Error("Expected error for missing name, but got none")
 	}
-	if !contains(err.Error(), "missing required field: name") {
+	if !strings.Contains(err.Error(), "missing required field: name") {
 		t.Errorf("Expected error message about missing name, got: %s", err.Error())
 	}
 }
@@ -385,22 +386,4 @@ func TestValidateAgentReference(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error for empty agent name, but got none")
 	}
-}
-
-// Helper function to check if a string contains a substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
-		(len(s) > 0 && len(substr) > 0 &&
-			(s[:len(substr)] == substr ||
-				s[len(s)-len(substr):] == substr ||
-				findSubstring(s, substr))))
-}
-
-func findSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
