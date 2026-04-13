@@ -154,8 +154,18 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), task.Timeout)
 	defer cancel()
 
-	// --- Run Claude Code ---
-	exitCode, outcome, artifacts := runClaude(ctx, task, sessionID, hailClient, lc, heartbeatTimeout, cancelCh)
+	// --- Check if this is an executable agent or Claude Code agent ---
+	var exitCode int
+	var outcome string
+	var artifacts []internal.Artifact
+
+	if executableConfig := os.Getenv("ALCOVE_EXECUTABLE"); executableConfig != "" {
+		// Run executable agent
+		exitCode, outcome, artifacts = runExecutable(ctx, executableConfig, sessionID, hailClient, lc, heartbeatTimeout, cancelCh)
+	} else {
+		// Run Claude Code
+		exitCode, outcome, artifacts = runClaude(ctx, task, sessionID, hailClient, lc, heartbeatTimeout, cancelCh)
+	}
 
 	// --- Send final status ---
 	if hailClient != nil {
@@ -175,6 +185,219 @@ func main() {
 
 	log.Printf("task %s finished: %s (exit %d)", task.ID, outcome, exitCode)
 	os.Exit(exitCode)
+}
+
+// ExecutableSpec defines an executable agent configuration.
+type ExecutableSpec struct {
+	URL  string            `json:"url"`
+	Args []string          `json:"args,omitempty"`
+	Env  map[string]string `json:"env,omitempty"`
+}
+
+// runExecutable downloads and executes a pre-compiled executable agent. It returns the exit code,
+// outcome string, and any artifacts.
+func runExecutable(
+	ctx context.Context,
+	execConfigJSON string,
+	sessionID string,
+	hailClient *hail.Client,
+	lc *ledger.Client,
+	heartbeatTimeout time.Duration,
+	cancelCh <-chan struct{},
+) (int, string, []internal.Artifact) {
+
+	// Parse the executable configuration
+	var execSpec ExecutableSpec
+	if err := json.Unmarshal([]byte(execConfigJSON), &execSpec); err != nil {
+		log.Printf("error parsing ALCOVE_EXECUTABLE: %v", err)
+		return 1, "error", nil
+	}
+
+	log.Printf("downloading executable from %s", execSpec.URL)
+
+	// Download the executable
+	agentPath := "/tmp/agent"
+	downloadCmd := exec.CommandContext(ctx, "curl", "-sL", execSpec.URL, "-o", agentPath)
+	if err := downloadCmd.Run(); err != nil {
+		log.Printf("error downloading executable: %v", err)
+		return 1, "error", nil
+	}
+
+	// Make it executable
+	if err := os.Chmod(agentPath, 0755); err != nil {
+		log.Printf("error making executable: %v", err)
+		return 1, "error", nil
+	}
+
+	log.Printf("running executable: %s %v", agentPath, execSpec.Args)
+
+	// Build command
+	cmd := exec.CommandContext(ctx, agentPath, execSpec.Args...)
+
+	// Set additional environment variables from execSpec.Env
+	cmd.Env = os.Environ()
+	for k, v := range execSpec.Env {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+	}
+
+	// Capture stderr to a buffer so we can log it
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		log.Printf("error creating stdout pipe: %v", err)
+		return 1, "error", nil
+	}
+
+	if err := cmd.Start(); err != nil {
+		log.Printf("error starting executable: %v", err)
+		return 1, "error", nil
+	}
+
+	// WAL file for local transcript persistence
+	walPath := fmt.Sprintf("/tmp/alcove-transcript-%s.jsonl", sessionID)
+	walFile, err := os.Create(walPath)
+	if err != nil {
+		log.Printf("warning: could not create WAL file %s: %v", walPath, err)
+	}
+	defer func() {
+		if walFile != nil {
+			walFile.Close()
+		}
+	}()
+
+	// Read stdout line-by-line
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // 1MB line buffer
+
+	var (
+		batch      []json.RawMessage
+		batchMu    sync.Mutex
+		artifacts  []internal.Artifact
+		lastEvent  = time.Now()
+		ticker     = time.NewTicker(walFlushInterval)
+		doneCh     = make(chan struct{})
+		outcome    = "completed"
+		lineNumber = 0
+	)
+	defer ticker.Stop()
+
+	// Monitor heartbeat timeout, periodic batch flush, and cancellation
+	go func() {
+		for {
+			select {
+			case <-doneCh:
+				return
+			case <-cancelCh:
+				log.Println("cancellation received, sending SIGTERM to executable")
+				outcome = "cancelled"
+				_ = cmd.Process.Signal(syscall.SIGTERM)
+				time.Sleep(shutdownGrace)
+				_ = cmd.Process.Kill()
+				return
+			case <-ticker.C:
+				if time.Since(lastEvent) > heartbeatTimeout {
+					log.Printf("heartbeat timeout (%v without output), sending SIGTERM", heartbeatTimeout)
+					outcome = "timeout"
+					_ = cmd.Process.Signal(syscall.SIGTERM)
+					time.Sleep(shutdownGrace)
+					_ = cmd.Process.Kill()
+					return
+				}
+				// Periodic flush
+				batchMu.Lock()
+				if len(batch) > 0 {
+					flushBatch(lc, sessionID, &batch)
+				}
+				batchMu.Unlock()
+			}
+		}
+	}()
+
+	// Process output lines - convert raw text to transcript format
+	for scanner.Scan() {
+		line := scanner.Text()
+		lastEvent = time.Now()
+		lineNumber++
+
+		// Create transcript event for this line
+		transcriptEvent := map[string]any{
+			"type":      "text",
+			"content":   line,
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+			"source":    "executable",
+		}
+
+		eventJSON, err := json.Marshal(transcriptEvent)
+		if err != nil {
+			continue // skip malformed events
+		}
+
+		// Write to WAL
+		if walFile != nil {
+			_, _ = walFile.Write(eventJSON)
+			_, _ = walFile.Write([]byte("\n"))
+		}
+
+		// Publish to NATS for real-time SSE streaming
+		if hailClient != nil {
+			_ = hailClient.PublishTranscript(sessionID, eventJSON)
+		}
+
+		batchMu.Lock()
+		batch = append(batch, json.RawMessage(eventJSON))
+
+		// Flush batch when it reaches the batch size
+		if len(batch) >= walBatchSize {
+			flushBatch(lc, sessionID, &batch)
+		}
+		batchMu.Unlock()
+	}
+
+	close(doneCh)
+
+	// Flush remaining events
+	batchMu.Lock()
+	if len(batch) > 0 {
+		flushBatch(lc, sessionID, &batch)
+	}
+	batchMu.Unlock()
+
+	// Wait for process to exit
+	err = cmd.Wait()
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			exitCode = 1
+		}
+	}
+
+	// Log stderr from executable for debugging
+	if stderrStr := stderrBuf.String(); stderrStr != "" {
+		log.Printf("DEBUG: executable stderr:\n%s", stderrStr)
+	} else {
+		log.Printf("DEBUG: executable stderr: (empty)")
+	}
+	log.Printf("DEBUG: executable exit code: %d", exitCode)
+
+	// Determine outcome from exit code
+	if ctx.Err() != nil {
+		outcome = "timeout"
+	} else if exitCode == 0 {
+		outcome = "completed"
+	} else if outcome == "completed" {
+		outcome = "error"
+	}
+
+	// Check for PR artifact from task (same as Claude Code)
+	if prArtifact := readPRArtifact(); prArtifact != nil {
+		artifacts = append(artifacts, *prArtifact)
+	}
+
+	return exitCode, outcome, artifacts
 }
 
 // runClaude executes Claude Code and streams its output. It returns the exit code,

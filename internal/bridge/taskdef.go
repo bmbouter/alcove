@@ -27,9 +27,16 @@ import (
 
 // PluginSpec declares a Claude Code plugin to install for an agent.
 type PluginSpec struct {
-	Name   string `json:"name" yaml:"name"`                           // Plugin name (e.g., "code-review")
-	Source string `json:"source,omitempty" yaml:"source,omitempty"`   // "claude-plugins-official", git URL, or empty (marketplace default)
-	Ref    string `json:"ref,omitempty" yaml:"ref,omitempty"`         // Branch/tag for git sources
+	Name   string `json:"name" yaml:"name"`                         // Plugin name (e.g., "code-review")
+	Source string `json:"source,omitempty" yaml:"source,omitempty"` // "claude-plugins-official", git URL, or empty (marketplace default)
+	Ref    string `json:"ref,omitempty" yaml:"ref,omitempty"`       // Branch/tag for git sources
+}
+
+// ExecutableSpec defines a pre-compiled executable agent to run instead of Claude Code.
+type ExecutableSpec struct {
+	URL  string            `json:"url" yaml:"url"`             // Download URL for the binary
+	Args []string          `json:"args,omitempty" yaml:"args"` // Command-line arguments
+	Env  map[string]string `json:"env,omitempty" yaml:"env"`   // Additional environment variables
 }
 
 // CIGate configures Bridge-driven CI monitoring for PRs created by a task.
@@ -43,7 +50,8 @@ type TaskDefinition struct {
 	ID          string                `json:"id"`
 	Name        string                `json:"name" yaml:"name"`
 	Description string                `json:"description" yaml:"description"`
-	Prompt      string                `json:"prompt" yaml:"prompt"`
+	Prompt      string                `json:"prompt,omitempty" yaml:"prompt"`
+	Executable  *ExecutableSpec       `json:"executable,omitempty" yaml:"executable"`
 	Repo        string                `json:"repo,omitempty" yaml:"repo"`
 	Provider    string                `json:"provider,omitempty" yaml:"provider"`
 	Model       string                `json:"model,omitempty" yaml:"model"`
@@ -58,13 +66,13 @@ type TaskDefinition struct {
 	CIGate      *CIGate               `json:"ci_gate,omitempty" yaml:"ci_gate"`
 
 	// Metadata (not from YAML).
-	Owner      string     `json:"owner,omitempty"`
-	SourceRepo string     `json:"source_repo"`
-	SourceFile string     `json:"source_file"`
-	SourceKey  string     `json:"source_key"`
-	RawYAML    string     `json:"raw_yaml,omitempty"`
-	SyncError  string     `json:"sync_error,omitempty"`
-	LastSynced time.Time  `json:"last_synced"`
+	Owner        string     `json:"owner,omitempty"`
+	SourceRepo   string     `json:"source_repo"`
+	SourceFile   string     `json:"source_file"`
+	SourceKey    string     `json:"source_key"`
+	RawYAML      string     `json:"raw_yaml,omitempty"`
+	SyncError    string     `json:"sync_error,omitempty"`
+	LastSynced   time.Time  `json:"last_synced"`
 	NextRun      *time.Time `json:"next_run,omitempty"`
 	LastRun      *time.Time `json:"last_run,omitempty"`
 	RepoDisabled bool       `json:"repo_disabled"`
@@ -87,8 +95,16 @@ func ParseTaskDefinition(data []byte) (*TaskDefinition, error) {
 	if td.Name == "" {
 		return nil, fmt.Errorf("agent definition missing required field: name")
 	}
-	if td.Prompt == "" {
-		return nil, fmt.Errorf("agent definition missing required field: prompt")
+
+	// Validation: either prompt or executable.url must be set, but not both
+	hasPrompt := td.Prompt != ""
+	hasExecutable := td.Executable != nil && td.Executable.URL != ""
+
+	if !hasPrompt && !hasExecutable {
+		return nil, fmt.Errorf("agent definition must have either 'prompt' or 'executable.url' field")
+	}
+	if hasPrompt && hasExecutable {
+		return nil, fmt.Errorf("agent definition cannot have both 'prompt' and 'executable' fields")
 	}
 
 	if td.Schedule != nil {
@@ -113,16 +129,17 @@ func ParseTaskDefinition(data []byte) (*TaskDefinition, error) {
 // dispatching via the Dispatcher.
 func (td *TaskDefinition) ToTaskRequest() TaskRequest {
 	return TaskRequest{
-		Prompt:   td.Prompt,
-		Repo:     td.Repo,
-		Provider: td.Provider,
-		Timeout:  td.Timeout,
-		Tools:    td.Tools,
-		Profiles: td.Profiles,
-		Model:    td.Model,
-		Budget:   td.BudgetUSD,
-		Debug:    td.Debug,
-		Plugins:  td.Plugins,
+		Prompt:     td.Prompt,
+		Executable: td.Executable,
+		Repo:       td.Repo,
+		Provider:   td.Provider,
+		Timeout:    td.Timeout,
+		Tools:      td.Tools,
+		Profiles:   td.Profiles,
+		Model:      td.Model,
+		Budget:     td.BudgetUSD,
+		Debug:      td.Debug,
+		Plugins:    td.Plugins,
 	}
 }
 
@@ -182,6 +199,7 @@ func (s *AgentDefStore) ListAgentDefinitions(ctx context.Context, owner string) 
 				td.Schedule = parsed.Schedule
 				td.Trigger = parsed.Trigger
 				td.Repo = parsed.Repo
+				td.Executable = parsed.Executable
 			}
 		}
 
@@ -232,6 +250,7 @@ func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, owner string
 		var parsed TaskDefinition
 		if err := json.Unmarshal(parsedJSON, &parsed); err == nil {
 			td.Prompt = parsed.Prompt
+			td.Executable = parsed.Executable
 			td.Repo = parsed.Repo
 			td.Provider = parsed.Provider
 			td.Model = parsed.Model

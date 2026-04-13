@@ -69,17 +69,18 @@ func (d *Dispatcher) SetCIGateMonitor(m *CIGateMonitor) {
 
 // TaskRequest is the JSON body for POST /api/v1/sessions.
 type TaskRequest struct {
-	Prompt   string                `json:"prompt"`
-	Repo     string                `json:"repo,omitempty"`
-	Provider string                `json:"provider,omitempty"`
-	Timeout  int                   `json:"timeout,omitempty"` // seconds, default 3600
-	Scope    *internal.Scope       `json:"scope,omitempty"`
-	Tools    map[string]ToolConfig `json:"tools,omitempty"`
-	Profiles []string              `json:"profiles,omitempty"`
-	Model    string                `json:"model,omitempty"`
-	Budget   float64               `json:"budget_usd,omitempty"`
-	Debug    bool                  `json:"debug,omitempty"`
-	Plugins  []PluginSpec `json:"-"` // Set internally from agent definition
+	Prompt     string                `json:"prompt,omitempty"`
+	Executable *ExecutableSpec       `json:"executable,omitempty"`
+	Repo       string                `json:"repo,omitempty"`
+	Provider   string                `json:"provider,omitempty"`
+	Timeout    int                   `json:"timeout,omitempty"` // seconds, default 3600
+	Scope      *internal.Scope       `json:"scope,omitempty"`
+	Tools      map[string]ToolConfig `json:"tools,omitempty"`
+	Profiles   []string              `json:"profiles,omitempty"`
+	Model      string                `json:"model,omitempty"`
+	Budget     float64               `json:"budget_usd,omitempty"`
+	Debug      bool                  `json:"debug,omitempty"`
+	Plugins    []PluginSpec          `json:"-"` // Set internally from agent definition
 	// Task metadata — set by dispatch code paths, stored in sessions table.
 	TaskName    string `json:"-"` // Schedule/agent definition name
 	TriggerType string `json:"-"` // "event", "cron", "manual", "webhook"
@@ -95,10 +96,10 @@ type ToolConfig struct {
 
 // StatusUpdate is published by Skiff pods on NATS subject tasks.<id>.status.
 type StatusUpdate struct {
-	SessionID  string     `json:"session_id"`
-	Status     string     `json:"status"`     // running, completed, timeout, cancelled, error
-	ExitCode   *int       `json:"exit_code,omitempty"`
-	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	SessionID  string              `json:"session_id"`
+	Status     string              `json:"status"` // running, completed, timeout, cancelled, error
+	ExitCode   *int                `json:"exit_code,omitempty"`
+	FinishedAt *time.Time          `json:"finished_at,omitempty"`
 	Artifacts  []internal.Artifact `json:"artifacts,omitempty"`
 }
 
@@ -210,6 +211,11 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		TriggerRef:  req.TriggerRef,
 	}
 
+	// For executable agents, store the prompt as the description/context if empty
+	if req.Executable != nil && req.Prompt == "" {
+		session.Prompt = fmt.Sprintf("Executable agent: %s", req.Executable.URL)
+	}
+
 	// Generate a session token for the Skiff pod to authenticate to Ledger.
 	sessionToken := uuid.New().String()
 
@@ -291,6 +297,12 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		"ANTHROPIC_BASE_URL": fmt.Sprintf("http://%s:8443", gateName),
 		"ANTHROPIC_API_KEY":  "sk-placeholder-routed-through-gate",
 	}
+
+	// Pass executable configuration to Skiff via environment variable
+	if req.Executable != nil {
+		execJSON, _ := json.Marshal(req.Executable)
+		skiffEnv["ALCOVE_EXECUTABLE"] = string(execJSON)
+	}
 	if req.Budget > 0 {
 		skiffEnv["TASK_BUDGET"] = fmt.Sprintf("%.2f", req.Budget)
 	}
@@ -312,18 +324,18 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 	// Build Gate sidecar env vars (scope config + LLM credentials).
 	scopeBytes, _ := json.Marshal(scope)
 	gateEnv := map[string]string{
-		"GATE_SESSION_ID":    sessionID,
-		"GATE_SESSION_TOKEN": sessionToken,
-		"GATE_SCOPE":         string(scopeBytes),
+		"GATE_SESSION_ID":           sessionID,
+		"GATE_SESSION_TOKEN":        sessionToken,
+		"GATE_SCOPE":                string(scopeBytes),
 		"GATE_LLM_TOKEN":            llmToken,
 		"GATE_LLM_PROVIDER":         llmProviderType,
 		"GATE_LLM_TOKEN_TYPE":       llmTokenType,
 		"GATE_TOKEN_REFRESH_URL":    envOrDefault("BRIDGE_URL", fmt.Sprintf("http://alcove-bridge:%s", d.cfg.Port)) + "/api/v1/internal/token-refresh",
 		"GATE_TOKEN_REFRESH_SECRET": sessionToken,
-		"GATE_LEDGER_URL":    envOrDefault("BRIDGE_URL", fmt.Sprintf("http://alcove-bridge:%s", d.cfg.Port)),
-		"GATE_CREDENTIALS":   "{}",
-		"GATE_VERTEX_REGION":  vertexRegion,
-		"GATE_VERTEX_PROJECT": vertexProject,
+		"GATE_LEDGER_URL":           envOrDefault("BRIDGE_URL", fmt.Sprintf("http://alcove-bridge:%s", d.cfg.Port)),
+		"GATE_CREDENTIALS":          "{}",
+		"GATE_VERTEX_REGION":        vertexRegion,
+		"GATE_VERTEX_PROJECT":       vertexProject,
 	}
 
 	// Resolve SCM credentials for services in scope.
