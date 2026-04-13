@@ -129,6 +129,7 @@ func main() {
 			TaskID:    task.ID,
 			SessionID: sessionID,
 			Status:    "running",
+			Outputs:   nil,
 		})
 	}
 
@@ -652,6 +653,11 @@ func readOutputArtifact() map[string]string {
 	log.Printf("outputs detected: %d field(s)", len(outputs))
 	return outputs
 }
+
+// readPRArtifact checks for a PR artifact file written by the task.
+// Tasks write {"repo": "owner/repo", "number": 123} to /tmp/alcove-pr.json
+// to report the PR they created for CI Gate monitoring.
+func readPRArtifact() *internal.Artifact {
 	data, err := os.ReadFile("/tmp/alcove-pr.json")
 	if err != nil {
 		return nil // No PR artifact file — normal for most tasks.
