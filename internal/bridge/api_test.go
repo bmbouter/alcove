@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/bmbouter/alcove/internal/auth"
-	"github.com/bmbouter/alcove/internal/store"
 )
 
 func TestIsScmProvider(t *testing.T) {
@@ -37,7 +36,7 @@ func TestIsScmProvider(t *testing.T) {
 	}
 }
 
-// MockPgStore implements the auth.PgStore interface for testing
+// MockPgStore implements the personal API token methods for testing
 type MockPgStore struct {
 	tokens map[string]*auth.PersonalAPIToken
 	users  map[string]bool // username -> exists
