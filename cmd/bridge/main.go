@@ -198,13 +198,16 @@ func main() {
 	// Create agent definition store.
 	defStore := bridge.NewAgentDefStore(dbpool)
 
+	// Create workflow definition store.
+	workflowStore := bridge.NewWorkflowStore(dbpool)
+
 	// Create and start the scheduler.
 	scheduler := bridge.NewScheduler(dbpool, dispatcher, cfg, credStore, defStore, settingsStore)
 	scheduler.Start(context.Background())
 	defer scheduler.Stop()
 
 	// Create agent repo syncer.
-	syncer := bridge.NewAgentRepoSyncer(dbpool, settingsStore, scheduler, defStore, dispatcher, profileStore)
+	syncer := bridge.NewAgentRepoSyncer(dbpool, settingsStore, scheduler, defStore, dispatcher, profileStore, workflowStore)
 	syncer.Start(context.Background())
 	defer syncer.Stop()
 	log.Println("agent repo syncer started")
