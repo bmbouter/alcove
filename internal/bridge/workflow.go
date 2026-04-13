@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -39,15 +40,17 @@ type WorkflowDefinition struct {
 
 // WorkflowStep represents a single step in a workflow.
 type WorkflowStep struct {
-	ID        string                 `json:"id" yaml:"id"`
-	Agent     string                 `json:"agent" yaml:"agent"`
-	Repo      string                 `json:"repo,omitempty" yaml:"repo,omitempty"`
-	Trigger   *EventTrigger          `json:"trigger,omitempty" yaml:"trigger,omitempty"`
-	Needs     []string               `json:"needs,omitempty" yaml:"needs,omitempty"`
-	Condition string                 `json:"condition,omitempty" yaml:"condition,omitempty"`
-	Approval  string                 `json:"approval,omitempty" yaml:"approval,omitempty"` // "required" or empty
-	Outputs   []string               `json:"outputs,omitempty" yaml:"outputs,omitempty"`
-	Inputs    map[string]interface{} `json:"inputs,omitempty" yaml:"inputs,omitempty"`
+	ID         string                 `json:"id" yaml:"id"`
+	Agent      string                 `json:"agent" yaml:"agent"`
+	Repo       string                 `json:"repo,omitempty" yaml:"repo,omitempty"`
+	Trigger    *EventTrigger          `json:"trigger,omitempty" yaml:"trigger,omitempty"`
+	Needs      []string               `json:"needs,omitempty" yaml:"needs,omitempty"`
+	Condition  string                 `json:"condition,omitempty" yaml:"condition,omitempty"`
+	Approval   string                 `json:"approval,omitempty" yaml:"approval,omitempty"` // "required" or empty
+	Outputs    []string               `json:"outputs,omitempty" yaml:"outputs,omitempty"`
+	Inputs     map[string]interface{} `json:"inputs,omitempty" yaml:"inputs,omitempty"`
+	RouteField string                 `json:"route_field,omitempty" yaml:"route_field,omitempty"`        // Field name for routing decisions
+	RouteMap   map[string]string      `json:"route_map,omitempty" yaml:"route_map,omitempty"`            // Value -> next step mapping
 }
 
 // WorkflowTrigger defines when a workflow should be triggered.
@@ -115,6 +118,13 @@ func validateWorkflowSteps(steps []WorkflowStep) error {
 		if err := validateInputsTemplateSyntax(step.Inputs); err != nil {
 			return fmt.Errorf("workflow step '%s' has invalid inputs: %w", step.ID, err)
 		}
+
+		// Validate field-based routing configuration
+		if step.RouteField != "" || len(step.RouteMap) > 0 {
+			if err := validateRouteConfiguration(step.RouteField, step.RouteMap); err != nil {
+				return fmt.Errorf("workflow step '%s' has invalid routing configuration: %w", step.ID, err)
+			}
+		}
 	}
 
 	// Second pass: validate dependencies and check for circular references
@@ -134,24 +144,88 @@ func validateWorkflowSteps(steps []WorkflowStep) error {
 	return nil
 }
 
-// validateConditionSyntax performs basic validation of condition expressions.
+// validateConditionSyntax performs validation of condition expressions using the condition evaluator.
 func validateConditionSyntax(condition string) error {
-	// Basic check: ensure it contains template-like syntax for step references
-	if strings.Contains(condition, "steps.") && strings.Contains(condition, ".outcome") {
-		return nil // Valid format like "steps.implement.outcome == 'completed'"
-	}
-	if strings.Contains(condition, "steps.") && strings.Contains(condition, ".outputs.") {
-		return nil // Valid format like "steps.implement.outputs.status == 'success'"
-	}
+	// Import the condition package functionality locally to avoid import cycle
+	// For now, use a simplified validation that accepts the new syntax
+	condition = strings.TrimSpace(condition)
 
-	// Allow simple boolean expressions
-	if condition == "true" || condition == "false" {
+	if condition == "" || condition == "true" || condition == "false" {
 		return nil
 	}
 
-	// For now, accept any non-empty condition as potentially valid
-	// More sophisticated validation could be added later
+	// Basic validation for supported condition patterns
+	patterns := []string{
+		`steps\.(\w+)\.outcome\s*(==|!=)\s*'([^']*)'`,
+		`steps\.(\w+)\.outputs\.(\w+)\s*(==|!=|>|<|>=|<=)\s*'([^']*)'`,
+		`steps\.(\w+)\.outputs\.(\w+)\s*(==|!=|>|<|>=|<=)\s*(\d+(?:\.\d+)?)`,
+	}
+
+	// Handle complex expressions with boolean operators
+	if strings.Contains(condition, "&&") || strings.Contains(condition, "||") {
+		return validateComplexConditionSyntax(condition, patterns)
+	}
+
+	return validateSimpleConditionSyntax(condition, patterns)
+}
+
+// validateComplexConditionSyntax validates conditions with boolean operators.
+func validateComplexConditionSyntax(condition string, patterns []string) error {
+	// Split by operators and validate each part
+	orParts := splitByOperatorForValidation(condition, "||")
+
+	for _, orPart := range orParts {
+		andParts := splitByOperatorForValidation(orPart, "&&")
+		for _, andPart := range andParts {
+			if err := validateSimpleConditionSyntax(strings.TrimSpace(andPart), patterns); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
+}
+
+// validateSimpleConditionSyntax validates a single condition expression.
+func validateSimpleConditionSyntax(condition string, patterns []string) error {
+	for _, pattern := range patterns {
+		matched, err := regexp.MatchString(pattern, condition)
+		if err != nil {
+			return fmt.Errorf("error matching pattern: %w", err)
+		}
+		if matched {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("invalid condition syntax: %s", condition)
+}
+
+// splitByOperatorForValidation splits a string by an operator, respecting quotes.
+func splitByOperatorForValidation(s, operator string) []string {
+	var parts []string
+	var current strings.Builder
+	inQuotes := false
+
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\'' {
+			inQuotes = !inQuotes
+			current.WriteByte(s[i])
+			continue
+		}
+
+		if !inQuotes && i+len(operator) <= len(s) && s[i:i+len(operator)] == operator {
+			parts = append(parts, current.String())
+			current.Reset()
+			i += len(operator) - 1 // -1 because loop will increment
+			continue
+		}
+
+		current.WriteByte(s[i])
+	}
+
+	parts = append(parts, current.String())
+	return parts
 }
 
 // validateInputsTemplateSyntax validates template syntax in inputs.
@@ -167,6 +241,55 @@ func validateInputsTemplateSyntax(inputs map[string]interface{}) error {
 		}
 	}
 	return nil
+}
+
+// validateRouteConfiguration validates field-based routing configuration.
+func validateRouteConfiguration(routeField string, routeMap map[string]string) error {
+	if routeField == "" && len(routeMap) > 0 {
+		return fmt.Errorf("route_map specified but route_field is empty")
+	}
+	if routeField != "" && len(routeMap) == 0 {
+		return fmt.Errorf("route_field specified but route_map is empty")
+	}
+	if routeField == "" && len(routeMap) == 0 {
+		return nil // Nothing to validate
+	}
+
+	// Validate route field name (simple identifier validation)
+	if !isValidIdentifier(routeField) {
+		return fmt.Errorf("invalid route_field name: %s", routeField)
+	}
+
+	// Validate route map values (step IDs will be validated in dependency check)
+	for key, value := range routeMap {
+		if key == "" {
+			return fmt.Errorf("empty key in route_map")
+		}
+		if value == "" {
+			return fmt.Errorf("empty value in route_map for key '%s'", key)
+		}
+	}
+
+	return nil
+}
+
+// isValidIdentifier checks if a string is a valid identifier (alphanumeric + underscore).
+func isValidIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i, r := range s {
+		if i == 0 {
+			if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_') {
+				return false
+			}
+		} else {
+			if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // checkCircularDependencies uses depth-first search to detect circular dependencies.

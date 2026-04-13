@@ -2,7 +2,8 @@
 # This file showcases all supported workflow features including:
 # - Multi-step dependencies with DAG structure
 # - Cross-repository agent dispatch
-# - Conditional execution
+# - Enhanced conditional execution with boolean operators and numeric comparisons
+# - Field-based routing for simple output-driven decisions
 # - Input/output templating
 # - Approval gates
 # - GitHub event triggers
@@ -21,12 +22,35 @@ workflow:
         labels: [ready-for-dev]
     outputs: [pr_url, summary, branch_name]
 
+  # Triage step: demonstrates field-based routing
+  - id: triage
+    agent: triage-agent
+    needs: [implement]
+    route_field: complexity
+    route_map:
+      simple: quick-review
+      complex: thorough-review
+    outputs: [complexity, risk_assessment]
+
+  # Quick review path for simple changes
+  - id: quick-review
+    agent: quick-reviewer
+    needs: [triage]
+    outputs: [review_status, issues_found]
+
+  # Thorough review path for complex changes
+  - id: thorough-review
+    agent: thorough-reviewer
+    needs: [triage]
+    outputs: [review_status, security_check, performance_check]
+
   # Cross-repo step: update core library based on plugin implementation
+  # Demonstrates enhanced condition evaluation with boolean operators
   - id: update-core
     agent: autonomous-developer
     repo: pulp/pulpcore  # Different repository from the first step
-    needs: [implement]
-    condition: "steps.implement.outcome == 'completed'"
+    needs: [quick-review, thorough-review]
+    condition: "(steps.quick-review.outputs.review_status == 'approved' || steps.thorough-review.outputs.review_status == 'approved') && steps.implement.outcome == 'completed'"
     inputs:
       context: "Update core to support changes in {{steps.implement.outputs.pr_url}}"
       plugin_summary: "{{steps.implement.outputs.summary}}"
@@ -44,21 +68,21 @@ workflow:
       environment: "staging"
     outputs: [deployment_url, version]
 
-  # Smoke tests: runs after staging deployment
+  # Smoke tests: runs after staging deployment with numeric comparison
   - id: verify-staging
     agent: smoke-test
     needs: [deploy-staging]
     inputs:
       target_url: "{{steps.deploy-staging.outputs.deployment_url}}"
       version: "{{steps.deploy-staging.outputs.version}}"
-    outputs: [test_results, status]
+    outputs: [test_results, status, coverage_percent]
 
-  # Production deployment: requires manual approval
+  # Production deployment: requires manual approval and enhanced conditions
   - id: deploy-production
     agent: deploy-agent
     needs: [verify-staging]
     approval: required
-    condition: "steps.verify-staging.outputs.status == 'passed'"
+    condition: "steps.verify-staging.outputs.status == 'passed' && steps.verify-staging.outputs.coverage_percent >= 85"
     inputs:
       pr_url: "{{steps.implement.outputs.pr_url}}"
       context: "Deploying verified version {{steps.deploy-staging.outputs.version}}"
