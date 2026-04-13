@@ -62,14 +62,15 @@ type WorkflowRun struct {
 
 // WorkflowRunStep represents a single step execution within a workflow run.
 type WorkflowRunStep struct {
-	ID         string                 `json:"id"`
-	RunID      string                 `json:"run_id"`
-	StepID     string                 `json:"step_id"`
-	SessionID  string                 `json:"session_id,omitempty"`
-	Status     string                 `json:"status"` // pending, running, completed, failed, skipped, awaiting_approval
-	Outputs    map[string]interface{} `json:"outputs,omitempty"`
-	StartedAt  *time.Time             `json:"started_at,omitempty"`
-	FinishedAt *time.Time             `json:"finished_at,omitempty"`
+	ID                string                 `json:"id"`
+	RunID             string                 `json:"run_id"`
+	StepID            string                 `json:"step_id"`
+	SessionID         string                 `json:"session_id,omitempty"`
+	Status            string                 `json:"status"` // pending, running, completed, failed, skipped, awaiting_approval
+	Outputs           map[string]interface{} `json:"outputs,omitempty"`
+	StartedAt         *time.Time             `json:"started_at,omitempty"`
+	FinishedAt        *time.Time             `json:"finished_at,omitempty"`
+	ApprovalTimeoutAt *time.Time             `json:"approval_timeout_at,omitempty"`
 }
 
 // StartWorkflowRun creates a new workflow run and dispatches initial steps.
@@ -162,10 +163,29 @@ func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, st
 	// Check if approval is required
 	if step.Approval == "required" {
 		log.Printf("step %s requires approval", step.ID)
-		if err := we.updateStepStatus(ctx, run.ID, step.ID, "awaiting_approval", nil, nil); err != nil {
+		now := time.Now().UTC()
+
+		// Calculate approval timeout (default: 72 hours)
+		timeoutDuration := 72 * time.Hour
+		if step.ApprovalTimeout != "" {
+			if duration, err := time.ParseDuration(step.ApprovalTimeout); err == nil {
+				timeoutDuration = duration
+			} else {
+				log.Printf("invalid approval timeout '%s' for step %s, using default 72h", step.ApprovalTimeout, step.ID)
+			}
+		}
+		timeoutAt := now.Add(timeoutDuration)
+
+		if err := we.updateStepStatusWithTimeout(ctx, run.ID, step.ID, "awaiting_approval", &now, nil, &timeoutAt); err != nil {
 			return fmt.Errorf("marking step as awaiting approval: %w", err)
 		}
-		// TODO: Implement approval mechanism
+
+		// Update workflow run status to awaiting_approval
+		if err := we.updateWorkflowRunStatus(ctx, run.ID, "awaiting_approval", nil, nil); err != nil {
+			return fmt.Errorf("marking workflow as awaiting approval: %w", err)
+		}
+
+		log.Printf("step %s approval timeout set for %s", step.ID, timeoutAt.Format(time.RFC3339))
 		return nil
 	}
 
@@ -653,9 +673,9 @@ func (we *WorkflowEngine) insertWorkflowRunStep(ctx context.Context, step *Workf
 	}
 
 	_, err = we.db.Exec(ctx, `
-		INSERT INTO workflow_run_steps (id, run_id, step_id, session_id, status, outputs, started_at, finished_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, step.ID, step.RunID, step.StepID, step.SessionID, step.Status, outputsJSON, step.StartedAt, step.FinishedAt)
+		INSERT INTO workflow_run_steps (id, run_id, step_id, session_id, status, outputs, started_at, finished_at, approval_timeout_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, step.ID, step.RunID, step.StepID, step.SessionID, step.Status, outputsJSON, step.StartedAt, step.FinishedAt, step.ApprovalTimeoutAt)
 
 	return err
 }
@@ -691,6 +711,26 @@ func (we *WorkflowEngine) updateStepStatus(ctx context.Context, runID, stepID, s
 	return err
 }
 
+// updateStepStatusWithTimeout updates a workflow run step's status, outputs, and approval timeout.
+func (we *WorkflowEngine) updateStepStatusWithTimeout(ctx context.Context, runID, stepID, status string, startedAt *time.Time, outputs map[string]interface{}, timeoutAt *time.Time) error {
+	var outputsJSON []byte
+	var err error
+	if outputs != nil {
+		outputsJSON, err = json.Marshal(outputs)
+		if err != nil {
+			return fmt.Errorf("marshaling step outputs: %w", err)
+		}
+	}
+
+	_, err = we.db.Exec(ctx, `
+		UPDATE workflow_run_steps
+		SET status = $3, started_at = $4, outputs = $5, approval_timeout_at = $6
+		WHERE run_id = $1 AND step_id = $2
+	`, runID, stepID, status, startedAt, outputsJSON, timeoutAt)
+
+	return err
+}
+
 // updateStepWithSession updates a workflow run step with session ID and marks it as running.
 func (we *WorkflowEngine) updateStepWithSession(ctx context.Context, runID, stepID, sessionID, status string, startedAt *time.Time) error {
 	_, err := we.db.Exec(ctx, `
@@ -716,7 +756,7 @@ func (we *WorkflowEngine) getStepStatus(ctx context.Context, runID, stepID strin
 // getWorkflowRunSteps gets all steps for a workflow run.
 func (we *WorkflowEngine) getWorkflowRunSteps(ctx context.Context, runID string) ([]WorkflowRunStep, error) {
 	rows, err := we.db.Query(ctx, `
-		SELECT id, run_id, step_id, session_id, status, outputs, started_at, finished_at
+		SELECT id, run_id, step_id, session_id, status, outputs, started_at, finished_at, approval_timeout_at
 		FROM workflow_run_steps
 		WHERE run_id = $1
 	`, runID)
@@ -730,9 +770,9 @@ func (we *WorkflowEngine) getWorkflowRunSteps(ctx context.Context, runID string)
 		var step WorkflowRunStep
 		var sessionID *string
 		var outputsJSON []byte
-		var startedAt, finishedAt *time.Time
+		var startedAt, finishedAt, approvalTimeoutAt *time.Time
 
-		if err := rows.Scan(&step.ID, &step.RunID, &step.StepID, &sessionID, &step.Status, &outputsJSON, &startedAt, &finishedAt); err != nil {
+		if err := rows.Scan(&step.ID, &step.RunID, &step.StepID, &sessionID, &step.Status, &outputsJSON, &startedAt, &finishedAt, &approvalTimeoutAt); err != nil {
 			return nil, err
 		}
 
@@ -748,6 +788,7 @@ func (we *WorkflowEngine) getWorkflowRunSteps(ctx context.Context, runID string)
 
 		step.StartedAt = startedAt
 		step.FinishedAt = finishedAt
+		step.ApprovalTimeoutAt = approvalTimeoutAt
 
 		steps = append(steps, step)
 	}
@@ -758,7 +799,7 @@ func (we *WorkflowEngine) getWorkflowRunSteps(ctx context.Context, runID string)
 // getStepAndRunBySessionID gets the workflow run step and run by session ID.
 func (we *WorkflowEngine) getStepAndRunBySessionID(ctx context.Context, sessionID string) (*WorkflowRunStep, *WorkflowRun, error) {
 	row := we.db.QueryRow(ctx, `
-		SELECT wrs.id, wrs.run_id, wrs.step_id, wrs.session_id, wrs.status, wrs.outputs, wrs.started_at, wrs.finished_at,
+		SELECT wrs.id, wrs.run_id, wrs.step_id, wrs.session_id, wrs.status, wrs.outputs, wrs.started_at, wrs.finished_at, wrs.approval_timeout_at,
 		       wr.id, wr.workflow_id, wr.status, wr.trigger_type, wr.trigger_ref, wr.current_step, wr.step_outputs, wr.owner
 		FROM workflow_run_steps wrs
 		JOIN workflow_runs wr ON wrs.run_id = wr.id
@@ -769,10 +810,10 @@ func (we *WorkflowEngine) getStepAndRunBySessionID(ctx context.Context, sessionI
 	var run WorkflowRun
 	var stepOutputsJSON, runStepOutputsJSON []byte
 	var sessionIDPtr *string
-	var stepStartedAt, stepFinishedAt, runStartedAt, runFinishedAt *time.Time
+	var stepStartedAt, stepFinishedAt, stepApprovalTimeoutAt, runStartedAt, runFinishedAt *time.Time
 
 	err := row.Scan(
-		&step.ID, &step.RunID, &step.StepID, &sessionIDPtr, &step.Status, &stepOutputsJSON, &stepStartedAt, &stepFinishedAt,
+		&step.ID, &step.RunID, &step.StepID, &sessionIDPtr, &step.Status, &stepOutputsJSON, &stepStartedAt, &stepFinishedAt, &stepApprovalTimeoutAt,
 		&run.ID, &run.WorkflowID, &run.Status, &run.TriggerType, &run.TriggerRef, &run.CurrentStep, &runStepOutputsJSON, &run.Owner,
 	)
 	if err != nil {
@@ -800,6 +841,7 @@ func (we *WorkflowEngine) getStepAndRunBySessionID(ctx context.Context, sessionI
 
 	step.StartedAt = stepStartedAt
 	step.FinishedAt = stepFinishedAt
+	step.ApprovalTimeoutAt = stepApprovalTimeoutAt
 	run.StartedAt = runStartedAt
 	run.FinishedAt = runFinishedAt
 
@@ -848,4 +890,73 @@ func (we *WorkflowEngine) updateRunStepOutputs(ctx context.Context, runID, stepI
 	`, runID, outputsJSON)
 
 	return err
+}
+
+// CheckApprovalTimeouts checks for and handles approval timeouts.
+func (we *WorkflowEngine) CheckApprovalTimeouts(ctx context.Context) error {
+	// Query for steps with approval timeouts that have passed
+	rows, err := we.db.Query(ctx, `
+		SELECT wrs.run_id, wrs.step_id, wr.workflow_id, wr.owner
+		FROM workflow_run_steps wrs
+		JOIN workflow_runs wr ON wrs.run_id = wr.id
+		WHERE wrs.status = 'awaiting_approval'
+		AND wrs.approval_timeout_at IS NOT NULL
+		AND wrs.approval_timeout_at < NOW()
+	`)
+	if err != nil {
+		return fmt.Errorf("querying timed out approvals: %w", err)
+	}
+	defer rows.Close()
+
+	var timedOutSteps []struct {
+		RunID      string
+		StepID     string
+		WorkflowID string
+		Owner      string
+	}
+
+	for rows.Next() {
+		var step struct {
+			RunID      string
+			StepID     string
+			WorkflowID string
+			Owner      string
+		}
+		if err := rows.Scan(&step.RunID, &step.StepID, &step.WorkflowID, &step.Owner); err != nil {
+			return fmt.Errorf("scanning timed out approval: %w", err)
+		}
+		timedOutSteps = append(timedOutSteps, step)
+	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterating timed out approvals: %w", err)
+	}
+
+	// Process each timed out approval
+	for _, step := range timedOutSteps {
+		log.Printf("approval timeout for workflow %s, step %s, marking as failed", step.RunID, step.StepID)
+
+		now := time.Now().UTC()
+
+		// Mark step as failed
+		if err := we.updateStepStatus(ctx, step.RunID, step.StepID, "failed", &now, map[string]interface{}{
+			"error": "approval timeout exceeded",
+		}); err != nil {
+			log.Printf("error marking step %s as failed due to timeout: %v", step.StepID, err)
+			continue
+		}
+
+		// Mark workflow as cancelled
+		if err := we.updateWorkflowRunStatus(ctx, step.RunID, "cancelled", nil, &now); err != nil {
+			log.Printf("error marking workflow %s as cancelled due to timeout: %v", step.RunID, err)
+		}
+
+		log.Printf("workflow %s cancelled due to approval timeout on step %s", step.RunID, step.StepID)
+	}
+
+	if len(timedOutSteps) > 0 {
+		log.Printf("processed %d approval timeouts", len(timedOutSteps))
+	}
+
+	return nil
 }

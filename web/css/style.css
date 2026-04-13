@@ -2362,3 +2362,257 @@ details[open] > .tx-tool-expand-toggle::before {
     background: var(--bg-dark);
     border-top: 1px solid rgba(0,0,0,0.1);
 }
+
+/* === Workflows === */
+.section-card {
+    background: var(--bg-card);
+    border-radius: var(--radius);
+    margin-bottom: 24px;
+    overflow: hidden;
+}
+
+.section-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.section-header h3 {
+    margin: 0;
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.section-header p {
+    margin: 4px 0 0 0;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+/* Workflow Cards */
+.workflow-run-card, .workflow-def-card, .approval-card, .workflow-step-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin: 8px 0;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.workflow-run-card:hover {
+    border-color: var(--accent-light);
+    transform: translateY(-1px);
+}
+
+.workflow-run-header, .workflow-def-header, .approval-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8px;
+}
+
+.workflow-run-info h4, .workflow-def-header h4, .approval-header h4 {
+    margin: 0;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.workflow-run-meta, .workflow-def-description {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin: 4px 0 0 0;
+}
+
+.workflow-def-meta {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+/* Status Tags */
+.status-tag {
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.status-success { background: var(--status-completed); color: #fff; }
+.status-danger { background: var(--status-error); color: #fff; }
+.status-warning { background: var(--status-cancelled); color: #fff; }
+.status-info { background: var(--status-running); color: #fff; }
+.status-neutral { background: var(--text-muted); color: #fff; }
+
+/* Approval Cards */
+.approval-card {
+    background: rgba(243, 156, 18, 0.1);
+    border: 1px solid var(--status-cancelled);
+    cursor: default;
+}
+
+.approval-actions {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+}
+
+/* Workflow Detail Modal */
+.workflow-detail-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 90%;
+    max-width: 800px;
+    max-height: 80vh;
+    background: var(--bg-card);
+    border-radius: var(--radius-lg);
+    z-index: 1001;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 1000;
+}
+
+.modal-header {
+    padding: 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-header h3 {
+    margin: 0;
+    color: var(--text);
+    font-size: 18px;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+}
+
+.modal-close:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text);
+}
+
+.modal-content {
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.workflow-info {
+    margin-bottom: 24px;
+    padding: 16px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: var(--radius);
+}
+
+.workflow-info h4 {
+    margin: 0 0 8px 0;
+    font-size: 16px;
+}
+
+.workflow-info p {
+    margin: 4px 0;
+    color: var(--text-muted);
+}
+
+.workflow-steps {
+    margin-top: 24px;
+}
+
+.workflow-steps h4 {
+    margin: 0 0 16px 0;
+    color: var(--text);
+}
+
+/* Workflow Step Cards */
+.workflow-step-card {
+    cursor: default;
+    margin-bottom: 12px;
+}
+
+.step-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.step-header h5 {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text);
+}
+
+.step-time, .step-timeout {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin: 2px 0;
+}
+
+.step-timeout {
+    color: var(--status-cancelled);
+    font-weight: 500;
+}
+
+.approval-buttons {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+}
+
+/* Empty State */
+.empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* Tags */
+.tag {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: var(--text-dim);
+    color: #fff;
+}
+
+.tag-neutral { background: var(--text-dim); }
+.tag-secondary { background: var(--accent); }
+.tag-warning { background: var(--status-cancelled); }

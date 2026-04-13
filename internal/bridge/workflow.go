@@ -39,15 +39,16 @@ type WorkflowDefinition struct {
 
 // WorkflowStep represents a single step in a workflow.
 type WorkflowStep struct {
-	ID        string                 `json:"id" yaml:"id"`
-	Agent     string                 `json:"agent" yaml:"agent"`
-	Repo      string                 `json:"repo,omitempty" yaml:"repo,omitempty"`
-	Trigger   *EventTrigger          `json:"trigger,omitempty" yaml:"trigger,omitempty"`
-	Needs     []string               `json:"needs,omitempty" yaml:"needs,omitempty"`
-	Condition string                 `json:"condition,omitempty" yaml:"condition,omitempty"`
-	Approval  string                 `json:"approval,omitempty" yaml:"approval,omitempty"` // "required" or empty
-	Outputs   []string               `json:"outputs,omitempty" yaml:"outputs,omitempty"`
-	Inputs    map[string]interface{} `json:"inputs,omitempty" yaml:"inputs,omitempty"`
+	ID              string                 `json:"id" yaml:"id"`
+	Agent           string                 `json:"agent" yaml:"agent"`
+	Repo            string                 `json:"repo,omitempty" yaml:"repo,omitempty"`
+	Trigger         *EventTrigger          `json:"trigger,omitempty" yaml:"trigger,omitempty"`
+	Needs           []string               `json:"needs,omitempty" yaml:"needs,omitempty"`
+	Condition       string                 `json:"condition,omitempty" yaml:"condition,omitempty"`
+	Approval        string                 `json:"approval,omitempty" yaml:"approval,omitempty"`         // "required" or empty
+	ApprovalTimeout string                 `json:"approval_timeout,omitempty" yaml:"approval_timeout,omitempty"` // Duration like "72h", default: "72h"
+	Outputs         []string               `json:"outputs,omitempty" yaml:"outputs,omitempty"`
+	Inputs          map[string]interface{} `json:"inputs,omitempty" yaml:"inputs,omitempty"`
 }
 
 // WorkflowTrigger defines when a workflow should be triggered.
@@ -102,6 +103,13 @@ func validateWorkflowSteps(steps []WorkflowStep) error {
 		// Validate approval field
 		if step.Approval != "" && step.Approval != "required" {
 			return fmt.Errorf("workflow step '%s' has invalid approval value '%s' (must be 'required' or empty)", step.ID, step.Approval)
+		}
+
+		// Validate approval timeout if approval is required
+		if step.Approval == "required" && step.ApprovalTimeout != "" {
+			if _, err := time.ParseDuration(step.ApprovalTimeout); err != nil {
+				return fmt.Errorf("workflow step '%s' has invalid approval_timeout '%s': %w", step.ID, step.ApprovalTimeout, err)
+			}
 		}
 
 		// Validate condition syntax (basic check for template variables)

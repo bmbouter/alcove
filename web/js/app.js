@@ -1199,7 +1199,7 @@
         stopSSE();
 
         const route = getRoute();
-        const pages = ['sessions', 'task-new', 'schedules', 'repos', 'credentials', 'security', 'tools', 'session-detail', 'users', 'account'];
+        const pages = ['sessions', 'workflows', 'task-new', 'schedules', 'repos', 'credentials', 'security', 'tools', 'session-detail', 'users', 'account'];
         pages.forEach((p) => hide($('#page-' + p)));
 
         // Update active nav tab
@@ -1212,6 +1212,9 @@
         if (route === 'sessions') {
             show($('#page-sessions'));
             loadSessions();
+        } else if (route === 'workflows') {
+            show($('#page-workflows'));
+            loadWorkflows();
         } else if (route === 'task/new') {
             show($('#page-task-new'));
             hide($('#task-error'));
@@ -5761,4 +5764,311 @@
 
         handleRoute();
     })();
+
+    // ---------------------
+    // Workflows
+    // ---------------------
+
+    let workflowRefreshInterval = null;
+
+    async function loadWorkflows() {
+        try {
+            // Clear existing content
+            $('#pending-approvals-list').innerHTML = '';
+            $('#workflow-runs-list').innerHTML = '';
+            $('#workflow-definitions-list').innerHTML = '';
+
+            // Load workflow runs
+            const runsResp = await api('GET', '/api/v1/workflow-runs');
+            if (runsResp.ok) {
+                const runsData = await runsResp.json();
+                displayWorkflowRuns(runsData.workflow_runs || []);
+
+                // Check for pending approvals
+                const pendingApprovals = extractPendingApprovals(runsData.workflow_runs || []);
+                if (pendingApprovals.length > 0) {
+                    displayPendingApprovals(pendingApprovals);
+                    show($('#pending-approvals-section'));
+                } else {
+                    hide($('#pending-approvals-section'));
+                }
+            }
+
+            // Load workflow definitions
+            const defsResp = await api('GET', '/api/v1/workflows');
+            if (defsResp.ok) {
+                const defsData = await defsResp.json();
+                displayWorkflowDefinitions(defsData.workflows || []);
+            }
+
+            // Start auto-refresh for pending approvals
+            if (workflowRefreshInterval) clearInterval(workflowRefreshInterval);
+            workflowRefreshInterval = setInterval(loadWorkflows, 10000); // Refresh every 10 seconds
+
+        } catch (err) {
+            console.error('Error loading workflows:', err);
+            $('#workflow-runs-list').innerHTML = '<div class="error-message">Failed to load workflows</div>';
+        }
+    }
+
+    function extractPendingApprovals(workflowRuns) {
+        const pending = [];
+        for (const run of workflowRuns) {
+            if (run.status === 'awaiting_approval') {
+                // This run has pending approvals - we'd need to call the detail API to get steps
+                pending.push({
+                    runId: run.id,
+                    workflowId: run.workflow_id,
+                    triggerType: run.trigger_type || 'manual',
+                    createdAt: run.created_at
+                });
+            }
+        }
+        return pending;
+    }
+
+    function displayPendingApprovals(approvals) {
+        const html = approvals.map(approval => `
+            <div class="approval-card">
+                <div class="approval-header">
+                    <h4>🔒 Workflow Approval Required</h4>
+                    <span class="tag tag-warning">${escapeHtml(approval.triggerType)}</span>
+                </div>
+                <p><strong>Workflow:</strong> ${escapeHtml(approval.workflowId)}</p>
+                <p><strong>Started:</strong> ${formatTime(approval.createdAt)}</p>
+                <div class="approval-actions">
+                    <button class="btn btn-primary btn-small" onclick="viewWorkflowRun('${approval.runId}')">
+                        👁️ View Details
+                    </button>
+                </div>
+            </div>
+        `).join('');
+        $('#pending-approvals-list').innerHTML = html;
+    }
+
+    function displayWorkflowRuns(runs) {
+        if (runs.length === 0) {
+            $('#workflow-runs-list').innerHTML = '<div class="empty-state">No workflow runs found</div>';
+            return;
+        }
+
+        const html = runs.map(run => {
+            const statusClass = getWorkflowStatusClass(run.status);
+            const statusIcon = getWorkflowStatusIcon(run.status);
+            return `
+                <div class="workflow-run-card" onclick="viewWorkflowRun('${run.id}')">
+                    <div class="workflow-run-header">
+                        <div class="workflow-run-info">
+                            <h4>${escapeHtml(run.workflow_id)}</h4>
+                            <p class="workflow-run-meta">
+                                ${escapeHtml(run.trigger_type || 'manual')} •
+                                Started ${formatTime(run.created_at)}
+                            </p>
+                        </div>
+                        <div class="status-indicator">
+                            <span class="status-tag ${statusClass}">${statusIcon} ${escapeHtml(run.status)}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        $('#workflow-runs-list').innerHTML = html;
+    }
+
+    function displayWorkflowDefinitions(definitions) {
+        if (definitions.length === 0) {
+            $('#workflow-definitions-list').innerHTML = '<div class="empty-state">No workflow definitions found</div>';
+            return;
+        }
+
+        const html = definitions.map(def => `
+            <div class="workflow-def-card">
+                <div class="workflow-def-header">
+                    <h4>${escapeHtml(def.name)}</h4>
+                    <div class="workflow-def-meta">
+                        <span class="tag tag-neutral">${def.workflow?.length || 0} steps</span>
+                        ${def.source_repo ? `<span class="tag tag-secondary">${escapeHtml(def.source_repo)}</span>` : ''}
+                    </div>
+                </div>
+                <p class="workflow-def-description">
+                    ${def.workflow?.map(step => step.id).join(' → ') || 'No steps defined'}
+                </p>
+            </div>
+        `).join('');
+        $('#workflow-definitions-list').innerHTML = html;
+    }
+
+    async function viewWorkflowRun(runId) {
+        try {
+            const resp = await api('GET', `/api/v1/workflow-runs/${runId}`);
+            if (resp.ok) {
+                const data = await resp.json();
+                showWorkflowRunDetail(data);
+            }
+        } catch (err) {
+            console.error('Error loading workflow run details:', err);
+        }
+    }
+
+    function showWorkflowRunDetail(data) {
+        const { workflow_run: run, steps = [], pending_approvals = [] } = data;
+
+        let detailHtml = `
+            <div class="workflow-detail-modal">
+                <div class="modal-header">
+                    <h3>Workflow Run Details</h3>
+                    <button class="modal-close" onclick="hideWorkflowDetail()">&times;</button>
+                </div>
+                <div class="modal-content">
+                    <div class="workflow-info">
+                        <h4>${escapeHtml(run.workflow_id)}</h4>
+                        <p><strong>Status:</strong> <span class="status-tag ${getWorkflowStatusClass(run.status)}">${escapeHtml(run.status)}</span></p>
+                        <p><strong>Started:</strong> ${formatTime(run.created_at)}</p>
+                        <p><strong>Trigger:</strong> ${escapeHtml(run.trigger_type || 'manual')}</p>
+                    </div>
+
+                    <div class="workflow-steps">
+                        <h4>Steps</h4>
+                        ${steps.map(step => renderWorkflowStep(step, run.id, pending_approvals)).join('')}
+                    </div>
+                </div>
+            </div>
+            <div class="modal-overlay" onclick="hideWorkflowDetail()"></div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', detailHtml);
+    }
+
+    function renderWorkflowStep(step, runId, pendingApprovals) {
+        const statusClass = getStepStatusClass(step.status);
+        const statusIcon = getStepStatusIcon(step.status);
+        const isAwaitingApproval = step.status === 'awaiting_approval';
+        const timeoutInfo = step.approval_timeout_at ?
+            `<p class="step-timeout">⏰ Timeout: ${formatTime(step.approval_timeout_at)}</p>` : '';
+
+        const approvalButtons = isAwaitingApproval ? `
+            <div class="approval-buttons">
+                <button class="btn btn-success btn-small" onclick="approveStep('${runId}', '${step.step_id}')">
+                    ✓ Approve
+                </button>
+                <button class="btn btn-danger btn-small" onclick="rejectStep('${runId}', '${step.step_id}')">
+                    ✗ Reject
+                </button>
+            </div>
+        ` : '';
+
+        return `
+            <div class="workflow-step-card">
+                <div class="step-header">
+                    <h5>${escapeHtml(step.step_id)}</h5>
+                    <span class="status-tag ${statusClass}">${statusIcon} ${escapeHtml(step.status)}</span>
+                </div>
+                ${step.started_at ? `<p class="step-time">Started: ${formatTime(step.started_at)}</p>` : ''}
+                ${step.finished_at ? `<p class="step-time">Finished: ${formatTime(step.finished_at)}</p>` : ''}
+                ${timeoutInfo}
+                ${approvalButtons}
+            </div>
+        `;
+    }
+
+    async function approveStep(runId, stepId) {
+        try {
+            const resp = await api('POST', `/api/v1/workflow-runs/${runId}/steps/${stepId}/approve`);
+            if (resp.ok) {
+                hideWorkflowDetail();
+                loadWorkflows(); // Refresh the workflows list
+            } else {
+                alert('Failed to approve step');
+            }
+        } catch (err) {
+            console.error('Error approving step:', err);
+            alert('Error approving step');
+        }
+    }
+
+    async function rejectStep(runId, stepId) {
+        if (confirm('Are you sure you want to reject this step? This will fail the entire workflow.')) {
+            try {
+                const resp = await api('POST', `/api/v1/workflow-runs/${runId}/steps/${stepId}/reject`);
+                if (resp.ok) {
+                    hideWorkflowDetail();
+                    loadWorkflows(); // Refresh the workflows list
+                } else {
+                    alert('Failed to reject step');
+                }
+            } catch (err) {
+                console.error('Error rejecting step:', err);
+                alert('Error rejecting step');
+            }
+        }
+    }
+
+    function hideWorkflowDetail() {
+        const modal = document.querySelector('.workflow-detail-modal');
+        const overlay = document.querySelector('.modal-overlay');
+        if (modal) modal.remove();
+        if (overlay) overlay.remove();
+    }
+
+    function getWorkflowStatusClass(status) {
+        switch (status) {
+            case 'completed': return 'status-success';
+            case 'failed': case 'cancelled': return 'status-danger';
+            case 'awaiting_approval': return 'status-warning';
+            case 'running': return 'status-info';
+            default: return 'status-neutral';
+        }
+    }
+
+    function getWorkflowStatusIcon(status) {
+        switch (status) {
+            case 'completed': return '✓';
+            case 'failed': return '✗';
+            case 'cancelled': return '🚫';
+            case 'awaiting_approval': return '⏳';
+            case 'running': return '🏃';
+            default: return '⚪';
+        }
+    }
+
+    function getStepStatusClass(status) {
+        switch (status) {
+            case 'completed': return 'status-success';
+            case 'failed': return 'status-danger';
+            case 'awaiting_approval': return 'status-warning';
+            case 'running': return 'status-info';
+            case 'skipped': return 'status-neutral';
+            default: return 'status-neutral';
+        }
+    }
+
+    function getStepStatusIcon(status) {
+        switch (status) {
+            case 'completed': return '✓';
+            case 'failed': return '✗';
+            case 'awaiting_approval': return '⏳';
+            case 'running': return '🏃';
+            case 'skipped': return '⏭️';
+            default: return '⚪';
+        }
+    }
+
+    // Refresh workflows button
+    $('#refresh-workflows-btn').addEventListener('click', loadWorkflows);
+
+    // Cleanup on page change
+    function stopWorkflowRefresh() {
+        if (workflowRefreshInterval) {
+            clearInterval(workflowRefreshInterval);
+            workflowRefreshInterval = null;
+        }
+    }
+
+    // Update the existing stopRefresh function to include workflow refresh
+    const originalStopRefresh = stopRefresh;
+    stopRefresh = function() {
+        originalStopRefresh();
+        stopWorkflowRefresh();
+    };
+
 })();

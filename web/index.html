@@ -56,6 +56,7 @@
             <nav class="top-bar-nav" aria-label="Main navigation">
                 <a href="#task/new" class="nav-tab" data-tab="task/new">New Session</a>
                 <a href="#sessions" class="nav-tab" data-tab="sessions">Sessions</a>
+                <a href="#workflows" class="nav-tab" data-tab="workflows">Workflows</a>
                 <a href="#schedules" class="nav-tab" data-tab="schedules">Schedules</a>
                 <a href="#credentials" class="nav-tab" data-tab="credentials">Credentials</a>
                 <a href="#security" class="nav-tab" data-tab="security">Security</a>
@@ -132,6 +133,42 @@
                         <div class="spinner"></div>
                         <p>Loading sessions...</p>
                     </div>
+                </div>
+            </div>
+
+            <!-- Workflows -->
+            <div id="page-workflows" class="page" hidden>
+                <div class="page-header">
+                    <h2>Workflows</h2>
+                    <p>Manage workflow executions and approvals</p>
+                </div>
+
+                <!-- Pending Approvals Section -->
+                <div id="pending-approvals-section" class="section-card" hidden>
+                    <div class="section-header">
+                        <h3>⏳ Pending Approvals</h3>
+                        <p>Workflow steps waiting for your approval</p>
+                    </div>
+                    <div id="pending-approvals-list"></div>
+                </div>
+
+                <!-- Workflow Runs Section -->
+                <div class="section-card">
+                    <div class="section-header">
+                        <h3>📋 Workflow Runs</h3>
+                        <p>Recent workflow executions</p>
+                        <button id="refresh-workflows-btn" class="btn btn-secondary btn-small">🔄 Refresh</button>
+                    </div>
+                    <div id="workflow-runs-list"></div>
+                </div>
+
+                <!-- Workflow Definitions Section -->
+                <div class="section-card">
+                    <div class="section-header">
+                        <h3>📁 Workflow Definitions</h3>
+                        <p>Available workflow templates</p>
+                    </div>
+                    <div id="workflow-definitions-list"></div>
                 </div>
             </div>
 

@@ -1,0 +1,41 @@
+# Example workflow with approval gates
+name: Feature Delivery Pipeline with Approvals
+workflow:
+  # Step 1: Implement the feature
+  - id: implement
+    agent: autonomous-developer
+    repo: pulp/pulp_python
+    trigger:
+      github:
+        events: [issues]
+        labels: [ready-for-dev]
+    outputs: [pr_url, summary]
+
+  # Step 2: Deploy to staging (automatic)
+  - id: deploy-staging
+    agent: deploy-agent
+    needs: [implement]
+    condition: "steps.implement.outcome == 'completed'"
+    inputs:
+      context: "{{steps.implement.outputs.summary}}"
+      pr_url: "{{steps.implement.outputs.pr_url}}"
+
+  # Step 3: Run automated verification (automatic)
+  - id: verify-staging
+    agent: smoke-test
+    needs: [deploy-staging]
+
+  # Step 4: Deploy to production (requires approval)
+  - id: promote-prod
+    agent: deploy-agent
+    needs: [verify-staging]
+    approval: required
+    approval_timeout: "72h"  # Default timeout, can be customized
+    inputs:
+      context: "{{steps.verify-staging.outputs.status}}"
+      pr_url: "{{steps.implement.outputs.pr_url}}"
+
+  # Step 5: Final verification (automatic after approval)
+  - id: verify-prod
+    agent: prod-verification
+    needs: [promote-prod]
