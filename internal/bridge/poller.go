@@ -59,16 +59,16 @@ type GitHubPoller struct {
 
 // pollSchedule holds the fields needed from a schedule for polling and dispatch.
 type pollSchedule struct {
-	ID          string
-	Name        string
-	Prompt      string
-	Repo        string
-	Provider    string
-	Timeout     int
-	Owner       string
-	Debug       bool
-	SourceKey   string
-	Trigger     *GitHubTrigger
+	ID        string
+	Name      string
+	Prompt    string
+	Repo      string
+	Provider  string
+	Timeout   int
+	Owner     string
+	Debug     bool
+	SourceKey string
+	Trigger   *GitHubTrigger
 }
 
 // PollAll queries all polling-mode event schedules, groups by repo, and polls each.
@@ -172,11 +172,11 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 	// solely on the webhook_deliveries table for deduplication. No ID-based
 	// skipping — GitHub event IDs are not chronologically ordered.
 	type ghEvent struct {
-		ID        string          `json:"id"`
-		Type      string          `json:"type"`
+		ID        string                `json:"id"`
+		Type      string                `json:"type"`
 		Repo      struct{ Name string } `json:"repo"`
-		Payload   json.RawMessage `json:"payload"`
-		CreatedAt time.Time       `json:"created_at"`
+		Payload   json.RawMessage       `json:"payload"`
+		CreatedAt time.Time             `json:"created_at"`
 	}
 
 	var allEvents []ghEvent
@@ -273,8 +273,8 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 
 	dispatched := 0
 
-	// Clean up old dedup entries (older than 1 hour).
-	_, _ = p.db.Exec(ctx, `DELETE FROM dispatched_dedup WHERE dispatched_at < NOW() - INTERVAL '1 hour'`)
+	// Clean up old dedup entries (older than 5 minutes).
+	_, _ = p.db.Exec(ctx, `DELETE FROM dispatched_dedup WHERE dispatched_at < NOW() - INTERVAL '5 minutes'`)
 
 	// Track dispatched (issue_number, schedule_id) pairs to prevent duplicates in this poll cycle.
 	dispatchedTasks := make(map[string]bool)
