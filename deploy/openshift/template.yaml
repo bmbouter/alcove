@@ -19,6 +19,8 @@ parameters:
   value: "postgres"
 - name: RH_IDENTITY_ADMINS
   value: ""
+- name: ADMIN_RESET_PASSWORD
+  value: ""
 - name: BRIDGE_LLM_PROVIDER
   value: ""
 - name: BRIDGE_LLM_PROJECT
@@ -128,6 +130,8 @@ objects:
             value: ${AUTH_BACKEND}
           - name: RH_IDENTITY_ADMINS
             value: ${RH_IDENTITY_ADMINS}
+          - name: ADMIN_RESET_PASSWORD
+            value: ${ADMIN_RESET_PASSWORD}
           - name: GATE_IMAGE
             value: ${GATE_IMAGE}
           - name: BRIDGE_URL

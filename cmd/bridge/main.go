@@ -122,6 +122,17 @@ func main() {
 			}
 			log.Printf("default admin user created — username: admin, password: admin — change this in the dashboard")
 		}
+		// ADMIN_RESET_PASSWORD: force-create or reset the admin user.
+		// Used when switching from rh-identity to postgres backend on a
+		// database that already has SSO-provisioned users (who have no passwords).
+		if resetPw := os.Getenv("ADMIN_RESET_PASSWORD"); resetPw != "" {
+			// Try to delete existing admin, ignore errors (may not exist).
+			_ = pgStore.DeleteUser(context.Background(), "admin")
+			if err := pgStore.CreateUser(context.Background(), "admin", resetPw, true); err != nil {
+				log.Fatalf("resetting admin password: %v", err)
+			}
+			log.Printf("admin user reset with provided password (ADMIN_RESET_PASSWORD)")
+		}
 		store = pgStore
 		if m, ok := store.(auth.UserManager); ok {
 			mgr = m
