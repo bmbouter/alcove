@@ -60,12 +60,34 @@ alcove --help
 
 ### Authentication Methods
 
-The CLI supports two authentication methods:
+The CLI supports three authentication methods:
 
 1. **Token-based authentication** (default): Authenticates with stored token from `alcove login`
-2. **Basic Auth**: Uses username/password (set via flags, environment variables, or config file)
+2. **Basic Auth with password**: Uses username/password (set via flags, environment variables, or config file)
+3. **Basic Auth with personal API token**: Uses username and personal API token instead of password
 
 Basic Auth takes precedence over token-based authentication when provided.
+
+#### Personal API Tokens
+
+For postgres auth backend, you can use personal API tokens instead of passwords:
+
+```bash
+# Create a token via the web dashboard, then configure CLI
+alcove config set server https://alcove.example.com
+alcove config set username admin
+alcove config set password apat_a1b2c3d4e5f6789012345678901234567890
+
+# Now use normally
+alcove list
+alcove run "Fix the failing tests"
+```
+
+Personal API tokens:
+- Start with `apat_` prefix
+- Never expire (user revokes manually)
+- Have same permissions as the user
+- Are more secure than passwords for CLI/API usage
 
 ## Environment Variables
 

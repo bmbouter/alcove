@@ -12,6 +12,7 @@ its columns, and the migration system that manages the schema.
 | `provider_credentials` | Encrypted LLM provider credentials (API keys, service account tokens) |
 | `auth_users` | Local user accounts for Bridge authentication |
 | `auth_sessions` | Active login sessions (bearer tokens) |
+| `personal_api_tokens` | Personal API tokens for CLI/API authentication (postgres auth only) |
 | `schedules` | Recurring agent definitions (cron-based) |
 | `schema_migrations` | Tracks which migrations have been applied (auto-created) |
 
@@ -93,6 +94,34 @@ used to authenticate API requests.
 | `idx_auth_sessions_expires` | `expires_at` | Speeds up expired token cleanup queries |
 
 When a user is deleted from `auth_users`, all their sessions are automatically
+removed via `ON DELETE CASCADE`.
+
+## personal_api_tokens
+
+Personal API tokens for CLI and API authentication. Only used with the postgres auth backend.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `TEXT` | `PRIMARY KEY` | Token UUID |
+| `username` | `TEXT` | `NOT NULL, REFERENCES auth_users(username) ON DELETE CASCADE` | Token owner |
+| `name` | `TEXT` | `NOT NULL DEFAULT ''` | User-provided description (e.g., "laptop CLI") |
+| `token_hash` | `TEXT` | `NOT NULL` | bcrypt hash of the actual token |
+| `created_at` | `TIMESTAMPTZ` | `NOT NULL DEFAULT NOW()` | When the token was created |
+| `last_accessed_at` | `TIMESTAMPTZ` | nullable | When this token was last used (updated asynchronously) |
+
+### Indexes
+
+| Index | Column(s) | Notes |
+|-------|-----------|-------|
+| `idx_personal_api_tokens_username` | `username` | Speeds up token lookup by user |
+
+**Token Format:** Personal API tokens use the format `apat_` followed by 40 hex characters.
+
+**Security:** The actual token is only shown once at creation time. The stored `token_hash` is compared using bcrypt when validating tokens.
+
+**Authentication:** Tokens work via Basic Auth where the username is the account username and the "password" is the personal API token.
+
+When a user is deleted from `auth_users`, all their personal API tokens are automatically
 removed via `ON DELETE CASCADE`.
 
 ## schedules

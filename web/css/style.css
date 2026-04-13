@@ -1403,6 +1403,63 @@ select.input {
     color: var(--text);
 }
 
+/* Token display styles */
+.token-display {
+    margin: 16px 0;
+}
+
+.token-display label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+
+.token-value-container {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.token-input {
+    flex: 1;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    padding: 8px 12px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    min-width: 0;
+}
+
+.token-info {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+}
+
+.token-info p {
+    margin-bottom: 8px;
+}
+
+.usage-example {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    overflow-x: auto;
+    margin-top: 8px;
+    line-height: 1.4;
+}
+
+.warning-message {
+    border-radius: var(--radius);
+    padding: 12px;
+    font-size: 13px;
+}
+
 /* User dropdown */
 .user-dropdown {
     position: relative;

@@ -16,11 +16,15 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -28,6 +32,7 @@ const (
 	pgMaxFailed       = 5
 	pgFailedWindow    = 15 * time.Minute
 	pgLockoutDuration = 30 * time.Minute
+	tokenBytes        = 32
 )
 
 // PgStore implements Authenticator and UserManager backed by PostgreSQL.
@@ -80,6 +85,13 @@ func (s *PgStore) ValidateCredentials(username, password string) (string, error)
 	err := s.db.QueryRow(context.Background(),
 		"SELECT password FROM auth_users WHERE username = $1", username).Scan(&hash)
 	if err != nil || !VerifyPassword(hash, password) {
+		// Account password didn't match — try personal API tokens
+		if validatedUser, tokenErr := s.validateAPIToken(context.Background(), username, password); tokenErr == nil {
+			// Clear failures on API token success.
+			delete(s.failures, username)
+			return validatedUser, nil
+		}
+
 		s.pgRecordFailure(username)
 		return "", fmt.Errorf("invalid credentials")
 	}
@@ -302,4 +314,141 @@ func (s *PgStore) SeedUsers(ctx context.Context, users map[string]string) error 
 		}
 	}
 	return nil
+}
+
+// PersonalAPIToken represents a user's personal API token
+type PersonalAPIToken struct {
+	ID             string     `json:"id"`
+	Username       string     `json:"username"`
+	Name           string     `json:"name"`
+	CreatedAt      time.Time  `json:"created_at"`
+	LastAccessedAt *time.Time `json:"last_accessed_at"`
+}
+
+// CreatePersonalAPITokenResponse includes the raw token (shown only once)
+type CreatePersonalAPITokenResponse struct {
+	PersonalAPIToken
+	Token string `json:"token"`
+}
+
+// generateAPIToken creates a new API token with the "apat_" prefix
+func generateAPIToken() (string, error) {
+	b := make([]byte, 20) // 40 hex chars
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return "apat_" + hex.EncodeToString(b), nil
+}
+
+// CreatePersonalAPIToken creates a new personal API token for the user
+func (s *PgStore) CreatePersonalAPIToken(ctx context.Context, username, name string) (*CreatePersonalAPITokenResponse, error) {
+	// Generate token and ID
+	token, err := generateAPIToken()
+	if err != nil {
+		return nil, fmt.Errorf("generating API token: %w", err)
+	}
+
+	tokenID := uuid.New().String()
+
+	// Hash the token using bcrypt
+	tokenHash, err := bcrypt.GenerateFromPassword([]byte(token), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("hashing token: %w", err)
+	}
+
+	// Insert into database
+	var createdAt time.Time
+	err = s.db.QueryRow(ctx,
+		"INSERT INTO personal_api_tokens (id, username, name, token_hash, created_at) VALUES ($1, $2, $3, $4, NOW()) RETURNING created_at",
+		tokenID, username, name, string(tokenHash)).Scan(&createdAt)
+	if err != nil {
+		return nil, fmt.Errorf("creating API token: %w", err)
+	}
+
+	return &CreatePersonalAPITokenResponse{
+		PersonalAPIToken: PersonalAPIToken{
+			ID:        tokenID,
+			Username:  username,
+			Name:      name,
+			CreatedAt: createdAt,
+		},
+		Token: token,
+	}, nil
+}
+
+// ListPersonalAPITokens returns all personal API tokens for a user
+func (s *PgStore) ListPersonalAPITokens(ctx context.Context, username string) ([]PersonalAPIToken, error) {
+	rows, err := s.db.Query(ctx,
+		"SELECT id, username, name, created_at, last_accessed_at FROM personal_api_tokens WHERE username = $1 ORDER BY created_at DESC",
+		username)
+	if err != nil {
+		return nil, fmt.Errorf("listing API tokens: %w", err)
+	}
+	defer rows.Close()
+
+	var tokens []PersonalAPIToken
+	for rows.Next() {
+		var token PersonalAPIToken
+		if err := rows.Scan(&token.ID, &token.Username, &token.Name, &token.CreatedAt, &token.LastAccessedAt); err != nil {
+			return nil, fmt.Errorf("scanning API token: %w", err)
+		}
+		tokens = append(tokens, token)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating API tokens: %w", err)
+	}
+
+	return tokens, nil
+}
+
+// DeletePersonalAPIToken removes a personal API token
+func (s *PgStore) DeletePersonalAPIToken(ctx context.Context, username, tokenID string) error {
+	tag, err := s.db.Exec(ctx,
+		"DELETE FROM personal_api_tokens WHERE id = $1 AND username = $2",
+		tokenID, username)
+	if err != nil {
+		return fmt.Errorf("deleting API token: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("API token not found or not owned by user")
+	}
+	return nil
+}
+
+// validateAPIToken checks if a token is valid for the given username and updates last_accessed_at
+func (s *PgStore) validateAPIToken(ctx context.Context, username, token string) (string, error) {
+	// Get all tokens for the user
+	rows, err := s.db.Query(ctx,
+		"SELECT id, token_hash FROM personal_api_tokens WHERE username = $1",
+		username)
+	if err != nil {
+		return "", fmt.Errorf("querying API tokens: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var tokenID, tokenHash string
+		if err := rows.Scan(&tokenID, &tokenHash); err != nil {
+			continue
+		}
+
+		// Check if this token matches
+		if err := bcrypt.CompareHashAndPassword([]byte(tokenHash), []byte(token)); err == nil {
+			// Token matches - update last accessed time asynchronously
+			go func(id string) {
+				ctx := context.Background()
+				_, err := s.db.Exec(ctx,
+					"UPDATE personal_api_tokens SET last_accessed_at = NOW() WHERE id = $1",
+					id)
+				if err != nil {
+					// Log but don't fail the authentication
+					fmt.Printf("warning: failed to update token last_accessed_at: %v\n", err)
+				}
+			}(tokenID)
+
+			return username, nil
+		}
+	}
+
+	return "", fmt.Errorf("invalid token")
 }

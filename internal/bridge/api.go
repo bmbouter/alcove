@@ -107,6 +107,8 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/admin/system-state", a.handleSystemState)
 	mux.HandleFunc("/api/v1/auth/tbr-associations", a.handleTBRAssociations)
 	mux.HandleFunc("/api/v1/auth/tbr-associations/", a.handleTBRAssociationByID)
+	mux.HandleFunc("/api/v1/auth/api-tokens", a.handlePersonalAPITokens)
+	mux.HandleFunc("/api/v1/auth/api-tokens/", a.handlePersonalAPITokenByID)
 }
 
 // --- Health ---
@@ -2401,6 +2403,111 @@ func (a *API) handleTBRAssociationByID(w http.ResponseWriter, r *http.Request) {
 		if err := rhStore.DeleteTBRAssociation(r.Context(), username, path); err != nil {
 			log.Printf("error deleting TBR association %s for user %s: %v", path, username, err)
 			respondError(w, http.StatusNotFound, err.Error())
+			return
+		}
+
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"deleted": true,
+		})
+
+	default:
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (a *API) handlePersonalAPITokens(w http.ResponseWriter, r *http.Request) {
+	username := r.Header.Get("X-Alcove-User")
+	if username == "" {
+		respondError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	// Only supported with postgres backend
+	if a.cfg.AuthBackend != "postgres" {
+		respondError(w, http.StatusBadRequest, "personal API tokens only supported with postgres backend")
+		return
+	}
+
+	pgStore, ok := a.authStore.(*auth.PgStore)
+	if !ok {
+		respondError(w, http.StatusInternalServerError, "postgres auth store not available")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		// List user's personal API tokens
+		tokens, err := pgStore.ListPersonalAPITokens(r.Context(), username)
+		if err != nil {
+			log.Printf("error fetching personal API tokens for user %s: %v", username, err)
+			respondError(w, http.StatusInternalServerError, "failed to fetch tokens")
+			return
+		}
+
+		respondJSON(w, http.StatusOK, tokens)
+
+	case http.MethodPost:
+		// Create new personal API token
+		var req struct {
+			Name string `json:"name"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+
+		if strings.TrimSpace(req.Name) == "" {
+			respondError(w, http.StatusBadRequest, "name is required")
+			return
+		}
+
+		response, err := pgStore.CreatePersonalAPIToken(r.Context(), username, strings.TrimSpace(req.Name))
+		if err != nil {
+			log.Printf("error creating personal API token for user %s: %v", username, err)
+			respondError(w, http.StatusInternalServerError, "failed to create token")
+			return
+		}
+
+		respondJSON(w, http.StatusCreated, response)
+
+	default:
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
+func (a *API) handlePersonalAPITokenByID(w http.ResponseWriter, r *http.Request) {
+	username := r.Header.Get("X-Alcove-User")
+	if username == "" {
+		respondError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	// Only supported with postgres backend
+	if a.cfg.AuthBackend != "postgres" {
+		respondError(w, http.StatusBadRequest, "personal API tokens only supported with postgres backend")
+		return
+	}
+
+	pgStore, ok := a.authStore.(*auth.PgStore)
+	if !ok {
+		respondError(w, http.StatusInternalServerError, "postgres auth store not available")
+		return
+	}
+
+	// Extract token ID from URL path
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/auth/api-tokens/")
+	if path == "" {
+		respondError(w, http.StatusBadRequest, "token ID required")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodDelete:
+		// Delete personal API token (user must own it)
+		if err := pgStore.DeletePersonalAPIToken(r.Context(), username, path); err != nil {
+			log.Printf("error deleting personal API token %s for user %s: %v", path, username, err)
+			respondError(w, http.StatusNotFound, "token not found or not owned by user")
 			return
 		}
 

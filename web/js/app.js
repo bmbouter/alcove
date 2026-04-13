@@ -5522,13 +5522,23 @@
     // Account Page / TBR Associations
     // ---------------------
     async function loadAccountPage() {
-        // Show account tab and TBR section only for rh-identity mode
+        // Show account tab for both auth backends
+        show($('#account-tab'));
+
+        // Show TBR section only for rh-identity mode
         if (rhIdentityMode) {
-            show($('#account-tab'));
             show($('#tbr-associations-section'));
             loadTBRAssociations();
         } else {
             hide($('#tbr-associations-section'));
+        }
+
+        // Show personal API tokens section only for postgres mode
+        if (!rhIdentityMode) {
+            show($('#personal-api-tokens-section'));
+            loadPersonalAPITokens();
+        } else {
+            hide($('#personal-api-tokens-section'));
         }
     }
 
@@ -5658,6 +5668,175 @@
 
     // Make deleteTBRAssociation available globally for onclick handlers
     window.deleteTBRAssociation = deleteTBRAssociation;
+
+    // ---------------------
+    // Personal API Tokens
+    // ---------------------
+    async function loadPersonalAPITokens() {
+        const tbody = $('#personal-api-tokens-tbody');
+        const table = $('#personal-api-tokens-table');
+        const empty = $('#personal-api-tokens-empty');
+
+        try {
+            const resp = await api('GET', '/api/v1/auth/api-tokens');
+            const tokens = await resp.json();
+
+            tbody.innerHTML = '';
+
+            if (tokens.length === 0) {
+                show(empty);
+                hide(table);
+            } else {
+                hide(empty);
+                show(table);
+
+                tokens.forEach(token => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${escapeHtml(token.name)}</td>
+                        <td>${new Date(token.created_at).toLocaleDateString()}</td>
+                        <td>${token.last_accessed_at ? new Date(token.last_accessed_at).toLocaleDateString() : 'Never'}</td>
+                        <td>
+                            <button onclick="deletePersonalAPIToken('${token.id}')" class="btn btn-small btn-outline btn-danger">Delete</button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            }
+        } catch (error) {
+            console.error('Error loading personal API tokens:', error);
+            showAPITokenMessage('Error loading tokens', 'error');
+        }
+    }
+
+    async function deletePersonalAPIToken(tokenId) {
+        if (!confirm('Are you sure you want to delete this token? This action cannot be undone.')) {
+            return;
+        }
+
+        try {
+            const resp = await api('DELETE', `/api/v1/auth/api-tokens/${tokenId}`);
+            if (resp.ok) {
+                showAPITokenMessage('Token deleted successfully', 'success');
+                loadPersonalAPITokens();
+            } else {
+                const error = await resp.json();
+                showAPITokenMessage(error.error || 'Failed to delete token', 'error');
+            }
+        } catch (error) {
+            console.error('Error deleting API token:', error);
+            showAPITokenMessage('Error deleting token', 'error');
+        }
+    }
+
+    function showAPITokenMessage(message, type) {
+        const errorEl = $('#personal-api-token-error');
+        const successEl = $('#personal-api-token-success');
+
+        if (type === 'error') {
+            errorEl.textContent = message;
+            show(errorEl);
+            hide(successEl);
+        } else {
+            successEl.textContent = message;
+            show(successEl);
+            hide(errorEl);
+        }
+
+        // Auto-hide after 5 seconds
+        setTimeout(() => {
+            hide(errorEl);
+            hide(successEl);
+        }, 5000);
+    }
+
+    function showAPITokenDisplay(tokenData) {
+        const modal = $('#api-token-display-modal');
+        const tokenValueInput = $('#display-token-value');
+        const tokenNameSpan = $('#display-token-name');
+        const tokenExampleSpan = $('#display-token-example');
+
+        tokenValueInput.value = tokenData.token;
+        tokenNameSpan.textContent = tokenData.name;
+        tokenExampleSpan.textContent = tokenData.token;
+
+        show(modal);
+
+        // Focus and select the token for easy copying
+        tokenValueInput.focus();
+        tokenValueInput.select();
+    }
+
+    function hideAPITokenDisplay() {
+        const modal = $('#api-token-display-modal');
+        const tokenValueInput = $('#display-token-value');
+
+        hide(modal);
+        tokenValueInput.value = ''; // Clear for security
+    }
+
+    // Personal API Token Form Handler
+    const tokenForm = $('#personal-api-token-form');
+    if (tokenForm) {
+        tokenForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const formData = new FormData(tokenForm);
+            const data = {
+                name: formData.get('name').trim()
+            };
+
+            if (!data.name) {
+                showAPITokenMessage('Token name is required.', 'error');
+                return;
+            }
+
+            try {
+                const resp = await api('POST', '/api/v1/auth/api-tokens', data);
+                if (resp.ok) {
+                    const tokenData = await resp.json();
+                    tokenForm.reset();
+                    showAPITokenMessage('Token created successfully.', 'success');
+                    showAPITokenDisplay(tokenData);
+                    loadPersonalAPITokens();
+                } else {
+                    const error = await resp.json();
+                    showAPITokenMessage(error.error || 'Failed to create token', 'error');
+                }
+            } catch (error) {
+                console.error('Error creating API token:', error);
+                showAPITokenMessage('Error creating token', 'error');
+            }
+        });
+    }
+
+    // Token display modal handlers
+    const copyTokenBtn = $('#copy-token-btn');
+    const tokenDisplayClose = $('#api-token-display-close');
+
+    if (copyTokenBtn) {
+        copyTokenBtn.addEventListener('click', function() {
+            const tokenInput = $('#display-token-value');
+            tokenInput.select();
+            document.execCommand('copy');
+
+            // Visual feedback
+            const originalText = copyTokenBtn.textContent;
+            copyTokenBtn.textContent = 'Copied!';
+            copyTokenBtn.classList.add('btn-success');
+            setTimeout(() => {
+                copyTokenBtn.textContent = originalText;
+                copyTokenBtn.classList.remove('btn-success');
+            }, 2000);
+        });
+    }
+
+    if (tokenDisplayClose) {
+        tokenDisplayClose.addEventListener('click', hideAPITokenDisplay);
+    }
+
+    // Make functions available globally for onclick handlers
+    window.deletePersonalAPIToken = deletePersonalAPIToken;
 
     // ---------------------
     // System State (Maintenance Mode)

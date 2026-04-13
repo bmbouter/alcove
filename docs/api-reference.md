@@ -8,7 +8,23 @@ All request and response bodies use `application/json`.
 
 ## Authentication
 
-Protected API routes require a `Bearer` token in the `Authorization` header. Obtain a token via the login endpoint. Tokens expire after 8 hours.
+Protected API routes require a `Bearer` token or `Basic` authentication in the `Authorization` header. There are two authentication methods:
+
+### Session Tokens (web login)
+Obtain a session token via the login endpoint. Tokens expire after 8 hours.
+
+```
+Authorization: Bearer a1b2c3d4e5f6...
+```
+
+### Personal API Tokens (CLI/API access)
+For postgres auth backend only. Create a personal API token via the dashboard or API, then use it with Basic authentication:
+
+```
+Authorization: Basic base64(username:token)
+```
+
+Where `token` is a personal API token (format: `apat_...`).
 
 Public routes that do not require authentication:
 
@@ -70,6 +86,82 @@ Pass the token in the `Authorization` header on all subsequent requests:
 ```bash
 curl http://localhost:8080/api/v1/sessions \
   -H "Authorization: Bearer a1b2c3d4e5f6..."
+```
+
+## Personal API Tokens
+
+Personal API tokens provide a way to authenticate CLI and API requests without using your password. They are only available with the postgres auth backend.
+
+### GET /api/v1/auth/api-tokens
+
+List current user's personal API tokens.
+
+**Response (200):**
+
+```json
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "username": "admin",
+    "name": "laptop CLI",
+    "created_at": "2026-04-13T10:30:00Z",
+    "last_accessed_at": "2026-04-13T15:45:00Z"
+  }
+]
+```
+
+### POST /api/v1/auth/api-tokens
+
+Create a new personal API token.
+
+**Request body:**
+
+```json
+{
+  "name": "laptop CLI"
+}
+```
+
+**Response (201):**
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "username": "admin", 
+  "name": "laptop CLI",
+  "token": "apat_a1b2c3d4e5f6789012345678901234567890",
+  "created_at": "2026-04-13T10:30:00Z"
+}
+```
+
+**Important:** The `token` field is only returned once at creation time for security reasons.
+
+### DELETE /api/v1/auth/api-tokens/{id}
+
+Revoke a personal API token.
+
+**Response (200):**
+
+```json
+{
+  "deleted": true
+}
+```
+
+### Using Personal API Tokens
+
+Use the token as a password with Basic authentication:
+
+```bash
+curl http://localhost:8080/api/v1/sessions \
+  -u "admin:apat_a1b2c3d4e5f6789012345678901234567890"
+```
+
+Or with explicit Basic auth header:
+
+```bash
+curl http://localhost:8080/api/v1/sessions \
+  -H "Authorization: Basic $(echo -n 'admin:apat_a1b2c3d4e5f6789012345678901234567890' | base64)"
 ```
 
 ### TBR Identity Associations (rh-identity backend only)
