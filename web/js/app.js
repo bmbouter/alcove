@@ -133,7 +133,6 @@
         if (footer && versionText && versionText.textContent !== '...') {
             show(footer);
         }
-        }
 
         const user = localStorage.getItem('alcove_user') || 'user';
         $('#user-info').textContent = user;
