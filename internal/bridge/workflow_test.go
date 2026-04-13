@@ -455,3 +455,89 @@ func TestValidateInputsTemplateSyntax(t *testing.T) {
 		}
 	}
 }
+
+func TestParseRepoService(t *testing.T) {
+	tests := []struct {
+		repoURL         string
+		expectedService string
+		expectError     bool
+	}{
+		{"github.com/owner/repo", "github", false},
+		{"https://github.com/owner/repo", "github", false},
+		{"git@github.com:owner/repo.git", "github", false},
+		{"gitlab.com/owner/repo", "gitlab", false},
+		{"https://gitlab.example.com/owner/repo", "gitlab", false},
+		{"bitbucket.org/owner/repo", "bitbucket", false},
+		{"https://git.mycompany.com/owner/repo", "github", false}, // Default to github for unknown
+		{"invalid-url", "github", false},                          // Default to github
+	}
+
+	for _, test := range tests {
+		service, err := parseRepoService(test.repoURL)
+		if test.expectError && err == nil {
+			t.Errorf("expected error for URL '%s' but got none", test.repoURL)
+		}
+		if !test.expectError && err != nil {
+			t.Errorf("unexpected error for URL '%s': %v", test.repoURL, err)
+		}
+		if service != test.expectedService {
+			t.Errorf("URL '%s': expected service '%s', got '%s'", test.repoURL, test.expectedService, service)
+		}
+	}
+}
+
+func TestParseWorkflowDefinition_CrossRepoValidation(t *testing.T) {
+	yamlData := `
+name: Cross-Repo Workflow
+workflow:
+  - id: implement-plugin
+    agent: autonomous-developer
+    repo: pulp/pulp_python
+  - id: implement-core
+    agent: autonomous-developer
+    repo: pulp/pulpcore
+    needs: [implement-plugin]
+  - id: integration-test
+    agent: test-runner
+    repo: pulp/pulp_integration
+    needs: [implement-core]
+`
+
+	wd, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error parsing cross-repo workflow: %v", err)
+	}
+
+	if wd.Name != "Cross-Repo Workflow" {
+		t.Errorf("expected name 'Cross-Repo Workflow', got '%s'", wd.Name)
+	}
+
+	if len(wd.Workflow) != 3 {
+		t.Errorf("expected 3 workflow steps, got %d", len(wd.Workflow))
+	}
+
+	// Check each step has the correct repo
+	expectedRepos := map[string]string{
+		"implement-plugin": "pulp/pulp_python",
+		"implement-core":   "pulp/pulpcore",
+		"integration-test": "pulp/pulp_integration",
+	}
+
+	for _, step := range wd.Workflow {
+		expectedRepo := expectedRepos[step.ID]
+		if step.Repo != expectedRepo {
+			t.Errorf("step '%s': expected repo '%s', got '%s'", step.ID, expectedRepo, step.Repo)
+		}
+	}
+
+	// Verify dependencies are preserved
+	coreStep := wd.GetStepByID("implement-core")
+	if coreStep == nil || len(coreStep.Needs) != 1 || coreStep.Needs[0] != "implement-plugin" {
+		t.Error("implement-core step should depend on implement-plugin")
+	}
+
+	testStep := wd.GetStepByID("integration-test")
+	if testStep == nil || len(testStep.Needs) != 1 || testStep.Needs[0] != "implement-core" {
+		t.Error("integration-test step should depend on implement-core")
+	}
+}
