@@ -389,8 +389,8 @@ func TestValidateConditionSyntax(t *testing.T) {
 		{"steps.test.outputs.status == 'success'", true},
 		{"true", true},
 		{"false", true},
-		{"some custom condition", true}, // Currently accepting any non-empty
-		{"", true},                      // Empty is valid
+		{"some custom condition", false}, // Now rejecting invalid syntax
+		{"", true},                       // Empty is valid
 	}
 
 	for _, test := range tests {
@@ -539,5 +539,260 @@ workflow:
 	testStep := wd.GetStepByID("integration-test")
 	if testStep == nil || len(testStep.Needs) != 1 || testStep.Needs[0] != "implement-core" {
 		t.Error("integration-test step should depend on implement-core")
+	}
+}
+
+func TestParseWorkflowDefinition_FieldBasedRouting(t *testing.T) {
+	yamlData := `
+name: Field-Based Routing Workflow
+workflow:
+  - id: triage
+    agent: triage-agent
+    route_field: is_clear
+    route_map:
+      "true": planning
+      "false": manual-review
+    outputs: [triage_result, is_clear]
+
+  - id: planning
+    agent: planning-agent
+    needs: [triage]
+
+  - id: manual-review
+    agent: manual-review-agent
+    needs: [triage]
+`
+
+	wd, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error parsing field-based routing workflow: %v", err)
+	}
+
+	if wd.Name != "Field-Based Routing Workflow" {
+		t.Errorf("expected name 'Field-Based Routing Workflow', got '%s'", wd.Name)
+	}
+
+	if len(wd.Workflow) != 3 {
+		t.Errorf("expected 3 workflow steps, got %d", len(wd.Workflow))
+	}
+
+	// Check the triage step has routing configuration
+	triageStep := wd.GetStepByID("triage")
+	if triageStep == nil {
+		t.Fatal("triage step not found")
+	}
+
+	if triageStep.RouteField != "is_clear" {
+		t.Errorf("expected route_field 'is_clear', got '%s'", triageStep.RouteField)
+	}
+
+	expectedRouteMap := map[string]string{
+		"true":  "planning",
+		"false": "manual-review",
+	}
+
+	if len(triageStep.RouteMap) != len(expectedRouteMap) {
+		t.Errorf("expected route_map with %d entries, got %d", len(expectedRouteMap), len(triageStep.RouteMap))
+	}
+
+	for key, expectedValue := range expectedRouteMap {
+		if actualValue, exists := triageStep.RouteMap[key]; !exists {
+			t.Errorf("expected route_map key '%s' not found", key)
+		} else if actualValue != expectedValue {
+			t.Errorf("route_map['%s']: expected '%s', got '%s'", key, expectedValue, actualValue)
+		}
+	}
+}
+
+func TestParseWorkflowDefinition_InvalidRouting(t *testing.T) {
+	tests := []struct {
+		name     string
+		yaml     string
+		errorMsg string
+	}{
+		{
+			name: "route_field without route_map",
+			yaml: `
+name: Invalid Routing
+workflow:
+  - id: step1
+    agent: test-agent
+    route_field: status
+`,
+			errorMsg: "route_field specified but route_map is empty",
+		},
+		{
+			name: "route_map without route_field",
+			yaml: `
+name: Invalid Routing
+workflow:
+  - id: step1
+    agent: test-agent
+    route_map:
+      success: step2
+`,
+			errorMsg: "route_map specified but route_field is empty",
+		},
+		{
+			name: "empty route_field",
+			yaml: `
+name: Invalid Routing
+workflow:
+  - id: step1
+    agent: test-agent
+    route_field: ""
+    route_map:
+      success: step2
+`,
+			errorMsg: "route_map specified but route_field is empty",
+		},
+		{
+			name: "empty route_map value",
+			yaml: `
+name: Invalid Routing
+workflow:
+  - id: step1
+    agent: test-agent
+    route_field: status
+    route_map:
+      success: ""
+`,
+			errorMsg: "empty value in route_map",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := ParseWorkflowDefinition([]byte(test.yaml))
+			if err == nil {
+				t.Fatalf("expected error for %s", test.name)
+			}
+
+			if !strings.Contains(err.Error(), test.errorMsg) {
+				t.Errorf("expected error message to contain '%s', got '%s'", test.errorMsg, err.Error())
+			}
+		})
+	}
+}
+
+func TestValidateRouteConfiguration(t *testing.T) {
+	tests := []struct {
+		name       string
+		routeField string
+		routeMap   map[string]string
+		hasError   bool
+	}{
+		{
+			name:       "valid configuration",
+			routeField: "status",
+			routeMap:   map[string]string{"success": "next_step", "fail": "error_step"},
+			hasError:   false,
+		},
+		{
+			name:       "empty configuration",
+			routeField: "",
+			routeMap:   map[string]string{},
+			hasError:   false,
+		},
+		{
+			name:       "field without map",
+			routeField: "status",
+			routeMap:   map[string]string{},
+			hasError:   true,
+		},
+		{
+			name:       "map without field",
+			routeField: "",
+			routeMap:   map[string]string{"success": "next_step"},
+			hasError:   true,
+		},
+		{
+			name:       "invalid field name",
+			routeField: "123invalid",
+			routeMap:   map[string]string{"success": "next_step"},
+			hasError:   true,
+		},
+		{
+			name:       "empty map value",
+			routeField: "status",
+			routeMap:   map[string]string{"success": ""},
+			hasError:   true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateRouteConfiguration(test.routeField, test.routeMap)
+
+			if test.hasError && err == nil {
+				t.Errorf("expected error but got none")
+			}
+			if !test.hasError && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestIsValidIdentifier(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		valid bool
+	}{
+		{"simple identifier", "status", true},
+		{"underscore prefix", "_private", true},
+		{"mixed case", "MyField", true},
+		{"with numbers", "field_123", true},
+		{"empty string", "", false},
+		{"starts with number", "123invalid", false},
+		{"with spaces", "my field", false},
+		{"with hyphens", "my-field", false},
+		{"with dots", "field.name", false},
+		{"single underscore", "_", true},
+		{"just letters", "abc", true},
+		{"just numbers after letter", "a123", true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := isValidIdentifier(test.input)
+			if result != test.valid {
+				t.Errorf("isValidIdentifier('%s'): expected %v, got %v", test.input, test.valid, result)
+			}
+		})
+	}
+}
+
+func TestValidateConditionSyntax_Enhanced(t *testing.T) {
+	tests := []struct {
+		condition string
+		valid     bool
+		desc      string
+	}{
+		{"steps.implement.outcome == 'completed'", true, "basic outcome condition"},
+		{"steps.test.outputs.status == 'success'", true, "basic output condition"},
+		{"steps.test.outputs.coverage >= 80", true, "numeric comparison"},
+		{"steps.a.outcome == 'completed' && steps.b.outcome == 'completed'", true, "AND condition"},
+		{"steps.a.outcome == 'completed' || steps.b.outcome == 'failed'", true, "OR condition"},
+		{"steps.test.outputs.coverage > 80 && steps.test.outcome == 'completed'", true, "mixed conditions"},
+		{"true", true, "boolean literal true"},
+		{"false", true, "boolean literal false"},
+		{"", true, "empty condition"},
+		{"invalid.format", false, "invalid syntax"},
+		{"steps.test.outcome === 'completed'", false, "invalid operator"},
+		{"steps.test.outcome == completed", false, "missing quotes"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.desc, func(t *testing.T) {
+			err := validateConditionSyntax(test.condition)
+			if test.valid && err != nil {
+				t.Errorf("condition '%s' should be valid but got error: %v", test.condition, err)
+			}
+			if !test.valid && err == nil {
+				t.Errorf("condition '%s' should be invalid but no error occurred", test.condition)
+			}
+		})
 	}
 }

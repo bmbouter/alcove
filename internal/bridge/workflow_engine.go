@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bmbouter/alcove/internal/bridge/condition"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -260,6 +261,15 @@ func (we *WorkflowEngine) OnStepCompletion(ctx context.Context, sessionID string
 		return fmt.Errorf("getting workflow definition: %w", err)
 	}
 
+	// Handle field-based routing if configured for the completed step
+	completedStepDef := workflow.GetStepByID(step.StepID)
+	if completedStepDef != nil && completedStepDef.RouteField != "" {
+		if err := we.handleFieldBasedRouting(ctx, run, completedStepDef, outputs, workflow); err != nil {
+			log.Printf("error handling field-based routing for step %s: %v", step.StepID, err)
+			// Don't fail the workflow, just log the error
+		}
+	}
+
 	// Check and dispatch dependent steps
 	if err := we.checkAndDispatchDependents(ctx, run, step.StepID, workflow); err != nil {
 		return fmt.Errorf("checking dependents for step %s: %w", step.StepID, err)
@@ -374,63 +384,68 @@ func (we *WorkflowEngine) checkWorkflowCompletion(ctx context.Context, run *Work
 }
 
 // evaluateCondition evaluates a condition expression against the current workflow state.
-func (we *WorkflowEngine) evaluateCondition(ctx context.Context, runID string, condition string) (bool, error) {
+func (we *WorkflowEngine) evaluateCondition(ctx context.Context, runID string, conditionExpr string) (bool, error) {
 	// Get accumulated step outputs
-	stepOutputs, err := we.getRunStepOutputs(ctx, runID)
+	stepOutputsMap, err := we.getRunStepOutputs(ctx, runID)
 	if err != nil {
 		return false, fmt.Errorf("getting step outputs: %w", err)
 	}
 
-	// Simple condition evaluation
-	// For now, support basic expressions like:
-	// - "steps.implement.outcome == 'completed'"
-	// - "steps.implement.outputs.status == 'success'"
-
-	// Check for outcome conditions
-	outcomePattern := regexp.MustCompile(`steps\.(\w+)\.outcome\s*==\s*'(\w+)'`)
-	if matches := outcomePattern.FindStringSubmatch(condition); len(matches) == 3 {
-		stepID := matches[1]
-		expectedOutcome := matches[2]
-
-		stepStatus, err := we.getStepStatus(ctx, runID, stepID)
-		if err != nil {
-			return false, fmt.Errorf("getting step status: %w", err)
-		}
-
-		return stepStatus == expectedOutcome, nil
+	// Get all step statuses
+	stepStatuses, err := we.getAllStepStatuses(ctx, runID)
+	if err != nil {
+		return false, fmt.Errorf("getting step statuses: %w", err)
 	}
 
-	// Check for output conditions
-	outputPattern := regexp.MustCompile(`steps\.(\w+)\.outputs\.(\w+)\s*==\s*'([^']+)'`)
-	if matches := outputPattern.FindStringSubmatch(condition); len(matches) == 4 {
-		stepID := matches[1]
-		outputKey := matches[2]
-		expectedValue := matches[3]
-
-		if stepOutput, exists := stepOutputs[stepID]; exists {
-			if outputMap, ok := stepOutput.(map[string]interface{}); ok {
-				if actualValue, exists := outputMap[outputKey]; exists {
-					if str, ok := actualValue.(string); ok {
-						return str == expectedValue, nil
-					}
-				}
-			}
+	// Convert step outputs to the format expected by the condition evaluator
+	stepOutputs := make(map[string]map[string]interface{})
+	for stepID, outputs := range stepOutputsMap {
+		if outputMap, ok := outputs.(map[string]interface{}); ok {
+			stepOutputs[stepID] = outputMap
+		} else {
+			stepOutputs[stepID] = make(map[string]interface{})
 		}
-
-		return false, nil
 	}
 
-	// Simple boolean values
-	if condition == "true" {
+	// Create evaluation context
+	evalContext := &condition.EvaluationContext{
+		StepStatuses: stepStatuses,
+		StepOutputs:  stepOutputs,
+	}
+
+	// Use the condition evaluator
+	evaluator := condition.NewEvaluator()
+	result, err := evaluator.Evaluate(conditionExpr, evalContext)
+	if err != nil {
+		log.Printf("condition evaluation error for '%s': %v", conditionExpr, err)
+		// Default to true for evaluation errors to avoid blocking workflows
 		return true, nil
 	}
-	if condition == "false" {
-		return false, nil
+
+	return result, nil
+}
+
+// getAllStepStatuses retrieves the status of all steps in a workflow run.
+func (we *WorkflowEngine) getAllStepStatuses(ctx context.Context, runID string) (map[string]string, error) {
+	rows, err := we.db.Query(ctx, `
+		SELECT step_id, status FROM workflow_run_steps
+		WHERE run_id = $1
+	`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	statuses := make(map[string]string)
+	for rows.Next() {
+		var stepID, status string
+		if err := rows.Scan(&stepID, &status); err != nil {
+			return nil, err
+		}
+		statuses[stepID] = status
 	}
 
-	// Default to true for unknown conditions (to avoid blocking workflows)
-	log.Printf("unknown condition format: %s", condition)
-	return true, nil
+	return statuses, rows.Err()
 }
 
 // injectStepInputs processes step inputs and injects them into the task request.
@@ -920,5 +935,66 @@ func (we *WorkflowEngine) enhanceTaskRequestForRepo(ctx context.Context, taskReq
 	// Future enhancement: configure sandbox persistence settings per repo
 
 	log.Printf("enhanced task request for cross-repo dispatch to %s", targetRepo)
+	return nil
+}
+
+// handleFieldBasedRouting processes field-based routing for a completed step.
+// This implements the simpler routing approach suggested by MC feedback.
+func (we *WorkflowEngine) handleFieldBasedRouting(ctx context.Context, run *WorkflowRun, step *WorkflowStep, outputs map[string]interface{}, workflow *WorkflowDefinition) error {
+	if step.RouteField == "" || len(step.RouteMap) == 0 {
+		return nil // No routing configured
+	}
+
+	// Get the routing field value from the step outputs
+	routeValue, exists := outputs[step.RouteField]
+	if !exists {
+		log.Printf("route field '%s' not found in outputs for step %s", step.RouteField, step.ID)
+		return nil // Field not present, no routing action
+	}
+
+	// Convert route value to string for map lookup
+	routeValueStr := fmt.Sprintf("%v", routeValue)
+
+	// Find the next step based on the route map
+	nextStepID, exists := step.RouteMap[routeValueStr]
+	if !exists {
+		log.Printf("no route defined for value '%s' in step %s route_map", routeValueStr, step.ID)
+		return nil // No route defined for this value
+	}
+
+	// Get the next step definition
+	nextStepDef := workflow.GetStepByID(nextStepID)
+	if nextStepDef == nil {
+		return fmt.Errorf("route target step '%s' not found in workflow", nextStepID)
+	}
+
+	// Check if the next step is ready to be dispatched
+	ready, err := we.areStepDependenciesSatisfied(ctx, run.ID, nextStepDef.Needs)
+	if err != nil {
+		return fmt.Errorf("checking dependencies for routed step %s: %w", nextStepID, err)
+	}
+
+	if !ready {
+		log.Printf("routed step %s is not ready (dependencies not satisfied)", nextStepID)
+		return nil // Dependencies not satisfied yet
+	}
+
+	// Check if step is still pending
+	stepStatus, err := we.getStepStatus(ctx, run.ID, nextStepID)
+	if err != nil {
+		return fmt.Errorf("getting status for routed step %s: %w", nextStepID, err)
+	}
+
+	if stepStatus != "pending" {
+		log.Printf("routed step %s is not pending (status: %s)", nextStepID, stepStatus)
+		return nil // Step already processed
+	}
+
+	// Dispatch the routed step
+	log.Printf("field-based routing: dispatching step %s based on %s=%s", nextStepID, step.RouteField, routeValueStr)
+	if err := we.dispatchStep(ctx, run, nextStepDef, workflow); err != nil {
+		return fmt.Errorf("dispatching routed step %s: %w", nextStepID, err)
+	}
+
 	return nil
 }
