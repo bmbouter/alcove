@@ -19,6 +19,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -442,7 +443,7 @@ func (s *PgStore) validateAPIToken(ctx context.Context, username, token string) 
 					id)
 				if err != nil {
 					// Log but don't fail the authentication
-					fmt.Printf("warning: failed to update token last_accessed_at: %v\n", err)
+					log.Printf("warning: failed to update token last_accessed_at: %v", err)
 				}
 			}(tokenID)
 
