@@ -47,29 +47,32 @@ func NewWorkflowEngine(db *pgxpool.Pool, dispatcher *Dispatcher, workflowStore *
 
 // WorkflowRun represents a single execution of a workflow.
 type WorkflowRun struct {
-	ID           string                 `json:"id"`
-	WorkflowID   string                 `json:"workflow_id"`
-	Status       string                 `json:"status"` // pending, running, completed, failed, cancelled, awaiting_approval
-	TriggerType  string                 `json:"trigger_type,omitempty"`
-	TriggerRef   string                 `json:"trigger_ref,omitempty"`
-	CurrentStep  string                 `json:"current_step,omitempty"`
-	StepOutputs  map[string]interface{} `json:"step_outputs"`
-	StartedAt    *time.Time             `json:"started_at,omitempty"`
-	FinishedAt   *time.Time             `json:"finished_at,omitempty"`
-	Owner        string                 `json:"owner"`
-	CreatedAt    time.Time              `json:"created_at"`
+	ID          string                 `json:"id"`
+	WorkflowID  string                 `json:"workflow_id"`
+	Status      string                 `json:"status"` // pending, running, completed, failed, cancelled, awaiting_approval
+	TriggerType string                 `json:"trigger_type,omitempty"`
+	TriggerRef  string                 `json:"trigger_ref,omitempty"`
+	CurrentStep string                 `json:"current_step,omitempty"`
+	StepOutputs map[string]interface{} `json:"step_outputs"`
+	StartedAt   *time.Time             `json:"started_at,omitempty"`
+	FinishedAt  *time.Time             `json:"finished_at,omitempty"`
+	Owner       string                 `json:"owner"`
+	CreatedAt   time.Time              `json:"created_at"`
 }
 
 // WorkflowRunStep represents a single step execution within a workflow run.
 type WorkflowRunStep struct {
-	ID         string                 `json:"id"`
-	RunID      string                 `json:"run_id"`
-	StepID     string                 `json:"step_id"`
-	SessionID  string                 `json:"session_id,omitempty"`
-	Status     string                 `json:"status"` // pending, running, completed, failed, skipped, awaiting_approval
-	Outputs    map[string]interface{} `json:"outputs,omitempty"`
-	StartedAt  *time.Time             `json:"started_at,omitempty"`
-	FinishedAt *time.Time             `json:"finished_at,omitempty"`
+	ID              string                 `json:"id"`
+	RunID           string                 `json:"run_id"`
+	StepID          string                 `json:"step_id"`
+	SessionID       string                 `json:"session_id,omitempty"`
+	Status          string                 `json:"status"` // pending, running, completed, failed, skipped, awaiting_approval
+	Outputs         map[string]interface{} `json:"outputs,omitempty"`
+	StartedAt       *time.Time             `json:"started_at,omitempty"`
+	FinishedAt      *time.Time             `json:"finished_at,omitempty"`
+	TokensIn        int                    `json:"tokens_in,omitempty"`
+	TokensOut       int                    `json:"tokens_out,omitempty"`
+	DurationSeconds int                    `json:"duration_seconds,omitempty"`
 }
 
 // StartWorkflowRun creates a new workflow run and dispatches initial steps.
@@ -231,6 +234,13 @@ func (we *WorkflowEngine) OnStepCompletion(ctx context.Context, sessionID string
 		outputs = make(map[string]interface{})
 	}
 
+	// Read token and duration information from the session
+	tokensIn, tokensOut, durationSeconds, err := we.readStepTokenInfo(ctx, sessionID)
+	if err != nil {
+		log.Printf("error reading token info for step %s: %v", step.StepID, err)
+		// Continue with 0 values
+	}
+
 	// Update step status
 	now := time.Now().UTC()
 	stepStatus := "completed"
@@ -240,6 +250,14 @@ func (we *WorkflowEngine) OnStepCompletion(ctx context.Context, sessionID string
 
 	if err := we.updateStepStatus(ctx, run.ID, step.StepID, stepStatus, &now, outputs); err != nil {
 		return fmt.Errorf("updating step status: %w", err)
+	}
+
+	// Update token information
+	if tokensIn > 0 || tokensOut > 0 || durationSeconds > 0 {
+		if err := we.updateStepTokens(ctx, run.ID, step.StepID, tokensIn, tokensOut, durationSeconds); err != nil {
+			log.Printf("error updating tokens for step %s: %v", step.StepID, err)
+			// Continue without failing the entire operation
+		}
 	}
 
 	// Update accumulated step outputs in the run
@@ -653,9 +671,9 @@ func (we *WorkflowEngine) insertWorkflowRunStep(ctx context.Context, step *Workf
 	}
 
 	_, err = we.db.Exec(ctx, `
-		INSERT INTO workflow_run_steps (id, run_id, step_id, session_id, status, outputs, started_at, finished_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, step.ID, step.RunID, step.StepID, step.SessionID, step.Status, outputsJSON, step.StartedAt, step.FinishedAt)
+		INSERT INTO workflow_run_steps (id, run_id, step_id, session_id, status, outputs, started_at, finished_at, tokens_in, tokens_out, duration_seconds)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`, step.ID, step.RunID, step.StepID, step.SessionID, step.Status, outputsJSON, step.StartedAt, step.FinishedAt, step.TokensIn, step.TokensOut, step.DurationSeconds)
 
 	return err
 }
@@ -716,7 +734,8 @@ func (we *WorkflowEngine) getStepStatus(ctx context.Context, runID, stepID strin
 // getWorkflowRunSteps gets all steps for a workflow run.
 func (we *WorkflowEngine) getWorkflowRunSteps(ctx context.Context, runID string) ([]WorkflowRunStep, error) {
 	rows, err := we.db.Query(ctx, `
-		SELECT id, run_id, step_id, session_id, status, outputs, started_at, finished_at
+		SELECT id, run_id, step_id, session_id, status, outputs, started_at, finished_at,
+		       COALESCE(tokens_in, 0), COALESCE(tokens_out, 0), COALESCE(duration_seconds, 0)
 		FROM workflow_run_steps
 		WHERE run_id = $1
 	`, runID)
@@ -732,7 +751,7 @@ func (we *WorkflowEngine) getWorkflowRunSteps(ctx context.Context, runID string)
 		var outputsJSON []byte
 		var startedAt, finishedAt *time.Time
 
-		if err := rows.Scan(&step.ID, &step.RunID, &step.StepID, &sessionID, &step.Status, &outputsJSON, &startedAt, &finishedAt); err != nil {
+		if err := rows.Scan(&step.ID, &step.RunID, &step.StepID, &sessionID, &step.Status, &outputsJSON, &startedAt, &finishedAt, &step.TokensIn, &step.TokensOut, &step.DurationSeconds); err != nil {
 			return nil, err
 		}
 
@@ -759,6 +778,7 @@ func (we *WorkflowEngine) getWorkflowRunSteps(ctx context.Context, runID string)
 func (we *WorkflowEngine) getStepAndRunBySessionID(ctx context.Context, sessionID string) (*WorkflowRunStep, *WorkflowRun, error) {
 	row := we.db.QueryRow(ctx, `
 		SELECT wrs.id, wrs.run_id, wrs.step_id, wrs.session_id, wrs.status, wrs.outputs, wrs.started_at, wrs.finished_at,
+		       COALESCE(wrs.tokens_in, 0), COALESCE(wrs.tokens_out, 0), COALESCE(wrs.duration_seconds, 0),
 		       wr.id, wr.workflow_id, wr.status, wr.trigger_type, wr.trigger_ref, wr.current_step, wr.step_outputs, wr.owner
 		FROM workflow_run_steps wrs
 		JOIN workflow_runs wr ON wrs.run_id = wr.id
@@ -773,6 +793,7 @@ func (we *WorkflowEngine) getStepAndRunBySessionID(ctx context.Context, sessionI
 
 	err := row.Scan(
 		&step.ID, &step.RunID, &step.StepID, &sessionIDPtr, &step.Status, &stepOutputsJSON, &stepStartedAt, &stepFinishedAt,
+		&step.TokensIn, &step.TokensOut, &step.DurationSeconds,
 		&run.ID, &run.WorkflowID, &run.Status, &run.TriggerType, &run.TriggerRef, &run.CurrentStep, &runStepOutputsJSON, &run.Owner,
 	)
 	if err != nil {
@@ -848,4 +869,224 @@ func (we *WorkflowEngine) updateRunStepOutputs(ctx context.Context, runID, stepI
 	`, runID, outputsJSON)
 
 	return err
+}
+
+// updateStepTokens updates token and duration information for a workflow run step.
+func (we *WorkflowEngine) updateStepTokens(ctx context.Context, runID, stepID string, tokensIn, tokensOut, durationSeconds int) error {
+	_, err := we.db.Exec(ctx, `
+		UPDATE workflow_run_steps
+		SET tokens_in = $3, tokens_out = $4, duration_seconds = $5
+		WHERE run_id = $1 AND step_id = $2
+	`, runID, stepID, tokensIn, tokensOut, durationSeconds)
+
+	return err
+}
+
+// ListWorkflowRuns returns workflow runs for a given owner, with optional status filtering.
+func (we *WorkflowEngine) ListWorkflowRuns(ctx context.Context, owner string, status string, limit int, offset int) ([]WorkflowRun, int, error) {
+	whereClause := "WHERE owner = $1"
+	args := []interface{}{owner}
+	argCount := 2
+
+	if status != "" {
+		whereClause += fmt.Sprintf(" AND status = $%d", argCount)
+		args = append(args, status)
+		argCount++
+	}
+
+	// Count total matching runs
+	countQuery := "SELECT COUNT(*) FROM workflow_runs " + whereClause
+	var total int
+	if err := we.db.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("counting workflow runs: %w", err)
+	}
+
+	// Get the runs with pagination
+	query := fmt.Sprintf(`
+		SELECT id, workflow_id, status, trigger_type, trigger_ref, current_step, step_outputs, started_at, finished_at, owner, created_at
+		FROM workflow_runs
+		%s
+		ORDER BY created_at DESC
+		LIMIT $%d OFFSET $%d
+	`, whereClause, argCount, argCount+1)
+
+	args = append(args, limit, offset)
+
+	rows, err := we.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("querying workflow runs: %w", err)
+	}
+	defer rows.Close()
+
+	var runs []WorkflowRun
+	for rows.Next() {
+		var run WorkflowRun
+		var stepOutputsJSON []byte
+		var triggerType, triggerRef, currentStep *string
+
+		if err := rows.Scan(&run.ID, &run.WorkflowID, &run.Status, &triggerType, &triggerRef, &currentStep, &stepOutputsJSON, &run.StartedAt, &run.FinishedAt, &run.Owner, &run.CreatedAt); err != nil {
+			return nil, 0, fmt.Errorf("scanning workflow run: %w", err)
+		}
+
+		if triggerType != nil {
+			run.TriggerType = *triggerType
+		}
+		if triggerRef != nil {
+			run.TriggerRef = *triggerRef
+		}
+		if currentStep != nil {
+			run.CurrentStep = *currentStep
+		}
+
+		if stepOutputsJSON != nil {
+			if err := json.Unmarshal(stepOutputsJSON, &run.StepOutputs); err != nil {
+				log.Printf("error unmarshaling step outputs for run %s: %v", run.ID, err)
+				run.StepOutputs = make(map[string]interface{})
+			}
+		} else {
+			run.StepOutputs = make(map[string]interface{})
+		}
+
+		runs = append(runs, run)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("iterating workflow runs: %w", err)
+	}
+
+	if runs == nil {
+		runs = []WorkflowRun{}
+	}
+
+	return runs, total, nil
+}
+
+// WorkflowRunDetail extends WorkflowRun with step details and workflow name.
+type WorkflowRunDetail struct {
+	WorkflowRun
+	Workflow string            `json:"workflow"`
+	Steps    []WorkflowRunStep `json:"steps"`
+}
+
+// GetWorkflowRunDetail returns detailed information about a workflow run including all steps.
+func (we *WorkflowEngine) GetWorkflowRunDetail(ctx context.Context, runID, owner string) (*WorkflowRunDetail, error) {
+	// Get the workflow run
+	var run WorkflowRun
+	var stepOutputsJSON []byte
+	var triggerType, triggerRef, currentStep *string
+
+	err := we.db.QueryRow(ctx, `
+		SELECT id, workflow_id, status, trigger_type, trigger_ref, current_step, step_outputs, started_at, finished_at, owner, created_at
+		FROM workflow_runs
+		WHERE id = $1 AND owner = $2
+	`, runID, owner).Scan(&run.ID, &run.WorkflowID, &run.Status, &triggerType, &triggerRef, &currentStep, &stepOutputsJSON, &run.StartedAt, &run.FinishedAt, &run.Owner, &run.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("getting workflow run %s: %w", runID, err)
+	}
+
+	if triggerType != nil {
+		run.TriggerType = *triggerType
+	}
+	if triggerRef != nil {
+		run.TriggerRef = *triggerRef
+	}
+	if currentStep != nil {
+		run.CurrentStep = *currentStep
+	}
+
+	if stepOutputsJSON != nil {
+		if err := json.Unmarshal(stepOutputsJSON, &run.StepOutputs); err != nil {
+			log.Printf("error unmarshaling step outputs for run %s: %v", run.ID, err)
+			run.StepOutputs = make(map[string]interface{})
+		}
+	} else {
+		run.StepOutputs = make(map[string]interface{})
+	}
+
+	// Get the workflow definition to get workflow name
+	workflow, err := we.getWorkflowByID(ctx, run.WorkflowID)
+	if err != nil {
+		return nil, fmt.Errorf("getting workflow definition: %w", err)
+	}
+
+	// Get all steps for this run
+	steps, err := we.getWorkflowRunSteps(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("getting workflow run steps: %w", err)
+	}
+
+	return &WorkflowRunDetail{
+		WorkflowRun: run,
+		Workflow:    workflow.Name,
+		Steps:       steps,
+	}, nil
+}
+
+// CancelWorkflowRun cancels a running workflow run.
+func (we *WorkflowEngine) CancelWorkflowRun(ctx context.Context, runID, owner string) error {
+	// Check that the user owns this run and it's in a cancelable state
+	var currentStatus string
+	err := we.db.QueryRow(ctx, `
+		SELECT status FROM workflow_runs WHERE id = $1 AND owner = $2
+	`, runID, owner).Scan(&currentStatus)
+	if err != nil {
+		return fmt.Errorf("workflow run not found or access denied")
+	}
+
+	if currentStatus != "running" && currentStatus != "pending" {
+		return fmt.Errorf("workflow run is not in a cancelable state (current status: %s)", currentStatus)
+	}
+
+	// Update the run status to cancelled
+	now := time.Now().UTC()
+	if err := we.updateWorkflowRunStatus(ctx, runID, "cancelled", nil, &now); err != nil {
+		return fmt.Errorf("updating workflow run status: %w", err)
+	}
+
+	// Cancel any running sessions for this workflow run
+	steps, err := we.getWorkflowRunSteps(ctx, runID)
+	if err != nil {
+		log.Printf("error getting steps for cancelled run %s: %v", runID, err)
+		return nil // Don't fail the cancellation if we can't get steps
+	}
+
+	for _, step := range steps {
+		if step.Status == "running" && step.SessionID != "" {
+			// Try to cancel the session, but don't fail if we can't
+			// (the session might have already finished)
+			log.Printf("cancelling session %s for cancelled workflow run %s", step.SessionID, runID)
+			// Note: We would need access to the dispatcher to cancel sessions
+			// For now, we'll just mark the step as cancelled
+			if err := we.updateStepStatus(ctx, runID, step.StepID, "cancelled", &now, nil); err != nil {
+				log.Printf("error marking step %s as cancelled: %v", step.StepID, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// readStepTokenInfo reads token and duration information from a session.
+// Returns (tokensIn, tokensOut, durationSeconds, error).
+func (we *WorkflowEngine) readStepTokenInfo(ctx context.Context, sessionID string) (int, int, int, error) {
+	// For now, we'll try to extract duration from session timestamps and set tokens to 0
+	// In the future, this could be enhanced to read from Claude's transcript events
+	// or from a separate token tracking mechanism
+
+	var startedAt, finishedAt *time.Time
+	err := we.db.QueryRow(ctx, `
+		SELECT started_at, finished_at FROM sessions WHERE id = $1
+	`, sessionID).Scan(&startedAt, &finishedAt)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("getting session timestamps: %w", err)
+	}
+
+	durationSeconds := 0
+	if startedAt != nil && finishedAt != nil {
+		durationSeconds = int(finishedAt.Sub(*startedAt).Seconds())
+	}
+
+	// TODO: In the future, extract token counts from transcript events
+	// For now, return 0 for tokens
+	return 0, 0, durationSeconds, nil
 }

@@ -425,3 +425,36 @@ func (s *WorkflowStore) ValidateWorkflowAgentReferences(ctx context.Context, wd 
 
 	return missing
 }
+
+// GetWorkflow gets a workflow definition by its ID.
+func (s *WorkflowStore) GetWorkflow(ctx context.Context, id, owner string) (*StoredWorkflowDefinition, error) {
+	var swd StoredWorkflowDefinition
+	var parsedJSON []byte
+	var syncError *string
+
+	err := s.db.QueryRow(ctx, `
+		SELECT id, name, source_repo, source_file, source_key, raw_yaml, parsed, sync_error, last_synced, owner
+		FROM workflows
+		WHERE id = $1 AND owner = $2
+	`, id, owner).Scan(
+		&swd.ID, &swd.Name, &swd.SourceRepo, &swd.SourceFile,
+		&swd.SourceKey, &swd.RawYAML, &parsedJSON, &syncError, &swd.LastSynced, &swd.Owner,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("getting workflow %s: %w", id, err)
+	}
+
+	if syncError != nil {
+		swd.SyncError = *syncError
+	}
+
+	// Unmarshal the parsed JSON back into the workflow definition
+	if parsedJSON != nil {
+		var wd WorkflowDefinition
+		if err := json.Unmarshal(parsedJSON, &wd); err == nil {
+			swd.WorkflowDefinition = wd
+		}
+	}
+
+	return &swd, nil
+}
