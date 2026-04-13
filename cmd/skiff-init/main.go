@@ -129,6 +129,7 @@ func main() {
 			TaskID:    task.ID,
 			SessionID: sessionID,
 			Status:    "running",
+			Outputs:   nil,
 		})
 	}
 
@@ -158,13 +159,14 @@ func main() {
 	var exitCode int
 	var outcome string
 	var artifacts []internal.Artifact
+	var outputs map[string]string
 
 	if executableConfig := os.Getenv("ALCOVE_EXECUTABLE"); executableConfig != "" {
 		// Run executable agent
-		exitCode, outcome, artifacts = runExecutable(ctx, executableConfig, sessionID, hailClient, lc, heartbeatTimeout, cancelCh)
+		exitCode, outcome, artifacts, outputs = runExecutable(ctx, executableConfig, sessionID, hailClient, lc, heartbeatTimeout, cancelCh)
 	} else {
 		// Run Claude Code
-		exitCode, outcome, artifacts = runClaude(ctx, task, sessionID, hailClient, lc, heartbeatTimeout, cancelCh)
+		exitCode, outcome, artifacts, outputs = runClaude(ctx, task, sessionID, hailClient, lc, heartbeatTimeout, cancelCh)
 	}
 
 	// --- Send final status ---
@@ -175,6 +177,7 @@ func main() {
 			Status:    outcome,
 			ExitCode:  &exitCode,
 			Artifacts: artifacts,
+			Outputs:   outputs,
 		}
 		_ = hailClient.PublishStatus(task.ID, finalStatus)
 	}
@@ -195,7 +198,7 @@ type ExecutableSpec struct {
 }
 
 // runExecutable downloads and executes a pre-compiled executable agent. It returns the exit code,
-// outcome string, and any artifacts.
+// outcome string, artifacts, and any outputs.
 func runExecutable(
 	ctx context.Context,
 	execConfigJSON string,
@@ -204,13 +207,13 @@ func runExecutable(
 	lc *ledger.Client,
 	heartbeatTimeout time.Duration,
 	cancelCh <-chan struct{},
-) (int, string, []internal.Artifact) {
+) (int, string, []internal.Artifact, map[string]string) {
 
 	// Parse the executable configuration
 	var execSpec ExecutableSpec
 	if err := json.Unmarshal([]byte(execConfigJSON), &execSpec); err != nil {
 		log.Printf("error parsing ALCOVE_EXECUTABLE: %v", err)
-		return 1, "error", nil
+		return 1, "error", nil, nil
 	}
 
 	log.Printf("downloading executable from %s", execSpec.URL)
@@ -220,13 +223,13 @@ func runExecutable(
 	downloadCmd := exec.CommandContext(ctx, "curl", "-sL", execSpec.URL, "-o", agentPath)
 	if err := downloadCmd.Run(); err != nil {
 		log.Printf("error downloading executable: %v", err)
-		return 1, "error", nil
+		return 1, "error", nil, nil
 	}
 
 	// Make it executable
 	if err := os.Chmod(agentPath, 0755); err != nil {
 		log.Printf("error making executable: %v", err)
-		return 1, "error", nil
+		return 1, "error", nil, nil
 	}
 
 	log.Printf("running executable: %s %v", agentPath, execSpec.Args)
@@ -247,12 +250,12 @@ func runExecutable(
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		log.Printf("error creating stdout pipe: %v", err)
-		return 1, "error", nil
+		return 1, "error", nil, nil
 	}
 
 	if err := cmd.Start(); err != nil {
 		log.Printf("error starting executable: %v", err)
-		return 1, "error", nil
+		return 1, "error", nil, nil
 	}
 
 	// WAL file for local transcript persistence
@@ -397,11 +400,17 @@ func runExecutable(
 		artifacts = append(artifacts, *prArtifact)
 	}
 
-	return exitCode, outcome, artifacts
+	// Check for outputs from agent
+	var outputs map[string]string
+	if agentOutputs := readOutputArtifact(); agentOutputs != nil {
+		outputs = agentOutputs
+	}
+
+	return exitCode, outcome, artifacts, outputs
 }
 
 // runClaude executes Claude Code and streams its output. It returns the exit code,
-// outcome string, and any artifacts.
+// outcome string, artifacts, and any outputs.
 func runClaude(
 	ctx context.Context,
 	task internal.Task,
@@ -410,7 +419,7 @@ func runClaude(
 	lc *ledger.Client,
 	heartbeatTimeout time.Duration,
 	cancelCh <-chan struct{},
-) (int, string, []internal.Artifact) {
+) (int, string, []internal.Artifact, map[string]string) {
 
 	// Build command arguments
 	args := []string{
@@ -453,12 +462,12 @@ func runClaude(
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		log.Printf("error creating stdout pipe: %v", err)
-		return 1, "error", nil
+		return 1, "error", nil, nil
 	}
 
 	if err := cmd.Start(); err != nil {
 		log.Printf("error starting claude: %v", err)
-		return 1, "error", nil
+		return 1, "error", nil, nil
 	}
 
 	// WAL file for local transcript persistence
@@ -606,7 +615,13 @@ func runClaude(
 		artifacts = append(artifacts, *prArtifact)
 	}
 
-	return exitCode, outcome, artifacts
+	// Check for outputs from agent
+	var outputs map[string]string
+	if agentOutputs := readOutputArtifact(); agentOutputs != nil {
+		outputs = agentOutputs
+	}
+
+	return exitCode, outcome, artifacts, outputs
 }
 
 // flushBatch sends a batch of transcript events to Ledger and clears the batch.
@@ -615,6 +630,28 @@ func flushBatch(lc *ledger.Client, sessionID string, batch *[]json.RawMessage) {
 		log.Printf("warning: failed to flush transcript batch to Ledger: %v", err)
 	}
 	*batch = nil
+}
+
+// readOutputArtifact checks for an outputs file written by the agent.
+// Agents write JSON to /tmp/alcove-outputs.json to report structured outputs.
+func readOutputArtifact() map[string]string {
+	data, err := os.ReadFile("/tmp/alcove-outputs.json")
+	if err != nil {
+		return nil // No outputs file — normal for most tasks.
+	}
+
+	var outputs map[string]string
+	if err := json.Unmarshal(data, &outputs); err != nil {
+		log.Printf("warning: invalid /tmp/alcove-outputs.json: %v", err)
+		return nil
+	}
+
+	if len(outputs) == 0 {
+		return nil
+	}
+
+	log.Printf("outputs detected: %d field(s)", len(outputs))
+	return outputs
 }
 
 // readPRArtifact checks for a PR artifact file written by the task.

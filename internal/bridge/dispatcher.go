@@ -109,6 +109,7 @@ type StatusUpdate struct {
 	ExitCode   *int                `json:"exit_code,omitempty"`
 	FinishedAt *time.Time          `json:"finished_at,omitempty"`
 	Artifacts  []internal.Artifact `json:"artifacts,omitempty"`
+	Outputs    map[string]string   `json:"outputs,omitempty"` // Agent-produced outputs from /tmp/alcove-outputs.json
 }
 
 // DispatchTask creates a session record, publishes to Hail, and starts a
@@ -677,6 +678,11 @@ func (d *Dispatcher) ListenForStatusUpdates(ctx context.Context) error {
 			d.updateSessionArtifacts(ctx, update.SessionID, update.Artifacts)
 		}
 
+		// Update outputs if provided and this session is part of a workflow.
+		if len(update.Outputs) > 0 {
+			d.updateWorkflowStepOutputs(ctx, update.SessionID, update.Outputs)
+		}
+
 		// Clean up handle on terminal states.
 		if update.Status == "completed" || update.Status == "error" || update.Status == "timeout" {
 			d.mu.Lock()
@@ -815,5 +821,25 @@ func (d *Dispatcher) updateSessionArtifacts(ctx context.Context, sessionID strin
 	`, artifactsJSON, sessionID)
 	if err != nil {
 		log.Printf("error: updating session %s artifacts: %v", sessionID, err)
+	}
+}
+
+// updateWorkflowStepOutputs stores outputs in the workflow_run_steps table for workflow sessions.
+func (d *Dispatcher) updateWorkflowStepOutputs(ctx context.Context, sessionID string, outputs map[string]string) {
+	outputsJSON, _ := json.Marshal(outputs)
+	result, err := d.db.Exec(ctx, `
+		UPDATE workflow_run_steps SET outputs = $1 WHERE session_id = $2
+	`, outputsJSON, sessionID)
+	if err != nil {
+		log.Printf("error: updating workflow step outputs for session %s: %v", sessionID, err)
+		return
+	}
+
+	rowsAffected := result.RowsAffected()
+	if rowsAffected == 0 {
+		// Session is not part of a workflow, which is normal for regular sessions
+		log.Printf("debug: session %s is not part of a workflow (no workflow_run_steps record found)", sessionID)
+	} else {
+		log.Printf("updated workflow step outputs for session %s: %d field(s)", sessionID, len(outputs))
 	}
 }
