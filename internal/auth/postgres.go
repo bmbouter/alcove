@@ -33,7 +33,6 @@ const (
 	pgMaxFailed       = 5
 	pgFailedWindow    = 15 * time.Minute
 	pgLockoutDuration = 30 * time.Minute
-	tokenBytes        = 32
 )
 
 // PgStore implements Authenticator and UserManager backed by PostgreSQL.
