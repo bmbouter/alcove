@@ -102,6 +102,7 @@ type StatusUpdate struct {
 	ExitCode   *int                `json:"exit_code,omitempty"`
 	FinishedAt *time.Time          `json:"finished_at,omitempty"`
 	Artifacts  []internal.Artifact `json:"artifacts,omitempty"`
+	Outputs    map[string]string   `json:"outputs,omitempty"`
 }
 
 // DispatchTask creates a session record, publishes to Hail, and starts a
@@ -668,6 +669,14 @@ func (d *Dispatcher) ListenForStatusUpdates(ctx context.Context) error {
 		// Update artifacts if provided.
 		if len(update.Artifacts) > 0 {
 			d.updateSessionArtifacts(ctx, update.SessionID, update.Artifacts)
+		}
+
+		// Update outputs if provided.
+		// Note: This is for future workflow orchestration support.
+		// The outputs will be stored when workflow run steps table exists.
+		if len(update.Outputs) > 0 {
+			log.Printf("session %s produced outputs: %d field(s)", update.SessionID, len(update.Outputs))
+			// TODO: Store outputs in workflow_run_steps.outputs column when workflow orchestration is implemented
 		}
 
 		// Clean up handle on terminal states.

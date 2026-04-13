@@ -108,4 +108,5 @@ type StatusUpdate struct {
 	ExitCode  *int                `json:"exit_code,omitempty"`
 	Artifacts []internal.Artifact `json:"artifacts,omitempty"`
 	Message   string              `json:"message,omitempty"`
+	Outputs   map[string]string   `json:"outputs,omitempty"`
 }
