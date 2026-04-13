@@ -8,6 +8,22 @@
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+    <!-- Authentication Error View -->
+    <div id="auth-error-view" class="view" hidden>
+        <div class="login-container">
+            <div class="login-logo">
+                <img src="logo.svg" alt="Alcove" width="80" style="margin-bottom: 12px;">
+                <h1>Alcove</h1>
+                <p class="login-subtitle">Sandboxed AI Coding Agents</p>
+            </div>
+            <div class="error-message" style="background: #fee; border: 1px solid #f66; border-radius: 6px; padding: 16px; margin-bottom: 16px;">
+                <h3 style="margin: 0 0 8px 0; color: #c44;">Authentication Failed</h3>
+                <p id="auth-error-message" style="margin: 0; line-height: 1.4;"></p>
+            </div>
+            <button id="auth-error-retry" class="btn btn-primary btn-full">Retry</button>
+        </div>
+    </div>
+
     <!-- Login View -->
     <div id="login-view" class="view">
         <div class="login-container">

@@ -199,10 +199,12 @@ func AuthMiddleware(store Authenticator, mgr UserManager) func(http.Handler) htt
 			if rhStore, ok := store.(*RHIdentityStore); ok {
 				headerVal := r.Header.Get("X-RH-Identity")
 				if headerVal == "" {
-					// For /api/v1/auth/me without a header, return auth_backend
-					// so the frontend can detect rh-identity mode.
+					// For /api/v1/auth/me without a header, set error context
+					// so the frontend can detect and handle the auth error properly.
 					if path == "/api/v1/auth/me" {
-						log.Printf("auth: /api/v1/auth/me without X-RH-Identity — returning auth_backend only")
+						log.Printf("auth: /api/v1/auth/me without X-RH-Identity — setting error context")
+						r.Header.Set("X-Alcove-Auth-Error", "missing X-RH-Identity header")
+						r.Header.Set("X-Alcove-Auth-Error-Message", "Authentication failed: no identity header received. Ensure you are accessing Alcove through the SSO proxy (Turnpike).")
 						next.ServeHTTP(w, r)
 						return
 					}
@@ -213,6 +215,14 @@ func AuthMiddleware(store Authenticator, mgr UserManager) func(http.Handler) htt
 				log.Printf("auth: rh-identity header present for %s %s", r.Method, path)
 				identity, err := ParseRHIdentity(headerVal)
 				if err != nil {
+					// For /api/v1/auth/me with malformed header, set error context
+					if path == "/api/v1/auth/me" {
+						log.Printf("auth: /api/v1/auth/me with invalid X-RH-Identity — setting error context: %v", err)
+						r.Header.Set("X-Alcove-Auth-Error", "invalid X-RH-Identity header")
+						r.Header.Set("X-Alcove-Auth-Error-Message", "Authentication failed: identity header is malformed. Contact your administrator.")
+						next.ServeHTTP(w, r)
+						return
+					}
 					log.Printf("auth: invalid X-RH-Identity for %s %s: %v", r.Method, path, err)
 					writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid X-RH-Identity header"})
 					return
@@ -227,6 +237,14 @@ func AuthMiddleware(store Authenticator, mgr UserManager) func(http.Handler) htt
 					// Resolve TBR to SSO user
 					resolvedUser, err := rhStore.ResolveTBRToSSO(r.Context(), tbrID.OrgID, tbrID.Username)
 					if err != nil {
+						// For /api/v1/auth/me with TBR not associated, set error context
+						if path == "/api/v1/auth/me" {
+							log.Printf("auth: /api/v1/auth/me with unassociated TBR identity — setting error context: %v", err)
+							r.Header.Set("X-Alcove-Auth-Error", "TBR identity not associated with any user")
+							r.Header.Set("X-Alcove-Auth-Error-Message", "Authentication failed: your Token Based Registry identity is not associated with an SSO account. Visit the Account page to create an association.")
+							next.ServeHTTP(w, r)
+							return
+						}
 						log.Printf("auth: TBR identity resolution failed for %s %s: %v", r.Method, path, err)
 						writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "TBR identity not associated with any user"})
 						return
@@ -342,19 +360,33 @@ func AuthMiddleware(store Authenticator, mgr UserManager) func(http.Handler) htt
 // MeHandler returns an HTTP handler for GET /api/v1/auth/me.
 // The authBackend parameter is included in the response so the frontend
 // can adapt its UI (e.g., hide login form for rh-identity).
+// For rh-identity mode, if there are authentication errors, they are included
+// in the response to help the frontend show appropriate error messages.
 func MeHandler(authBackend string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 			return
 		}
+
 		username := r.Header.Get("X-Alcove-User")
 		isAdmin := r.Header.Get("X-Alcove-Admin") == "true"
-		writeJSON(w, http.StatusOK, map[string]any{
+		authError := r.Header.Get("X-Alcove-Auth-Error")
+		authErrorMessage := r.Header.Get("X-Alcove-Auth-Error-Message")
+
+		response := map[string]any{
 			"username":     username,
 			"is_admin":     isAdmin,
 			"auth_backend": authBackend,
-		})
+		}
+
+		// Include error details if present (for rh-identity auth failures)
+		if authError != "" {
+			response["auth_error"] = authError
+			response["auth_error_message"] = authErrorMessage
+		}
+
+		writeJSON(w, http.StatusOK, response)
 	}
 }
 
