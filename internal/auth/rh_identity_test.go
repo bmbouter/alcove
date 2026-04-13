@@ -642,3 +642,79 @@ func TestAuthMiddleware_RHIdentity_InvalidHeader(t *testing.T) {
 //
 // These should be covered by integration tests that spin up a test PostgreSQL
 // instance (e.g., using testcontainers or a dedicated test database).
+
+// Test the new authentication error functionality in MeHandler
+func TestMeHandler_RHIdentity_AuthErrors(t *testing.T) {
+	tests := []struct {
+		name               string
+		authError          string
+		authErrorMessage   string
+		expectedAuthError  string
+		expectedErrorMsg   string
+	}{
+		{
+			name:              "missing X-RH-Identity header",
+			authError:         "missing X-RH-Identity header",
+			authErrorMessage:  "Authentication failed: no identity header received. Ensure you are accessing Alcove through the SSO proxy (Turnpike).",
+			expectedAuthError: "missing X-RH-Identity header",
+			expectedErrorMsg:  "Authentication failed: no identity header received. Ensure you are accessing Alcove through the SSO proxy (Turnpike).",
+		},
+		{
+			name:              "invalid X-RH-Identity header",
+			authError:         "invalid X-RH-Identity header",
+			authErrorMessage:  "Authentication failed: identity header is malformed. Contact your administrator.",
+			expectedAuthError: "invalid X-RH-Identity header",
+			expectedErrorMsg:  "Authentication failed: identity header is malformed. Contact your administrator.",
+		},
+		{
+			name:              "TBR identity not associated",
+			authError:         "TBR identity not associated with any user",
+			authErrorMessage:  "Authentication failed: your Token Based Registry identity is not associated with an SSO account. Visit the Account page to create an association.",
+			expectedAuthError: "TBR identity not associated with any user",
+			expectedErrorMsg:  "Authentication failed: your Token Based Registry identity is not associated with an SSO account. Visit the Account page to create an association.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := MeHandler("rh-identity")
+
+			req := httptest.NewRequest("GET", "/api/v1/auth/me", nil)
+			if tt.authError != "" {
+				req.Header.Set("X-Alcove-Auth-Error", tt.authError)
+				req.Header.Set("X-Alcove-Auth-Error-Message", tt.authErrorMessage)
+			}
+
+			w := httptest.NewRecorder()
+			handler(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Errorf("expected status %d, got %d", http.StatusOK, w.Code)
+			}
+
+			var response map[string]interface{}
+			if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+				t.Fatalf("failed to unmarshal response: %v", err)
+			}
+
+			// Check auth_backend is set
+			if response["auth_backend"] != "rh-identity" {
+				t.Errorf("expected auth_backend 'rh-identity', got %v", response["auth_backend"])
+			}
+
+			// Check authentication error fields
+			if tt.authError != "" {
+				if response["auth_error"] != tt.expectedAuthError {
+					t.Errorf("expected auth_error %q, got %v", tt.expectedAuthError, response["auth_error"])
+				}
+				if response["auth_error_message"] != tt.expectedErrorMsg {
+					t.Errorf("expected auth_error_message %q, got %v", tt.expectedErrorMsg, response["auth_error_message"])
+				}
+			} else {
+				if _, exists := response["auth_error"]; exists {
+					t.Errorf("expected no auth_error in response, got %v", response["auth_error"])
+				}
+			}
+		})
+	}
+}

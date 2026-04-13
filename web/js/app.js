@@ -103,6 +103,20 @@
         localStorage.removeItem('alcove_is_admin');
         show($('#login-view'));
         hide($('#dashboard-view'));
+        hide($('#auth-error-view'));
+        hide($('#alcove-footer'));
+        stopRefresh();
+        stopSSE();
+    }
+
+    function showAuthError(errorMessage) {
+        localStorage.removeItem('alcove_token');
+        localStorage.removeItem('alcove_user');
+        localStorage.removeItem('alcove_is_admin');
+        $('#auth-error-message').textContent = errorMessage;
+        show($('#auth-error-view'));
+        hide($('#dashboard-view'));
+        hide($('#login-view'));
         hide($('#alcove-footer'));
         stopRefresh();
         stopSSE();
@@ -110,6 +124,7 @@
 
     function showDashboard() {
         hide($('#login-view'));
+        hide($('#auth-error-view'));
         show($('#dashboard-view'));
 
         // Show footer with version if loaded
@@ -219,6 +234,11 @@
             errEl.textContent = 'Network error. Please try again.';
             show(errEl);
         }
+    });
+
+    // Auth error retry button
+    $('#auth-error-retry').addEventListener('click', () => {
+        window.location.reload();
     });
 
     // Clear login error on input focus
@@ -5718,6 +5738,13 @@
                     const data = await resp.json();
                     if (data.auth_backend === 'rh-identity') {
                         rhIdentityMode = true;
+
+                        // Check for authentication errors
+                        if (data.auth_error) {
+                            showAuthError(data.auth_error_message || 'Authentication failed');
+                            return;
+                        }
+
                         if (data.username) {
                             localStorage.setItem('alcove_user', data.username);
                             localStorage.setItem('alcove_is_admin', data.is_admin ? 'true' : 'false');
