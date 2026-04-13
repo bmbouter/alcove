@@ -1,0 +1,37 @@
+name: Feature Delivery Pipeline
+workflow:
+  - id: implement
+    agent: autonomous-developer
+    repo: pulp/pulp_python
+    trigger:
+      github:
+        events: [issues]
+        labels: [ready-for-dev]
+    outputs: [pr_url, summary]
+
+  - id: deploy-staging
+    agent: deploy-agent
+    needs: [implement]
+    condition: "steps.implement.outcome == 'completed'"
+    inputs:
+      context: "{{steps.implement.outputs.summary}}"
+      pr_url: "{{steps.implement.outputs.pr_url}}"
+    outputs: [deployment_url, status]
+
+  - id: verify-staging
+    agent: smoke-test
+    needs: [deploy-staging]
+    condition: "steps.deploy-staging.outcome == 'completed'"
+    inputs:
+      target_url: "{{steps.deploy-staging.outputs.deployment_url}}"
+    outputs: [test_results, passed]
+
+  - id: promote-production
+    agent: deploy-agent
+    needs: [verify-staging]
+    condition: "steps.verify-staging.outputs.passed == 'true'"
+    approval: required
+    inputs:
+      context: "{{steps.implement.outputs.summary}}"
+      staging_url: "{{steps.deploy-staging.outputs.deployment_url}}"
+    outputs: [production_url]
