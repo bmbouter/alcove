@@ -630,6 +630,52 @@
                         <div id="tbr-association-success" class="success-message" hidden></div>
                     </div>
                 </div>
+
+                <!-- Personal API Tokens Section -->
+                <div id="personal-api-tokens-section" class="form-card" hidden>
+                    <h3>Personal API Tokens</h3>
+                    <p class="section-description">
+                        Create personal API tokens for CLI and API access. These tokens allow you to authenticate
+                        without your password. Treat tokens like passwords and store them securely.
+                    </p>
+
+                    <!-- Current Tokens -->
+                    <div class="tokens-list">
+                        <h4>Current Tokens</h4>
+                        <div id="personal-api-tokens-empty" class="empty-state" hidden>
+                            <p>No personal API tokens created.</p>
+                        </div>
+                        <table id="personal-api-tokens-table" class="data-table" hidden>
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Created</th>
+                                    <th>Last Used</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="personal-api-tokens-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Create New Token Form -->
+                    <div class="form-section">
+                        <h4>Create New Token</h4>
+                        <form id="personal-api-token-form">
+                            <div class="form-group">
+                                <label for="token-name">Token Name <span class="required">*</span></label>
+                                <input type="text" id="token-name" name="name" required placeholder="e.g., laptop CLI, CI pipeline">
+                                <small>A descriptive name to identify this token.</small>
+                            </div>
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn-primary">Create Token</button>
+                            </div>
+                        </form>
+                        <div id="personal-api-token-error" class="error-message" hidden></div>
+                        <div id="personal-api-token-success" class="success-message" hidden></div>
+                    </div>
+                </div>
             </div>
 
             <!-- Users -->
@@ -797,6 +843,38 @@
                     <button type="button" id="reset-pw-cancel" class="btn btn-outline">Cancel</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Personal API Token Display Modal -->
+    <div id="api-token-display-modal" class="modal-overlay" hidden>
+        <div class="modal-card">
+            <h3>Personal API Token Created</h3>
+            <div class="token-created-content">
+                <p class="form-help">
+                    <strong>Important:</strong> Copy this token now. For security reasons, it won't be shown again.
+                </p>
+                <div class="token-display">
+                    <label>Token:</label>
+                    <div class="token-value-container">
+                        <input type="text" id="display-token-value" readonly class="token-input">
+                        <button type="button" id="copy-token-btn" class="btn btn-small btn-outline">Copy</button>
+                    </div>
+                </div>
+                <div class="token-info">
+                    <p><strong>Name:</strong> <span id="display-token-name"></span></p>
+                    <p><strong>Usage:</strong></p>
+                    <pre class="usage-example">alcove config set username your-username
+alcove config set password <span id="display-token-example">apat_...</span>
+alcove list</pre>
+                </div>
+                <div class="warning-message" style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 6px; padding: 12px; margin-top: 16px;">
+                    <strong>Warning:</strong> This token provides full access to your account. Store it securely and never share it.
+                </div>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;">
+                <button type="button" id="api-token-display-close" class="btn btn-primary">Done</button>
+            </div>
         </div>
     </div>
 
