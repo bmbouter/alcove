@@ -446,6 +446,9 @@ plugins:
   - name: my-custom-plugin
     source: https://github.com/org/my-plugin.git
     ref: main
+credentials:
+  DEPLOY_TOKEN: production-deploy
+  SLACK_WEBHOOK: slack-notifications
 schedule: "0 2 * * *"
 ```
 
@@ -461,6 +464,7 @@ schedule: "0 2 * * *"
 | `profiles`  | string[] | no       | Security profile names to apply |
 | `tools`     | string[] | no       | MCP tool names to enable |
 | `plugins`   | PluginSpec[] | no   | Claude Code plugins to install (see [Plugins](#plugins)) |
+| `credentials` | map[string]string | no | Environment variable names to credential provider mappings (see [Credentials](#credentials)) |
 | `schedule`  | string   | no       | Cron expression for automatic execution |
 | `labels`    | string[] | no       | GitHub issue/PR labels for event filtering (see below) |
 | `users`     | string[] | no       | GitHub usernames for event filtering (see below) |
@@ -655,6 +659,55 @@ plugins:
 ```
 
 Duplicate plugins are automatically deduplicated.
+
+---
+
+## Credentials
+
+Agent definitions can reference stored credentials by name and have them injected as environment variables at dispatch time. This enables agents (especially executable agents) to access custom services using Alcove's encrypted credential store.
+
+```yaml
+name: Splunk Log Analyzer
+executable:
+  url: https://github.com/pulp/pulp-service/releases/download/v1/agent-splunk
+  args: ["--model", "claude-opus-4-6"]
+credentials:
+  SPLUNK_TOKEN: splunk
+  JIRA_TOKEN: jira
+  VERTEX_SA_JSON: google-vertex
+```
+
+### Configuration
+
+The `credentials` field maps environment variable names to credential provider names:
+
+- **Key** (left side): Environment variable name that will be set in the Skiff container
+- **Value** (right side): Provider name from the credential store
+
+At dispatch time, Bridge looks up each credential by provider name and injects the real token into the Skiff environment. This works for both prompt-based (Claude Code) and executable agents.
+
+### Creating Credentials
+
+Create credentials via the dashboard or API:
+
+```bash
+curl -X POST /api/v1/credentials -d '{
+  "name": "Splunk",
+  "provider": "splunk",
+  "auth_type": "api_key", 
+  "credential": "my-splunk-bearer-token"
+}'
+```
+
+The credential is encrypted and stored in the `provider_credentials` table. The `provider` field becomes the lookup key for agent definitions.
+
+### Security Model
+
+- Credentials are injected directly into the Skiff container's environment variables
+- This follows the same security model as existing LLM credential injection
+- Real credentials are never stored in YAML, git repositories, or logs
+- For maximum security, prefer HTTP-based APIs through Gate's proxy mechanism when possible
+- Direct injection is intended for custom services that don't use HTTP or have custom authentication
 
 ---
 

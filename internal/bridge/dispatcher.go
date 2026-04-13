@@ -81,6 +81,7 @@ type TaskRequest struct {
 	Budget     float64               `json:"budget_usd,omitempty"`
 	Debug      bool                  `json:"debug,omitempty"`
 	Plugins    []PluginSpec          `json:"-"` // Set internally from agent definition
+	Credentials map[string]string    `json:"-"` // ENV_VAR_NAME: credential_provider_name
 	// Task metadata — set by dispatch code paths, stored in sessions table.
 	TaskName    string `json:"-"` // Schedule/agent definition name
 	TriggerType string `json:"-"` // "event", "cron", "manual", "webhook"
@@ -573,6 +574,23 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 	if len(plugins) > 0 {
 		pluginsJSON, _ := json.Marshal(plugins)
 		skiffEnv["ALCOVE_PLUGINS"] = string(pluginsJSON)
+	}
+
+	// Resolve credentials from agent definition.
+	// Inject real credential tokens into Skiff environment variables.
+	for envVar, providerName := range req.Credentials {
+		tokenResult, err := d.credStore.AcquireToken(ctx, providerName)
+		if err != nil {
+			// Try SCM token path
+			token, _, err := d.credStore.AcquireSCMTokenWithHost(ctx, providerName)
+			if err != nil {
+				log.Printf("warning: credential %q not found for env var %s", providerName, envVar)
+				continue
+			}
+			skiffEnv[envVar] = token
+			continue
+		}
+		skiffEnv[envVar] = tokenResult.Token
 	}
 
 	// Start Skiff pod via Runtime.

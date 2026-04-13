@@ -86,3 +86,77 @@ plugins:
 		t.Errorf("plugin 2 source should be empty for marketplace, got %q", def.Plugins[2].Source)
 	}
 }
+
+func TestParseAgentDefinitionWithCredentials(t *testing.T) {
+	yamlData := `
+name: Test Agent
+prompt: "Do something"
+credentials:
+  SPLUNK_TOKEN: splunk
+  JIRA_TOKEN: jira
+  VERTEX_SA_JSON: google-vertex
+`
+	def, err := ParseTaskDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(def.Credentials) != 3 {
+		t.Fatalf("expected 3 credentials, got %d", len(def.Credentials))
+	}
+	if def.Credentials["SPLUNK_TOKEN"] != "splunk" {
+		t.Errorf("SPLUNK_TOKEN: got %q, want %q", def.Credentials["SPLUNK_TOKEN"], "splunk")
+	}
+	if def.Credentials["JIRA_TOKEN"] != "jira" {
+		t.Errorf("JIRA_TOKEN: got %q, want %q", def.Credentials["JIRA_TOKEN"], "jira")
+	}
+	if def.Credentials["VERTEX_SA_JSON"] != "google-vertex" {
+		t.Errorf("VERTEX_SA_JSON: got %q, want %q", def.Credentials["VERTEX_SA_JSON"], "google-vertex")
+	}
+}
+
+func TestParseAgentDefinitionExecutableWithCredentials(t *testing.T) {
+	yamlData := `
+name: Splunk Log Analyzer
+executable:
+  url: https://github.com/pulp/pulp-service/releases/download/v1/agent-splunk
+  args: ["--model", "claude-opus-4-6"]
+credentials:
+  SPLUNK_TOKEN: splunk
+  JIRA_TOKEN: jira
+`
+	def, err := ParseTaskDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if def.Executable == nil {
+		t.Fatal("expected executable to be set")
+	}
+	if len(def.Credentials) != 2 {
+		t.Fatalf("expected 2 credentials, got %d", len(def.Credentials))
+	}
+	if def.Credentials["SPLUNK_TOKEN"] != "splunk" {
+		t.Errorf("SPLUNK_TOKEN: got %q, want %q", def.Credentials["SPLUNK_TOKEN"], "splunk")
+	}
+}
+
+func TestToTaskRequestIncludesCredentials(t *testing.T) {
+	def := &TaskDefinition{
+		Name:   "Test Agent",
+		Prompt: "Do something",
+		Credentials: map[string]string{
+			"API_TOKEN": "my-service",
+			"DB_PASS":   "database",
+		},
+	}
+
+	req := def.ToTaskRequest()
+	if len(req.Credentials) != 2 {
+		t.Fatalf("expected 2 credentials in request, got %d", len(req.Credentials))
+	}
+	if req.Credentials["API_TOKEN"] != "my-service" {
+		t.Errorf("API_TOKEN: got %q, want %q", req.Credentials["API_TOKEN"], "my-service")
+	}
+	if req.Credentials["DB_PASS"] != "database" {
+		t.Errorf("DB_PASS: got %q, want %q", req.Credentials["DB_PASS"], "database")
+	}
+}

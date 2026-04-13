@@ -61,6 +61,7 @@ type TaskDefinition struct {
 	Profiles    []string              `json:"profiles,omitempty" yaml:"profiles"`
 	Plugins     []PluginSpec          `json:"plugins,omitempty" yaml:"plugins"`
 	Tools       map[string]ToolConfig `json:"tools,omitempty" yaml:"tools"`
+	Credentials map[string]string     `json:"credentials,omitempty" yaml:"credentials"`
 	Schedule    *TaskDefSchedule      `json:"schedule,omitempty" yaml:"schedule"`
 	Trigger     *EventTrigger         `json:"trigger,omitempty" yaml:"trigger"`
 	CIGate      *CIGate               `json:"ci_gate,omitempty" yaml:"ci_gate"`
@@ -129,17 +130,18 @@ func ParseTaskDefinition(data []byte) (*TaskDefinition, error) {
 // dispatching via the Dispatcher.
 func (td *TaskDefinition) ToTaskRequest() TaskRequest {
 	return TaskRequest{
-		Prompt:     td.Prompt,
-		Executable: td.Executable,
-		Repo:       td.Repo,
-		Provider:   td.Provider,
-		Timeout:    td.Timeout,
-		Tools:      td.Tools,
-		Profiles:   td.Profiles,
-		Model:      td.Model,
-		Budget:     td.BudgetUSD,
-		Debug:      td.Debug,
-		Plugins:    td.Plugins,
+		Prompt:      td.Prompt,
+		Executable:  td.Executable,
+		Repo:        td.Repo,
+		Provider:    td.Provider,
+		Timeout:     td.Timeout,
+		Tools:       td.Tools,
+		Profiles:    td.Profiles,
+		Model:       td.Model,
+		Budget:      td.BudgetUSD,
+		Debug:       td.Debug,
+		Plugins:     td.Plugins,
+		Credentials: td.Credentials,
 	}
 }
 
@@ -200,6 +202,7 @@ func (s *AgentDefStore) ListAgentDefinitions(ctx context.Context, owner string) 
 				td.Trigger = parsed.Trigger
 				td.Repo = parsed.Repo
 				td.Executable = parsed.Executable
+				td.Credentials = parsed.Credentials
 			}
 		}
 
@@ -262,6 +265,7 @@ func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, owner string
 			td.Schedule = parsed.Schedule
 			td.Trigger = parsed.Trigger
 			td.Plugins = parsed.Plugins
+			td.Credentials = parsed.Credentials
 		}
 	}
 
