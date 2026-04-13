@@ -1,0 +1,457 @@
+// Copyright 2026 Brian Bouterse
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package bridge
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestParseWorkflowDefinition_Valid(t *testing.T) {
+	yamlData := `
+name: Feature Delivery Pipeline
+workflow:
+  - id: implement
+    agent: autonomous-developer
+    repo: pulp/pulp_python
+    trigger:
+      github:
+        events: [issues]
+        labels: [ready-for-dev]
+    outputs: [pr_url, summary]
+  - id: deploy
+    agent: deploy-agent
+    needs: [implement]
+    condition: "steps.implement.outcome == 'completed'"
+    inputs:
+      context: "{{steps.implement.outputs.summary}}"
+  - id: verify
+    agent: smoke-test
+    needs: [deploy]
+  - id: promote
+    agent: deploy-agent
+    needs: [verify]
+    approval: required
+`
+
+	wd, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if wd.Name != "Feature Delivery Pipeline" {
+		t.Errorf("expected name 'Feature Delivery Pipeline', got '%s'", wd.Name)
+	}
+
+	if len(wd.Workflow) != 4 {
+		t.Errorf("expected 4 steps, got %d", len(wd.Workflow))
+	}
+
+	// Verify first step
+	step1 := wd.Workflow[0]
+	if step1.ID != "implement" {
+		t.Errorf("expected step ID 'implement', got '%s'", step1.ID)
+	}
+	if step1.Agent != "autonomous-developer" {
+		t.Errorf("expected agent 'autonomous-developer', got '%s'", step1.Agent)
+	}
+	if len(step1.Outputs) != 2 {
+		t.Errorf("expected 2 outputs, got %d", len(step1.Outputs))
+	}
+
+	// Verify step with dependencies
+	step2 := wd.Workflow[1]
+	if step2.ID != "deploy" {
+		t.Errorf("expected step ID 'deploy', got '%s'", step2.ID)
+	}
+	if len(step2.Needs) != 1 || step2.Needs[0] != "implement" {
+		t.Errorf("expected needs [implement], got %v", step2.Needs)
+	}
+	if step2.Condition != "steps.implement.outcome == 'completed'" {
+		t.Errorf("expected specific condition, got '%s'", step2.Condition)
+	}
+
+	// Verify step with approval
+	step4 := wd.Workflow[3]
+	if step4.Approval != "required" {
+		t.Errorf("expected approval 'required', got '%s'", step4.Approval)
+	}
+}
+
+func TestParseWorkflowDefinition_MissingName(t *testing.T) {
+	yamlData := `
+workflow:
+  - id: step1
+    agent: test-agent
+`
+
+	_, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err == nil {
+		t.Fatal("expected error for missing name")
+	}
+
+	expectedMsg := "workflow definition missing required field: name"
+	if !strings.Contains(err.Error(), expectedMsg) {
+		t.Errorf("expected error message to contain '%s', got '%s'", expectedMsg, err.Error())
+	}
+}
+
+func TestParseWorkflowDefinition_EmptyWorkflow(t *testing.T) {
+	yamlData := `
+name: Empty Workflow
+workflow: []
+`
+
+	_, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err == nil {
+		t.Fatal("expected error for empty workflow")
+	}
+
+	expectedMsg := "workflow definition must contain at least one step"
+	if !strings.Contains(err.Error(), expectedMsg) {
+		t.Errorf("expected error message to contain '%s', got '%s'", expectedMsg, err.Error())
+	}
+}
+
+func TestParseWorkflowDefinition_MissingStepID(t *testing.T) {
+	yamlData := `
+name: Test Workflow
+workflow:
+  - agent: test-agent
+`
+
+	_, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err == nil {
+		t.Fatal("expected error for missing step ID")
+	}
+
+	expectedMsg := "workflow step missing required field: id"
+	if !strings.Contains(err.Error(), expectedMsg) {
+		t.Errorf("expected error message to contain '%s', got '%s'", expectedMsg, err.Error())
+	}
+}
+
+func TestParseWorkflowDefinition_MissingStepAgent(t *testing.T) {
+	yamlData := `
+name: Test Workflow
+workflow:
+  - id: step1
+`
+
+	_, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err == nil {
+		t.Fatal("expected error for missing step agent")
+	}
+
+	expectedMsg := "workflow step 'step1' missing required field: agent"
+	if !strings.Contains(err.Error(), expectedMsg) {
+		t.Errorf("expected error message to contain '%s', got '%s'", expectedMsg, err.Error())
+	}
+}
+
+func TestParseWorkflowDefinition_DuplicateStepIDs(t *testing.T) {
+	yamlData := `
+name: Test Workflow
+workflow:
+  - id: step1
+    agent: agent1
+  - id: step1
+    agent: agent2
+`
+
+	_, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err == nil {
+		t.Fatal("expected error for duplicate step IDs")
+	}
+
+	expectedMsg := "duplicate step ID: step1"
+	if !strings.Contains(err.Error(), expectedMsg) {
+		t.Errorf("expected error message to contain '%s', got '%s'", expectedMsg, err.Error())
+	}
+}
+
+func TestParseWorkflowDefinition_InvalidApproval(t *testing.T) {
+	yamlData := `
+name: Test Workflow
+workflow:
+  - id: step1
+    agent: test-agent
+    approval: invalid
+`
+
+	_, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err == nil {
+		t.Fatal("expected error for invalid approval value")
+	}
+
+	expectedMsg := "workflow step 'step1' has invalid approval value 'invalid'"
+	if !strings.Contains(err.Error(), expectedMsg) {
+		t.Errorf("expected error message to contain '%s', got '%s'", expectedMsg, err.Error())
+	}
+}
+
+func TestParseWorkflowDefinition_NonexistentDependency(t *testing.T) {
+	yamlData := `
+name: Test Workflow
+workflow:
+  - id: step1
+    agent: agent1
+    needs: [nonexistent]
+`
+
+	_, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err == nil {
+		t.Fatal("expected error for non-existent dependency")
+	}
+
+	expectedMsg := "workflow step 'step1' references non-existent dependency: nonexistent"
+	if !strings.Contains(err.Error(), expectedMsg) {
+		t.Errorf("expected error message to contain '%s', got '%s'", expectedMsg, err.Error())
+	}
+}
+
+func TestParseWorkflowDefinition_CircularDependency(t *testing.T) {
+	yamlData := `
+name: Test Workflow
+workflow:
+  - id: step1
+    agent: agent1
+    needs: [step2]
+  - id: step2
+    agent: agent2
+    needs: [step1]
+`
+
+	_, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err == nil {
+		t.Fatal("expected error for circular dependency")
+	}
+
+	expectedMsg := "circular dependency detected in workflow"
+	if !strings.Contains(err.Error(), expectedMsg) {
+		t.Errorf("expected error message to contain '%s', got '%s'", expectedMsg, err.Error())
+	}
+}
+
+func TestParseWorkflowDefinition_ComplexCircularDependency(t *testing.T) {
+	yamlData := `
+name: Test Workflow
+workflow:
+  - id: step1
+    agent: agent1
+    needs: [step2]
+  - id: step2
+    agent: agent2
+    needs: [step3]
+  - id: step3
+    agent: agent3
+    needs: [step1]
+`
+
+	_, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err == nil {
+		t.Fatal("expected error for complex circular dependency")
+	}
+
+	expectedMsg := "circular dependency detected in workflow"
+	if !strings.Contains(err.Error(), expectedMsg) {
+		t.Errorf("expected error message to contain '%s', got '%s'", expectedMsg, err.Error())
+	}
+}
+
+func TestWorkflowDefinition_GetRootSteps(t *testing.T) {
+	yamlData := `
+name: Test Workflow
+workflow:
+  - id: root1
+    agent: agent1
+  - id: root2
+    agent: agent2
+  - id: child1
+    agent: agent3
+    needs: [root1]
+  - id: child2
+    agent: agent4
+    needs: [root1, root2]
+`
+
+	wd, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	roots := wd.GetRootSteps()
+	if len(roots) != 2 {
+		t.Errorf("expected 2 root steps, got %d", len(roots))
+	}
+
+	rootIDs := make(map[string]bool)
+	for _, step := range roots {
+		rootIDs[step.ID] = true
+	}
+
+	if !rootIDs["root1"] || !rootIDs["root2"] {
+		t.Errorf("expected root1 and root2, got %v", rootIDs)
+	}
+}
+
+func TestWorkflowDefinition_GetStepByID(t *testing.T) {
+	yamlData := `
+name: Test Workflow
+workflow:
+  - id: step1
+    agent: agent1
+  - id: step2
+    agent: agent2
+    needs: [step1]
+`
+
+	wd, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	step := wd.GetStepByID("step1")
+	if step == nil {
+		t.Fatal("expected to find step1")
+	}
+	if step.Agent != "agent1" {
+		t.Errorf("expected agent1, got '%s'", step.Agent)
+	}
+
+	step = wd.GetStepByID("nonexistent")
+	if step != nil {
+		t.Error("expected nil for nonexistent step")
+	}
+}
+
+func TestWorkflowDefinition_GetDependents(t *testing.T) {
+	yamlData := `
+name: Test Workflow
+workflow:
+  - id: root
+    agent: agent1
+  - id: child1
+    agent: agent2
+    needs: [root]
+  - id: child2
+    agent: agent3
+    needs: [root]
+  - id: grandchild
+    agent: agent4
+    needs: [child1]
+`
+
+	wd, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	dependents := wd.GetDependents("root")
+	if len(dependents) != 2 {
+		t.Errorf("expected 2 dependents of root, got %d", len(dependents))
+	}
+
+	dependentIDs := make(map[string]bool)
+	for _, step := range dependents {
+		dependentIDs[step.ID] = true
+	}
+
+	if !dependentIDs["child1"] || !dependentIDs["child2"] {
+		t.Errorf("expected child1 and child2, got %v", dependentIDs)
+	}
+
+	// Test step with no dependents
+	dependents = wd.GetDependents("grandchild")
+	if len(dependents) != 0 {
+		t.Errorf("expected 0 dependents of grandchild, got %d", len(dependents))
+	}
+}
+
+func TestValidateConditionSyntax(t *testing.T) {
+	tests := []struct {
+		condition string
+		valid     bool
+	}{
+		{"steps.implement.outcome == 'completed'", true},
+		{"steps.test.outputs.status == 'success'", true},
+		{"true", true},
+		{"false", true},
+		{"some custom condition", true}, // Currently accepting any non-empty
+		{"", true},                      // Empty is valid
+	}
+
+	for _, test := range tests {
+		err := validateConditionSyntax(test.condition)
+		if test.valid && err != nil {
+			t.Errorf("condition '%s' should be valid but got error: %v", test.condition, err)
+		}
+		if !test.valid && err == nil {
+			t.Errorf("condition '%s' should be invalid but no error occurred", test.condition)
+		}
+	}
+}
+
+func TestValidateInputsTemplateSyntax(t *testing.T) {
+	tests := []struct {
+		inputs map[string]interface{}
+		valid  bool
+		desc   string
+	}{
+		{
+			inputs: map[string]interface{}{
+				"context": "{{steps.implement.outputs.summary}}",
+			},
+			valid: true,
+			desc:  "valid template syntax",
+		},
+		{
+			inputs: map[string]interface{}{
+				"simple": "just a string",
+			},
+			valid: true,
+			desc:  "simple string without template",
+		},
+		{
+			inputs: map[string]interface{}{
+				"number": 42,
+			},
+			valid: true,
+			desc:  "non-string value",
+		},
+		{
+			inputs: map[string]interface{}{
+				"invalid": "{{invalid.template}}",
+			},
+			valid: false,
+			desc:  "invalid template without steps prefix",
+		},
+		{
+			inputs: map[string]interface{}{},
+			valid:  true,
+			desc:   "empty inputs",
+		},
+	}
+
+	for _, test := range tests {
+		err := validateInputsTemplateSyntax(test.inputs)
+		if test.valid && err != nil {
+			t.Errorf("inputs should be valid (%s) but got error: %v", test.desc, err)
+		}
+		if !test.valid && err == nil {
+			t.Errorf("inputs should be invalid (%s) but no error occurred", test.desc)
+		}
+	}
+}
