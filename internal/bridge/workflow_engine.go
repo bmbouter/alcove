@@ -23,7 +23,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bmbouter/alcove/internal"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -177,20 +176,13 @@ func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, st
 	}
 
 	// Build TaskRequest from step and agent definition
-	taskReq := TaskRequest{
-		Prompt:      agentDef.Prompt,
-		Repo:        step.Repo,
-		Provider:    agentDef.Provider,
-		Timeout:     int(agentDef.Timeout.Seconds()),
-		Scope:       &agentDef.Scope,
-		Tools:       agentDef.Tools,
-		Profiles:    agentDef.Profiles,
-		Model:       agentDef.Model,
-		Budget:      agentDef.Budget,
-		TaskName:    step.Agent,
-		TriggerType: run.TriggerType,
-		TriggerRef:  run.TriggerRef,
+	taskReq := agentDef.ToTaskRequest()
+	if step.Repo != "" {
+		taskReq.Repo = step.Repo
 	}
+	taskReq.TaskName = step.Agent
+	taskReq.TriggerType = run.TriggerType
+	taskReq.TriggerRef = run.TriggerRef
 
 	// If step has a repo specified, override the agent's repo
 	if step.Repo != "" {
