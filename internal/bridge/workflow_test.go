@@ -389,8 +389,8 @@ func TestValidateConditionSyntax(t *testing.T) {
 		{"steps.test.outputs.status == 'success'", true},
 		{"true", true},
 		{"false", true},
-		{"some custom condition", true}, // Currently accepting any non-empty
-		{"", true},                      // Empty is valid
+		{"some custom condition", false}, // Now rejecting invalid syntax
+		{"", true},                       // Empty is valid
 	}
 
 	for _, test := range tests {
