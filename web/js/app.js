@@ -103,6 +103,7 @@
         localStorage.removeItem('alcove_is_admin');
         show($('#login-view'));
         hide($('#dashboard-view'));
+        hide($('#alcove-footer'));
         stopRefresh();
         stopSSE();
     }
@@ -110,6 +111,14 @@
     function showDashboard() {
         hide($('#login-view'));
         show($('#dashboard-view'));
+
+        // Show footer with version if loaded
+        const footer = $('#alcove-footer');
+        const versionText = $('#version-text');
+        if (footer && versionText && versionText.textContent !== '...') {
+            show(footer);
+        }
+
         const user = localStorage.getItem('alcove_user') || 'user';
         $('#user-info').textContent = user;
         // Reset loading states to prevent stale spinners after re-login
@@ -5671,6 +5680,29 @@
     }
 
     // ---------------------
+    // Version Footer
+    // ---------------------
+    async function loadVersionFooter() {
+        try {
+            const resp = await fetch(basePath + '/api/v1/health');
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data.version) {
+                    const versionText = $('#version-text');
+                    const footer = $('#alcove-footer');
+                    if (versionText && footer) {
+                        versionText.textContent = data.version;
+                        show(footer);
+                    }
+                }
+            }
+        } catch (e) {
+            // Silently fail - footer is not critical
+            console.debug('Failed to load version for footer:', e);
+        }
+    }
+
+    // ---------------------
     // Init
     // ---------------------
     // Try to detect rh-identity mode by calling /api/v1/auth/me without a token.
@@ -5696,6 +5728,10 @@
                 // Network error — fall through to normal login flow
             }
         }
+
+        // Load version footer
+        await loadVersionFooter();
+
         handleRoute();
     })();
 })();
