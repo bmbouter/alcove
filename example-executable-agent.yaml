@@ -8,6 +8,10 @@ executable:
 timeout: 1800
 profiles:
   - splunk-analyzer
+credentials:
+  SPLUNK_TOKEN: splunk
+  JIRA_TOKEN: jira
+  VERTEX_SA_JSON: google-vertex
 trigger:
   schedule:
     cron: "0 * * * *"
