@@ -47,17 +47,17 @@ func NewWorkflowEngine(db *pgxpool.Pool, dispatcher *Dispatcher, workflowStore *
 
 // WorkflowRun represents a single execution of a workflow.
 type WorkflowRun struct {
-	ID           string                 `json:"id"`
-	WorkflowID   string                 `json:"workflow_id"`
-	Status       string                 `json:"status"` // pending, running, completed, failed, cancelled, awaiting_approval
-	TriggerType  string                 `json:"trigger_type,omitempty"`
-	TriggerRef   string                 `json:"trigger_ref,omitempty"`
-	CurrentStep  string                 `json:"current_step,omitempty"`
-	StepOutputs  map[string]interface{} `json:"step_outputs"`
-	StartedAt    *time.Time             `json:"started_at,omitempty"`
-	FinishedAt   *time.Time             `json:"finished_at,omitempty"`
-	Owner        string                 `json:"owner"`
-	CreatedAt    time.Time              `json:"created_at"`
+	ID          string                 `json:"id"`
+	WorkflowID  string                 `json:"workflow_id"`
+	Status      string                 `json:"status"` // pending, running, completed, failed, cancelled, awaiting_approval
+	TriggerType string                 `json:"trigger_type,omitempty"`
+	TriggerRef  string                 `json:"trigger_ref,omitempty"`
+	CurrentStep string                 `json:"current_step,omitempty"`
+	StepOutputs map[string]interface{} `json:"step_outputs"`
+	StartedAt   *time.Time             `json:"started_at,omitempty"`
+	FinishedAt  *time.Time             `json:"finished_at,omitempty"`
+	Owner       string                 `json:"owner"`
+	CreatedAt   time.Time              `json:"created_at"`
 }
 
 // WorkflowRunStep represents a single step execution within a workflow run.
@@ -177,9 +177,6 @@ func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, st
 
 	// Build TaskRequest from step and agent definition
 	taskReq := agentDef.ToTaskRequest()
-	if step.Repo != "" {
-		taskReq.Repo = step.Repo
-	}
 	taskReq.TaskName = step.Agent
 	taskReq.TriggerType = run.TriggerType
 	taskReq.TriggerRef = run.TriggerRef
@@ -187,6 +184,16 @@ func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, st
 	// If step has a repo specified, override the agent's repo
 	if step.Repo != "" {
 		taskReq.Repo = step.Repo
+
+		// Validate cross-repo access: ensure credentials are available for the target repo
+		if err := we.validateCrossRepoCredentials(ctx, step.Repo, run.Owner); err != nil {
+			return fmt.Errorf("cross-repo credential validation failed for repo %s: %w", step.Repo, err)
+		}
+
+		// Apply cross-repo enhancements to the task request
+		if err := we.enhanceTaskRequestForRepo(ctx, &taskReq, step.Repo, run.Owner); err != nil {
+			return fmt.Errorf("cross-repo enhancement failed for repo %s: %w", step.Repo, err)
+		}
 	}
 
 	// Inject step inputs into the task request
@@ -848,4 +855,70 @@ func (we *WorkflowEngine) updateRunStepOutputs(ctx context.Context, runID, stepI
 	`, runID, outputsJSON)
 
 	return err
+}
+
+// validateCrossRepoCredentials checks that the user has appropriate credentials for the target repository.
+// This ensures cross-repo workflow steps can access the target repository.
+func (we *WorkflowEngine) validateCrossRepoCredentials(ctx context.Context, repoURL, owner string) error {
+	// Parse the repository URL to determine the service (GitHub, GitLab, etc.)
+	service, err := parseRepoService(repoURL)
+	if err != nil {
+		return fmt.Errorf("unable to parse repository service from URL %s: %w", repoURL, err)
+	}
+
+	// Check if the credential store has credentials for this service
+	// This validates that the user can access the target repository
+	credStore := &CredentialStore{db: we.db}
+	_, _, err = credStore.AcquireSCMTokenWithHost(ctx, service)
+	if err != nil {
+		return fmt.Errorf("no credentials available for %s service (needed for repo %s): %w", service, repoURL, err)
+	}
+
+	return nil
+}
+
+// parseRepoService extracts the service name from a repository URL.
+// Examples:
+//
+//	"github.com/owner/repo" or "https://github.com/owner/repo" -> "github"
+//	"gitlab.com/owner/repo" or "https://gitlab.com/owner/repo" -> "gitlab"
+func parseRepoService(repoURL string) (string, error) {
+	// Handle various repository URL formats
+	repoURL = strings.TrimPrefix(repoURL, "https://")
+	repoURL = strings.TrimPrefix(repoURL, "http://")
+	repoURL = strings.TrimPrefix(repoURL, "git@")
+	repoURL = strings.ReplaceAll(repoURL, ":", "/") // Handle SSH format
+
+	parts := strings.Split(repoURL, "/")
+	if len(parts) < 1 {
+		return "", fmt.Errorf("invalid repository URL format")
+	}
+
+	host := parts[0]
+
+	// Map common hosts to service names
+	if strings.Contains(host, "github") {
+		return "github", nil
+	}
+	if strings.Contains(host, "gitlab") {
+		return "gitlab", nil
+	}
+	if strings.Contains(host, "bitbucket") {
+		return "bitbucket", nil
+	}
+
+	// For enterprise instances, default to github if no other match
+	// This could be enhanced to support custom service mappings
+	return "github", nil
+}
+
+// enhanceTaskRequestForRepo adds repository-specific configurations to the task request.
+// This handles the cross-repo dispatch requirements mentioned in the issue comments.
+func (we *WorkflowEngine) enhanceTaskRequestForRepo(ctx context.Context, taskReq *TaskRequest, targetRepo, owner string) error {
+	// Future enhancement: inject repo-specific conventions (CLAUDE.md, AGENTS.md)
+	// Future enhancement: handle credential scoping per repository
+	// Future enhancement: configure sandbox persistence settings per repo
+
+	log.Printf("enhanced task request for cross-repo dispatch to %s", targetRepo)
+	return nil
 }

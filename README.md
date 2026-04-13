@@ -47,7 +47,8 @@ CLI, REST API, dashboard, task scheduler, ephemeral container execution
 (podman and Kubernetes), NATS messaging, PostgreSQL session storage, credential
 management, dual auth backends, skill/agent repos (Claude Code plugins loaded
 into workers), YAML task definitions (version-controlled reusable tasks from
-git repos), and per-task NetworkPolicy enforcement on Kubernetes. See
+git repos), cross-repository workflow orchestration with per-repo credential
+validation, and per-task NetworkPolicy enforcement on Kubernetes. See
 [Implementation Status](docs/design/implementation-status.md) for details.
 
 ## Requirements

@@ -1,6 +1,7 @@
 # Example workflow definition demonstrating the YAML schema
 # This file showcases all supported workflow features including:
 # - Multi-step dependencies with DAG structure
+# - Cross-repository agent dispatch
 # - Conditional execution
 # - Input/output templating
 # - Approval gates
@@ -10,22 +11,35 @@ name: Feature Delivery Pipeline
 
 workflow:
   # Root step: triggered by GitHub issues with ready-for-dev label
+  # Cross-repo dispatch: agent works on pulp_python repo
   - id: implement
     agent: autonomous-developer
-    repo: pulp/pulp_python
+    repo: pulp/pulp_python  # Agent will work on this repo instead of the workflow's repo
     trigger:
       github:
         events: [issues]
         labels: [ready-for-dev]
     outputs: [pr_url, summary, branch_name]
 
-  # Deploy to staging: runs after implementation completes successfully
-  - id: deploy-staging
-    agent: deploy-agent
+  # Cross-repo step: update core library based on plugin implementation
+  - id: update-core
+    agent: autonomous-developer
+    repo: pulp/pulpcore  # Different repository from the first step
     needs: [implement]
     condition: "steps.implement.outcome == 'completed'"
     inputs:
+      context: "Update core to support changes in {{steps.implement.outputs.pr_url}}"
+      plugin_summary: "{{steps.implement.outputs.summary}}"
+    outputs: [core_pr_url, core_changes]
+
+  # Deploy to staging: runs after core update completes successfully
+  - id: deploy-staging
+    agent: deploy-agent
+    needs: [update-core]
+    condition: "steps.update-core.outcome == 'completed'"
+    inputs:
       pr_url: "{{steps.implement.outputs.pr_url}}"
+      core_pr_url: "{{steps.update-core.outputs.core_pr_url}}"
       context: "{{steps.implement.outputs.summary}}"
       environment: "staging"
     outputs: [deployment_url, version]
