@@ -33,17 +33,18 @@ import (
 // Dispatcher manages task lifecycle: creation, dispatch to Skiff pods,
 // and status tracking.
 type Dispatcher struct {
-	nc            *nats.Conn
-	db            *pgxpool.Pool
-	rt            runtime.Runtime
-	cfg           *Config
-	credStore     *CredentialStore
-	toolStore     *ToolStore
-	profileStore  *ProfileStore
-	settingsStore *SettingsStore
-	mu            sync.Mutex
-	handles       map[string]runtime.TaskHandle // sessionID -> handle
-	ciGate        *CIGateMonitor
+	nc             *nats.Conn
+	db             *pgxpool.Pool
+	rt             runtime.Runtime
+	cfg            *Config
+	credStore      *CredentialStore
+	toolStore      *ToolStore
+	profileStore   *ProfileStore
+	settingsStore  *SettingsStore
+	mu             sync.Mutex
+	handles        map[string]runtime.TaskHandle // sessionID -> handle
+	ciGate         *CIGateMonitor
+	workflowEngine *WorkflowEngine
 }
 
 // NewDispatcher creates a Dispatcher with the given dependencies.
@@ -65,6 +66,12 @@ func NewDispatcher(nc *nats.Conn, db *pgxpool.Pool, rt runtime.Runtime, cfg *Con
 // completed tasks with PR artifacts can be automatically monitored for CI.
 func (d *Dispatcher) SetCIGateMonitor(m *CIGateMonitor) {
 	d.ciGate = m
+}
+
+// SetWorkflowEngine attaches a WorkflowEngine to the dispatcher so that
+// completed sessions can trigger workflow step completion handling.
+func (d *Dispatcher) SetWorkflowEngine(we *WorkflowEngine) {
+	d.workflowEngine = we
 }
 
 // TaskRequest is the JSON body for POST /api/v1/sessions.
@@ -675,6 +682,13 @@ func (d *Dispatcher) ListenForStatusUpdates(ctx context.Context) error {
 			d.mu.Lock()
 			delete(d.handles, update.SessionID)
 			d.mu.Unlock()
+
+			// Notify workflow engine of step completion
+			if d.workflowEngine != nil {
+				if err := d.workflowEngine.OnStepCompletion(ctx, update.SessionID, update.Status, update.ExitCode); err != nil {
+					log.Printf("error handling workflow step completion for session %s: %v", update.SessionID, err)
+				}
+			}
 
 			// Notify CI Gate monitor if task completed with artifacts.
 			if d.ciGate != nil && update.Status == "completed" {

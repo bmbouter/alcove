@@ -201,6 +201,16 @@ func main() {
 	// Create workflow definition store.
 	workflowStore := bridge.NewWorkflowStore(dbpool)
 
+	// Create workflow engine.
+	workflowEngine := bridge.NewWorkflowEngine(dbpool, dispatcher, workflowStore, defStore)
+	dispatcher.SetWorkflowEngine(workflowEngine)
+
+	// Recover running workflows after Bridge restart.
+	if err := workflowEngine.RecoverWorkflows(context.Background()); err != nil {
+		log.Printf("error recovering workflows: %v", err)
+	}
+	log.Println("workflow engine initialized")
+
 	// Create and start the scheduler.
 	scheduler := bridge.NewScheduler(dbpool, dispatcher, cfg, credStore, defStore, settingsStore)
 	scheduler.Start(context.Background())
