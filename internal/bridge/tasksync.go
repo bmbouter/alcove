@@ -31,7 +31,7 @@ import (
 )
 
 // AgentRepoSyncer periodically clones/pulls agent repos and syncs YAML agent
-// definitions and security profiles into the database, reconciling schedules as needed.
+// definitions, workflow definitions, and security profiles into the database, reconciling schedules as needed.
 type AgentRepoSyncer struct {
 	db            *pgxpool.Pool
 	settingsStore *SettingsStore
@@ -39,6 +39,7 @@ type AgentRepoSyncer struct {
 	defStore      *AgentDefStore
 	dispatcher    *Dispatcher
 	profileStore  *ProfileStore
+	workflowStore *WorkflowStore
 	interval      time.Duration
 	stopCh        chan struct{}
 	wg            sync.WaitGroup
@@ -46,7 +47,7 @@ type AgentRepoSyncer struct {
 }
 
 // NewAgentRepoSyncer creates a AgentRepoSyncer with the given dependencies.
-func NewAgentRepoSyncer(db *pgxpool.Pool, settingsStore *SettingsStore, scheduler *Scheduler, defStore *AgentDefStore, dispatcher *Dispatcher, profileStore *ProfileStore) *AgentRepoSyncer {
+func NewAgentRepoSyncer(db *pgxpool.Pool, settingsStore *SettingsStore, scheduler *Scheduler, defStore *AgentDefStore, dispatcher *Dispatcher, profileStore *ProfileStore, workflowStore *WorkflowStore) *AgentRepoSyncer {
 	interval := 5 * time.Minute
 	if v := os.Getenv("AGENT_REPO_SYNC_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
@@ -61,6 +62,7 @@ func NewAgentRepoSyncer(db *pgxpool.Pool, settingsStore *SettingsStore, schedule
 		defStore:      defStore,
 		dispatcher:    dispatcher,
 		profileStore:  profileStore,
+		workflowStore: workflowStore,
 		interval:      interval,
 		stopCh:        make(chan struct{}),
 	}
@@ -145,9 +147,10 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 			removedRepos := make(map[string]bool)
 			for _, def := range userDefs {
 				if !configuredURLs[def.SourceRepo] && !removedRepos[def.SourceRepo] {
-					log.Printf("agent-repo-syncer: removing agent definitions and profiles from %s for user %s (no longer configured)", def.SourceRepo, username)
+					log.Printf("agent-repo-syncer: removing agent definitions, workflows, and profiles from %s for user %s (no longer configured)", def.SourceRepo, username)
 					_ = s.defStore.DeleteAgentDefinitionsByRepo(ctx, def.SourceRepo, username)
 					_ = s.profileStore.DeleteYAMLProfilesByRepo(ctx, def.SourceRepo, username)
+					_ = s.workflowStore.DeleteWorkflowsByRepo(ctx, def.SourceRepo, username)
 					// Also clean up schedules from this repo.
 					s.db.Exec(ctx, `DELETE FROM schedules WHERE source_key LIKE $1 AND owner = $2`, username+"::%", username)
 					removedRepos[def.SourceRepo] = true
@@ -315,6 +318,11 @@ func (s *AgentRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo, username
 	}
 
 	log.Printf("agent-repo-syncer: synced %d agent definition(s) from %s", len(seenKeys), repo.URL)
+
+	// Sync workflow definitions from .alcove/workflows/*.yml.
+	if err := s.syncWorkflowDefinitions(ctx, cloneDir, repo, username); err != nil {
+		log.Printf("agent-repo-syncer: workflow sync error for %s: %v", repo.URL, err)
+	}
 
 	// Validate profile references in agent definitions.
 	s.validateProfileReferences(ctx, repo.URL, username)
@@ -553,4 +561,125 @@ func (s *AgentRepoSyncer) reconcileSchedule(ctx context.Context, td *TaskDefinit
 	`, td.Name, cronExpr, td.Prompt, td.Repo, td.Provider,
 		td.Timeout, enabled, nextRun, td.Debug, triggerType, eventConfigJSON, existingID)
 	return err
+}
+
+// syncWorkflowDefinitions syncs .alcove/workflows/*.yml from a cloned repo for the given user.
+func (s *AgentRepoSyncer) syncWorkflowDefinitions(ctx context.Context, cloneDir string, repo SkillRepo, username string) error {
+	workflowsDir := filepath.Join(cloneDir, ".alcove", "workflows")
+	entries, err := os.ReadDir(workflowsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Printf("agent-repo-syncer: no .alcove/workflows/ directory in %s", repo.URL)
+			// Remove any previously synced workflows from this repo.
+			return s.workflowStore.DeleteWorkflowsByRepo(ctx, repo.URL, username)
+		}
+		return fmt.Errorf("reading workflows dir: %w", err)
+	}
+
+	// Track which source_keys we see in this sync.
+	seenKeys := make(map[string]bool)
+
+	for _, entry := range entries {
+		if entry.IsDir() || (!strings.HasSuffix(entry.Name(), ".yml") && !strings.HasSuffix(entry.Name(), ".yaml")) {
+			continue
+		}
+
+		filePath := filepath.Join(workflowsDir, entry.Name())
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			log.Printf("agent-repo-syncer: error reading %s: %v", filePath, err)
+			continue
+		}
+
+		sourceKey := fmt.Sprintf("%s::%s::%s", username, repo.URL, entry.Name())
+		seenKeys[sourceKey] = true
+
+		wd, err := ParseWorkflowDefinition(data)
+		if err != nil {
+			log.Printf("agent-repo-syncer: workflow parse error in %s/%s: %v", repo.URL, entry.Name(), err)
+			// Store the workflow with sync error.
+			errWorkflow := &WorkflowDefinition{
+				Name:       entry.Name(),
+				SourceRepo: repo.URL,
+				SourceFile: entry.Name(),
+				Owner:      username,
+			}
+			_ = s.workflowStore.UpsertWorkflow(ctx, errWorkflow, sourceKey, string(data), err.Error())
+			continue
+		}
+
+		wd.SourceRepo = repo.URL
+		wd.SourceFile = entry.Name()
+		wd.Owner = username
+
+		if err := s.workflowStore.UpsertWorkflow(ctx, wd, sourceKey, string(data), ""); err != nil {
+			log.Printf("agent-repo-syncer: workflow upsert error for %s: %v", sourceKey, err)
+			continue
+		}
+	}
+
+	// Delete workflows that no longer exist in the repo.
+	existing, err := s.workflowStore.ListWorkflowsByRepo(ctx, repo.URL, username)
+	if err != nil {
+		return fmt.Errorf("listing existing workflows: %w", err)
+	}
+	for _, wf := range existing {
+		if !seenKeys[wf.SourceKey] {
+			// Remove the workflow.
+			if _, err := s.db.Exec(ctx, `DELETE FROM workflows WHERE source_key = $1`, wf.SourceKey); err != nil {
+				log.Printf("agent-repo-syncer: error deleting stale workflow %s: %v", wf.SourceKey, err)
+			}
+		}
+	}
+
+	log.Printf("agent-repo-syncer: synced %d workflow(s) from %s", len(seenKeys), repo.URL)
+
+	// Validate agent references in workflows.
+	s.validateWorkflowAgentReferences(ctx, repo.URL, username)
+
+	return nil
+}
+
+// validateWorkflowAgentReferences checks that all agents referenced in workflows
+// from the given repo resolve to known agent definitions. Sets sync_error on workflows
+// with unknown agent references.
+func (s *AgentRepoSyncer) validateWorkflowAgentReferences(ctx context.Context, repoURL string, username string) {
+	workflows, err := s.workflowStore.ListWorkflowsByRepo(ctx, repoURL, username)
+	if err != nil {
+		log.Printf("agent-repo-syncer: error listing workflows for validation: %v", err)
+		return
+	}
+
+	// Get all agent definitions for this user (across all repos).
+	agentDefs, err := s.defStore.ListAgentDefinitions(ctx, username)
+	if err != nil {
+		log.Printf("agent-repo-syncer: error listing agent definitions for validation: %v", err)
+		return
+	}
+
+	for _, wf := range workflows {
+		if wf.SyncError != "" && !strings.HasPrefix(wf.SyncError, "unknown agent:") {
+			// Workflow has a parse error (not an agent error) — skip validation.
+			continue
+		}
+
+		// Check each referenced agent.
+		missing := s.workflowStore.ValidateWorkflowAgentReferences(ctx, &wf.WorkflowDefinition, agentDefs)
+
+		if len(missing) > 0 {
+			syncErr := fmt.Sprintf("unknown agent: %s", strings.Join(missing, ", "))
+			if wf.SyncError != syncErr {
+				// Update the workflow with the agent validation error.
+				if err := s.workflowStore.UpsertWorkflow(ctx, &wf.WorkflowDefinition, wf.SourceKey, wf.RawYAML, syncErr); err != nil {
+					log.Printf("agent-repo-syncer: error updating workflow sync error for %s: %v", wf.SourceKey, err)
+				}
+				log.Printf("agent-repo-syncer: %s in %s/%s", syncErr, repoURL, wf.SourceFile)
+			}
+		} else if strings.HasPrefix(wf.SyncError, "unknown agent:") {
+			// All agents now exist — clear the error.
+			if err := s.workflowStore.UpsertWorkflow(ctx, &wf.WorkflowDefinition, wf.SourceKey, wf.RawYAML, ""); err != nil {
+				log.Printf("agent-repo-syncer: error clearing workflow sync error for %s: %v", wf.SourceKey, err)
+			}
+		}
+	}
 }

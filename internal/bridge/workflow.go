@@ -15,9 +15,14 @@
 package bridge
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"gopkg.in/yaml.v3"
 )
 
@@ -240,4 +245,183 @@ func (wd *WorkflowDefinition) GetDependents(stepID string) []WorkflowStep {
 		}
 	}
 	return dependents
+}
+
+// Extended WorkflowDefinition with storage metadata
+type StoredWorkflowDefinition struct {
+	WorkflowDefinition
+	ID         string    `json:"id"`
+	SourceKey  string    `json:"source_key"`
+	RawYAML    string    `json:"raw_yaml"`
+	SyncError  string    `json:"sync_error,omitempty"`
+	LastSynced time.Time `json:"last_synced"`
+}
+
+// WorkflowStore manages workflow definitions in PostgreSQL.
+type WorkflowStore struct {
+	db *pgxpool.Pool
+}
+
+// NewWorkflowStore creates a WorkflowStore with the given database pool.
+func NewWorkflowStore(db *pgxpool.Pool) *WorkflowStore {
+	return &WorkflowStore{db: db}
+}
+
+// UpsertWorkflow inserts or updates a workflow definition by source_key.
+func (s *WorkflowStore) UpsertWorkflow(ctx context.Context, wd *WorkflowDefinition, sourceKey, rawYAML, syncError string) error {
+	id := uuid.New().String()
+
+	parsedJSON, err := json.Marshal(wd)
+	if err != nil {
+		return fmt.Errorf("marshaling workflow definition: %w", err)
+	}
+
+	now := time.Now().UTC()
+
+	_, err = s.db.Exec(ctx, `
+		INSERT INTO workflows (id, name, source_repo, source_file, source_key, raw_yaml, parsed, sync_error, last_synced, owner, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		ON CONFLICT (source_key) DO UPDATE SET
+			name = EXCLUDED.name,
+			source_repo = EXCLUDED.source_repo,
+			source_file = EXCLUDED.source_file,
+			raw_yaml = EXCLUDED.raw_yaml,
+			parsed = EXCLUDED.parsed,
+			sync_error = EXCLUDED.sync_error,
+			last_synced = EXCLUDED.last_synced,
+			owner = EXCLUDED.owner,
+			updated_at = EXCLUDED.updated_at
+	`, id, wd.Name, wd.SourceRepo, wd.SourceFile, sourceKey, rawYAML, parsedJSON, nilIfEmpty(syncError), now, wd.Owner, now, now)
+	if err != nil {
+		return fmt.Errorf("upserting workflow: %w", err)
+	}
+
+	return nil
+}
+
+// ListWorkflowsByRepo returns all workflow definitions from a given repo URL and owner.
+func (s *WorkflowStore) ListWorkflowsByRepo(ctx context.Context, repoURL, owner string) ([]StoredWorkflowDefinition, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT id, name, source_repo, source_file, source_key, raw_yaml, parsed, sync_error, last_synced, owner
+		FROM workflows
+		WHERE source_repo = $1 AND owner = $2
+		ORDER BY name ASC
+	`, repoURL, owner)
+	if err != nil {
+		return nil, fmt.Errorf("querying workflows for repo %s: %w", repoURL, err)
+	}
+	defer rows.Close()
+
+	var workflows []StoredWorkflowDefinition
+	for rows.Next() {
+		var swd StoredWorkflowDefinition
+		var parsedJSON []byte
+		var syncError *string
+
+		if err := rows.Scan(
+			&swd.ID, &swd.Name, &swd.SourceRepo, &swd.SourceFile,
+			&swd.SourceKey, &swd.RawYAML, &parsedJSON, &syncError, &swd.LastSynced, &swd.Owner,
+		); err != nil {
+			return nil, fmt.Errorf("scanning workflow: %w", err)
+		}
+
+		if syncError != nil {
+			swd.SyncError = *syncError
+		}
+
+		// Unmarshal the parsed JSON back into the workflow definition
+		if parsedJSON != nil {
+			var wd WorkflowDefinition
+			if err := json.Unmarshal(parsedJSON, &wd); err == nil {
+				swd.WorkflowDefinition = wd
+			}
+		}
+
+		workflows = append(workflows, swd)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating workflows: %w", err)
+	}
+
+	if workflows == nil {
+		workflows = []StoredWorkflowDefinition{}
+	}
+	return workflows, nil
+}
+
+// DeleteWorkflowsByRepo removes all workflow definitions from a given repo URL and owner.
+func (s *WorkflowStore) DeleteWorkflowsByRepo(ctx context.Context, repoURL, owner string) error {
+	_, err := s.db.Exec(ctx, `DELETE FROM workflows WHERE source_repo = $1 AND owner = $2`, repoURL, owner)
+	if err != nil {
+		return fmt.Errorf("deleting workflows for repo %s: %w", repoURL, err)
+	}
+	return nil
+}
+
+// ListWorkflows returns all workflow definitions owned by the given user.
+func (s *WorkflowStore) ListWorkflows(ctx context.Context, owner string) ([]StoredWorkflowDefinition, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT id, name, source_repo, source_file, source_key, raw_yaml, parsed, sync_error, last_synced, owner
+		FROM workflows
+		WHERE owner = $1
+		ORDER BY name ASC
+	`, owner)
+	if err != nil {
+		return nil, fmt.Errorf("querying workflows for owner %s: %w", owner, err)
+	}
+	defer rows.Close()
+
+	var workflows []StoredWorkflowDefinition
+	for rows.Next() {
+		var swd StoredWorkflowDefinition
+		var parsedJSON []byte
+		var syncError *string
+
+		if err := rows.Scan(
+			&swd.ID, &swd.Name, &swd.SourceRepo, &swd.SourceFile,
+			&swd.SourceKey, &swd.RawYAML, &parsedJSON, &syncError, &swd.LastSynced, &swd.Owner,
+		); err != nil {
+			return nil, fmt.Errorf("scanning workflow: %w", err)
+		}
+
+		if syncError != nil {
+			swd.SyncError = *syncError
+		}
+
+		// Unmarshal the parsed JSON back into the workflow definition
+		if parsedJSON != nil {
+			var wd WorkflowDefinition
+			if err := json.Unmarshal(parsedJSON, &wd); err == nil {
+				swd.WorkflowDefinition = wd
+			}
+		}
+
+		workflows = append(workflows, swd)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating workflows: %w", err)
+	}
+
+	if workflows == nil {
+		workflows = []StoredWorkflowDefinition{}
+	}
+	return workflows, nil
+}
+
+// ValidateWorkflowAgentReferences checks that all agents referenced in the workflow
+// exist in the given agent definitions. Returns a list of missing agent names.
+func (s *WorkflowStore) ValidateWorkflowAgentReferences(ctx context.Context, wd *WorkflowDefinition, agentDefs []TaskDefinition) []string {
+	agentNames := make(map[string]bool)
+	for _, def := range agentDefs {
+		agentNames[def.Name] = true
+	}
+
+	var missing []string
+	for _, step := range wd.Workflow {
+		if !agentNames[step.Agent] {
+			missing = append(missing, step.Agent)
+		}
+	}
+
+	return missing
 }
