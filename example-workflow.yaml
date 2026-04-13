@@ -1,0 +1,69 @@
+# Example workflow definition demonstrating the YAML schema
+# This file showcases all supported workflow features including:
+# - Multi-step dependencies with DAG structure
+# - Conditional execution
+# - Input/output templating
+# - Approval gates
+# - GitHub event triggers
+
+name: Feature Delivery Pipeline
+
+workflow:
+  # Root step: triggered by GitHub issues with ready-for-dev label
+  - id: implement
+    agent: autonomous-developer
+    repo: pulp/pulp_python
+    trigger:
+      github:
+        events: [issues]
+        labels: [ready-for-dev]
+    outputs: [pr_url, summary, branch_name]
+
+  # Deploy to staging: runs after implementation completes successfully
+  - id: deploy-staging
+    agent: deploy-agent
+    needs: [implement]
+    condition: "steps.implement.outcome == 'completed'"
+    inputs:
+      pr_url: "{{steps.implement.outputs.pr_url}}"
+      context: "{{steps.implement.outputs.summary}}"
+      environment: "staging"
+    outputs: [deployment_url, version]
+
+  # Smoke tests: runs after staging deployment
+  - id: verify-staging
+    agent: smoke-test
+    needs: [deploy-staging]
+    inputs:
+      target_url: "{{steps.deploy-staging.outputs.deployment_url}}"
+      version: "{{steps.deploy-staging.outputs.version}}"
+    outputs: [test_results, status]
+
+  # Production deployment: requires manual approval
+  - id: deploy-production
+    agent: deploy-agent
+    needs: [verify-staging]
+    approval: required
+    condition: "steps.verify-staging.outputs.status == 'passed'"
+    inputs:
+      pr_url: "{{steps.implement.outputs.pr_url}}"
+      context: "Deploying verified version {{steps.deploy-staging.outputs.version}}"
+      environment: "production"
+    outputs: [production_url, deployment_id]
+
+  # Post-deployment verification
+  - id: verify-production
+    agent: smoke-test
+    needs: [deploy-production]
+    inputs:
+      target_url: "{{steps.deploy-production.outputs.production_url}}"
+      deployment_id: "{{steps.deploy-production.outputs.deployment_id}}"
+    outputs: [final_status]
+
+  # Cleanup: runs regardless of success/failure of verification
+  - id: cleanup
+    agent: cleanup-agent
+    needs: [verify-production]
+    inputs:
+      branch_name: "{{steps.implement.outputs.branch_name}}"
+      staging_url: "{{steps.deploy-staging.outputs.deployment_url}}"
