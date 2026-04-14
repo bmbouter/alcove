@@ -25,9 +25,39 @@
         const opts = { method, headers };
         if (body) opts.body = JSON.stringify(body);
         const resp = await fetch(basePath + path, opts);
-        if (resp.status === 401 && !rhIdentityMode) {
-            showLogin();
-            throw new Error('unauthorized');
+        if (resp.status === 401) {
+            if (!rhIdentityMode) {
+                showLogin();
+                throw new Error('unauthorized');
+            } else {
+                // In rh-identity mode, a 401 indicates an auth configuration problem
+                // Check if this is a specific rh-identity error
+                try {
+                    const errorData = await resp.json();
+                    if (errorData.error === 'missing X-RH-Identity header' ||
+                        errorData.error === 'invalid X-RH-Identity header' ||
+                        errorData.error === 'TBR identity not associated with any user') {
+
+                        // Show appropriate error message
+                        let userMessage;
+                        if (errorData.error === 'missing X-RH-Identity header') {
+                            userMessage = 'Authentication failed: no identity header received. Ensure you are accessing Alcove through the SSO proxy (Turnpike).';
+                        } else if (errorData.error === 'invalid X-RH-Identity header') {
+                            userMessage = 'Authentication failed: identity header is malformed. Contact your administrator.';
+                        } else if (errorData.error === 'TBR identity not associated with any user') {
+                            userMessage = 'Authentication failed: your Token Based Registry identity is not associated with an SSO account. Visit the Account page to create an association.';
+                        } else {
+                            userMessage = 'Authentication failed: ' + errorData.error;
+                        }
+
+                        showAuthError(userMessage);
+                        throw new Error('rh-identity-auth-error');
+                    }
+                } catch (parseError) {
+                    // If we can't parse the error, fall back to generic handling
+                }
+                throw new Error('unauthorized');
+            }
         }
         return resp;
     }
@@ -353,7 +383,7 @@
                 alert(data.error || data.message || 'Failed to save webhook secret.');
             }
         } catch (err) {
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 alert('Failed to generate webhook secret.');
             }
         }
@@ -715,7 +745,7 @@
                         return;
                     }
                 } catch (err) {
-                    if (err.message !== 'unauthorized') {
+                    if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                         alert('Failed to start session.');
                     }
                 }
@@ -780,7 +810,7 @@
                     show($('#schedule-form-container'));
                     $('#sched-name').focus();
                 } catch (err) {
-                    if (err.message !== 'unauthorized') {
+                    if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                         alert('Failed to load schedule.');
                     }
                 }
@@ -802,7 +832,7 @@
                         loadUnifiedSchedules();
                     }
                 } catch (err) {
-                    if (err.message !== 'unauthorized') {
+                    if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                         alert('Failed to delete schedule.');
                     }
                     btn.disabled = false;
@@ -996,7 +1026,7 @@
                 alert(data.error || data.message || 'Failed to sync agent definitions.');
             }
         } catch (err) {
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 alert('Failed to sync agent definitions.');
             }
         }
@@ -1030,7 +1060,7 @@
             titleEl.textContent = data.name || 'Agent Definition';
             contentEl.textContent = currentYamlContent || '(no YAML content)';
         } catch (err) {
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 contentEl.textContent = 'Failed to load agent definition.';
             }
         }
@@ -1076,7 +1106,7 @@
             var templates = Array.isArray(data) ? data : (data.templates || data.items || []);
             renderTemplates(templates);
         } catch (err) {
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 listEl.innerHTML = '<p class="error-message">Failed to load templates.</p>';
             }
         }
@@ -1170,7 +1200,7 @@
             $('#change-password-form').reset();
             setTimeout(() => hide($('#change-password-modal')), 2000);
         } catch (err) {
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 errEl.textContent = 'Failed to change password.';
                 show(errEl);
             }
@@ -1353,7 +1383,7 @@
             startAutoRefresh();
         } catch (err) {
             hide(loading);
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--status-error);padding:24px;">Failed to load sessions. Check your connection and try again.</td></tr>';
             }
         }
@@ -1568,7 +1598,7 @@
             if (llmCreds.length === 1) select.selectedIndex = 1;
             checkTaskPrerequisites();
         } catch (err) {
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 select.innerHTML = '<option value="">Failed to load providers</option>';
             }
         }
@@ -1651,7 +1681,7 @@
             renderProfileChips();
             updateEffectivePermissions();
         } catch (err) {
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 errEl.textContent = err.message;
                 show(errEl);
             }
@@ -1792,7 +1822,7 @@
                             loadCredentials();
                         }
                     } catch (err) {
-                        if (err.message !== 'unauthorized') {
+                        if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                             alert('Failed to delete credential.');
                         }
                         btn.disabled = false;
@@ -1801,7 +1831,7 @@
             });
         } catch (err) {
             hide(loading);
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 tbodyLlm.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--status-error);">Failed to load credentials. Check your connection and try again.</td></tr>';
                 show(sectionLlm);
             }
@@ -2119,7 +2149,7 @@
             // Hide transcript and proxy log spinners since those loads will not run
             hide($('#transcript-loading'));
             hide($('#proxy-log-loading'));
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 $('#session-meta').innerHTML = '<div class="meta-card"><div class="meta-value" style="color:var(--status-error)">Failed to load session.</div></div>';
             }
         }
@@ -2180,7 +2210,7 @@
                         cancelBtn.textContent = 'Cancel Session';
                     }
                 } catch (err) {
-                    if (err.message !== 'unauthorized') {
+                    if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                         alert('Failed to cancel session.');
                         cancelBtn.disabled = false;
                         cancelBtn.textContent = 'Cancel Session';
@@ -3188,7 +3218,7 @@
             renderProxyLog();
         } catch (err) {
             hide(loading);
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 proxyLogData = [];
                 hide($('#proxy-log-filters'));
                 tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--status-error)">Failed to load proxy log.</td></tr>';
@@ -3385,7 +3415,7 @@
                         }
                         loadUsers();
                     } catch (err) {
-                        if (err.message !== 'unauthorized') {
+                        if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                             alert('Failed to update user.');
                         }
                         btn.disabled = false;
@@ -3409,7 +3439,7 @@
                             loadUsers();
                         }
                     } catch (err) {
-                        if (err.message !== 'unauthorized') {
+                        if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                             alert('Failed to delete user.');
                         }
                         btn.disabled = false;
@@ -3433,7 +3463,7 @@
             });
         } catch (err) {
             hide(loading);
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--status-error);">Failed to load users.</td></tr>';
             }
         }
@@ -3501,7 +3531,7 @@
             $('#create-user-form').reset();
             loadUsers();
         } catch (err) {
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 errEl.textContent = err.message;
                 show(errEl);
             }
@@ -3551,7 +3581,7 @@
             hide(modal);
             loadUsers();
         } catch (err) {
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 errEl.textContent = err.message;
                 show(errEl);
             }
@@ -3591,7 +3621,7 @@
             });
             if (creds.length === 1) select.selectedIndex = 1;
         } catch (err) {
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 select.innerHTML = '<option value="">Failed to load providers</option>';
             }
         }
@@ -3917,7 +3947,7 @@
             editingScheduleId = null;
             loadUnifiedSchedules();
         } catch (err) {
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 errEl.textContent = err.message;
                 show(errEl);
             }
@@ -3965,7 +3995,7 @@
             attachProfileCardHandlers();
         } catch (err) {
             hide(loading);
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 container.innerHTML = '<p style="color:var(--status-error);font-size:13px;">Failed to load profiles. Check your connection and try again.</p>';
             }
         }
@@ -4269,7 +4299,7 @@
                 hide(resultEl);
             });
         } catch (err) {
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 var errEl2 = $('#profile-ai-error');
                 errEl2.textContent = err.message;
                 show(errEl2);
@@ -4311,7 +4341,7 @@
 
             attachRuleHandlers(container);
         } catch (err) {
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 container.innerHTML = '<p style="color:var(--status-error);font-size:13px;">Failed to load tools.</p>';
             }
         }
@@ -4645,7 +4675,7 @@
             editingProfileId = null;
             loadSecurityPage();
         } catch (err) {
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 errEl.textContent = err.message;
                 show(errEl);
             }
@@ -4688,7 +4718,7 @@
                 select.appendChild(opt);
             });
         } catch (err) {
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 select.innerHTML = '<option value="">Failed to load profiles</option>';
             }
         }
@@ -4942,7 +4972,7 @@
             });
         } catch (err) {
             hide(loading);
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--status-error);">Failed to load tools.</td></tr>';
             }
         }
@@ -5026,7 +5056,7 @@
             delete $('#tool-form').dataset.editId;
             loadToolsPage();
         } catch (err) {
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 errEl.textContent = err.message;
                 show(errEl);
             }
@@ -5104,7 +5134,7 @@
                 });
             });
         } catch (err) {
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 content.innerHTML = '<p style="color:var(--status-error);font-size:13px;">Failed to load tools.</p>';
             }
         }
@@ -5937,7 +5967,7 @@
             });
         } catch (err) {
             hide(loading);
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 list.innerHTML = '<div class="error-message">Failed to load workflow runs.</div>';
             }
         }
@@ -6022,7 +6052,7 @@
             });
 
         } catch (err) {
-            if (err.message !== 'unauthorized') {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 stepsList.innerHTML = '<div class="error-message">Failed to load workflow run detail.</div>';
             }
         }
@@ -6103,6 +6133,7 @@
                 const resp = await fetch(basePath + '/api/v1/auth/me', {
                     headers: { 'Content-Type': 'application/json' }
                 });
+
                 if (resp.ok) {
                     const data = await resp.json();
                     if (data.auth_backend === 'rh-identity') {
@@ -6118,6 +6149,34 @@
                             localStorage.setItem('alcove_user', data.username);
                             localStorage.setItem('alcove_is_admin', data.is_admin ? 'true' : 'false');
                         }
+                    }
+                } else if (resp.status === 401) {
+                    // Check if this is an rh-identity auth error
+                    try {
+                        const errorData = await resp.json();
+                        // If we get a 401 with specific rh-identity error messages, show auth error
+                        if (errorData.error === 'missing X-RH-Identity header' ||
+                            errorData.error === 'invalid X-RH-Identity header' ||
+                            errorData.error === 'TBR identity not associated with any user') {
+                            rhIdentityMode = true;
+
+                            // Map backend error messages to user-friendly messages
+                            let userMessage;
+                            if (errorData.error === 'missing X-RH-Identity header') {
+                                userMessage = 'Authentication failed: no identity header received. Ensure you are accessing Alcove through the SSO proxy (Turnpike).';
+                            } else if (errorData.error === 'invalid X-RH-Identity header') {
+                                userMessage = 'Authentication failed: identity header is malformed. Contact your administrator.';
+                            } else if (errorData.error === 'TBR identity not associated with any user') {
+                                userMessage = 'Authentication failed: your Token Based Registry identity is not associated with an SSO account. Visit the Account page to create an association.';
+                            } else {
+                                userMessage = 'Authentication failed: ' + errorData.error;
+                            }
+
+                            showAuthError(userMessage);
+                            return;
+                        }
+                    } catch (e) {
+                        // If we can't parse the error response, fall through to normal login
                     }
                 }
             } catch (e) {
