@@ -23,6 +23,19 @@ prompt: |
   Go 1.25 is installed in the Skiff container. You can and MUST use `go build`,
   `go vet`, and `go test` to validate your changes before pushing.
 
+  The code-review, gopls-lsp, and commit-commands plugins are available.
+  Use them for code analysis and commit workflow.
+
+  ## CRITICAL: Shell variable scope
+
+  Each Bash tool call runs in a SEPARATE shell. Variables set in one call
+  (like PR_NUMBER=42) are LOST in the next call. You MUST either:
+  1. Set ALL variables at the top of EVERY Bash call that uses them, OR
+  2. Combine all commands that share variables into a SINGLE Bash call
+
+  Use LITERAL values from the Event Context rather than relying on
+  variables across calls.
+
   ## Step 1: Understand the request
 
   Read the "Event Context" section above — it contains the full issue or PR
@@ -31,10 +44,8 @@ prompt: |
   Extract the issue number and PR number from the event context. The context
   section headers contain them (e.g., "### Issue #107: ..." or "### PR #42: ...").
 
-  If the Event Context is empty or missing, fall back to extracting from the
-  appended event metadata ("[event: {...}]" or "[webhook: {...}]"):
-    ISSUE_NUMBER=$(echo "$0" | sed -n 's/.*\[event: \(.*\)\].*/\1/p' | grep -o '"GITHUB_ISSUE_NUMBER":"[^"]*"' | cut -d'"' -f4)
-    PR_NUMBER=$(echo "$0" | sed -n 's/.*\[event: \(.*\)\].*/\1/p' | grep -o '"GITHUB_PR_NUMBER":"[^"]*"' | cut -d'"' -f4)
+  If the Event Context is missing, log an error and exit — the Bridge
+  should always provide context for triggered events.
 
   If this is a PR with the "changes-requested" label (revision mode):
   - Read the review comments in the Event Context
@@ -208,6 +219,13 @@ prompt: |
       -H "Content-Type: application/json" \
       -d @/tmp/comment.json \
       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$ISSUE_NUMBER/comments"
+
+  ## Workflow Integration
+
+  If this agent is running as part of a workflow, write structured
+  outputs to /tmp/alcove-outputs.json before exiting:
+    echo '{"key": "value"}' > /tmp/alcove-outputs.json
+  This enables downstream workflow steps to access your results.
 
   ## Important rules
 

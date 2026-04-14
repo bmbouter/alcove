@@ -1,0 +1,26 @@
+name: Feature Development Pipeline
+workflow:
+  - id: plan
+    agent: Implementation Planner
+    trigger:
+      github:
+        events: [issues]
+        labels: [ready-for-dev]
+        repos: [bmbouter/alcove]
+        delivery_mode: polling
+    outputs: [plan_posted, issue_number]
+
+  - id: implement
+    agent: Autonomous Developer
+    needs: [plan]
+    inputs:
+      issue_number: "{{steps.plan.outputs.issue_number}}"
+    outputs: [pr_url, pr_number, branch_name, summary]
+
+  - id: review
+    agent: PR Reviewer
+    needs: [implement]
+    condition: "steps.implement.outcome == 'completed'"
+    inputs:
+      pr_url: "{{steps.implement.outputs.pr_url}}"
+    outputs: [review_decision]
