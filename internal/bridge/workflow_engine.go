@@ -1122,14 +1122,23 @@ func (we *WorkflowEngine) validateCrossRepoCredentials(ctx context.Context, repo
 		return fmt.Errorf("unable to parse repository service from URL %s: %w", repoURL, err)
 	}
 
-	// Check if the credential store has credentials for this service
-	// This validates that the user can access the target repository
+	// Create a credential store instance with the database connection
 	credStore := &CredentialStore{db: we.db}
-	_, _, err = credStore.AcquireSCMTokenWithHost(ctx, service)
+
+	// First try to find owner-specific credentials for cross-repo access
+	_, _, err = credStore.AcquireSCMTokenForOwner(ctx, service, owner)
 	if err != nil {
-		return fmt.Errorf("no credentials available for %s service (needed for repo %s): %w", service, repoURL, err)
+		// If no owner-specific credentials found, check for any available credentials
+		// This allows for workflow authors to access repos they have credentials for
+		_, _, fallbackErr := credStore.AcquireSCMTokenWithHost(ctx, service)
+		if fallbackErr != nil {
+			return fmt.Errorf("no credentials available for %s service (needed for repo %s): owner-specific error: %v, fallback error: %v",
+				service, repoURL, err, fallbackErr)
+		}
+		log.Printf("warning: using fallback credentials for cross-repo access to %s (owner %s has no specific credentials)", repoURL, owner)
 	}
 
+	log.Printf("cross-repo credential validation passed for repo %s (service: %s, owner: %s)", repoURL, service, owner)
 	return nil
 }
 
@@ -1171,11 +1180,66 @@ func parseRepoService(repoURL string) (string, error) {
 // enhanceTaskRequestForRepo adds repository-specific configurations to the task request.
 // This handles the cross-repo dispatch requirements mentioned in the issue comments.
 func (we *WorkflowEngine) enhanceTaskRequestForRepo(ctx context.Context, taskReq *TaskRequest, targetRepo, owner string) error {
-	// Future enhancement: inject repo-specific conventions (CLAUDE.md, AGENTS.md)
-	// Future enhancement: handle credential scoping per repository
-	// Future enhancement: configure sandbox persistence settings per repo
+	// Parse the repository URL to get service and organization details
+	service, repoOrg, repoName, err := parseRepoDetails(targetRepo)
+	if err != nil {
+		return fmt.Errorf("failed to parse repository details for %s: %w", targetRepo, err)
+	}
 
-	log.Printf("enhanced task request for cross-repo dispatch to %s", targetRepo)
+	// Override the repository in the task request to ensure the agent works on the target repo
+	taskReq.Repo = targetRepo
+
+	// Enhance credentials for the target repository
+	credStore := &CredentialStore{db: we.db}
+
+	// Prefer owner-specific credentials for cross-repo access to ensure proper scoping
+	token, apiHost, err := credStore.AcquireSCMTokenForOwner(ctx, service, owner)
+	if err != nil {
+		// Fall back to global credentials with warning
+		token, apiHost, fallbackErr := credStore.AcquireSCMTokenWithHost(ctx, service)
+		if fallbackErr != nil {
+			return fmt.Errorf("failed to acquire credentials for cross-repo access to %s: %w", targetRepo, fallbackErr)
+		}
+		log.Printf("warning: using global credentials for cross-repo access to %s by %s", targetRepo, owner)
+	}
+
+	// Update task request credentials for the target repository service
+	if taskReq.Credentials == nil {
+		taskReq.Credentials = make(map[string]string)
+	}
+
+	// Set the credential for the specific service
+	switch service {
+	case "github":
+		taskReq.Credentials["GITHUB_TOKEN"] = "github"
+	case "gitlab":
+		taskReq.Credentials["GITLAB_TOKEN"] = "gitlab"
+	case "bitbucket":
+		taskReq.Credentials["BITBUCKET_TOKEN"] = "bitbucket"
+	}
+
+	// Inject cross-repo context into the prompt
+	crossRepoContext := fmt.Sprintf(`
+Cross-Repository Context:
+- Target Repository: %s
+- Service: %s
+- Organization: %s
+- Repository Name: %s
+- Owner: %s
+
+This agent is working on a different repository than the workflow definition.
+Ensure all operations target the correct repository (%s).
+`, targetRepo, service, repoOrg, repoName, owner, targetRepo)
+
+	// Prepend cross-repo context to the existing prompt
+	if taskReq.Prompt != "" {
+		taskReq.Prompt = crossRepoContext + "\n\n" + taskReq.Prompt
+	} else {
+		taskReq.Prompt = crossRepoContext
+	}
+
+	log.Printf("enhanced task request for cross-repo dispatch to %s (service: %s, token: %s, api_host: %s)",
+		targetRepo, service, token[:min(8, len(token))]+"...", apiHost)
 	return nil
 }
 
@@ -1238,4 +1302,51 @@ func (we *WorkflowEngine) handleFieldBasedRouting(ctx context.Context, run *Work
 	}
 
 	return nil
+}
+
+// parseRepoDetails extracts service, organization, and repository name from a repository URL.
+// Examples:
+//
+//	"github.com/owner/repo" or "https://github.com/owner/repo" -> ("github", "owner", "repo", nil)
+//	"gitlab.com/owner/repo" or "https://gitlab.com/owner/repo" -> ("gitlab", "owner", "repo", nil)
+func parseRepoDetails(repoURL string) (service, org, repo string, err error) {
+	// Handle various repository URL formats
+	repoURL = strings.TrimPrefix(repoURL, "https://")
+	repoURL = strings.TrimPrefix(repoURL, "http://")
+	repoURL = strings.TrimPrefix(repoURL, "git@")
+	repoURL = strings.ReplaceAll(repoURL, ":", "/") // Handle SSH format
+
+	parts := strings.Split(repoURL, "/")
+	if len(parts) < 3 {
+		return "", "", "", fmt.Errorf("invalid repository URL format, expected host/org/repo")
+	}
+
+	host := parts[0]
+	organization := parts[1]
+	repository := parts[2]
+
+	// Remove .git suffix if present
+	repository = strings.TrimSuffix(repository, ".git")
+
+	// Map common hosts to service names
+	if strings.Contains(host, "github") {
+		return "github", organization, repository, nil
+	}
+	if strings.Contains(host, "gitlab") {
+		return "gitlab", organization, repository, nil
+	}
+	if strings.Contains(host, "bitbucket") {
+		return "bitbucket", organization, repository, nil
+	}
+
+	// For enterprise instances, default to github if no other match
+	return "github", organization, repository, nil
+}
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

@@ -132,7 +132,7 @@ The dashboard Workflows page shows pending approvals with approve/reject buttons
 
 ## Cross-Repo Steps
 
-A workflow step can target a different repo than the agent's default:
+A workflow step can target a different repo than the agent's default using the `repo` field:
 
 ```yaml
 - id: implement-plugin
@@ -143,10 +143,76 @@ A workflow step can target a different repo than the agent's default:
   agent: autonomous-developer
   repo: pulp/pulpcore
   needs: [implement-plugin]
+  inputs:
+    context: "{{steps.implement-plugin.outputs.summary}}"
 ```
 
-The same agent definition runs against different repos. Credentials for
-each repo must be configured in the user's credential store.
+The same agent definition runs against different repositories. This enables workflows that coordinate changes across multiple related repositories.
+
+### Requirements
+
+1. **Credentials**: The workflow owner must have appropriate credentials configured for each target repository service (GitHub, GitLab, etc.)
+2. **Agent Definition**: The agent must be defined and available to the workflow owner
+3. **Security Profile**: The agent's security profile must allow operations on multiple repos if cross-repo access is needed
+
+### How It Works
+
+When a workflow step specifies a different `repo`:
+
+1. **Credential Validation**: Bridge validates that credentials exist for the target repository's service
+2. **Task Enhancement**: The task request is enhanced with:
+   - Repository URL override
+   - Service-specific credential mapping  
+   - Cross-repo context injection into the agent prompt
+3. **Agent Dispatch**: The agent runs in a Skiff container configured for the target repository
+4. **Output Collection**: Outputs are collected and made available to subsequent steps
+
+### Security Considerations
+
+Cross-repo workflows require careful credential scoping:
+
+- **Owner-Specific Credentials**: Preferred for security isolation between users
+- **Fallback Credentials**: Global service credentials are used if no owner-specific credentials exist
+- **Credential Validation**: Bridge validates access before dispatching each cross-repo step
+
+### Example: Multi-Repository Feature Development
+
+```yaml
+name: Multi-Repo Feature Pipeline
+workflow:
+  - id: plan-changes
+    agent: feature-planner
+    trigger:
+      github:
+        events: [issues] 
+        labels: [feature-request]
+    outputs: [implementation_plan, affected_repos]
+
+  - id: implement-backend
+    agent: autonomous-developer  
+    repo: company/backend-service
+    needs: [plan-changes]
+    inputs:
+      plan: "{{steps.plan-changes.outputs.implementation_plan}}"
+    outputs: [backend_pr_url]
+
+  - id: implement-frontend
+    agent: autonomous-developer
+    repo: company/frontend-app  
+    needs: [plan-changes]
+    inputs:
+      plan: "{{steps.plan-changes.outputs.implementation_plan}}"
+    outputs: [frontend_pr_url]
+
+  - id: update-docs
+    agent: documentation-agent
+    repo: company/technical-docs
+    needs: [implement-backend, implement-frontend]
+    condition: "steps.implement-backend.outcome == 'completed' && steps.implement-frontend.outcome == 'completed'"
+    inputs:
+      backend_pr: "{{steps.implement-backend.outputs.backend_pr_url}}"
+      frontend_pr: "{{steps.implement-frontend.outputs.frontend_pr_url}}"
+```
 
 ## API
 

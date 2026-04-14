@@ -24,3 +24,13 @@ workflow:
     inputs:
       pr_url: "{{steps.implement.outputs.pr_url}}"
     outputs: [review_decision]
+
+  # Cross-repo example: Deploy to related repository
+  - id: deploy-docs
+    agent: Documentation Deployer
+    repo: bmbouter/alcove-docs  # Different repository
+    needs: [review]
+    condition: "steps.review.outputs.review_decision == 'approved'"
+    inputs:
+      feature_summary: "{{steps.implement.outputs.summary}}"
+    outputs: [docs_updated]

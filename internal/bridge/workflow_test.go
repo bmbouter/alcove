@@ -796,3 +796,112 @@ func TestValidateConditionSyntax_Enhanced(t *testing.T) {
 		})
 	}
 }
+
+// TestParseRepoDetails tests the repository URL parsing functionality
+func TestParseRepoDetails(t *testing.T) {
+	tests := []struct {
+		repoURL  string
+		service  string
+		org      string
+		repo     string
+		hasError bool
+	}{
+		{"github.com/owner/repo", "github", "owner", "repo", false},
+		{"https://github.com/owner/repo", "github", "owner", "repo", false},
+		{"https://github.com/owner/repo.git", "github", "owner", "repo", false},
+		{"git@github.com:owner/repo.git", "github", "owner", "repo", false},
+		{"gitlab.com/owner/repo", "gitlab", "owner", "repo", false},
+		{"https://gitlab.example.com/owner/repo", "gitlab", "owner", "repo", false},
+		{"bitbucket.org/owner/repo", "bitbucket", "owner", "repo", false},
+		{"enterprise.github.com/owner/repo", "github", "owner", "repo", false},
+		{"invalid-url", "", "", "", true},
+		{"github.com/owner", "", "", "", true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.repoURL, func(t *testing.T) {
+			service, org, repo, err := parseRepoDetails(test.repoURL)
+
+			if test.hasError {
+				if err == nil {
+					t.Errorf("expected error for URL %s but got none", test.repoURL)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("unexpected error for URL %s: %v", test.repoURL, err)
+				return
+			}
+
+			if service != test.service {
+				t.Errorf("expected service %s but got %s", test.service, service)
+			}
+			if org != test.org {
+				t.Errorf("expected org %s but got %s", test.org, org)
+			}
+			if repo != test.repo {
+				t.Errorf("expected repo %s but got %s", test.repo, repo)
+			}
+		})
+	}
+}
+
+// TestWorkflowStepWithCrossRepo tests workflow step with cross-repo configuration
+func TestWorkflowStepWithCrossRepo(t *testing.T) {
+	yamlData := `
+name: Cross-Repository Workflow
+workflow:
+  - id: implement-plugin
+    agent: autonomous-developer
+    repo: pulp/pulp_python
+    outputs: [pr_url, summary]
+  - id: implement-core
+    agent: autonomous-developer
+    repo: pulp/pulpcore
+    needs: [implement-plugin]
+    inputs:
+      context: "{{steps.implement-plugin.outputs.summary}}"
+`
+
+	wd, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("failed to parse cross-repo workflow: %v", err)
+	}
+
+	if wd.Name != "Cross-Repository Workflow" {
+		t.Errorf("expected workflow name 'Cross-Repository Workflow', got '%s'", wd.Name)
+	}
+
+	if len(wd.Workflow) != 2 {
+		t.Fatalf("expected 2 workflow steps, got %d", len(wd.Workflow))
+	}
+
+	// Check first step
+	step1 := wd.Workflow[0]
+	if step1.ID != "implement-plugin" {
+		t.Errorf("expected step ID 'implement-plugin', got '%s'", step1.ID)
+	}
+	if step1.Repo != "pulp/pulp_python" {
+		t.Errorf("expected repo 'pulp/pulp_python', got '%s'", step1.Repo)
+	}
+
+	// Check second step
+	step2 := wd.Workflow[1]
+	if step2.ID != "implement-core" {
+		t.Errorf("expected step ID 'implement-core', got '%s'", step2.ID)
+	}
+	if step2.Repo != "pulp/pulpcore" {
+		t.Errorf("expected repo 'pulp/pulpcore', got '%s'", step2.Repo)
+	}
+	if len(step2.Needs) != 1 || step2.Needs[0] != "implement-plugin" {
+		t.Errorf("expected dependency on 'implement-plugin', got %v", step2.Needs)
+	}
+
+	// Check input template
+	if contextInput, exists := step2.Inputs["context"]; !exists {
+		t.Error("expected 'context' input in second step")
+	} else if contextInput != "{{steps.implement-plugin.outputs.summary}}" {
+		t.Errorf("expected template input, got '%v'", contextInput)
+	}
+}
