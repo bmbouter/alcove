@@ -3,6 +3,13 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.15.5
+
+### Bug Fixes
+- Fix workflow steps display showing "0 steps / No steps defined". The
+  JS read from a non-existent `steps` field instead of the `workflow`
+  array returned by the API.
+
 ## v0.15.4
 
 ### Bug Fixes
