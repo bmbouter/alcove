@@ -29,7 +29,13 @@ runtime: podman
 #   api_key: sk-ant-...
 #   model: claude-sonnet-4-20250514
 
-# Option B: Google Vertex AI (Service Account)
+# Option B: Claude Pro/Max (OAuth)
+# system_llm:
+#   provider: claude-oauth
+#   oauth_token: <token from 'claude setup-token'>
+#   model: claude-sonnet-4-20250514
+
+# Option C: Google Vertex AI (Service Account)
 # system_llm:
 #   provider: google-vertex
 #   service_account_json: |
