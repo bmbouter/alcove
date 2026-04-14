@@ -6167,8 +6167,14 @@
         var card = document.createElement('div');
         card.className = 'workflow-def-card';
 
-        var stepCount = workflow.steps ? Object.keys(workflow.steps).length : 0;
-        var dag = buildMiniDAG(workflow.steps || {});
+        // Convert workflow array to steps map for rendering
+        var stepsMap = {};
+        var stepsArray = workflow.workflow || [];
+        if (Array.isArray(stepsArray)) {
+            stepsArray.forEach(function(s) { if (s.id) stepsMap[s.id] = s; });
+        }
+        var stepCount = Object.keys(stepsMap).length;
+        var dag = buildMiniDAG(stepsMap);
         var triggerInfo = buildTriggerInfo(workflow.trigger);
         var lastSynced = workflow.last_synced ? new Date(workflow.last_synced).toLocaleString() : 'Never';
         var sourceRepo = workflow.source_repo || 'Unknown';
