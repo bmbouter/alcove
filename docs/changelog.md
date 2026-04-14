@@ -3,6 +3,14 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.15.3
+
+### Bug Fixes
+- Fix team scoping in dashboard. When team resolution failed, the auth
+  middleware silently skipped setting the team header, causing API handlers
+  to return all data instead of team-scoped results. Now logs errors and
+  falls back to the personal team.
+
 ## v0.15.2
 
 ### Bug Fixes
