@@ -336,7 +336,13 @@ func AuthMiddleware(store Authenticator, mgr UserManager, db ...*pgxpool.Pool) f
 				// Resolve team ID.
 				isAdmin := r.Header.Get("X-Alcove-Admin") == "true"
 				teamHeader := r.Header.Get("X-Alcove-Team")
-				if teamID, err := resolveTeamID(r.Context(), dbPool, username, teamHeader, isAdmin); err == nil && teamID != "" {
+				teamID, err := resolveTeamID(r.Context(), dbPool, username, teamHeader, isAdmin)
+				if err != nil {
+					log.Printf("auth: team resolution failed for user=%s team=%s: %v (falling back to personal team)", username, teamHeader, err)
+					// Fall back to personal team.
+					teamID, _ = resolveTeamID(r.Context(), dbPool, username, "", isAdmin)
+				}
+				if teamID != "" {
 					r.Header.Set("X-Alcove-Team-ID", teamID)
 				}
 				next.ServeHTTP(w, r)
@@ -419,7 +425,13 @@ func AuthMiddleware(store Authenticator, mgr UserManager, db ...*pgxpool.Pool) f
 			// Resolve team ID.
 			isAdmin := r.Header.Get("X-Alcove-Admin") == "true"
 			teamHeader := r.Header.Get("X-Alcove-Team")
-			if teamID, err := resolveTeamID(r.Context(), dbPool, username, teamHeader, isAdmin); err == nil && teamID != "" {
+			teamID, err := resolveTeamID(r.Context(), dbPool, username, teamHeader, isAdmin)
+			if err != nil {
+				log.Printf("auth: team resolution failed for user=%s team=%s: %v (falling back to personal team)", username, teamHeader, err)
+				// Fall back to personal team.
+				teamID, _ = resolveTeamID(r.Context(), dbPool, username, "", isAdmin)
+			}
+			if teamID != "" {
 				r.Header.Set("X-Alcove-Team-ID", teamID)
 			}
 
