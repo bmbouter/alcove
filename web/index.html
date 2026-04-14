@@ -57,6 +57,7 @@
                 <a href="#task/new" class="nav-tab" data-tab="task/new">New Session</a>
                 <a href="#sessions" class="nav-tab" data-tab="sessions">Sessions</a>
                 <a href="#schedules" class="nav-tab" data-tab="schedules">Schedules</a>
+                <a href="#workflows" class="nav-tab" data-tab="workflows">Workflows</a>
                 <a href="#credentials" class="nav-tab" data-tab="credentials">Credentials</a>
                 <a href="#security" class="nav-tab" data-tab="security">Security</a>
                 <a href="#repos" class="nav-tab" data-tab="repos">Repos</a>
@@ -503,6 +504,37 @@
                         </div>
                     </div>
                 </div>
+            </div>
+
+            <!-- Workflows -->
+            <div id="page-workflows" class="page" hidden>
+                <div class="page-header">
+                    <h2>Workflows</h2>
+                    <div class="filters">
+                        <select id="workflow-filter-status" class="input input-small" aria-label="Filter by status">
+                            <option value="">All Statuses</option>
+                            <option value="pending">Pending</option>
+                            <option value="running">Running</option>
+                            <option value="completed">Completed</option>
+                            <option value="failed">Failed</option>
+                            <option value="awaiting_approval">Awaiting Approval</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="workflow-runs-list"></div>
+                <div id="workflow-runs-empty" class="empty-state" hidden><p>No workflow runs found.</p></div>
+                <div id="workflow-runs-loading" class="loading-state" hidden><div class="spinner"></div><p>Loading workflow runs...</p></div>
+            </div>
+
+            <!-- Workflow Run Detail -->
+            <div id="page-workflow-detail" class="page" hidden>
+                <div class="page-header">
+                    <button id="back-to-workflows" class="btn btn-small btn-outline">Back to Workflows</button>
+                    <h2 id="workflow-detail-title">Workflow Run</h2>
+                </div>
+                <div class="session-meta-grid" id="workflow-meta"></div>
+                <h3 style="color:#fff;margin-bottom:12px;">Steps</h3>
+                <div id="workflow-steps-list"></div>
             </div>
 
             <!-- Tools (admin, accessible from Security page) -->

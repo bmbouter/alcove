@@ -44,35 +44,37 @@ var templateFS embed.FS
 
 // API holds the HTTP handlers for the Bridge REST API.
 type API struct {
-	dispatcher    *Dispatcher
-	db            *pgxpool.Pool
-	cfg           *Config
-	scheduler     *Scheduler
-	credStore     *CredentialStore
-	toolStore     *ToolStore
-	profileStore  *ProfileStore
-	settingsStore *SettingsStore
-	llm           *BridgeLLM
-	defStore      *AgentDefStore
-	syncer        *AgentRepoSyncer
-	authStore     auth.Authenticator // for TBR associations (rh-identity backend)
+	dispatcher     *Dispatcher
+	db             *pgxpool.Pool
+	cfg            *Config
+	scheduler      *Scheduler
+	credStore      *CredentialStore
+	toolStore      *ToolStore
+	profileStore   *ProfileStore
+	settingsStore  *SettingsStore
+	llm            *BridgeLLM
+	defStore       *AgentDefStore
+	syncer         *AgentRepoSyncer
+	authStore      auth.Authenticator // for TBR associations (rh-identity backend)
+	workflowEngine *WorkflowEngine
 }
 
 // NewAPI creates the API handler set.
-func NewAPI(dispatcher *Dispatcher, db *pgxpool.Pool, cfg *Config, scheduler *Scheduler, credStore *CredentialStore, toolStore *ToolStore, profileStore *ProfileStore, settingsStore *SettingsStore, llm *BridgeLLM, defStore *AgentDefStore, syncer *AgentRepoSyncer, authStore auth.Authenticator) *API {
+func NewAPI(dispatcher *Dispatcher, db *pgxpool.Pool, cfg *Config, scheduler *Scheduler, credStore *CredentialStore, toolStore *ToolStore, profileStore *ProfileStore, settingsStore *SettingsStore, llm *BridgeLLM, defStore *AgentDefStore, syncer *AgentRepoSyncer, authStore auth.Authenticator, workflowEngine *WorkflowEngine) *API {
 	return &API{
-		dispatcher:    dispatcher,
-		db:            db,
-		cfg:           cfg,
-		scheduler:     scheduler,
-		credStore:     credStore,
-		toolStore:     toolStore,
-		profileStore:  profileStore,
-		settingsStore: settingsStore,
-		llm:           llm,
-		defStore:      defStore,
-		syncer:        syncer,
-		authStore:     authStore,
+		dispatcher:     dispatcher,
+		db:             db,
+		cfg:            cfg,
+		scheduler:      scheduler,
+		credStore:      credStore,
+		toolStore:      toolStore,
+		profileStore:   profileStore,
+		settingsStore:  settingsStore,
+		llm:            llm,
+		defStore:       defStore,
+		syncer:         syncer,
+		authStore:      authStore,
+		workflowEngine: workflowEngine,
 	}
 }
 
@@ -109,6 +111,9 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/auth/tbr-associations/", a.handleTBRAssociationByID)
 	mux.HandleFunc("/api/v1/auth/api-tokens", a.handlePersonalAPITokens)
 	mux.HandleFunc("/api/v1/auth/api-tokens/", a.handlePersonalAPITokenByID)
+	mux.HandleFunc("/api/v1/workflows", a.handleWorkflows)
+	mux.HandleFunc("/api/v1/workflow-runs", a.handleWorkflowRuns)
+	mux.HandleFunc("/api/v1/workflow-runs/", a.handleWorkflowRunByID)
 }
 
 // --- Health ---
@@ -2533,6 +2538,127 @@ func (a *API) buildDisabledReposMap(ctx context.Context, username string) map[st
 		}
 	}
 	return disabledRepos
+}
+
+// --- Workflows ---
+
+func (a *API) handleWorkflows(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	owner := r.Header.Get("X-Alcove-User")
+	if owner == "" {
+		owner = "anonymous"
+	}
+
+	workflows, err := a.workflowEngine.workflowStore.ListWorkflows(r.Context(), owner)
+	if err != nil {
+		log.Printf("error listing workflows: %v", err)
+		respondError(w, http.StatusInternalServerError, "failed to list workflows")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"workflows": workflows,
+		"count":     len(workflows),
+	})
+}
+
+func (a *API) handleWorkflowRuns(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	owner := r.Header.Get("X-Alcove-User")
+	if owner == "" {
+		owner = "anonymous"
+	}
+
+	status := r.URL.Query().Get("status")
+
+	runs, err := a.workflowEngine.ListWorkflowRuns(r.Context(), status, owner)
+	if err != nil {
+		log.Printf("error listing workflow runs: %v", err)
+		respondError(w, http.StatusInternalServerError, "failed to list workflow runs")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"workflow_runs": runs,
+		"count":         len(runs),
+	})
+}
+
+func (a *API) handleWorkflowRunByID(w http.ResponseWriter, r *http.Request) {
+	// Parse: /api/v1/workflow-runs/{id} or /api/v1/workflow-runs/{id}/approve/{step_id} or /api/v1/workflow-runs/{id}/reject/{step_id}
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/workflow-runs/")
+	parts := strings.SplitN(path, "/", 3)
+	runID := parts[0]
+
+	if runID == "" {
+		respondError(w, http.StatusBadRequest, "workflow run id required")
+		return
+	}
+
+	// Handle approve/reject actions
+	if len(parts) >= 3 {
+		action := parts[1]
+		stepID := parts[2]
+
+		if r.Method != http.MethodPost {
+			respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+
+		switch action {
+		case "approve":
+			if err := a.workflowEngine.ApproveStep(r.Context(), runID, stepID); err != nil {
+				log.Printf("error approving step %s in run %s: %v", stepID, runID, err)
+				respondError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			respondJSON(w, http.StatusOK, map[string]string{
+				"status":  "approved",
+				"run_id":  runID,
+				"step_id": stepID,
+			})
+		case "reject":
+			if err := a.workflowEngine.RejectStep(r.Context(), runID, stepID); err != nil {
+				log.Printf("error rejecting step %s in run %s: %v", stepID, runID, err)
+				respondError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			respondJSON(w, http.StatusOK, map[string]string{
+				"status":  "rejected",
+				"run_id":  runID,
+				"step_id": stepID,
+			})
+		default:
+			respondError(w, http.StatusNotFound, "unknown action: "+action)
+		}
+		return
+	}
+
+	// GET /api/v1/workflow-runs/{id} — get run detail with all steps
+	if r.Method != http.MethodGet {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	run, steps, err := a.workflowEngine.GetWorkflowRunDetail(r.Context(), runID)
+	if err != nil {
+		log.Printf("error getting workflow run %s: %v", runID, err)
+		respondError(w, http.StatusNotFound, "workflow run not found")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"workflow_run": run,
+		"steps":        steps,
+	})
 }
 
 // --- Helpers ---

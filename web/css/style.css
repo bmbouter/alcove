@@ -2410,6 +2410,117 @@ details[open] > .tx-tool-expand-toggle::before {
     cursor: pointer;
 }
 
+/* === Workflow Steps === */
+.workflow-run-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    transition: border-color var(--transition), background var(--transition);
+}
+
+.workflow-run-card:hover {
+    border-color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.workflow-run-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.workflow-run-name {
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--text);
+}
+
+.workflow-run-meta {
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.workflow-step-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 8px;
+}
+
+.workflow-step-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.workflow-step-dot-pending {
+    background: var(--text-muted);
+    opacity: 0.5;
+}
+
+.workflow-step-dot-running {
+    background: var(--status-running);
+    animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+.workflow-step-dot-completed {
+    background: var(--status-completed);
+}
+
+.workflow-step-dot-failed {
+    background: var(--status-error);
+}
+
+.workflow-step-dot-skipped {
+    background: var(--text-muted);
+    opacity: 0.3;
+}
+
+.workflow-step-dot-awaiting_approval {
+    background: var(--status-cancelled);
+    animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+.workflow-step-info {
+    flex: 1;
+}
+
+.workflow-step-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text);
+}
+
+.workflow-step-agent {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}
+
+.workflow-step-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.workflow-step-connector {
+    width: 2px;
+    height: 12px;
+    background: var(--border);
+    margin-left: 21px;
+}
+
 /* === Footer === */
 .alcove-footer {
     text-align: center;
