@@ -39,9 +39,9 @@ import (
 // Version is set at build time via -ldflags.
 var Version = "dev"
 
-// CLIConfig holds the user-level CLI configuration.
-type CLIConfig struct {
-	Server   string `yaml:"server"`
+// CLIProfile holds per-profile CLI configuration.
+type CLIProfile struct {
+	Server   string `yaml:"server,omitempty"`
 	Output   string `yaml:"output,omitempty"`    // "json" or "table"
 	Username string `yaml:"username,omitempty"`  // Basic Auth username
 	Password string `yaml:"password,omitempty"`  // Basic Auth password
@@ -54,6 +54,15 @@ type CLIConfig struct {
 		Timeout  string  `yaml:"timeout,omitempty"`  // Default timeout (e.g., "30m")
 		Budget   float64 `yaml:"budget,omitempty"`   // Default budget in USD
 	} `yaml:"defaults,omitempty"`
+}
+
+// CLIConfig holds the user-level CLI configuration, including named profiles.
+type CLIConfig struct {
+	ActiveProfile string                `yaml:"active_profile,omitempty"`
+	Profiles      map[string]CLIProfile `yaml:"profiles,omitempty"`
+
+	// Top-level fields for backward compat (the "default" profile)
+	CLIProfile `yaml:",inline"`
 }
 
 // ProxyConfig holds HTTP proxy configuration.
@@ -77,6 +86,7 @@ func main() {
 	root.PersistentFlags().StringP("password", "p", "", "Password for Basic Auth (overrides ALCOVE_PASSWORD)")
 	root.PersistentFlags().String("proxy-url", "", "HTTP/HTTPS proxy URL (overrides environment)")
 	root.PersistentFlags().String("no-proxy", "", "Comma-separated list of hosts to exclude from proxy (overrides NO_PROXY env var)")
+	root.PersistentFlags().String("profile", "", "Use a named profile from config (overrides active_profile)")
 
 	root.AddCommand(
 		newRunCmd(),
@@ -87,6 +97,7 @@ func main() {
 		newDeleteCmd(),
 		newLoginCmd(),
 		newConfigCmd(),
+		newProfileCmd(),
 		newVersionCmd(),
 	)
 
@@ -94,6 +105,35 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// resolveProfile resolves the active CLIProfile based on --profile flag,
+// ALCOVE_PROFILE env var, active_profile in config, or top-level (inline) fields.
+func resolveProfile(cmd *cobra.Command) (*CLIProfile, error) {
+	cfg, err := loadConfig()
+	if err != nil {
+		return &CLIProfile{}, nil // no config file — empty profile
+	}
+
+	// Determine which profile name to use
+	profileName, _ := cmd.Flags().GetString("profile")
+	if profileName == "" {
+		profileName = os.Getenv("ALCOVE_PROFILE")
+	}
+	if profileName == "" {
+		profileName = cfg.ActiveProfile
+	}
+
+	// Look up the named profile
+	if profileName != "" && cfg.Profiles != nil {
+		if profile, ok := cfg.Profiles[profileName]; ok {
+			return &profile, nil
+		}
+		return nil, fmt.Errorf("profile %q not found in config", profileName)
+	}
+
+	// Fall back to top-level (inline) config
+	return &cfg.CLIProfile, nil
 }
 
 // resolveServer determines the Bridge URL from flag, env, or config file.
@@ -106,10 +146,13 @@ func resolveServer(cmd *cobra.Command) (string, error) {
 	if s := os.Getenv("ALCOVE_SERVER"); s != "" {
 		return strings.TrimRight(s, "/"), nil
 	}
-	// 3. Config file
-	cfg, err := loadConfig()
-	if err == nil && cfg.Server != "" {
-		return strings.TrimRight(cfg.Server, "/"), nil
+	// 3. Active profile from config file
+	profile, err := resolveProfile(cmd)
+	if err != nil {
+		return "", err
+	}
+	if profile.Server != "" {
+		return strings.TrimRight(profile.Server, "/"), nil
 	}
 	return "", fmt.Errorf("no Bridge server configured; use --server, ALCOVE_SERVER, or 'alcove login'")
 }
@@ -131,10 +174,10 @@ func resolveBasicAuth(cmd *cobra.Command) (string, string) {
 		return username, password
 	}
 
-	// 3. Config file
-	if cfg, err := loadConfig(); err == nil {
-		username = cfg.Username
-		password = cfg.Password
+	// 3. Active profile from config file
+	if profile, err := resolveProfile(cmd); err == nil {
+		username = profile.Username
+		password = profile.Password
 	}
 	return username, password
 }
@@ -186,14 +229,14 @@ func resolveProxyConfig(cmd *cobra.Command) (*ProxyConfig, error) {
 		}
 	}
 
-	// 3. Config file
+	// 3. Active profile from config file
 	if config.ProxyURL == "" {
-		if cfg, err := loadConfig(); err == nil && cfg.ProxyURL != "" {
-			if err := validateProxyURL(cfg.ProxyURL); err == nil {
-				config.ProxyURL = cfg.ProxyURL
+		if profile, err := resolveProfile(cmd); err == nil && profile.ProxyURL != "" {
+			if err := validateProxyURL(profile.ProxyURL); err == nil {
+				config.ProxyURL = profile.ProxyURL
 			}
-			if cfg.NoProxy != "" && len(config.NoProxy) == 0 {
-				config.NoProxy = parseNoProxy(cfg.NoProxy)
+			if profile.NoProxy != "" && len(config.NoProxy) == 0 {
+				config.NoProxy = parseNoProxy(profile.NoProxy)
 			}
 		}
 	}
@@ -429,7 +472,7 @@ func isJSONOutput(cmd *cobra.Command) bool {
 	if os.Getenv("ALCOVE_OUTPUT") == "json" {
 		return true
 	}
-	if cfg, err := loadConfig(); err == nil && cfg.Output == "json" {
+	if profile, err := resolveProfile(cmd); err == nil && profile.Output == "json" {
 		return true
 	}
 	return false
@@ -483,22 +526,22 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 	reqBody.Debug, _ = cmd.Flags().GetBool("debug")
 
-	// Fall back to config file defaults
-	if cfg, err := loadConfig(); err == nil {
+	// Fall back to active profile defaults
+	if profile, err := resolveProfile(cmd); err == nil {
 		if reqBody.Repo == "" {
-			reqBody.Repo = cfg.Defaults.Repo
+			reqBody.Repo = profile.Defaults.Repo
 		}
 		if reqBody.Provider == "" {
-			reqBody.Provider = cfg.Defaults.Provider
+			reqBody.Provider = profile.Defaults.Provider
 		}
 		if reqBody.Model == "" {
-			reqBody.Model = cfg.Defaults.Model
+			reqBody.Model = profile.Defaults.Model
 		}
-		if reqBody.Budget == 0 && cfg.Defaults.Budget > 0 {
-			reqBody.Budget = cfg.Defaults.Budget
+		if reqBody.Budget == 0 && profile.Defaults.Budget > 0 {
+			reqBody.Budget = profile.Defaults.Budget
 		}
-		if reqBody.Timeout == 0 && cfg.Defaults.Timeout != "" {
-			if d, err := time.ParseDuration(cfg.Defaults.Timeout); err == nil {
+		if reqBody.Timeout == 0 && profile.Defaults.Timeout != "" {
+			if d, err := time.ParseDuration(profile.Defaults.Timeout); err == nil {
 				reqBody.Timeout = int(d.Seconds())
 			}
 		}
@@ -1070,7 +1113,26 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	if cfg == nil {
 		cfg = &CLIConfig{}
 	}
-	cfg.Server = bridgeURL
+
+	// Determine which profile to save the server URL on
+	loginProfileName, _ := cmd.Flags().GetString("profile")
+	if loginProfileName == "" {
+		loginProfileName = os.Getenv("ALCOVE_PROFILE")
+	}
+	if loginProfileName == "" {
+		loginProfileName = cfg.ActiveProfile
+	}
+
+	if loginProfileName != "" && cfg.Profiles != nil {
+		if profile, ok := cfg.Profiles[loginProfileName]; ok {
+			profile.Server = bridgeURL
+			cfg.Profiles[loginProfileName] = profile
+		} else {
+			cfg.Server = bridgeURL
+		}
+	} else {
+		cfg.Server = bridgeURL
+	}
 	if err := saveConfig(cfg); err != nil {
 		return fmt.Errorf("saving config: %w", err)
 	}
@@ -1128,47 +1190,83 @@ func newConfigCmd() *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use:   "set <key> <value>",
 		Short: "Set a configuration value",
+		Long:  "Set a configuration value. When a named profile is active (via --profile flag, ALCOVE_PROFILE env, or active_profile in config), the value is set on that profile. Otherwise it is set on the top-level config.",
 		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, _ := loadConfig()
-			if cfg == nil {
-				cfg = &CLIConfig{}
-			}
-			key, value := args[0], args[1]
-			switch key {
-			case "server":
-				cfg.Server = value
-			case "output":
-				cfg.Output = value
-			case "username":
-				cfg.Username = value
-			case "password":
-				cfg.Password = value
-			case "proxy_url":
-				cfg.ProxyURL = value
-			case "no_proxy":
-				cfg.NoProxy = value
-			case "defaults.repo":
-				cfg.Defaults.Repo = value
-			case "defaults.provider":
-				cfg.Defaults.Provider = value
-			case "defaults.model":
-				cfg.Defaults.Model = value
-			case "defaults.timeout":
-				cfg.Defaults.Timeout = value
-			case "defaults.budget":
-				if b, err := strconv.ParseFloat(value, 64); err == nil {
-					cfg.Defaults.Budget = b
-				} else {
-					return fmt.Errorf("invalid budget value: %s", value)
-				}
-			default:
-				return fmt.Errorf("unknown config key: %s\nValid keys: server, output, username, password, proxy_url, no_proxy, defaults.repo, defaults.provider, defaults.model, defaults.timeout, defaults.budget", key)
-			}
-			return saveConfig(cfg)
-		},
+		RunE:  runConfigSet,
 	})
 	return cmd
+}
+
+func setProfileField(profile *CLIProfile, key, value string) error {
+	switch key {
+	case "server":
+		profile.Server = value
+	case "output":
+		profile.Output = value
+	case "username":
+		profile.Username = value
+	case "password":
+		profile.Password = value
+	case "proxy_url":
+		profile.ProxyURL = value
+	case "no_proxy":
+		profile.NoProxy = value
+	case "defaults.repo":
+		profile.Defaults.Repo = value
+	case "defaults.provider":
+		profile.Defaults.Provider = value
+	case "defaults.model":
+		profile.Defaults.Model = value
+	case "defaults.timeout":
+		profile.Defaults.Timeout = value
+	case "defaults.budget":
+		if b, err := strconv.ParseFloat(value, 64); err == nil {
+			profile.Defaults.Budget = b
+		} else {
+			return fmt.Errorf("invalid budget value: %s", value)
+		}
+	default:
+		return fmt.Errorf("unknown config key: %s\nValid keys: server, output, username, password, proxy_url, no_proxy, defaults.repo, defaults.provider, defaults.model, defaults.timeout, defaults.budget", key)
+	}
+	return nil
+}
+
+func runConfigSet(cmd *cobra.Command, args []string) error {
+	cfg, _ := loadConfig()
+	if cfg == nil {
+		cfg = &CLIConfig{}
+	}
+	key, value := args[0], args[1]
+
+	// Determine which profile to set the value on
+	profileName, _ := cmd.Flags().GetString("profile")
+	if profileName == "" {
+		profileName = os.Getenv("ALCOVE_PROFILE")
+	}
+	if profileName == "" {
+		profileName = cfg.ActiveProfile
+	}
+
+	if profileName != "" {
+		// Set on named profile
+		if cfg.Profiles == nil {
+			cfg.Profiles = make(map[string]CLIProfile)
+		}
+		profile, ok := cfg.Profiles[profileName]
+		if !ok {
+			return fmt.Errorf("profile %q not found in config; use 'alcove profile add %s' to create it", profileName, profileName)
+		}
+		if err := setProfileField(&profile, key, value); err != nil {
+			return err
+		}
+		cfg.Profiles[profileName] = profile
+	} else {
+		// Set on top-level (inline) config
+		if err := setProfileField(&cfg.CLIProfile, key, value); err != nil {
+			return err
+		}
+	}
+	return saveConfig(cfg)
 }
 
 func runConfigValidate(cmd *cobra.Command, _ []string) error {
@@ -1312,6 +1410,22 @@ func runConfigShow(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintln(os.Stderr, "Effective configuration:")
 	fmt.Fprintln(os.Stderr, "")
 
+	// Active profile
+	profileName, _ := cmd.Flags().GetString("profile")
+	if profileName == "" {
+		profileName = os.Getenv("ALCOVE_PROFILE")
+	}
+	if profileName == "" {
+		if cfg, err := loadConfig(); err == nil {
+			profileName = cfg.ActiveProfile
+		}
+	}
+	if profileName != "" {
+		fmt.Fprintf(os.Stderr, "Profile:      %s\n", profileName)
+	} else {
+		fmt.Fprintf(os.Stderr, "Profile:      <default>\n")
+	}
+
 	// Server resolution
 	server, serverErr := resolveServer(cmd)
 	if serverErr != nil {
@@ -1326,8 +1440,8 @@ func runConfigShow(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stderr, "Output:       %s (from --output flag)\n", f)
 	} else if env := os.Getenv("ALCOVE_OUTPUT"); env != "" {
 		fmt.Fprintf(os.Stderr, "Output:       %s (from ALCOVE_OUTPUT env)\n", env)
-	} else if cfg, err := loadConfig(); err == nil && cfg.Output != "" {
-		fmt.Fprintf(os.Stderr, "Output:       %s (from config file)\n", cfg.Output)
+	} else if profile, err := resolveProfile(cmd); err == nil && profile.Output != "" {
+		fmt.Fprintf(os.Stderr, "Output:       %s (from config file)\n", profile.Output)
 	} else {
 		fmt.Fprintf(os.Stderr, "Output:       %s (default)\n", output)
 	}
@@ -1354,37 +1468,37 @@ func runConfigShow(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Defaults
+	// Defaults from active profile
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Default values for 'run' command:")
 
-	if cfg, err := loadConfig(); err == nil {
-		if cfg.Defaults.Repo != "" {
-			fmt.Fprintf(os.Stderr, "  Repository: %s\n", cfg.Defaults.Repo)
+	if profile, err := resolveProfile(cmd); err == nil {
+		if profile.Defaults.Repo != "" {
+			fmt.Fprintf(os.Stderr, "  Repository: %s\n", profile.Defaults.Repo)
 		} else {
 			fmt.Fprintf(os.Stderr, "  Repository: <none>\n")
 		}
 
-		if cfg.Defaults.Provider != "" {
-			fmt.Fprintf(os.Stderr, "  Provider:   %s\n", cfg.Defaults.Provider)
+		if profile.Defaults.Provider != "" {
+			fmt.Fprintf(os.Stderr, "  Provider:   %s\n", profile.Defaults.Provider)
 		} else {
 			fmt.Fprintf(os.Stderr, "  Provider:   <none>\n")
 		}
 
-		if cfg.Defaults.Model != "" {
-			fmt.Fprintf(os.Stderr, "  Model:      %s\n", cfg.Defaults.Model)
+		if profile.Defaults.Model != "" {
+			fmt.Fprintf(os.Stderr, "  Model:      %s\n", profile.Defaults.Model)
 		} else {
 			fmt.Fprintf(os.Stderr, "  Model:      <none>\n")
 		}
 
-		if cfg.Defaults.Timeout != "" {
-			fmt.Fprintf(os.Stderr, "  Timeout:    %s\n", cfg.Defaults.Timeout)
+		if profile.Defaults.Timeout != "" {
+			fmt.Fprintf(os.Stderr, "  Timeout:    %s\n", profile.Defaults.Timeout)
 		} else {
 			fmt.Fprintf(os.Stderr, "  Timeout:    <none>\n")
 		}
 
-		if cfg.Defaults.Budget > 0 {
-			fmt.Fprintf(os.Stderr, "  Budget:     $%.2f\n", cfg.Defaults.Budget)
+		if profile.Defaults.Budget > 0 {
+			fmt.Fprintf(os.Stderr, "  Budget:     $%.2f\n", profile.Defaults.Budget)
 		} else {
 			fmt.Fprintf(os.Stderr, "  Budget:     <none>\n")
 		}
@@ -1397,13 +1511,187 @@ func runConfigShow(cmd *cobra.Command, _ []string) error {
 	fmt.Fprintln(os.Stderr, "Configuration file search order:")
 	for i, path := range getConfigPaths() {
 		if _, err := os.Stat(path); err == nil {
-			fmt.Fprintf(os.Stderr, "  %d. %s ✓\n", i+1, path)
+			fmt.Fprintf(os.Stderr, "  %d. %s (found)\n", i+1, path)
 		} else {
 			fmt.Fprintf(os.Stderr, "  %d. %s\n", i+1, path)
 		}
 	}
 
 	return nil
+}
+
+// ---------- profile ----------
+
+func newProfileCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "profile",
+		Short: "Manage named profiles for multiple Alcove installations",
+	}
+	cmd.AddCommand(
+		newProfileListCmd(),
+		newProfileUseCmd(),
+		newProfileAddCmd(),
+		newProfileRemoveCmd(),
+	)
+	return cmd
+}
+
+func newProfileListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List all profiles",
+		RunE:  runProfileList,
+	}
+}
+
+func runProfileList(cmd *cobra.Command, _ []string) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return fmt.Errorf("no config file found; use 'alcove profile add <name> --server <url>' to create a profile")
+	}
+
+	if len(cfg.Profiles) == 0 {
+		fmt.Fprintln(os.Stderr, "No profiles configured. Use 'alcove profile add <name> --server <url>' to create one.")
+		return nil
+	}
+
+	if isJSONOutput(cmd) {
+		result := make([]map[string]interface{}, 0, len(cfg.Profiles))
+		for name, profile := range cfg.Profiles {
+			entry := map[string]interface{}{
+				"name":   name,
+				"server": profile.Server,
+				"active": name == cfg.ActiveProfile,
+			}
+			result = append(result, entry)
+		}
+		return outputJSON(result)
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	for name, profile := range cfg.Profiles {
+		marker := " "
+		if name == cfg.ActiveProfile {
+			marker = "*"
+		}
+		fmt.Fprintf(w, "%s %s\t%s\n", marker, name, profile.Server)
+	}
+	return w.Flush()
+}
+
+func newProfileUseCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "use <name>",
+		Short: "Set the active profile",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runProfileUse,
+	}
+}
+
+func runProfileUse(cmd *cobra.Command, args []string) error {
+	name := args[0]
+
+	cfg, err := loadConfig()
+	if err != nil {
+		return fmt.Errorf("no config file found")
+	}
+
+	if cfg.Profiles == nil {
+		return fmt.Errorf("no profiles configured; use 'alcove profile add %s --server <url>' to create one", name)
+	}
+
+	if _, ok := cfg.Profiles[name]; !ok {
+		return fmt.Errorf("profile %q not found in config", name)
+	}
+
+	cfg.ActiveProfile = name
+	return saveConfig(cfg)
+}
+
+func newProfileAddCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "add <name>",
+		Short: "Create a new profile",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runProfileAdd,
+	}
+	cmd.Flags().String("server", "", "Bridge server URL (required)")
+	cmd.Flags().String("username", "", "Username for Basic Auth")
+	cmd.Flags().String("password", "", "Password for Basic Auth")
+	cmd.Flags().String("proxy-url", "", "HTTP/HTTPS proxy URL")
+	cmd.Flags().String("no-proxy", "", "Comma-separated no-proxy hosts")
+	return cmd
+}
+
+func runProfileAdd(cmd *cobra.Command, args []string) error {
+	name := args[0]
+
+	cfg, _ := loadConfig()
+	if cfg == nil {
+		cfg = &CLIConfig{}
+	}
+
+	if cfg.Profiles == nil {
+		cfg.Profiles = make(map[string]CLIProfile)
+	}
+
+	if _, ok := cfg.Profiles[name]; ok {
+		return fmt.Errorf("profile %q already exists; use 'alcove config set' to modify it", name)
+	}
+
+	profile := CLIProfile{}
+	profile.Server, _ = cmd.Flags().GetString("server")
+	// Use the profile-add-specific flags, not the global ones
+	if u, _ := cmd.Flags().GetString("username"); u != "" {
+		profile.Username = u
+	}
+	if p, _ := cmd.Flags().GetString("password"); p != "" {
+		profile.Password = p
+	}
+	if pu, _ := cmd.Flags().GetString("proxy-url"); pu != "" {
+		profile.ProxyURL = pu
+	}
+	if np, _ := cmd.Flags().GetString("no-proxy"); np != "" {
+		profile.NoProxy = np
+	}
+
+	cfg.Profiles[name] = profile
+	return saveConfig(cfg)
+}
+
+func newProfileRemoveCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "remove <name>",
+		Short: "Delete a profile",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runProfileRemove,
+	}
+}
+
+func runProfileRemove(cmd *cobra.Command, args []string) error {
+	name := args[0]
+
+	cfg, err := loadConfig()
+	if err != nil {
+		return fmt.Errorf("no config file found")
+	}
+
+	if cfg.Profiles == nil {
+		return fmt.Errorf("no profiles configured")
+	}
+
+	if _, ok := cfg.Profiles[name]; !ok {
+		return fmt.Errorf("profile %q not found in config", name)
+	}
+
+	delete(cfg.Profiles, name)
+
+	// Clear active_profile if it was the removed profile
+	if cfg.ActiveProfile == name {
+		cfg.ActiveProfile = ""
+	}
+
+	return saveConfig(cfg)
 }
 
 // ---------- version ----------
