@@ -155,7 +155,6 @@ ALTER TABLE agent_definitions DROP CONSTRAINT IF EXISTS task_definitions_source_
 CREATE UNIQUE INDEX idx_agent_definitions_source_key_team ON agent_definitions(source_key, team_id);
 
 -- workflows: change UNIQUE(source_key) to UNIQUE(source_key, team_id)
-DROP INDEX IF EXISTS workflows_source_key_key;
 ALTER TABLE workflows DROP CONSTRAINT IF EXISTS workflows_source_key_key;
 CREATE UNIQUE INDEX idx_workflows_source_key_team ON workflows(source_key, team_id);
 
