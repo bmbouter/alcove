@@ -96,6 +96,7 @@ func TestResolveProxyConfig(t *testing.T) {
 		cmd := &cobra.Command{}
 		cmd.PersistentFlags().String("proxy-url", "", "")
 		cmd.PersistentFlags().String("no-proxy", "", "")
+		cmd.PersistentFlags().String("profile", "", "")
 		return cmd
 	}
 
@@ -209,6 +210,10 @@ func TestResolveProxyConfig(t *testing.T) {
 		for _, env := range []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"} {
 			t.Setenv(env, "")
 		}
+		// Isolate from user config file
+		tmpDir := t.TempDir()
+		t.Setenv("XDG_CONFIG_HOME", tmpDir)
+		t.Setenv("HOME", filepath.Join(tmpDir, "fakehome"))
 
 		cmd := createTestCommand()
 
@@ -399,12 +404,14 @@ func TestSaveAndLoadConfig(t *testing.T) {
 	setupConfigDir(t)
 
 	original := &CLIConfig{
-		Server:   "https://save-test.example.com",
-		Output:   "json",
-		Username: "testuser",
-		Password: "testpass",
-		ProxyURL: "http://proxy:8080",
-		NoProxy:  "localhost,10.0.0.0/8",
+		CLIProfile: CLIProfile{
+			Server:   "https://save-test.example.com",
+			Output:   "json",
+			Username: "testuser",
+			Password: "testpass",
+			ProxyURL: "http://proxy:8080",
+			NoProxy:  "localhost,10.0.0.0/8",
+		},
 	}
 	original.Defaults.Repo = "https://github.com/test/repo.git"
 	original.Defaults.Provider = "google-vertex"
@@ -477,6 +484,7 @@ func TestConfigPriorityFlagsOverrideConfig(t *testing.T) {
 	cmd.PersistentFlags().StringP("password", "p", "", "")
 	cmd.PersistentFlags().String("proxy-url", "", "")
 	cmd.PersistentFlags().String("no-proxy", "", "")
+	cmd.PersistentFlags().String("profile", "", "")
 	cmd.ParseFlags([]string{"--server", "https://flag-server.example.com"})
 
 	// resolveServer should pick up the flag value, not the config file value
@@ -510,6 +518,7 @@ func TestConfigPriorityEnvOverrideConfig(t *testing.T) {
 	cmd.PersistentFlags().StringP("password", "p", "", "")
 	cmd.PersistentFlags().String("proxy-url", "", "")
 	cmd.PersistentFlags().String("no-proxy", "", "")
+	cmd.PersistentFlags().String("profile", "", "")
 
 	// resolveServer should pick up the env var, not the config file value
 	server, err := resolveServer(cmd)
@@ -525,6 +534,8 @@ func TestConfigPriorityEnvOverrideConfig(t *testing.T) {
 
 func TestLoadConfigNoFile(t *testing.T) {
 	setupConfigDir(t)
+	// Also isolate HOME so fallback paths don't find real user config
+	t.Setenv("HOME", filepath.Join(t.TempDir(), "fakehome"))
 
 	// Don't create any config file
 	_, err := loadConfig()
@@ -538,7 +549,7 @@ func TestSaveConfigCreatesDirectory(t *testing.T) {
 	// Point to a subdir that doesn't exist yet (alcove dir not pre-created)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmpDir, "nested", "dir"))
 
-	cfg := &CLIConfig{Server: "https://test.example.com"}
+	cfg := &CLIConfig{CLIProfile: CLIProfile{Server: "https://test.example.com"}}
 	if err := saveConfig(cfg); err != nil {
 		t.Fatalf("saveConfig error: %v", err)
 	}

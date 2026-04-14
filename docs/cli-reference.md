@@ -53,6 +53,7 @@ alcove --help
 |------|-------------|
 | `--server <url>` | Bridge server URL (overrides env and config file) |
 | `--output <format>` | Output format: `json` or `table` (default: `table`) |
+| `--profile <name>` | Use a named profile from config (overrides `ALCOVE_PROFILE` and `active_profile`) |
 | `--proxy-url <url>` | HTTP/HTTPS proxy URL (overrides environment) |
 | `--no-proxy <hosts>` | Comma-separated list of hosts to exclude from proxy (overrides `NO_PROXY` env var) |
 | `-u, --username <user>` | Username for Basic Auth (overrides `ALCOVE_USERNAME`) |
@@ -97,6 +98,7 @@ The Alcove CLI respects several environment variables for configuration:
 |----------|-------------|
 | `ALCOVE_SERVER` | Bridge server URL |
 | `ALCOVE_OUTPUT` | Output format: `json` or `table` |
+| `ALCOVE_PROFILE` | Named profile to use (overrides `active_profile` in config) |
 | `ALCOVE_USERNAME` | Username for Basic Auth |
 | `ALCOVE_PASSWORD` | Password for Basic Auth |
 | `HTTP_PROXY` | HTTP proxy URL for API requests |
@@ -244,11 +246,52 @@ defaults:
   budget: 5.00
 ```
 
+### Named Profiles
+
+You can configure multiple Alcove installations as named profiles. This is
+useful when you work with different environments (staging, production, local
+dev).
+
+```yaml
+# Which profile is active by default
+active_profile: hcmai
+
+# Named profiles
+profiles:
+  crc:
+    server: https://internal.console.stage.redhat.com/app/alcove
+    username: "13409664|alcove-dev"
+    password: "apat_abc123..."
+    proxy_url: http://squid.corp.redhat.com:3128
+  hcmai:
+    server: https://alcove-bridge-pulp-stage.apps.rosa.hcmais01ue1.s9m2.p3.openshiftapps.com
+    username: admin
+    password: "apat_def456..."
+  local:
+    server: http://localhost:8080
+    username: admin
+    password: admin
+
+# Top-level fields still work for backward compat (treated as "default" profile)
+server: http://localhost:8080
+output: table
+defaults:
+  timeout: 30m
+```
+
+Profile resolution order:
+1. `--profile` flag (highest priority)
+2. `ALCOVE_PROFILE` environment variable
+3. `active_profile` setting in config file
+4. Top-level (inline) fields as the default profile
+
+Existing config files without profiles continue to work unchanged.
+
 ### Priority Order (highest to lowest)
 
 1. CLI flags (e.g., `--server`, `--repo`)
 2. Environment variables (e.g., `ALCOVE_SERVER`, `ALCOVE_OUTPUT`)
-3. Config file (`~/.config/alcove/config.yaml`)
+3. Active profile from config file (`~/.config/alcove/config.yaml`)
 4. Built-in defaults
 
 ### Managing Configuration
@@ -257,11 +300,14 @@ defaults:
 # Show current configuration
 alcove config show
 
-# Set individual values
+# Set individual values (operates on active profile)
 alcove config set server https://alcove.example.com
 alcove config set defaults.repo https://github.com/myorg/myrepo.git
 alcove config set defaults.timeout 30m
 alcove config set defaults.budget 5.00
+
+# Set values on a specific profile
+alcove --profile crc config set username admin
 
 # Validate configuration
 alcove config validate
@@ -702,6 +748,135 @@ credentials: cannot read /home/user/.config/alcove/credentials: no such file
 Issues:
   - credentials: cannot read /home/user/.config/alcove/credentials: no such file
 Error: configuration has 1 issue(s)
+```
+
+---
+
+## alcove profile list
+
+List all named profiles from the config file.
+
+```
+alcove profile list
+```
+
+### Flags
+
+No command-specific flags. Supports global `--output json`.
+
+### Description
+
+Displays all configured profiles with their server URLs. The active profile is
+marked with an asterisk (`*`).
+
+### Examples
+
+```bash
+# List all profiles
+alcove profile list
+```
+
+Sample output:
+
+```
+  crc     https://internal.console.stage.redhat.com/app/alcove
+* hcmai   https://alcove-bridge-pulp-stage.apps.rosa.hcmais01ue1.s9m2.p3.openshiftapps.com
+  local   http://localhost:8080
+```
+
+---
+
+## alcove profile use
+
+Set the active profile.
+
+```
+alcove profile use <name>
+```
+
+### Flags
+
+No command-specific flags.
+
+### Description
+
+Sets `active_profile` in the config file. All subsequent commands will use this
+profile's settings (server, credentials, proxy, defaults) unless overridden by
+flags, environment variables, or `--profile`.
+
+### Examples
+
+```bash
+# Switch to the CRC profile
+alcove profile use crc
+
+# Switch to local development
+alcove profile use local
+```
+
+---
+
+## alcove profile add
+
+Create a new named profile.
+
+```
+alcove profile add <name> [flags]
+```
+
+### Flags
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--server` | string | Bridge server URL |
+| `--username` | string | Username for Basic Auth |
+| `--password` | string | Password for Basic Auth |
+| `--proxy-url` | string | HTTP/HTTPS proxy URL |
+| `--no-proxy` | string | Comma-separated no-proxy hosts |
+
+### Description
+
+Creates a new named profile in the config file. The profile name must not
+already exist. Use `alcove config set` to modify an existing profile, or
+`alcove profile remove` and re-add to replace one.
+
+### Examples
+
+```bash
+# Add a profile with just a server URL
+alcove profile add staging --server https://staging.example.com
+
+# Add a profile with credentials
+alcove profile add production --server https://prod.example.com --username admin --password secret
+
+# Add a profile with proxy
+alcove profile add corp --server https://internal.example.com --proxy-url http://proxy:3128
+```
+
+---
+
+## alcove profile remove
+
+Delete a named profile.
+
+```
+alcove profile remove <name>
+```
+
+### Flags
+
+No command-specific flags.
+
+### Description
+
+Removes a named profile from the config file. If the removed profile was the
+active profile, `active_profile` is cleared.
+
+### Examples
+
+```bash
+# Remove a profile
+alcove profile remove staging
 ```
 
 ---
