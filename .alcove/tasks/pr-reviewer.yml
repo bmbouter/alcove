@@ -254,12 +254,18 @@ prompt: |
     MERGEEOF
     MERGE_RESP=$(curl -s -X PUT -H "$AUTH" -H "Content-Type: application/json" \
       -d @/tmp/merge.json "$GITHUB_API/pulls/$PR_NUMBER/merge")
-    echo "Merge response: $MERGE_RESP"
+    MERGE_SHA=$(echo "$MERGE_RESP" | jq -r '.sha // empty')
 
-    # 4. Delete feature branch
-    curl -s -X DELETE -H "$AUTH" "$GITHUB_API/git/refs/heads/$BRANCH" 2>/dev/null
-
-    echo "✅ PR #$PR_NUMBER approved and merged"
+    # 4. ONLY delete branch if merge was confirmed successful
+    if [ -n "$MERGE_SHA" ]; then
+      echo "Merge confirmed (SHA: $MERGE_SHA). Deleting branch."
+      curl -s -X DELETE -H "$AUTH" "$GITHUB_API/git/refs/heads/$BRANCH" 2>/dev/null
+      echo "✅ PR #$PR_NUMBER merged and branch deleted"
+    else
+      echo "ERROR: Merge failed or returned no SHA. NOT deleting branch."
+      echo "Merge response: $MERGE_RESP"
+      echo "PR #$PR_NUMBER may need manual merge."
+    fi
 
   ### If REQUEST_CHANGES:
 
