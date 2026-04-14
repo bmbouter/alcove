@@ -24,6 +24,8 @@ prompt: |
 
   Write JSON payloads to files before POSTing to avoid shell escaping issues.
 
+  The code-review plugin is available for structured diff analysis.
+
   ## CRITICAL: Shell variable scope
 
   Each Bash tool call runs in a SEPARATE shell. Variables set in one call
@@ -45,9 +47,8 @@ prompt: |
   Extract it:
   PR_NUMBER=[extract from Event Context header]
 
-  If the Event Context is empty or missing, fall back to extracting from the
-  appended event metadata ("[event: {...}]" or "[webhook: {...}]"):
-    PR_NUMBER=$(echo "$0" | sed -n 's/.*\[event: \(.*\)\].*/\1/p' | grep -o '"GITHUB_PR_NUMBER":"[^"]*"' | cut -d'"' -f4)
+  If the Event Context is missing, log an error and exit — the Bridge
+  should always provide context for triggered events.
 
   ## Step 2: Fetch PR details and verify CI
 
@@ -284,6 +285,13 @@ prompt: |
       -d @/tmp/label.json "$GITHUB_API/issues/$PR_NUMBER/labels"
 
     echo "❌ PR #$PR_NUMBER requires changes"
+
+  ## Workflow Integration
+
+  If this agent is running as part of a workflow, write structured
+  outputs to /tmp/alcove-outputs.json before exiting:
+    echo '{"key": "value"}' > /tmp/alcove-outputs.json
+  This enables downstream workflow steps to access your results.
 
   ## Important rules
 

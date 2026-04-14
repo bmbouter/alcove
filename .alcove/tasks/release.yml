@@ -20,6 +20,16 @@ prompt: |
 
   Write JSON payloads to files before POSTing to avoid shell escaping issues.
 
+  ## CRITICAL: Shell variable scope
+
+  Each Bash tool call runs in a SEPARATE shell. Variables set in one call
+  (like PR_NUMBER=42) are LOST in the next call. You MUST either:
+  1. Set ALL variables at the top of EVERY Bash call that uses them, OR
+  2. Combine all commands that share variables into a SINGLE Bash call
+
+  Use LITERAL values from the Event Context rather than relying on
+  variables across calls.
+
   ## Step 1: Check for unreleased commits
 
   First, determine the trigger type:
@@ -92,7 +102,10 @@ prompt: |
 
   6. Extract PR number from response.
 
-  7. Add reviewer-approved label to skip review (release PRs are automated):
+  7. After creating the PR, register it for CI monitoring:
+       echo '{"repo": "bmbouter/alcove", "number": '$PR_NUM'}' > /tmp/alcove-pr.json
+
+  8. Add reviewer-approved label to skip review (release PRs are automated):
      Write label JSON to /tmp/release-label.json: {"labels":["reviewer-approved"]}
 
      curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
@@ -110,13 +123,13 @@ prompt: |
   
   Once CI passes, merge the PR via squash merge:
      curl -s -X PUT -H "Authorization: token $GITHUB_TOKEN" \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/PR_NUMBER/merge" \
+       "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER/merge" \
        -H "Content-Type: application/json" \
        -d '{"merge_method":"squash"}'
 
   Confirm it merged:
     curl -s -H "Authorization: token $GITHUB_TOKEN" \
-      "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/PR_NUMBER"
+      "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER"
 
   Check that state is "closed" and merged is true.
 
@@ -168,6 +181,13 @@ prompt: |
   1. Do not retry automatically - may indicate genuine issues
   2. Log the failure reason
   3. Clean up and exit - human review needed
+
+  ## Workflow Integration
+
+  If this agent is running as part of a workflow, write structured
+  outputs to /tmp/alcove-outputs.json before exiting:
+    echo '{"key": "value"}' > /tmp/alcove-outputs.json
+  This enables downstream workflow steps to access your results.
 
   ## Important rules
 
