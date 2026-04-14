@@ -176,6 +176,49 @@ ALCOVE_DEBUG=true
 
 See `docs/configuration.md` for the complete list.
 
+## Teams
+
+Every resource in Alcove (sessions, credentials, security profiles, agent
+definitions, schedules, workflows, tools, agent repos) belongs to a team. A
+personal team is auto-created for each user on signup -- this acts as "My
+Workspace" and cannot be deleted, renamed, or have members added.
+
+### Creating a team in the dashboard
+
+Click the team switcher dropdown in the top nav, then click "Create Team". Give
+your team a name and it's ready to use.
+
+### Inviting members
+
+Open the team switcher, select your team, then go to team settings. Click "Add
+Member" and enter a username. All team members have equal access -- there are no
+roles within a team.
+
+### Switching teams
+
+Use the team switcher dropdown in the dashboard nav to select which team context
+you are working in. All resources you create will belong to the active team,
+and you will only see resources owned by that team.
+
+### CLI
+
+```bash
+# Create a team
+./bin/alcove teams create "My Team"
+
+# Switch active team
+./bin/alcove teams use "My Team"
+
+# Add a member
+./bin/alcove teams add-member "My Team" --username alice
+
+# List your teams
+./bin/alcove teams list
+```
+
+You can also pass `--team "My Team"` to any command to override the active team
+for a single invocation.
+
 ## Skill / Agent Repos and Agent Definitions
 
 After configuring your LLM provider, you can optionally set up skill repos and
@@ -192,6 +235,9 @@ it is loaded as a Claude Code plugin; if it contains a `module/` directory it is
 loaded as a lola module. You just add a repo URL and Skiff figures out the
 format automatically. At task dispatch time, all configured repos are cloned
 into the Skiff container and loaded accordingly.
+
+Agent repos are team-scoped. Configure them in the dashboard under team
+settings (or under admin settings for system-wide repos).
 
 ### Agent Definitions
 

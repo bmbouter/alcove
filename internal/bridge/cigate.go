@@ -371,8 +371,12 @@ func (m *CIGateMonitor) handleCIFailure(ctx context.Context, sessionID, repo str
 	taskReq.TriggerType = "event"
 	taskReq.TriggerRef = fmt.Sprintf("%s#%d", repo, prNumber)
 
+	// Resolve team_id from the original session.
+	var ciTeamID string
+	_ = m.db.QueryRow(ctx, `SELECT team_id FROM sessions WHERE id = $1`, sessionID).Scan(&ciTeamID)
+
 	// Dispatch retry task.
-	newSession, err := m.dispatcher.DispatchTask(ctx, taskReq, owner)
+	newSession, err := m.dispatcher.DispatchTask(ctx, taskReq, owner, ciTeamID)
 	if err != nil {
 		log.Printf("cigate: error dispatching retry for PR %s#%d: %v", repo, prNumber, err)
 		m.updateStatus(ctx, sessionID, "error")

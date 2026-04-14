@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 2026-03-30
+Last updated: 2026-04-12
 
 ## Project Overview
 
@@ -46,10 +46,10 @@ alcove/
 │   │   ├── dispatcher.go       ✅ Session dispatch: creates session, resolves security profiles, publishes to NATS, starts Skiff+Gate with LLM/SCM credentials and tool configs
 │   │   ├── config.go           ✅ Config loading from env vars, auth backend selection, debug mode
 │   │   ├── runtime.go          ✅ Runtime factory (podman/kubernetes selection)
-│   │   ├── credentials.go      ✅ Credential CRUD, AES-256-GCM encryption, OAuth2 token acquisition, token refresh, AcquireSCMToken, AcquireSystemToken, owner scoping, system credentials, claude-oauth support
+│   │   ├── credentials.go      ✅ Credential CRUD, AES-256-GCM encryption, OAuth2 token acquisition, token refresh, AcquireSCMToken, AcquireSystemToken, team scoping, system credentials, claude-oauth support
 │   │   ├── credentials_test.go ✅ Credential store tests
 │   │   ├── scheduler.go        ✅ Cron scheduler: parsing, next-run computation, schedule CRUD, background tick loop, per-schedule debug flag
-│   │   ├── profiles.go         ✅ Security profiles: multi-rule per-repo operation scoping, profile CRUD with owner scoping
+│   │   ├── profiles.go         ✅ Security profiles: multi-rule per-repo operation scoping, profile CRUD with team scoping
 │   │   ├── tools.go            ✅ MCP tool registry: tool CRUD, MCP command/args, tool configs passed to Gate/Skiff
 │   │   ├── settings.go         ✅ Admin settings: system LLM configuration, skill repos (system + per-user), env+DB+config resolution
 │   │   ├── llm.go              ✅ BridgeLLM: system LLM client for AI-powered features (Anthropic + Vertex AI), used by security profile builder
@@ -63,7 +63,9 @@ alcove/
 │   │       ├── 006_mcp_tools.sql       ✅ MCP tool registry table
 │   │       ├── 007_security_profiles.sql  ✅ Security profiles table
 │   │       ├── 008_credential_api_host.sql  ✅ Custom API host for credentials (GitLab private servers)
-│   │       └── 009_system_settings.sql  ✅ System settings key-value store
+│   │       ├── 009_system_settings.sql  ✅ System settings key-value store
+│   │       ├── ...
+│   │       └── 026_teams.sql           ✅ Teams, team_members, team_settings tables; owner→team_id migration
 │   ├── gate/
 │   │   ├── proxy.go            ✅ HTTP proxy, CONNECT tunneling, LLM API injection (api_key + bearer + oauth_token), audit logging, 401 token refresh
 │   │   ├── proxy_test.go       ✅ Proxy tests
@@ -151,13 +153,13 @@ alcove/
 
 4. **Cron Scheduler** — Full cron scheduler with 5-field expression parsing (wildcards,
    ranges, steps, lists), schedule CRUD API, background tick loop (60s interval),
-   automatic next-run computation, per-schedule debug flag, owner scoping. Dashboard
+   automatic next-run computation, per-schedule debug flag, team scoping. Dashboard
    includes NLP-style cron expression input (e.g., "every weekday at 9am",
    "twice daily", "hourly on weekdays").
 
 5. **Credential Management API** — CRUD for provider credentials, encrypted storage,
    token acquisition (API key pass-through or OAuth2 exchange), env-based credential
-   migration on first start, owner scoping (user credentials vs system credentials),
+   migration on first start, team scoping (team credentials vs system credentials),
    system credentials (`_system` owner) for Bridge-level LLM features, custom
    `api_host` field for GitLab private server support.
 
@@ -207,9 +209,9 @@ alcove/
 
 12. **Security Profiles** — Named, reusable bundles of tool + repo + operation
     permissions. Supports multi-rule per-repo operation scoping (each rule specifies
-    repos and operations independently). Profiles have owner scoping. Dispatcher
+    repos and operations independently). Profiles have team scoping. Dispatcher
     resolves security profiles into scope and tool configs at dispatch time.
-    Profile CRUD API with owner isolation.
+    Profile CRUD API with team isolation.
 
 13. **AI-Powered Security Profile Builder** — `POST /api/v1/security-profiles/build` accepts a natural
     language description and uses the system LLM (BridgeLLM) to generate a JSON
@@ -305,6 +307,21 @@ alcove/
     network isolation means adversarial prompt injection could make Claude Code
     bypass Gate. Acceptable for personal/trusted deployments; use Podman or
     Kubernetes for production/shared deployments.
+
+27. **Teams** — Teams are the universal ownership unit. Every resource (sessions,
+    credentials, security profiles, agent definitions, schedules, workflows,
+    tools, agent repos) belongs to a team via a `team_id` column (replacing the
+    previous `owner` column). Every user belongs to one or more teams. A personal
+    team is auto-created for each user on signup. Users can create additional
+    shared teams and invite others. All team members have equal permissions (no
+    roles). The `X-Alcove-Team` header scopes all API requests to a team. The
+    dashboard provides a team switcher dropdown. The CLI supports `alcove teams`
+    subcommands and a `--team` flag. Database tables: `teams`, `team_members`,
+    `team_settings` (migration `026_teams.sql`). Agent repos are team-scoped
+    (moved from user settings to team settings). Teams API:
+    `GET/POST /api/v1/teams`, `GET/PUT/DELETE /api/v1/teams/{id}`,
+    `POST /api/v1/teams/{id}/members`,
+    `DELETE /api/v1/teams/{id}/members/{username}`.
 
 ## What's NOT Working Yet
 

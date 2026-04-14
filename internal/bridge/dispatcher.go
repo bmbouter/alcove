@@ -113,8 +113,9 @@ type StatusUpdate struct {
 }
 
 // DispatchTask creates a session record, publishes to Hail, and starts a
-// Skiff pod via the Runtime.
-func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitter string) (*internal.Session, error) {
+// Skiff pod via the Runtime. The optional teamID parameter associates the
+// session with a team; if empty, the session has no team association.
+func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitter string, teamID ...string) (*internal.Session, error) {
 	sessionID := uuid.New().String()
 	taskID := uuid.New().String()
 
@@ -204,6 +205,12 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		}
 	}
 
+	// Extract team ID from variadic parameter.
+	var activeTeamID string
+	if len(teamID) > 0 {
+		activeTeamID = teamID[0]
+	}
+
 	now := time.Now().UTC()
 	session := &internal.Session{
 		ID:          sessionID,
@@ -218,6 +225,7 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		TaskName:    req.TaskName,
 		TriggerType: req.TriggerType,
 		TriggerRef:  req.TriggerRef,
+		TeamID:      activeTeamID,
 	}
 
 	// For executable agents, store the prompt as the description/context if empty
@@ -710,10 +718,10 @@ func (d *Dispatcher) ListenForStatusUpdates(ctx context.Context) error {
 func (d *Dispatcher) insertSession(ctx context.Context, s *internal.Session, sessionToken string) error {
 	scopeJSON, _ := json.Marshal(s.Scope)
 	_, err := d.db.Exec(ctx, `
-		INSERT INTO sessions (id, task_id, submitter, prompt, scope, provider, started_at, outcome, session_token, task_name, trigger_type, trigger_ref, repo)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		INSERT INTO sessions (id, task_id, submitter, prompt, scope, provider, started_at, outcome, session_token, task_name, trigger_type, trigger_ref, repo, team_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`, s.ID, s.TaskID, s.Submitter, s.Prompt, scopeJSON, s.Provider, s.StartedAt, s.Status, sessionToken,
-		nilIfEmpty(s.TaskName), nilIfEmpty(s.TriggerType), nilIfEmpty(s.TriggerRef), nilIfEmpty(s.Repo))
+		nilIfEmpty(s.TaskName), nilIfEmpty(s.TriggerType), nilIfEmpty(s.TriggerRef), nilIfEmpty(s.Repo), s.TeamID)
 	return err
 }
 

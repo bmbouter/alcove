@@ -65,7 +65,7 @@ type pollSchedule struct {
 	Repo      string
 	Provider  string
 	Timeout   int
-	Owner     string
+	TeamID    string
 	Debug     bool
 	SourceKey string
 	Trigger   *GitHubTrigger
@@ -81,7 +81,7 @@ func (p *GitHubPoller) PollAll(ctx context.Context) {
 	}
 
 	rows, err := p.db.Query(ctx, `
-		SELECT id, name, prompt, repo, provider, timeout, owner, debug, event_config, COALESCE(source_key, '')
+		SELECT id, name, prompt, repo, provider, timeout, team_id, debug, event_config, COALESCE(source_key, '')
 		FROM schedules
 		WHERE enabled = true
 		  AND COALESCE(trigger_type, 'cron') IN ('event', 'cron-and-event')
@@ -95,7 +95,7 @@ func (p *GitHubPoller) PollAll(ctx context.Context) {
 
 	// Group schedules by target repo.
 	type repoGroup struct {
-		owner     string
+		teamID    string
 		schedules []pollSchedule
 	}
 	repoMap := make(map[string]*repoGroup)
@@ -105,7 +105,7 @@ func (p *GitHubPoller) PollAll(ctx context.Context) {
 		var eventConfigJSON []byte
 
 		if err := rows.Scan(&ps.ID, &ps.Name, &ps.Prompt, &ps.Repo,
-			&ps.Provider, &ps.Timeout, &ps.Owner, &ps.Debug, &eventConfigJSON, &ps.SourceKey); err != nil {
+			&ps.Provider, &ps.Timeout, &ps.TeamID, &ps.Debug, &eventConfigJSON, &ps.SourceKey); err != nil {
 			log.Printf("poller: error scanning schedule: %v", err)
 			continue
 		}
@@ -133,7 +133,7 @@ func (p *GitHubPoller) PollAll(ctx context.Context) {
 				continue // Can't poll all of GitHub.
 			}
 			if _, ok := repoMap[repo]; !ok {
-				repoMap[repo] = &repoGroup{owner: ps.Owner}
+				repoMap[repo] = &repoGroup{teamID: ps.TeamID}
 			}
 			repoMap[repo].schedules = append(repoMap[repo].schedules, ps)
 		}
@@ -144,12 +144,12 @@ func (p *GitHubPoller) PollAll(ctx context.Context) {
 		return
 	}
 	for repo, group := range repoMap {
-		p.pollRepo(ctx, repo, group.owner, group.schedules)
+		p.pollRepo(ctx, repo, group.teamID, group.schedules)
 	}
 }
 
 // pollRepo fetches events from a single GitHub repo and dispatches matching tasks.
-func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedules []pollSchedule) {
+func (p *GitHubPoller) pollRepo(ctx context.Context, repo, teamID string, schedules []pollSchedule) {
 	// Load poll state (ETag for caching only).
 	var etag string
 	_ = p.db.QueryRow(ctx,
@@ -157,9 +157,9 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 	).Scan(&etag)
 
 	// Acquire GitHub token.
-	token, apiHost, err := p.credStore.AcquireSCMTokenForOwner(ctx, "github", owner)
+	token, apiHost, err := p.credStore.AcquireSCMTokenForOwner(ctx, "github", teamID)
 	if err != nil {
-		log.Printf("poller: no GitHub credential for %s (owner %s): %v", repo, owner, err)
+		log.Printf("poller: no GitHub credential for %s (teamID %s): %v", repo, teamID, err)
 		return
 	}
 
@@ -500,7 +500,7 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, owner string, schedul
 			metaJSON, _ := json.Marshal(meta)
 			taskReq.Prompt = taskReq.Prompt + "\n\n" + enrichedContext + "\n\n[event: " + string(metaJSON) + "]"
 
-			_, err := p.dispatcher.DispatchTask(ctx, taskReq, sched.Owner)
+			_, err := p.dispatcher.DispatchTask(ctx, taskReq, "poller", sched.TeamID)
 			if err != nil {
 				log.Printf("poller: error dispatching schedule %s for %s: %v", sched.Name, eventRepo, err)
 				continue

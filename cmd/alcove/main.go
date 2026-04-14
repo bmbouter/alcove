@@ -41,13 +41,14 @@ var Version = "dev"
 
 // CLIProfile holds per-profile CLI configuration.
 type CLIProfile struct {
-	Server   string `yaml:"server,omitempty"`
-	Output   string `yaml:"output,omitempty"`    // "json" or "table"
-	Username string `yaml:"username,omitempty"`  // Basic Auth username
-	Password string `yaml:"password,omitempty"`  // Basic Auth password
-	ProxyURL string `yaml:"proxy_url,omitempty"` // HTTP proxy
-	NoProxy  string `yaml:"no_proxy,omitempty"`  // Comma-separated no-proxy hosts
-	Defaults struct {
+	Server     string `yaml:"server,omitempty"`
+	Output     string `yaml:"output,omitempty"`      // "json" or "table"
+	Username   string `yaml:"username,omitempty"`    // Basic Auth username
+	Password   string `yaml:"password,omitempty"`    // Basic Auth password
+	ProxyURL   string `yaml:"proxy_url,omitempty"`   // HTTP proxy
+	NoProxy    string `yaml:"no_proxy,omitempty"`    // Comma-separated no-proxy hosts
+	ActiveTeam string `yaml:"active_team,omitempty"` // Active team name
+	Defaults   struct {
 		Repo     string  `yaml:"repo,omitempty"`     // Default repository
 		Provider string  `yaml:"provider,omitempty"` // Default LLM provider
 		Model    string  `yaml:"model,omitempty"`    // Default model
@@ -87,6 +88,7 @@ func main() {
 	root.PersistentFlags().String("proxy-url", "", "HTTP/HTTPS proxy URL (overrides environment)")
 	root.PersistentFlags().String("no-proxy", "", "Comma-separated list of hosts to exclude from proxy (overrides NO_PROXY env var)")
 	root.PersistentFlags().String("profile", "", "Use a named profile from config (overrides active_profile)")
+	root.PersistentFlags().String("team", "", "Team name to use for this invocation (overrides active_team in profile)")
 
 	root.AddCommand(
 		newRunCmd(),
@@ -98,6 +100,7 @@ func main() {
 		newLoginCmd(),
 		newConfigCmd(),
 		newProfileCmd(),
+		newTeamsCmd(),
 		newVersionCmd(),
 	)
 
@@ -415,8 +418,60 @@ func newHTTPClient(proxyConfig *ProxyConfig) *http.Client {
 	}
 }
 
-// apiRequest performs an authenticated HTTP request to the Bridge API.
-func apiRequest(cmd *cobra.Command, method, path string, body interface{}) (*http.Response, error) {
+// teamInfo represents a team returned from the API.
+type teamInfo struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	IsPersonal bool   `json:"is_personal"`
+	CreatedAt  string `json:"created_at"`
+}
+
+// teamsListResponse is the response from GET /api/v1/teams.
+type teamsListResponse struct {
+	Teams []teamInfo `json:"teams"`
+}
+
+// resolveTeamName determines the team name to use from --team flag or active_team config.
+func resolveTeamName(cmd *cobra.Command) string {
+	if teamFlag, _ := cmd.Flags().GetString("team"); teamFlag != "" {
+		return teamFlag
+	}
+	if profile, err := resolveProfile(cmd); err == nil && profile.ActiveTeam != "" {
+		return profile.ActiveTeam
+	}
+	return ""
+}
+
+// resolveTeamID resolves a team name to its ID by calling the teams API.
+// It uses apiRequestRaw to avoid infinite recursion (apiRequest calls resolveTeamID).
+func resolveTeamID(cmd *cobra.Command, teamName string) (string, error) {
+	resp, err := apiRequestRaw(cmd, http.MethodGet, "/api/v1/teams", nil, "")
+	if err != nil {
+		return "", fmt.Errorf("fetching teams: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("fetching teams: bridge returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result teamsListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("decoding teams response: %w", err)
+	}
+
+	for _, team := range result.Teams {
+		if team.Name == teamName {
+			return team.ID, nil
+		}
+	}
+	return "", fmt.Errorf("team %q not found", teamName)
+}
+
+// apiRequestRaw performs an authenticated HTTP request with an explicit team ID header.
+// This is the low-level function; apiRequest wraps it with team name resolution.
+func apiRequestRaw(cmd *cobra.Command, method, path string, body interface{}, teamID string) (*http.Response, error) {
 	server, err := resolveServer(cmd)
 	if err != nil {
 		return nil, err
@@ -442,6 +497,11 @@ func apiRequest(cmd *cobra.Command, method, path string, body interface{}) (*htt
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	// Set team header if provided
+	if teamID != "" {
+		req.Header.Set("X-Alcove-Team", teamID)
+	}
+
 	// Try Basic Auth first
 	username, password := resolveBasicAuth(cmd)
 	if username != "" {
@@ -457,6 +517,23 @@ func apiRequest(cmd *cobra.Command, method, path string, body interface{}) (*htt
 	}
 
 	return newHTTPClient(proxyConfig).Do(req)
+}
+
+// apiRequest performs an authenticated HTTP request to the Bridge API.
+// It automatically resolves the team name (from --team flag or active_team config)
+// to a team ID and sets the X-Alcove-Team header.
+func apiRequest(cmd *cobra.Command, method, path string, body interface{}) (*http.Response, error) {
+	teamName := resolveTeamName(cmd)
+	var teamID string
+	if teamName != "" {
+		var err error
+		teamID, err = resolveTeamID(cmd, teamName)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return apiRequestRaw(cmd, method, path, body, teamID)
 }
 
 func outputJSON(v interface{}) error {
@@ -1211,6 +1288,8 @@ func setProfileField(profile *CLIProfile, key, value string) error {
 		profile.ProxyURL = value
 	case "no_proxy":
 		profile.NoProxy = value
+	case "active_team":
+		profile.ActiveTeam = value
 	case "defaults.repo":
 		profile.Defaults.Repo = value
 	case "defaults.provider":
@@ -1226,7 +1305,7 @@ func setProfileField(profile *CLIProfile, key, value string) error {
 			return fmt.Errorf("invalid budget value: %s", value)
 		}
 	default:
-		return fmt.Errorf("unknown config key: %s\nValid keys: server, output, username, password, proxy_url, no_proxy, defaults.repo, defaults.provider, defaults.model, defaults.timeout, defaults.budget", key)
+		return fmt.Errorf("unknown config key: %s\nValid keys: server, output, username, password, proxy_url, no_proxy, active_team, defaults.repo, defaults.provider, defaults.model, defaults.timeout, defaults.budget", key)
 	}
 	return nil
 }
@@ -1769,6 +1848,16 @@ func streamSSE(cmd *cobra.Command, sessionID, path string) error {
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Cache-Control", "no-cache")
+
+	// Set team header if applicable
+	teamName := resolveTeamName(cmd)
+	if teamName != "" {
+		teamID, err := resolveTeamID(cmd, teamName)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("X-Alcove-Team", teamID)
+	}
 
 	// Try Basic Auth first
 	username, password := resolveBasicAuth(cmd)

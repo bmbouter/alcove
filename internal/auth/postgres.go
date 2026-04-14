@@ -185,17 +185,44 @@ func (s *PgStore) pgRecordFailure(username string) {
 // --- UserManager methods ---
 
 // CreateUser creates a new user with the given username and password.
+// Also creates a personal team for the user.
 func (s *PgStore) CreateUser(ctx context.Context, username, password string, isAdmin bool) error {
 	hash, err := HashPassword(password)
 	if err != nil {
 		return fmt.Errorf("hashing password: %w", err)
 	}
 
-	_, err = s.db.Exec(ctx,
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	_, err = tx.Exec(ctx,
 		"INSERT INTO auth_users (username, password, is_admin, created_at, updated_at) VALUES ($1, $2, $3, NOW(), NOW())",
 		username, hash, isAdmin)
 	if err != nil {
 		return fmt.Errorf("creating user: %w", err)
+	}
+
+	// Create personal team.
+	teamID := uuid.New().String()
+	teamName := username + "'s workspace"
+	_, err = tx.Exec(ctx,
+		"INSERT INTO teams (id, name, is_personal, created_at) VALUES ($1, $2, true, NOW())",
+		teamID, teamName)
+	if err != nil {
+		return fmt.Errorf("creating personal team: %w", err)
+	}
+	_, err = tx.Exec(ctx,
+		"INSERT INTO team_members (team_id, username) VALUES ($1, $2)",
+		teamID, username)
+	if err != nil {
+		return fmt.Errorf("adding user to personal team: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("committing transaction: %w", err)
 	}
 	return nil
 }

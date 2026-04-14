@@ -34,7 +34,7 @@ type SecurityProfile struct {
 	DisplayName string                       `json:"display_name,omitempty" yaml:"display_name"`
 	Description string                       `json:"description,omitempty" yaml:"description"`
 	Tools       map[string]ProfileToolConfig `json:"tools" yaml:"tools"`
-	Owner       string                       `json:"owner,omitempty"`
+	TeamID      string                       `json:"team_id,omitempty"`
 	IsBuiltin   bool                         `json:"is_builtin"`
 	Source      string                       `json:"source"`
 	SourceRepo  string                       `json:"source_repo,omitempty"`
@@ -113,13 +113,13 @@ func NewProfileStore(db *pgxpool.Pool) *ProfileStore {
 	return &ProfileStore{db: db}
 }
 
-// CreateProfile inserts a new security profile owned by the given owner.
-func (ps *ProfileStore) CreateProfile(ctx context.Context, profile *SecurityProfile, owner string) error {
+// CreateProfile inserts a new security profile for the given team.
+func (ps *ProfileStore) CreateProfile(ctx context.Context, profile *SecurityProfile, teamID string) error {
 	if profile.ID == "" {
 		profile.ID = uuid.New().String()
 	}
 	now := time.Now().UTC()
-	profile.Owner = owner
+	profile.TeamID = teamID
 	profile.IsBuiltin = false
 	profile.CreatedAt = now
 	profile.UpdatedAt = now
@@ -130,10 +130,10 @@ func (ps *ProfileStore) CreateProfile(ctx context.Context, profile *SecurityProf
 	}
 
 	_, err = ps.db.Exec(ctx,
-		`INSERT INTO security_profiles (id, name, display_name, description, tools, owner, is_builtin, created_at, updated_at)
+		`INSERT INTO security_profiles (id, name, display_name, description, tools, team_id, is_builtin, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		profile.ID, profile.Name, profile.DisplayName, profile.Description,
-		string(toolsJSON), profile.Owner, profile.IsBuiltin,
+		string(toolsJSON), profile.TeamID, profile.IsBuiltin,
 		profile.CreatedAt, profile.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("inserting profile: %w", err)
@@ -141,14 +141,14 @@ func (ps *ProfileStore) CreateProfile(ctx context.Context, profile *SecurityProf
 	return nil
 }
 
-// ListProfiles returns the given owner's profiles.
-func (ps *ProfileStore) ListProfiles(ctx context.Context, owner string) ([]SecurityProfile, error) {
-	query := `SELECT id, name, display_name, description, tools, owner, is_builtin, source, source_repo, source_key, created_at, updated_at
+// ListProfiles returns the given team's profiles.
+func (ps *ProfileStore) ListProfiles(ctx context.Context, teamID string) ([]SecurityProfile, error) {
+	query := `SELECT id, name, display_name, description, tools, team_id, is_builtin, source, source_repo, source_key, created_at, updated_at
 		FROM security_profiles
-		WHERE owner = $1
+		WHERE team_id = $1
 		ORDER BY name ASC`
 
-	rows, err := ps.db.Query(ctx, query, owner)
+	rows, err := ps.db.Query(ctx, query, teamID)
 	if err != nil {
 		return nil, fmt.Errorf("querying profiles: %w", err)
 	}
@@ -170,20 +170,20 @@ func (ps *ProfileStore) ListProfiles(ctx context.Context, owner string) ([]Secur
 	return profiles, rows.Err()
 }
 
-// GetProfile looks up a profile by name, scoped to the given owner.
-func (ps *ProfileStore) GetProfile(ctx context.Context, name, owner string) (*SecurityProfile, error) {
-	query := `SELECT id, name, display_name, description, tools, owner, is_builtin, source, source_repo, source_key, created_at, updated_at
+// GetProfile looks up a profile by name, scoped to the given team.
+func (ps *ProfileStore) GetProfile(ctx context.Context, name, teamID string) (*SecurityProfile, error) {
+	query := `SELECT id, name, display_name, description, tools, team_id, is_builtin, source, source_repo, source_key, created_at, updated_at
 		FROM security_profiles
-		WHERE name = $1 AND owner = $2
+		WHERE name = $1 AND team_id = $2
 		ORDER BY source ASC
 		LIMIT 1`
 
-	row := ps.db.QueryRow(ctx, query, name, owner)
+	row := ps.db.QueryRow(ctx, query, name, teamID)
 	return scanProfileRow(row)
 }
 
 // UpdateProfile updates an existing profile. YAML-sourced profiles cannot be updated.
-func (ps *ProfileStore) UpdateProfile(ctx context.Context, profile *SecurityProfile, owner string) error {
+func (ps *ProfileStore) UpdateProfile(ctx context.Context, profile *SecurityProfile, teamID string) error {
 	toolsJSON, err := json.Marshal(profile.Tools)
 	if err != nil {
 		return fmt.Errorf("marshaling tools: %w", err)
@@ -193,9 +193,9 @@ func (ps *ProfileStore) UpdateProfile(ctx context.Context, profile *SecurityProf
 	result, err := ps.db.Exec(ctx,
 		`UPDATE security_profiles
 		SET display_name = $1, description = $2, tools = $3, updated_at = $4
-		WHERE name = $5 AND owner = $6 AND source != 'yaml'`,
+		WHERE name = $5 AND team_id = $6 AND source != 'yaml'`,
 		profile.DisplayName, profile.Description, string(toolsJSON), now,
-		profile.Name, owner)
+		profile.Name, teamID)
 	if err != nil {
 		return fmt.Errorf("updating profile: %w", err)
 	}
@@ -207,10 +207,10 @@ func (ps *ProfileStore) UpdateProfile(ctx context.Context, profile *SecurityProf
 }
 
 // DeleteProfile removes a profile. YAML-sourced profiles cannot be deleted.
-func (ps *ProfileStore) DeleteProfile(ctx context.Context, name, owner string) error {
+func (ps *ProfileStore) DeleteProfile(ctx context.Context, name, teamID string) error {
 	result, err := ps.db.Exec(ctx,
-		`DELETE FROM security_profiles WHERE name = $1 AND owner = $2 AND source != 'yaml'`,
-		name, owner)
+		`DELETE FROM security_profiles WHERE name = $1 AND team_id = $2 AND source != 'yaml'`,
+		name, teamID)
 	if err != nil {
 		return fmt.Errorf("deleting profile: %w", err)
 	}
@@ -222,12 +222,12 @@ func (ps *ProfileStore) DeleteProfile(ctx context.Context, name, owner string) e
 
 // MergeProfiles takes multiple profile names, looks them up, and returns a merged Scope
 // and merged tool config map. Union merge: operations unioned, repos unioned, wildcard wins.
-func (ps *ProfileStore) MergeProfiles(ctx context.Context, names []string, owner string) (internal.Scope, map[string]ProfileToolConfig, error) {
+func (ps *ProfileStore) MergeProfiles(ctx context.Context, names []string, teamID string) (internal.Scope, map[string]ProfileToolConfig, error) {
 	scope := internal.Scope{Services: make(map[string]internal.ServiceScope)}
 	merged := make(map[string]ProfileToolConfig)
 
 	for _, name := range names {
-		profile, err := ps.GetProfile(ctx, name, owner)
+		profile, err := ps.GetProfile(ctx, name, teamID)
 		if err != nil {
 			return scope, nil, fmt.Errorf("profile %q not found: %w", name, err)
 		}
@@ -286,7 +286,7 @@ func scanProfile(rows interface{ Scan(dest ...any) error }) (*SecurityProfile, e
 	var toolsJSON string
 
 	if err := rows.Scan(&p.ID, &p.Name, &p.DisplayName, &p.Description,
-		&toolsJSON, &p.Owner, &p.IsBuiltin, &p.Source, &p.SourceRepo, &p.SourceKey,
+		&toolsJSON, &p.TeamID, &p.IsBuiltin, &p.Source, &p.SourceRepo, &p.SourceKey,
 		&p.CreatedAt, &p.UpdatedAt); err != nil {
 		return nil, fmt.Errorf("scanning profile: %w", err)
 	}
@@ -329,35 +329,35 @@ func (ps *ProfileStore) UpsertYAMLProfile(ctx context.Context, profile *Security
 	}
 
 	_, err = ps.db.Exec(ctx,
-		`INSERT INTO security_profiles (id, name, display_name, description, tools, owner, is_builtin, source, source_repo, source_key, created_at, updated_at)
+		`INSERT INTO security_profiles (id, name, display_name, description, tools, team_id, is_builtin, source, source_repo, source_key, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, false, 'yaml', $7, $8, NOW(), NOW())
 		ON CONFLICT (source_key) WHERE source_key != '' DO UPDATE SET
 			name = EXCLUDED.name,
 			display_name = EXCLUDED.display_name,
 			description = EXCLUDED.description,
 			tools = EXCLUDED.tools,
-			owner = EXCLUDED.owner,
+			team_id = EXCLUDED.team_id,
 			source_repo = EXCLUDED.source_repo,
 			updated_at = NOW()`,
 		profile.ID, profile.Name, profile.DisplayName, profile.Description,
-		string(toolsJSON), profile.Owner, profile.SourceRepo, profile.SourceKey)
+		string(toolsJSON), profile.TeamID, profile.SourceRepo, profile.SourceKey)
 	if err != nil {
 		return fmt.Errorf("upserting YAML profile: %w", err)
 	}
 	return nil
 }
 
-// DeleteYAMLProfilesByRepo removes all YAML-sourced profiles from the given repo and owner.
-func (ps *ProfileStore) DeleteYAMLProfilesByRepo(ctx context.Context, repoURL, owner string) error {
+// DeleteYAMLProfilesByRepo removes all YAML-sourced profiles from the given repo and team.
+func (ps *ProfileStore) DeleteYAMLProfilesByRepo(ctx context.Context, repoURL, teamID string) error {
 	_, err := ps.db.Exec(ctx,
-		`DELETE FROM security_profiles WHERE source = 'yaml' AND source_repo = $1 AND owner = $2`, repoURL, owner)
+		`DELETE FROM security_profiles WHERE source = 'yaml' AND source_repo = $1 AND team_id = $2`, repoURL, teamID)
 	return err
 }
 
-// ListYAMLProfileKeysByRepo returns source_keys for all YAML profiles from the given repo and owner.
-func (ps *ProfileStore) ListYAMLProfileKeysByRepo(ctx context.Context, repoURL, owner string) ([]string, error) {
+// ListYAMLProfileKeysByRepo returns source_keys for all YAML profiles from the given repo and team.
+func (ps *ProfileStore) ListYAMLProfileKeysByRepo(ctx context.Context, repoURL, teamID string) ([]string, error) {
 	rows, err := ps.db.Query(ctx,
-		`SELECT source_key FROM security_profiles WHERE source = 'yaml' AND source_repo = $1 AND owner = $2`, repoURL, owner)
+		`SELECT source_key FROM security_profiles WHERE source = 'yaml' AND source_repo = $1 AND team_id = $2`, repoURL, teamID)
 	if err != nil {
 		return nil, err
 	}

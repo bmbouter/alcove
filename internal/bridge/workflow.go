@@ -36,7 +36,7 @@ type WorkflowDefinition struct {
 	// Metadata (not from YAML).
 	SourceRepo string `json:"source_repo,omitempty"`
 	SourceFile string `json:"source_file,omitempty"`
-	Owner      string `json:"owner,omitempty"`
+	TeamID     string `json:"team_id,omitempty"`
 }
 
 // WorkflowStep represents a single step in a workflow.
@@ -410,9 +410,9 @@ func (s *WorkflowStore) UpsertWorkflow(ctx context.Context, wd *WorkflowDefiniti
 	now := time.Now().UTC()
 
 	_, err = s.db.Exec(ctx, `
-		INSERT INTO workflows (id, name, source_repo, source_file, source_key, raw_yaml, parsed, sync_error, last_synced, owner, created_at, updated_at)
+		INSERT INTO workflows (id, name, source_repo, source_file, source_key, raw_yaml, parsed, sync_error, last_synced, team_id, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-		ON CONFLICT (source_key) DO UPDATE SET
+		ON CONFLICT (source_key, team_id) DO UPDATE SET
 			name = EXCLUDED.name,
 			source_repo = EXCLUDED.source_repo,
 			source_file = EXCLUDED.source_file,
@@ -420,9 +420,9 @@ func (s *WorkflowStore) UpsertWorkflow(ctx context.Context, wd *WorkflowDefiniti
 			parsed = EXCLUDED.parsed,
 			sync_error = EXCLUDED.sync_error,
 			last_synced = EXCLUDED.last_synced,
-			owner = EXCLUDED.owner,
+			team_id = EXCLUDED.team_id,
 			updated_at = EXCLUDED.updated_at
-	`, id, wd.Name, wd.SourceRepo, wd.SourceFile, sourceKey, rawYAML, parsedJSON, nilIfEmpty(syncError), now, wd.Owner, now, now)
+	`, id, wd.Name, wd.SourceRepo, wd.SourceFile, sourceKey, rawYAML, parsedJSON, nilIfEmpty(syncError), now, wd.TeamID, now, now)
 	if err != nil {
 		return fmt.Errorf("upserting workflow: %w", err)
 	}
@@ -431,13 +431,13 @@ func (s *WorkflowStore) UpsertWorkflow(ctx context.Context, wd *WorkflowDefiniti
 }
 
 // ListWorkflowsByRepo returns all workflow definitions from a given repo URL and owner.
-func (s *WorkflowStore) ListWorkflowsByRepo(ctx context.Context, repoURL, owner string) ([]StoredWorkflowDefinition, error) {
+func (s *WorkflowStore) ListWorkflowsByRepo(ctx context.Context, repoURL, teamID string) ([]StoredWorkflowDefinition, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT id, name, source_repo, source_file, source_key, raw_yaml, parsed, sync_error, last_synced, owner
+		SELECT id, name, source_repo, source_file, source_key, raw_yaml, parsed, sync_error, last_synced, team_id
 		FROM workflows
-		WHERE source_repo = $1 AND owner = $2
+		WHERE source_repo = $1 AND team_id = $2
 		ORDER BY name ASC
-	`, repoURL, owner)
+	`, repoURL, teamID)
 	if err != nil {
 		return nil, fmt.Errorf("querying workflows for repo %s: %w", repoURL, err)
 	}
@@ -451,7 +451,7 @@ func (s *WorkflowStore) ListWorkflowsByRepo(ctx context.Context, repoURL, owner 
 
 		if err := rows.Scan(
 			&swd.ID, &swd.Name, &swd.SourceRepo, &swd.SourceFile,
-			&swd.SourceKey, &swd.RawYAML, &parsedJSON, &syncError, &swd.LastSynced, &swd.Owner,
+			&swd.SourceKey, &swd.RawYAML, &parsedJSON, &syncError, &swd.LastSynced, &swd.TeamID,
 		); err != nil {
 			return nil, fmt.Errorf("scanning workflow: %w", err)
 		}
@@ -481,8 +481,8 @@ func (s *WorkflowStore) ListWorkflowsByRepo(ctx context.Context, repoURL, owner 
 }
 
 // DeleteWorkflowsByRepo removes all workflow definitions from a given repo URL and owner.
-func (s *WorkflowStore) DeleteWorkflowsByRepo(ctx context.Context, repoURL, owner string) error {
-	_, err := s.db.Exec(ctx, `DELETE FROM workflows WHERE source_repo = $1 AND owner = $2`, repoURL, owner)
+func (s *WorkflowStore) DeleteWorkflowsByRepo(ctx context.Context, repoURL, teamID string) error {
+	_, err := s.db.Exec(ctx, `DELETE FROM workflows WHERE source_repo = $1 AND team_id = $2`, repoURL, teamID)
 	if err != nil {
 		return fmt.Errorf("deleting workflows for repo %s: %w", repoURL, err)
 	}
@@ -490,15 +490,15 @@ func (s *WorkflowStore) DeleteWorkflowsByRepo(ctx context.Context, repoURL, owne
 }
 
 // ListWorkflows returns all workflow definitions owned by the given user.
-func (s *WorkflowStore) ListWorkflows(ctx context.Context, owner string) ([]StoredWorkflowDefinition, error) {
+func (s *WorkflowStore) ListWorkflows(ctx context.Context, teamID string) ([]StoredWorkflowDefinition, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT id, name, source_repo, source_file, source_key, raw_yaml, parsed, sync_error, last_synced, owner
+		SELECT id, name, source_repo, source_file, source_key, raw_yaml, parsed, sync_error, last_synced, team_id
 		FROM workflows
-		WHERE owner = $1
+		WHERE team_id = $1
 		ORDER BY name ASC
-	`, owner)
+	`, teamID)
 	if err != nil {
-		return nil, fmt.Errorf("querying workflows for owner %s: %w", owner, err)
+		return nil, fmt.Errorf("querying workflows for team %s: %w", teamID, err)
 	}
 	defer rows.Close()
 
@@ -510,7 +510,7 @@ func (s *WorkflowStore) ListWorkflows(ctx context.Context, owner string) ([]Stor
 
 		if err := rows.Scan(
 			&swd.ID, &swd.Name, &swd.SourceRepo, &swd.SourceFile,
-			&swd.SourceKey, &swd.RawYAML, &parsedJSON, &syncError, &swd.LastSynced, &swd.Owner,
+			&swd.SourceKey, &swd.RawYAML, &parsedJSON, &syncError, &swd.LastSynced, &swd.TeamID,
 		); err != nil {
 			return nil, fmt.Errorf("scanning workflow: %w", err)
 		}

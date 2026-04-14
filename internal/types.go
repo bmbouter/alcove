@@ -62,6 +62,7 @@ type Session struct {
 	TriggerContext string     `json:"trigger_context,omitempty"` // keep for backward compat
 	TriggerType    string     `json:"trigger_type,omitempty"`
 	TriggerRef     string     `json:"trigger_ref,omitempty"`
+	TeamID         string     `json:"team_id,omitempty"`
 }
 
 // Artifact represents an output produced by a task (PR, commit, etc.).

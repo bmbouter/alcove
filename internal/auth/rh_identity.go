@@ -22,6 +22,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -188,13 +189,39 @@ func (s *RHIdentityStore) UpsertUser(ctx context.Context, id *RHIdentity) (strin
 		return username, nil
 	}
 
-	// User doesn't exist at all — insert.
-	_, err = s.db.Exec(ctx,
+	// User doesn't exist at all — insert user and create personal team.
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	_, err = tx.Exec(ctx,
 		`INSERT INTO auth_users (username, password, external_id, display_name, auth_source, is_admin, created_at, updated_at)
 		 VALUES ($1, NULL, $2, $3, 'rh-identity', false, NOW(), NOW())`,
 		assoc.Email, assoc.RhatUUID, displayName)
 	if err != nil {
 		return "", fmt.Errorf("creating user: %w", err)
+	}
+
+	// Create personal team for the new user.
+	teamID := uuid.New().String()
+	teamName := assoc.Email + "'s workspace"
+	_, err = tx.Exec(ctx,
+		"INSERT INTO teams (id, name, is_personal, created_at) VALUES ($1, $2, true, NOW())",
+		teamID, teamName)
+	if err != nil {
+		return "", fmt.Errorf("creating personal team: %w", err)
+	}
+	_, err = tx.Exec(ctx,
+		"INSERT INTO team_members (team_id, username) VALUES ($1, $2)",
+		teamID, assoc.Email)
+	if err != nil {
+		return "", fmt.Errorf("adding user to personal team: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("committing transaction: %w", err)
 	}
 
 	return assoc.Email, nil
