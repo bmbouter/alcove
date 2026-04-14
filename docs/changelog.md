@@ -3,6 +3,17 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.15.1
+
+### Bug Fixes
+- Fix team switching in dashboard showing stale cached data. Add
+  Cache-Control: no-store to all API responses so the browser fetches
+  fresh data when switching teams.
+- Fix repo sync ignoring non-personal teams. Agent repos configured on
+  shared teams were never synced because the query filtered on
+  is_personal=true.
+- Fix config validation rejecting "docker" as a valid container runtime.
+
 ## v0.10.0
 
 ### Features
