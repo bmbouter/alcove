@@ -92,6 +92,7 @@ podman run -d --replace --name alcove-bridge ...  # same args as dev-up
 
 ## Key Decisions
 
+- **Teams are the ownership unit** — every resource belongs to a team; every user belongs to one or more teams; personal team auto-created on signup; `X-Alcove-Team` header scopes all API requests
 - **Gate is a sidecar** per Skiff pod (not shared service) — credential isolation
 - **No MITM TLS** — protocol-level interception (HTTP_PROXY, git credential helpers)
 - **LLM keys never enter Skiff** — Gate proxies LLM API calls, injects keys; Gate also translates Anthropic API format to Vertex AI format when using Vertex AI (`GATE_VERTEX_PROJECT`, `GATE_VERTEX_REGION`)

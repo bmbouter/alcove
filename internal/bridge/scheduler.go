@@ -43,7 +43,7 @@ type Schedule struct {
 	LastRun     *time.Time `json:"last_run,omitempty"`
 	NextRun     *time.Time `json:"next_run,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
-	Owner       string     `json:"owner,omitempty"`
+	TeamID      string     `json:"team_id,omitempty"`
 	Debug       bool          `json:"debug,omitempty"`
 	Source      string        `json:"source,omitempty"`
 	SourceKey   string        `json:"source_key,omitempty"`
@@ -308,7 +308,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 	now := time.Now().UTC()
 
 	rows, err := s.db.Query(ctx, `
-		SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, owner, debug, source, source_key, trigger_type, event_config
+		SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, team_id, debug, source, source_key, trigger_type, event_config
 		FROM schedules
 		WHERE enabled = true AND next_run <= $1
 		  AND COALESCE(trigger_type, 'cron') IN ('cron', 'cron-and-event')
@@ -327,7 +327,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 		if err := rows.Scan(
 			&sched.ID, &sched.Name, &sched.Cron, &sched.Prompt,
 			&sched.Repo, &sched.Provider, &sched.ScopePreset, &sched.Timeout,
-			&sched.Enabled, &sched.LastRun, &sched.NextRun, &sched.CreatedAt, &sched.Owner, &sched.Debug,
+			&sched.Enabled, &sched.LastRun, &sched.NextRun, &sched.CreatedAt, &sched.TeamID, &sched.Debug,
 			&source, &sourceKey, &triggerType, &eventConfigJSON,
 		); err != nil {
 			log.Printf("scheduler: error scanning schedule row: %v", err)
@@ -368,7 +368,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 			TriggerType: "cron",
 		}
 
-		if _, err := s.dispatcher.DispatchTask(ctx, req, sched.Owner); err != nil {
+		if _, err := s.dispatcher.DispatchTask(ctx, req, "scheduler", sched.TeamID); err != nil {
 			log.Printf("scheduler: error dispatching schedule %s: %v", sched.ID, err)
 			continue
 		}
@@ -395,7 +395,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 // CreateSchedule inserts a new schedule into the database. It generates a UUID
 // if sched.ID is empty, validates the cron expression, computes the initial
 // next_run, and sets created_at.
-func (s *Scheduler) CreateSchedule(ctx context.Context, sched *Schedule, owner string) error {
+func (s *Scheduler) CreateSchedule(ctx context.Context, sched *Schedule, teamID string) error {
 	if sched.ID == "" {
 		sched.ID = uuid.New().String()
 	}
@@ -411,7 +411,7 @@ func (s *Scheduler) CreateSchedule(ctx context.Context, sched *Schedule, owner s
 		// Event-only schedules don't need cron or next_run.
 		now := time.Now().UTC()
 		sched.CreatedAt = now
-		sched.Owner = owner
+		sched.TeamID = teamID
 	} else {
 		cronExpr, err := ParseCron(sched.Cron)
 		if err != nil {
@@ -420,7 +420,7 @@ func (s *Scheduler) CreateSchedule(ctx context.Context, sched *Schedule, owner s
 
 		now := time.Now().UTC()
 		sched.CreatedAt = now
-		sched.Owner = owner
+		sched.TeamID = teamID
 		nextRun := cronExpr.Next(now)
 		sched.NextRun = &nextRun
 	}
@@ -440,10 +440,10 @@ func (s *Scheduler) CreateSchedule(ctx context.Context, sched *Schedule, owner s
 	}
 
 	_, err := s.db.Exec(ctx, `
-		INSERT INTO schedules (id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, next_run, created_at, owner, debug, source, source_key, trigger_type, event_config)
+		INSERT INTO schedules (id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, next_run, created_at, team_id, debug, source, source_key, trigger_type, event_config)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 	`, sched.ID, sched.Name, sched.Cron, sched.Prompt, sched.Repo, sched.Provider,
-		sched.ScopePreset, sched.Timeout, sched.Enabled, sched.NextRun, sched.CreatedAt, owner, sched.Debug,
+		sched.ScopePreset, sched.Timeout, sched.Enabled, sched.NextRun, sched.CreatedAt, teamID, sched.Debug,
 		source, nilIfEmptySched(sched.SourceKey), triggerType, eventConfigJSON)
 	if err != nil {
 		return fmt.Errorf("inserting schedule: %w", err)
@@ -454,13 +454,13 @@ func (s *Scheduler) CreateSchedule(ctx context.Context, sched *Schedule, owner s
 
 // ListSchedules returns schedules from the database.
 // If owner is non-empty, only schedules belonging to that owner are returned.
-func (s *Scheduler) ListSchedules(ctx context.Context, owner string) ([]Schedule, error) {
-	query := `SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, owner, debug, source, source_key, trigger_type, event_config
+func (s *Scheduler) ListSchedules(ctx context.Context, teamID string) ([]Schedule, error) {
+	query := `SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, team_id, debug, source, source_key, trigger_type, event_config
 		FROM schedules`
 	args := []any{}
-	if owner != "" {
-		query += ` WHERE owner = $1`
-		args = append(args, owner)
+	if teamID != "" {
+		query += ` WHERE team_id = $1`
+		args = append(args, teamID)
 	}
 	query += ` ORDER BY created_at DESC`
 
@@ -478,7 +478,7 @@ func (s *Scheduler) ListSchedules(ctx context.Context, owner string) ([]Schedule
 		if err := rows.Scan(
 			&sched.ID, &sched.Name, &sched.Cron, &sched.Prompt,
 			&sched.Repo, &sched.Provider, &sched.ScopePreset, &sched.Timeout,
-			&sched.Enabled, &sched.LastRun, &sched.NextRun, &sched.CreatedAt, &sched.Owner, &sched.Debug,
+			&sched.Enabled, &sched.LastRun, &sched.NextRun, &sched.CreatedAt, &sched.TeamID, &sched.Debug,
 			&source, &sourceKey, &triggerType, &eventConfigJSON,
 		); err != nil {
 			return nil, fmt.Errorf("scanning schedule: %w", err)
@@ -509,13 +509,13 @@ func (s *Scheduler) ListSchedules(ctx context.Context, owner string) ([]Schedule
 
 // GetSchedule retrieves a single schedule by ID.
 // If owner is non-empty, only returns the schedule if it belongs to that owner.
-func (s *Scheduler) GetSchedule(ctx context.Context, id, owner string) (*Schedule, error) {
-	query := `SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, owner, debug, source, source_key, trigger_type, event_config
+func (s *Scheduler) GetSchedule(ctx context.Context, id, teamID string) (*Schedule, error) {
+	query := `SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, team_id, debug, source, source_key, trigger_type, event_config
 		FROM schedules WHERE id = $1`
 	args := []any{id}
-	if owner != "" {
-		query += ` AND owner = $2`
-		args = append(args, owner)
+	if teamID != "" {
+		query += ` AND team_id = $2`
+		args = append(args, teamID)
 	}
 
 	var sched Schedule
@@ -524,7 +524,7 @@ func (s *Scheduler) GetSchedule(ctx context.Context, id, owner string) (*Schedul
 	err := s.db.QueryRow(ctx, query, args...).Scan(
 		&sched.ID, &sched.Name, &sched.Cron, &sched.Prompt,
 		&sched.Repo, &sched.Provider, &sched.ScopePreset, &sched.Timeout,
-		&sched.Enabled, &sched.LastRun, &sched.NextRun, &sched.CreatedAt, &sched.Owner, &sched.Debug,
+		&sched.Enabled, &sched.LastRun, &sched.NextRun, &sched.CreatedAt, &sched.TeamID, &sched.Debug,
 		&source, &sourceKey, &triggerType, &eventConfigJSON,
 	)
 	if err != nil {
@@ -551,7 +551,7 @@ func (s *Scheduler) GetSchedule(ctx context.Context, id, owner string) (*Schedul
 // UpdateSchedule updates an existing schedule in the database. If the cron
 // expression has changed, it recomputes next_run.
 // If owner is non-empty, only updates the schedule if it belongs to that owner.
-func (s *Scheduler) UpdateSchedule(ctx context.Context, sched *Schedule, owner string) error {
+func (s *Scheduler) UpdateSchedule(ctx context.Context, sched *Schedule, teamID string) error {
 	triggerType := sched.TriggerType
 	if triggerType == "" {
 		triggerType = "cron"
@@ -585,9 +585,9 @@ func (s *Scheduler) UpdateSchedule(ctx context.Context, sched *Schedule, owner s
 	args := []any{sched.Name, sched.Cron, sched.Prompt, sched.Repo, sched.Provider,
 		sched.ScopePreset, sched.Timeout, sched.Enabled, sched.NextRun, sched.Debug,
 		triggerType, eventConfigJSON, sched.ID}
-	if owner != "" {
-		query += ` AND owner = $14`
-		args = append(args, owner)
+	if teamID != "" {
+		query += ` AND team_id = $14`
+		args = append(args, teamID)
 	}
 
 	_, err := s.db.Exec(ctx, query, args...)
@@ -600,12 +600,12 @@ func (s *Scheduler) UpdateSchedule(ctx context.Context, sched *Schedule, owner s
 
 // DeleteSchedule removes a schedule from the database.
 // If owner is non-empty, only deletes the schedule if it belongs to that owner.
-func (s *Scheduler) DeleteSchedule(ctx context.Context, id, owner string) error {
+func (s *Scheduler) DeleteSchedule(ctx context.Context, id, teamID string) error {
 	query := `DELETE FROM schedules WHERE id = $1`
 	args := []any{id}
-	if owner != "" {
-		query += ` AND owner = $2`
-		args = append(args, owner)
+	if teamID != "" {
+		query += ` AND team_id = $2`
+		args = append(args, teamID)
 	}
 
 	_, err := s.db.Exec(ctx, query, args...)
@@ -618,10 +618,10 @@ func (s *Scheduler) DeleteSchedule(ctx context.Context, id, owner string) error 
 // EnableSchedule sets the enabled flag for a schedule. When enabling, it
 // recomputes next_run from the current time.
 // If owner is non-empty, only updates the schedule if it belongs to that owner.
-func (s *Scheduler) EnableSchedule(ctx context.Context, id string, enabled bool, owner string) error {
+func (s *Scheduler) EnableSchedule(ctx context.Context, id string, enabled bool, teamID string) error {
 	if enabled {
 		// Recompute next_run when enabling (only for cron-based schedules).
-		sched, err := s.GetSchedule(ctx, id, owner)
+		sched, err := s.GetSchedule(ctx, id, teamID)
 		if err != nil {
 			return err
 		}
@@ -630,9 +630,9 @@ func (s *Scheduler) EnableSchedule(ctx context.Context, id string, enabled bool,
 		if sched.TriggerType == "event" {
 			query := `UPDATE schedules SET enabled = $1 WHERE id = $2`
 			args := []any{enabled, id}
-			if owner != "" {
-				query += ` AND owner = $3`
-				args = append(args, owner)
+			if teamID != "" {
+				query += ` AND team_id = $3`
+				args = append(args, teamID)
 			}
 			_, err = s.db.Exec(ctx, query, args...)
 			if err != nil {
@@ -649,9 +649,9 @@ func (s *Scheduler) EnableSchedule(ctx context.Context, id string, enabled bool,
 		nextRun := cronExpr.Next(now)
 		query := `UPDATE schedules SET enabled = $1, next_run = $2 WHERE id = $3`
 		args := []any{enabled, nextRun, id}
-		if owner != "" {
-			query += ` AND owner = $4`
-			args = append(args, owner)
+		if teamID != "" {
+			query += ` AND team_id = $4`
+			args = append(args, teamID)
 		}
 		_, err = s.db.Exec(ctx, query, args...)
 		if err != nil {
@@ -662,9 +662,9 @@ func (s *Scheduler) EnableSchedule(ctx context.Context, id string, enabled bool,
 
 	query := `UPDATE schedules SET enabled = $1 WHERE id = $2`
 	args := []any{enabled, id}
-	if owner != "" {
-		query += ` AND owner = $3`
-		args = append(args, owner)
+	if teamID != "" {
+		query += ` AND team_id = $3`
+		args = append(args, teamID)
 	}
 	_, err := s.db.Exec(ctx, query, args...)
 	if err != nil {

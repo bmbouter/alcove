@@ -61,11 +61,21 @@
                 <a href="#credentials" class="nav-tab" data-tab="credentials">Credentials</a>
                 <a href="#security" class="nav-tab" data-tab="security">Security</a>
                 <a href="#repos" class="nav-tab" data-tab="repos">Repos</a>
+                <a href="#teams" class="nav-tab" data-tab="teams">Teams</a>
                 <div style="flex:1;"></div>
                 <a href="#account" class="nav-tab" data-tab="account" id="account-tab" hidden>Account</a>
                 <a href="#users" class="nav-tab nav-admin-only" data-tab="users" hidden>Users</a>
             </nav>
             <div class="top-bar-right">
+                <div class="team-switcher" id="team-switcher">
+                    <button class="team-switcher-toggle" id="team-switcher-toggle">
+                        <span id="active-team-name" class="active-team-name">My Workspace</span>
+                        <span class="dropdown-arrow">&#9662;</span>
+                    </button>
+                    <div class="team-switcher-menu" id="team-switcher-menu" hidden>
+                        <div id="team-switcher-list"></div>
+                    </div>
+                </div>
                 <div class="user-dropdown" id="user-dropdown">
                     <button class="user-dropdown-toggle" id="user-dropdown-toggle">
                         <span id="user-info" class="user-info"></span>
@@ -501,6 +511,101 @@
                             <div>
                                 <button id="skill-repo-add-inline" class="btn btn-small btn-primary">Add</button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Teams -->
+            <div id="page-teams" class="page" hidden>
+                <div class="page-header">
+                    <h2>Teams</h2>
+                    <button id="show-create-team" class="btn btn-small btn-primary">Create Team</button>
+                </div>
+
+                <div id="create-team-form-container" class="form-card" hidden>
+                    <form id="create-team-form">
+                        <div class="form-group">
+                            <label for="new-team-name">Team Name <span class="required">*</span></label>
+                            <input type="text" id="new-team-name" class="input" placeholder="e.g., Backend Team" required>
+                        </div>
+                        <div id="create-team-error" class="error-message" role="alert" hidden></div>
+                        <div style="display:flex;gap:8px;margin-top:16px;">
+                            <button type="submit" class="btn btn-primary">Create Team</button>
+                            <button type="button" id="cancel-create-team" class="btn btn-outline">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+
+                <div id="teams-list"></div>
+                <div id="teams-empty" class="empty-state" hidden><p>No teams found.</p></div>
+                <div id="teams-loading" class="loading-state" hidden><div class="spinner"></div><p>Loading teams...</p></div>
+            </div>
+
+            <!-- Team Detail -->
+            <div id="page-team-detail" class="page" hidden>
+                <div class="page-header">
+                    <button id="back-to-teams" class="btn btn-small btn-outline">Back to Teams</button>
+                    <h2 id="team-detail-title">Team Detail</h2>
+                </div>
+
+                <div id="team-detail-content">
+                    <!-- Team Name Section -->
+                    <div class="form-card" style="margin-bottom:24px;">
+                        <h3>Team Settings</h3>
+                        <div id="team-name-section">
+                            <div class="form-group">
+                                <label for="team-detail-name">Team Name</label>
+                                <div style="display:flex;gap:8px;align-items:center;">
+                                    <input type="text" id="team-detail-name" class="input" style="max-width:300px;">
+                                    <button id="team-save-name" class="btn btn-small btn-primary">Save</button>
+                                </div>
+                            </div>
+                            <div id="team-name-error" class="error-message" role="alert" hidden></div>
+                            <div id="team-name-success" class="success-message" role="status" hidden></div>
+                        </div>
+                        <div id="team-delete-section" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+                            <button id="team-delete-btn" class="btn btn-small btn-outline" style="color:var(--status-error);border-color:var(--status-error);">Delete Team</button>
+                        </div>
+                    </div>
+
+                    <!-- Members Section -->
+                    <div class="form-card" style="margin-bottom:24px;">
+                        <h3>Members</h3>
+                        <div id="team-members-list" style="margin-bottom:16px;"></div>
+                        <div id="team-add-member-section">
+                            <div style="display:flex;gap:8px;align-items:flex-end;">
+                                <div style="flex:1;max-width:300px;">
+                                    <label class="input-label">Username</label>
+                                    <input type="text" id="team-add-member-username" class="input" placeholder="username">
+                                </div>
+                                <button id="team-add-member-btn" class="btn btn-small btn-primary">Add Member</button>
+                            </div>
+                            <div id="team-member-error" class="error-message" role="alert" hidden style="margin-top:8px;"></div>
+                            <div id="team-member-success" class="success-message" role="status" hidden style="margin-top:8px;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Agent Repos Section (team-scoped) -->
+                    <div class="form-card" style="margin-bottom:24px;">
+                        <h3>Agent Repos</h3>
+                        <p class="form-help" style="margin-bottom:12px;">Git repositories containing <code>.alcove/tasks/</code> with YAML agent definitions and <code>.alcove/security-profiles/</code> with security profiles.</p>
+                        <div id="team-task-repos-list"></div>
+                        <div class="repo-add-form" style="margin-top:12px;">
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+                                <div style="flex:2;min-width:200px;">
+                                    <label class="input-label">Repository URL</label>
+                                    <input type="text" id="team-task-repo-url" class="input" placeholder="https://github.com/org/repo.git">
+                                </div>
+                                <div style="flex:0.5;min-width:80px;">
+                                    <label class="input-label">Branch</label>
+                                    <input type="text" id="team-task-repo-ref" class="input" placeholder="main">
+                                </div>
+                                <div>
+                                    <button id="team-task-repo-add" class="btn btn-small btn-primary">Add</button>
+                                </div>
+                            </div>
+                            <div id="team-task-repo-status" class="form-help" style="margin-top:6px;" hidden></div>
                         </div>
                     </div>
                 </div>
@@ -1132,6 +1237,22 @@ cat ~/.config/gcloud/application_default_credentials.json   # or just cat and co
             </div>
         </form>
     </template>
+
+    <!-- Delete Team Confirmation Modal -->
+    <div id="delete-team-modal" class="modal-overlay" hidden>
+        <div class="modal-card">
+            <h3>Delete Team</h3>
+            <p class="form-help" style="margin-bottom:12px;">Are you sure you want to delete <strong id="delete-team-name"></strong>?</p>
+            <div class="warning-message" style="background: #fee; border: 1px solid #f66; border-radius: 6px; padding: 12px; margin-bottom: 16px;">
+                <strong>Warning:</strong> This action cannot be undone. All team data including credentials, sessions, and configurations associated with this team will be permanently deleted.
+            </div>
+            <div id="delete-team-error" class="error-message" role="alert" hidden></div>
+            <div style="display:flex;gap:8px;margin-top:16px;">
+                <button id="confirm-delete-team" class="btn btn-primary" style="background:var(--status-error);">Delete Team</button>
+                <button id="cancel-delete-team" class="btn btn-outline">Cancel</button>
+            </div>
+        </div>
+    </div>
 
     <script src="js/app.js"></script>
 </body>

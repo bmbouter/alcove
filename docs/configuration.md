@@ -206,8 +206,16 @@ The `alcove` CLI (`cmd/alcove`) stores configuration in
 
 | File | Purpose |
 |---|---|
-| `config.yaml` | Stores the Bridge server URL. Created by `alcove login`. |
+| `config.yaml` | Stores the Bridge server URL and active team. Created by `alcove login`. |
 | `credentials` | Stores the JWT authentication token. Created by `alcove login`. |
+
+The `config.yaml` file supports an `active_team` field that sets the default
+team context for all CLI commands. Set it with `alcove teams use`:
+
+```yaml
+server: http://localhost:8080
+active_team: my-team
+```
 
 ### CLI Environment Variables
 
@@ -234,6 +242,7 @@ The `alcove` CLI (`cmd/alcove`) stores configuration in
 | `--no-proxy <hosts>` | Comma-separated list of hosts to exclude from proxy. Overrides `NO_PROXY` env var. |
 | `-u, --username <user>` | Username for Basic Auth. Overrides `ALCOVE_USERNAME`. |
 | `-p, --password <pass>` | Password for Basic Auth. Overrides `ALCOVE_PASSWORD`. |
+| `--team <name>` | Team context for the request. Overrides `active_team` in config. |
 
 ### Server Resolution Order
 
@@ -242,6 +251,55 @@ The CLI resolves the Bridge URL in this order:
 1. `--server` flag
 2. `ALCOVE_SERVER` environment variable
 3. `server` field in `~/.config/alcove/config.yaml`
+
+---
+
+## Teams
+
+Teams are the universal ownership unit. Every resource (sessions, credentials,
+security profiles, agent definitions, schedules, workflows, tools, agent repos)
+belongs to a team. Every user belongs to one or more teams.
+
+### X-Alcove-Team Header
+
+All API requests include an `X-Alcove-Team` header to scope the request to a
+team. The CLI sets this header automatically based on the `--team` flag or the
+`active_team` field in `config.yaml`. The dashboard sets it based on the team
+switcher selection.
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+     -H "X-Alcove-Team: my-team-id" \
+     http://localhost:8080/api/v1/sessions
+```
+
+### Teams API
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/teams` | List teams for the authenticated user |
+| `POST` | `/api/v1/teams` | Create a new team |
+| `GET` | `/api/v1/teams/{id}` | Get team details |
+| `PUT` | `/api/v1/teams/{id}` | Update team name |
+| `DELETE` | `/api/v1/teams/{id}` | Delete a team |
+| `POST` | `/api/v1/teams/{id}/members` | Add a member to a team |
+| `DELETE` | `/api/v1/teams/{id}/members/{username}` | Remove a member from a team |
+
+All team members have equal permissions. Any member can invite or remove others.
+Admins can override team membership.
+
+### Database Tables
+
+Teams are stored in three tables:
+
+| Table | Description |
+|---|---|
+| `teams` | Team ID, name, type (personal or shared), created/updated timestamps |
+| `team_members` | Maps users to teams |
+| `team_settings` | Per-team settings (e.g., agent repos) |
+
+All resource tables use a `team_id` column (replacing the previous `owner`
+column) to associate resources with teams.
 
 ---
 

@@ -57,10 +57,11 @@ type API struct {
 	syncer         *AgentRepoSyncer
 	authStore      auth.Authenticator // for TBR associations (rh-identity backend)
 	workflowEngine *WorkflowEngine
+	teamStore      *TeamStore
 }
 
 // NewAPI creates the API handler set.
-func NewAPI(dispatcher *Dispatcher, db *pgxpool.Pool, cfg *Config, scheduler *Scheduler, credStore *CredentialStore, toolStore *ToolStore, profileStore *ProfileStore, settingsStore *SettingsStore, llm *BridgeLLM, defStore *AgentDefStore, syncer *AgentRepoSyncer, authStore auth.Authenticator, workflowEngine *WorkflowEngine) *API {
+func NewAPI(dispatcher *Dispatcher, db *pgxpool.Pool, cfg *Config, scheduler *Scheduler, credStore *CredentialStore, toolStore *ToolStore, profileStore *ProfileStore, settingsStore *SettingsStore, llm *BridgeLLM, defStore *AgentDefStore, syncer *AgentRepoSyncer, authStore auth.Authenticator, workflowEngine *WorkflowEngine, teamStore *TeamStore) *API {
 	return &API{
 		dispatcher:     dispatcher,
 		db:             db,
@@ -75,6 +76,7 @@ func NewAPI(dispatcher *Dispatcher, db *pgxpool.Pool, cfg *Config, scheduler *Sc
 		syncer:         syncer,
 		authStore:      authStore,
 		workflowEngine: workflowEngine,
+		teamStore:      teamStore,
 	}
 }
 
@@ -114,6 +116,8 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/workflows", a.handleWorkflows)
 	mux.HandleFunc("/api/v1/workflow-runs", a.handleWorkflowRuns)
 	mux.HandleFunc("/api/v1/workflow-runs/", a.handleWorkflowRunByID)
+	mux.HandleFunc("/api/v1/teams", a.handleTeams)
+	mux.HandleFunc("/api/v1/teams/", a.handleTeam)
 }
 
 // --- Health ---
@@ -201,7 +205,8 @@ func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
 
 		req.TriggerType = "manual"
 
-		session, err := a.dispatcher.DispatchTask(r.Context(), req, submitter)
+		teamID := getActiveTeamID(r)
+		session, err := a.dispatcher.DispatchTask(r.Context(), req, submitter, teamID)
 		if err != nil {
 			log.Printf("error: dispatch failed: %v", err)
 			respondError(w, http.StatusInternalServerError, "failed to dispatch session: "+err.Error())
@@ -215,7 +220,7 @@ func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
 		repo := query.Get("repo")
 		since := query.Get("since")
 		until := query.Get("until")
-		user := r.Header.Get("X-Alcove-User")
+		teamID := getActiveTeamID(r)
 
 		pageStr := query.Get("page")
 		perPageStr := query.Get("per_page")
@@ -229,7 +234,7 @@ func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
 			perPage = pp
 		}
 
-		sessions, total, err := a.listSessions(r.Context(), status, repo, since, until, user, page, perPage)
+		sessions, total, err := a.listSessions(r.Context(), status, repo, since, until, teamID, page, perPage)
 		if err != nil {
 			log.Printf("error: listing sessions: %v", err)
 			respondError(w, http.StatusInternalServerError, "failed to list sessions")
@@ -263,15 +268,13 @@ func (a *API) handleSessionByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user := r.Header.Get("X-Alcove-User")
-
 	if len(parts) == 2 {
 		switch parts[1] {
 		case "transcript":
 			if r.Method == http.MethodPost {
 				a.handleAppendTranscript(w, r, sessionID)
 			} else {
-				a.handleTranscript(w, r, sessionID, user)
+				a.handleTranscript(w, r, sessionID)
 			}
 			return
 		case "status":
@@ -286,7 +289,7 @@ func (a *API) handleSessionByID(w http.ResponseWriter, r *http.Request) {
 			case http.MethodPost:
 				a.handleAppendProxyLog(w, r, sessionID)
 			case http.MethodGet:
-				a.handleGetProxyLog(w, r, sessionID, user)
+				a.handleGetProxyLog(w, r, sessionID)
 			default:
 				respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 			}
@@ -296,21 +299,21 @@ func (a *API) handleSessionByID(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		a.handleGetSession(w, r, sessionID, user)
+		a.handleGetSession(w, r, sessionID)
 	case http.MethodDelete:
 		// Check if this is a delete request (vs cancel)
 		if r.URL.Query().Get("action") == "delete" {
-			a.handleDeleteSession(w, r, sessionID, user)
+			a.handleDeleteSession(w, r, sessionID)
 		} else {
-			a.handleCancelSession(w, r, sessionID, user)
+			a.handleCancelSession(w, r, sessionID)
 		}
 	default:
 		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
-func (a *API) handleGetSession(w http.ResponseWriter, r *http.Request, sessionID string, user string) {
-	if err := a.checkOwnership(r.Context(), sessionID, user); err != nil {
+func (a *API) handleGetSession(w http.ResponseWriter, r *http.Request, sessionID string) {
+	if err := a.checkTeamAccess(r.Context(), sessionID, r); err != nil {
 		respondError(w, http.StatusForbidden, "access denied")
 		return
 	}
@@ -345,8 +348,8 @@ func (a *API) handleGetSession(w http.ResponseWriter, r *http.Request, sessionID
 	respondJSON(w, http.StatusOK, detail)
 }
 
-func (a *API) handleCancelSession(w http.ResponseWriter, r *http.Request, sessionID string, user string) {
-	if err := a.checkOwnership(r.Context(), sessionID, user); err != nil {
+func (a *API) handleCancelSession(w http.ResponseWriter, r *http.Request, sessionID string) {
+	if err := a.checkTeamAccess(r.Context(), sessionID, r); err != nil {
 		respondError(w, http.StatusForbidden, "access denied")
 		return
 	}
@@ -362,8 +365,8 @@ func (a *API) handleCancelSession(w http.ResponseWriter, r *http.Request, sessio
 	})
 }
 
-func (a *API) handleDeleteSession(w http.ResponseWriter, r *http.Request, sessionID string, user string) {
-	if err := a.checkOwnership(r.Context(), sessionID, user); err != nil {
+func (a *API) handleDeleteSession(w http.ResponseWriter, r *http.Request, sessionID string) {
+	if err := a.checkTeamAccess(r.Context(), sessionID, r); err != nil {
 		respondError(w, http.StatusForbidden, "access denied")
 		return
 	}
@@ -408,8 +411,8 @@ func (a *API) handleDeleteSession(w http.ResponseWriter, r *http.Request, sessio
 }
 
 func (a *API) handleBulkDeleteSessions(w http.ResponseWriter, r *http.Request) {
-	user := r.Header.Get("X-Alcove-User")
-	if user == "" {
+	teamID := getActiveTeamID(r)
+	if teamID == "" {
 		respondError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
@@ -426,8 +429,8 @@ func (a *API) handleBulkDeleteSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build WHERE clause for deletion criteria
-	whereClause := " WHERE submitter = $1"
-	args := []any{user}
+	whereClause := " WHERE team_id = $1"
+	args := []any{teamID}
 	argN := 2
 
 	// Only allow deleting terminal state sessions
@@ -502,13 +505,13 @@ func (a *API) handleBulkDeleteSessions(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (a *API) handleTranscript(w http.ResponseWriter, r *http.Request, sessionID string, user string) {
+func (a *API) handleTranscript(w http.ResponseWriter, r *http.Request, sessionID string) {
 	if r.Method != http.MethodGet {
 		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
-	if err := a.checkOwnership(r.Context(), sessionID, user); err != nil {
+	if err := a.checkTeamAccess(r.Context(), sessionID, r); err != nil {
 		respondError(w, http.StatusForbidden, "access denied")
 		return
 	}
@@ -771,8 +774,8 @@ func (a *API) handleAppendProxyLog(w http.ResponseWriter, r *http.Request, sessi
 	respondJSON(w, http.StatusOK, map[string]int{"appended": len(req.Entries)})
 }
 
-func (a *API) handleGetProxyLog(w http.ResponseWriter, r *http.Request, sessionID string, user string) {
-	if err := a.checkOwnership(r.Context(), sessionID, user); err != nil {
+func (a *API) handleGetProxyLog(w http.ResponseWriter, r *http.Request, sessionID string) {
+	if err := a.checkTeamAccess(r.Context(), sessionID, r); err != nil {
 		respondError(w, http.StatusForbidden, "access denied")
 		return
 	}
@@ -867,14 +870,14 @@ func parseEventContext(prompt string) string {
 	return "Manual"
 }
 
-func (a *API) listSessions(ctx context.Context, status, repo, since, until, submitter string, page, perPage int) ([]internal.Session, int, error) {
+func (a *API) listSessions(ctx context.Context, status, repo, since, until, teamID string, page, perPage int) ([]internal.Session, int, error) {
 	whereClause := " WHERE 1=1"
 	args := []any{}
 	argN := 1
 
-	if submitter != "" {
-		whereClause += fmt.Sprintf(" AND s.submitter = $%d", argN)
-		args = append(args, submitter)
+	if teamID != "" {
+		whereClause += fmt.Sprintf(" AND s.team_id = $%d", argN)
+		args = append(args, teamID)
 		argN++
 	}
 	if status != "" {
@@ -1068,11 +1071,11 @@ func (a *API) getSession(ctx context.Context, id string) (*internal.Session, err
 // --- Schedules ---
 
 func (a *API) handleSchedules(w http.ResponseWriter, r *http.Request) {
-	user := r.Header.Get("X-Alcove-User")
+	teamID := getActiveTeamID(r)
 
 	switch r.Method {
 	case http.MethodGet:
-		schedules, err := a.scheduler.ListSchedules(r.Context(), user)
+		schedules, err := a.scheduler.ListSchedules(r.Context(), teamID)
 		if err != nil {
 			log.Printf("error: listing schedules: %v", err)
 			respondError(w, http.StatusInternalServerError, "failed to list schedules")
@@ -1080,10 +1083,10 @@ func (a *API) handleSchedules(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Annotate schedules with repo_disabled by joining through agent definitions.
-		disabledRepos := a.buildDisabledReposMap(r.Context(), user)
+		disabledRepos := a.buildDisabledReposMap(r.Context(), teamID)
 		if len(disabledRepos) > 0 {
 			// Build source_key -> source_repo map from agent definitions.
-			defs, defErr := a.defStore.ListAgentDefinitions(r.Context(), user)
+			defs, defErr := a.defStore.ListAgentDefinitions(r.Context(), teamID)
 			if defErr == nil {
 				sourceKeyToRepo := make(map[string]string)
 				for _, d := range defs {
@@ -1111,7 +1114,7 @@ func (a *API) handleSchedules(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 			return
 		}
-		if err := a.scheduler.CreateSchedule(r.Context(), &sched, user); err != nil {
+		if err := a.scheduler.CreateSchedule(r.Context(), &sched, teamID); err != nil {
 			log.Printf("error: creating schedule: %v", err)
 			respondError(w, http.StatusInternalServerError, "failed to create schedule: "+err.Error())
 			return
@@ -1133,7 +1136,7 @@ func (a *API) handleScheduleByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user := r.Header.Get("X-Alcove-User")
+	teamID := getActiveTeamID(r)
 
 	if len(parts) == 2 {
 		switch parts[1] {
@@ -1149,7 +1152,7 @@ func (a *API) handleScheduleByID(w http.ResponseWriter, r *http.Request) {
 				respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 				return
 			}
-			if err := a.scheduler.EnableSchedule(r.Context(), id, req.Enabled, user); err != nil {
+			if err := a.scheduler.EnableSchedule(r.Context(), id, req.Enabled, teamID); err != nil {
 				log.Printf("error: enabling/disabling schedule %s: %v", id, err)
 				respondError(w, http.StatusInternalServerError, "failed to update schedule: "+err.Error())
 				return
@@ -1161,7 +1164,7 @@ func (a *API) handleScheduleByID(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		sched, err := a.scheduler.GetSchedule(r.Context(), id, user)
+		sched, err := a.scheduler.GetSchedule(r.Context(), id, teamID)
 		if err != nil {
 			respondError(w, http.StatusNotFound, "schedule not found")
 			return
@@ -1174,14 +1177,14 @@ func (a *API) handleScheduleByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sched.ID = id
-		if err := a.scheduler.UpdateSchedule(r.Context(), &sched, user); err != nil {
+		if err := a.scheduler.UpdateSchedule(r.Context(), &sched, teamID); err != nil {
 			log.Printf("error: updating schedule %s: %v", id, err)
 			respondError(w, http.StatusInternalServerError, "failed to update schedule: "+err.Error())
 			return
 		}
 		respondJSON(w, http.StatusOK, sched)
 	case http.MethodDelete:
-		if err := a.scheduler.DeleteSchedule(r.Context(), id, user); err != nil {
+		if err := a.scheduler.DeleteSchedule(r.Context(), id, teamID); err != nil {
 			log.Printf("error: deleting schedule %s: %v", id, err)
 			respondError(w, http.StatusInternalServerError, "failed to delete schedule: "+err.Error())
 			return
@@ -1195,11 +1198,11 @@ func (a *API) handleScheduleByID(w http.ResponseWriter, r *http.Request) {
 // --- Credentials ---
 
 func (a *API) handleCredentials(w http.ResponseWriter, r *http.Request) {
-	user := r.Header.Get("X-Alcove-User")
+	teamID := getActiveTeamID(r)
 
 	switch r.Method {
 	case http.MethodGet:
-		creds, err := a.credStore.ListCredentials(r.Context(), user)
+		creds, err := a.credStore.ListCredentials(r.Context(), teamID)
 		if err != nil {
 			log.Printf("error: listing credentials: %v", err)
 			respondError(w, http.StatusInternalServerError, "failed to list credentials")
@@ -1227,10 +1230,10 @@ func (a *API) handleCredentials(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusBadRequest, "name, provider, auth_type, and credential are required")
 			return
 		}
-		// Enforce one LLM credential per user.
+		// Enforce one LLM credential per team.
 		scmProviders := map[string]bool{"github": true, "gitlab": true, "jira": true}
 		if !scmProviders[req.Provider] {
-			existing, _ := a.credStore.ListCredentials(r.Context(), user)
+			existing, _ := a.credStore.ListCredentials(r.Context(), teamID)
 			for _, c := range existing {
 				if !scmProviders[c.Provider] {
 					respondJSON(w, http.StatusConflict, map[string]any{
@@ -1251,7 +1254,7 @@ func (a *API) handleCredentials(w http.ResponseWriter, r *http.Request) {
 			Region:    req.Region,
 			APIHost:   req.APIHost,
 		}
-		if err := a.credStore.CreateCredential(r.Context(), &cred, []byte(req.Credential), user); err != nil {
+		if err := a.credStore.CreateCredential(r.Context(), &cred, []byte(req.Credential), teamID); err != nil {
 			log.Printf("error: creating credential: %v", err)
 			respondError(w, http.StatusInternalServerError, "failed to create credential: "+err.Error())
 			return
@@ -1269,18 +1272,18 @@ func (a *API) handleCredentialByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user := r.Header.Get("X-Alcove-User")
+	teamID := getActiveTeamID(r)
 
 	switch r.Method {
 	case http.MethodGet:
-		cred, err := a.credStore.GetCredential(r.Context(), id, user)
+		cred, err := a.credStore.GetCredential(r.Context(), id, teamID)
 		if err != nil {
 			respondError(w, http.StatusNotFound, "credential not found")
 			return
 		}
 		respondJSON(w, http.StatusOK, cred)
 	case http.MethodDelete:
-		if err := a.credStore.DeleteCredential(r.Context(), id, user); err != nil {
+		if err := a.credStore.DeleteCredential(r.Context(), id, teamID); err != nil {
 			log.Printf("error: deleting credential %s: %v", id, err)
 			respondError(w, http.StatusNotFound, "credential not found")
 			return
@@ -1320,7 +1323,33 @@ func (a *API) handleTokenRefresh(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, result)
 }
 
-// checkOwnership verifies the requesting user owns the session.
+// getActiveTeamID returns the active team ID from the X-Alcove-Team-ID header.
+func getActiveTeamID(r *http.Request) string {
+	return r.Header.Get("X-Alcove-Team-ID")
+}
+
+// checkTeamAccess verifies the session belongs to the active team.
+func (a *API) checkTeamAccess(ctx context.Context, sessionID string, r *http.Request) error {
+	teamID := getActiveTeamID(r)
+	if teamID == "" {
+		return fmt.Errorf("no team context")
+	}
+	var sessionTeamID string
+	err := a.db.QueryRow(ctx, `SELECT team_id FROM sessions WHERE id = $1`, sessionID).Scan(&sessionTeamID)
+	if err != nil {
+		return fmt.Errorf("session not found")
+	}
+	if sessionTeamID != teamID {
+		// Also allow admins.
+		if r.Header.Get("X-Alcove-Admin") == "true" {
+			return nil
+		}
+		return fmt.Errorf("access denied")
+	}
+	return nil
+}
+
+// checkOwnership verifies the requesting user owns the session (legacy, delegates to team access).
 func (a *API) checkOwnership(ctx context.Context, sessionID, user string) error {
 	if user == "" {
 		return fmt.Errorf("no user context")
@@ -1339,11 +1368,11 @@ func (a *API) checkOwnership(ctx context.Context, sessionID, user string) error 
 // --- Tools ---
 
 func (a *API) handleTools(w http.ResponseWriter, r *http.Request) {
-	user := r.Header.Get("X-Alcove-User")
+	teamID := getActiveTeamID(r)
 
 	switch r.Method {
 	case http.MethodGet:
-		tools, err := a.toolStore.ListTools(r.Context(), user)
+		tools, err := a.toolStore.ListTools(r.Context(), teamID)
 		if err != nil {
 			log.Printf("error: listing tools: %v", err)
 			respondError(w, http.StatusInternalServerError, "failed to list tools")
@@ -1363,7 +1392,7 @@ func (a *API) handleTools(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusBadRequest, "name and display_name are required")
 			return
 		}
-		if err := a.toolStore.CreateTool(r.Context(), &tool, user); err != nil {
+		if err := a.toolStore.CreateTool(r.Context(), &tool, teamID); err != nil {
 			log.Printf("error: creating tool: %v", err)
 			respondError(w, http.StatusInternalServerError, "failed to create tool: "+err.Error())
 			return
@@ -1381,11 +1410,11 @@ func (a *API) handleToolByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user := r.Header.Get("X-Alcove-User")
+	teamID := getActiveTeamID(r)
 
 	switch r.Method {
 	case http.MethodGet:
-		tool, err := a.toolStore.GetTool(r.Context(), name, user)
+		tool, err := a.toolStore.GetTool(r.Context(), name, teamID)
 		if err != nil {
 			respondError(w, http.StatusNotFound, "tool not found")
 			return
@@ -1398,7 +1427,7 @@ func (a *API) handleToolByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		tool.Name = name
-		if err := a.toolStore.UpdateTool(r.Context(), &tool, user); err != nil {
+		if err := a.toolStore.UpdateTool(r.Context(), &tool, teamID); err != nil {
 			log.Printf("error: updating tool %s: %v", name, err)
 			if strings.Contains(err.Error(), "builtin") {
 				respondError(w, http.StatusForbidden, "builtin tools cannot be modified")
@@ -1410,7 +1439,7 @@ func (a *API) handleToolByID(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, http.StatusOK, tool)
 	case http.MethodDelete:
 		// Check if it's a builtin tool first.
-		existing, err := a.toolStore.GetTool(r.Context(), name, user)
+		existing, err := a.toolStore.GetTool(r.Context(), name, teamID)
 		if err != nil {
 			respondError(w, http.StatusNotFound, "tool not found")
 			return
@@ -1419,7 +1448,7 @@ func (a *API) handleToolByID(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusForbidden, "builtin tools cannot be deleted")
 			return
 		}
-		if err := a.toolStore.DeleteTool(r.Context(), name, user); err != nil {
+		if err := a.toolStore.DeleteTool(r.Context(), name, teamID); err != nil {
 			log.Printf("error: deleting tool %s: %v", name, err)
 			respondError(w, http.StatusNotFound, "tool not found")
 			return
@@ -1452,8 +1481,8 @@ func (a *API) handleSecurityProfileBuild(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Get available tools for the prompt context.
-	user := r.Header.Get("X-Alcove-User")
-	tools, _ := a.toolStore.ListTools(r.Context(), user)
+	teamID := getActiveTeamID(r)
+	tools, _ := a.toolStore.ListTools(r.Context(), teamID)
 
 	toolsDesc := ""
 	for _, t := range tools {
@@ -1534,11 +1563,11 @@ Respond with ONLY a JSON object (no markdown, no explanation):
 // --- Security Profiles ---
 
 func (a *API) handleSecurityProfiles(w http.ResponseWriter, r *http.Request) {
-	user := r.Header.Get("X-Alcove-User")
+	teamID := getActiveTeamID(r)
 
 	switch r.Method {
 	case http.MethodGet:
-		profiles, err := a.profileStore.ListProfiles(r.Context(), user)
+		profiles, err := a.profileStore.ListProfiles(r.Context(), teamID)
 		if err != nil {
 			log.Printf("error: listing profiles: %v", err)
 			respondError(w, http.StatusInternalServerError, "failed to list profiles")
@@ -1562,7 +1591,7 @@ func (a *API) handleSecurityProfiles(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusBadRequest, "tools is required")
 			return
 		}
-		if err := a.profileStore.CreateProfile(r.Context(), &profile, user); err != nil {
+		if err := a.profileStore.CreateProfile(r.Context(), &profile, teamID); err != nil {
 			log.Printf("error: creating profile: %v", err)
 			respondError(w, http.StatusInternalServerError, "failed to create profile: "+err.Error())
 			return
@@ -1580,11 +1609,11 @@ func (a *API) handleSecurityProfileByID(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	user := r.Header.Get("X-Alcove-User")
+	teamID := getActiveTeamID(r)
 
 	switch r.Method {
 	case http.MethodGet:
-		profile, err := a.profileStore.GetProfile(r.Context(), name, user)
+		profile, err := a.profileStore.GetProfile(r.Context(), name, teamID)
 		if err != nil {
 			respondError(w, http.StatusNotFound, "profile not found")
 			return
@@ -1597,14 +1626,14 @@ func (a *API) handleSecurityProfileByID(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		profile.Name = name
-		if err := a.profileStore.UpdateProfile(r.Context(), &profile, user); err != nil {
+		if err := a.profileStore.UpdateProfile(r.Context(), &profile, teamID); err != nil {
 			log.Printf("error: updating profile %s: %v", name, err)
 			respondError(w, http.StatusNotFound, "profile not found or cannot be updated")
 			return
 		}
 		respondJSON(w, http.StatusOK, profile)
 	case http.MethodDelete:
-		if err := a.profileStore.DeleteProfile(r.Context(), name, user); err != nil {
+		if err := a.profileStore.DeleteProfile(r.Context(), name, teamID); err != nil {
 			log.Printf("error: deleting profile %s: %v", name, err)
 			respondError(w, http.StatusNotFound, "profile not found")
 			return
@@ -1710,15 +1739,47 @@ func (a *API) handleUserSettingsSkillRepos(w http.ResponseWriter, r *http.Reques
 // --- Agent Repos Settings ---
 
 func (a *API) handleUserSettingsAgentRepos(w http.ResponseWriter, r *http.Request) {
-	username := r.Header.Get("X-Alcove-User")
-	if username == "" {
-		respondError(w, http.StatusUnauthorized, "authentication required")
+	teamID := getActiveTeamID(r)
+	if teamID == "" {
+		// Fallback to user_settings for backward compatibility.
+		username := r.Header.Get("X-Alcove-User")
+		if username == "" {
+			respondError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			repos, err := a.settingsStore.GetUserAgentRepos(r.Context(), username)
+			if err != nil {
+				repos = []SkillRepo{}
+			}
+			respondJSON(w, http.StatusOK, map[string]any{"repos": repos})
+		case http.MethodPut:
+			var req struct {
+				Repos []SkillRepo `json:"repos"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+				return
+			}
+			if req.Repos == nil {
+				req.Repos = []SkillRepo{}
+			}
+			if err := a.settingsStore.SetUserAgentRepos(r.Context(), username, req.Repos); err != nil {
+				respondError(w, http.StatusInternalServerError, "failed to save agent repos")
+				return
+			}
+			go a.syncer.SyncAll(context.Background())
+			respondJSON(w, http.StatusOK, map[string]any{"repos": req.Repos})
+		default:
+			respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
 		return
 	}
 
 	switch r.Method {
 	case http.MethodGet:
-		repos, err := a.settingsStore.GetUserAgentRepos(r.Context(), username)
+		repos, err := a.teamStore.GetTeamAgentRepos(r.Context(), teamID)
 		if err != nil {
 			repos = []SkillRepo{}
 		}
@@ -1734,7 +1795,7 @@ func (a *API) handleUserSettingsAgentRepos(w http.ResponseWriter, r *http.Reques
 		if req.Repos == nil {
 			req.Repos = []SkillRepo{}
 		}
-		if err := a.settingsStore.SetUserAgentRepos(r.Context(), username, req.Repos); err != nil {
+		if err := a.teamStore.SetTeamAgentRepos(r.Context(), teamID, req.Repos); err != nil {
 			respondError(w, http.StatusInternalServerError, "failed to save agent repos")
 			return
 		}
@@ -1780,16 +1841,16 @@ func (a *API) handleAgentDefinitions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user := r.Header.Get("X-Alcove-User")
-	defs, err := a.defStore.ListAgentDefinitions(r.Context(), user)
+	teamID := getActiveTeamID(r)
+	defs, err := a.defStore.ListAgentDefinitions(r.Context(), teamID)
 	if err != nil {
 		log.Printf("error: listing agent definitions: %v", err)
 		respondError(w, http.StatusInternalServerError, "failed to list agent definitions")
 		return
 	}
 
-	// Fetch user's agent repos to check disabled status.
-	disabledRepos := a.buildDisabledReposMap(r.Context(), user)
+	// Fetch team's agent repos to check disabled status.
+	disabledRepos := a.buildDisabledReposMap(r.Context(), teamID)
 
 	// Annotate each agent definition with repo_disabled.
 	for i := range defs {
@@ -1849,8 +1910,8 @@ func (a *API) handleAgentDefinitionByID(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	user := r.Header.Get("X-Alcove-User")
-	def, err := a.defStore.GetAgentDefinition(r.Context(), id, user)
+	teamID := getActiveTeamID(r)
+	def, err := a.defStore.GetAgentDefinition(r.Context(), id, teamID)
 	if err != nil {
 		respondError(w, http.StatusNotFound, "agent definition not found")
 		return
@@ -1871,7 +1932,8 @@ func (a *API) handleAgentDefinitionRun(w http.ResponseWriter, r *http.Request, i
 		submitter = "anonymous"
 	}
 
-	def, err := a.defStore.GetAgentDefinition(r.Context(), id, submitter)
+	teamID := getActiveTeamID(r)
+	def, err := a.defStore.GetAgentDefinition(r.Context(), id, teamID)
 	if err != nil {
 		respondError(w, http.StatusNotFound, "agent definition not found")
 		return
@@ -1885,7 +1947,7 @@ func (a *API) handleAgentDefinitionRun(w http.ResponseWriter, r *http.Request, i
 	req := def.ToTaskRequest()
 	req.TaskName = def.Name
 	req.TriggerType = "manual"
-	session, err := a.dispatcher.DispatchTask(r.Context(), req, submitter)
+	session, err := a.dispatcher.DispatchTask(r.Context(), req, submitter, teamID)
 	if err != nil {
 		log.Printf("error: dispatching agent definition %s: %v", id, err)
 		respondError(w, http.StatusInternalServerError, "failed to dispatch session: "+err.Error())
@@ -2119,7 +2181,7 @@ func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
 
 	// Query schedules with event triggers.
 	rows, queryErr := a.db.Query(ctx, `
-		SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, owner, debug, trigger_type, event_config
+		SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, team_id, debug, trigger_type, event_config
 		FROM schedules
 		WHERE enabled = true
 		  AND COALESCE(trigger_type, 'cron') IN ('event', 'cron-and-event')
@@ -2146,7 +2208,7 @@ func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
 			ScopePreset string
 			Timeout     int
 			Enabled     bool
-			Owner       string
+			TeamID      string
 			Debug       bool
 			TriggerType string
 			EventConfig []byte
@@ -2155,7 +2217,7 @@ func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(
 			&sched.ID, &sched.Name, &sched.Cron, &sched.Prompt,
 			&sched.Repo, &sched.Provider, &sched.ScopePreset, &sched.Timeout,
-			&sched.Enabled, &sched.Owner, &sched.Debug, &sched.TriggerType, &sched.EventConfig,
+			&sched.Enabled, &sched.TeamID, &sched.Debug, &sched.TriggerType, &sched.EventConfig,
 		); err != nil {
 			log.Printf("webhook: error scanning schedule: %v", err)
 			continue
@@ -2189,7 +2251,7 @@ func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
 			taskReq.TriggerRef = fmt.Sprintf("%s#%s", repo, prNumber)
 		}
 
-		session, err := a.dispatcher.DispatchTask(ctx, taskReq, sched.Owner)
+		session, err := a.dispatcher.DispatchTask(ctx, taskReq, "webhook", sched.TeamID)
 		if err != nil {
 			log.Printf("webhook: error dispatching schedule %s (%s): %v", sched.Name, sched.ID, err)
 			continue
@@ -2526,18 +2588,21 @@ func (a *API) handlePersonalAPITokenByID(w http.ResponseWriter, r *http.Request)
 }
 
 // buildDisabledReposMap returns a set of repo URLs that are disabled for the given user.
-func (a *API) buildDisabledReposMap(ctx context.Context, username string) map[string]bool {
-	agentRepos, err := a.settingsStore.GetUserAgentRepos(ctx, username)
-	if err != nil {
-		return nil
-	}
-	disabledRepos := make(map[string]bool)
-	for _, repo := range agentRepos {
-		if !repo.IsEnabled() {
-			disabledRepos[repo.URL] = true
+func (a *API) buildDisabledReposMap(ctx context.Context, teamID string) map[string]bool {
+	// Try team settings first, fall back to user_settings for backward compat.
+	if teamID != "" && a.teamStore != nil {
+		agentRepos, err := a.teamStore.GetTeamAgentRepos(ctx, teamID)
+		if err == nil {
+			disabledRepos := make(map[string]bool)
+			for _, repo := range agentRepos {
+				if !repo.IsEnabled() {
+					disabledRepos[repo.URL] = true
+				}
+			}
+			return disabledRepos
 		}
 	}
-	return disabledRepos
+	return nil
 }
 
 // --- Workflows ---
@@ -2548,12 +2613,9 @@ func (a *API) handleWorkflows(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	owner := r.Header.Get("X-Alcove-User")
-	if owner == "" {
-		owner = "anonymous"
-	}
+	teamID := getActiveTeamID(r)
 
-	workflows, err := a.workflowEngine.workflowStore.ListWorkflows(r.Context(), owner)
+	workflows, err := a.workflowEngine.workflowStore.ListWorkflows(r.Context(), teamID)
 	if err != nil {
 		log.Printf("error listing workflows: %v", err)
 		respondError(w, http.StatusInternalServerError, "failed to list workflows")
@@ -2572,14 +2634,11 @@ func (a *API) handleWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	owner := r.Header.Get("X-Alcove-User")
-	if owner == "" {
-		owner = "anonymous"
-	}
+	teamID := getActiveTeamID(r)
 
 	status := r.URL.Query().Get("status")
 
-	runs, err := a.workflowEngine.ListWorkflowRuns(r.Context(), status, owner)
+	runs, err := a.workflowEngine.ListWorkflowRuns(r.Context(), status, teamID)
 	if err != nil {
 		log.Printf("error listing workflow runs: %v", err)
 		respondError(w, http.StatusInternalServerError, "failed to list workflow runs")

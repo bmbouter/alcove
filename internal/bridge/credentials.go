@@ -42,7 +42,7 @@ type Credential struct {
 	APIHost   string    `json:"api_host,omitempty"` // custom API host (e.g., self-hosted GitLab)
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
-	Owner     string    `json:"owner,omitempty"`
+	TeamID    string    `json:"team_id,omitempty"`
 }
 
 // CredentialStore manages encrypted credential storage in PostgreSQL.
@@ -117,23 +117,28 @@ func NewCredentialStore(db *pgxpool.Pool, masterKey string) *CredentialStore {
 }
 
 // CreateCredential stores a new credential with encrypted material.
-func (cs *CredentialStore) CreateCredential(ctx context.Context, cred *Credential, rawCredential []byte, owner string) error {
+func (cs *CredentialStore) CreateCredential(ctx context.Context, cred *Credential, rawCredential []byte, teamID string) error {
 	cred.ID = uuid.New().String()
 	now := time.Now().UTC()
 	cred.CreatedAt = now
 	cred.UpdatedAt = now
-	cred.Owner = owner
+	cred.TeamID = teamID
 
 	encrypted, err := encrypt(cs.key, rawCredential)
 	if err != nil {
 		return fmt.Errorf("encrypting credential: %w", err)
 	}
 
+	var teamIDVal *string
+	if teamID != "" {
+		teamIDVal = &teamID
+	}
+
 	_, err = cs.db.Exec(ctx,
-		`INSERT INTO provider_credentials (id, name, provider, auth_type, credential, project_id, region, api_host, created_at, updated_at, owner)
+		`INSERT INTO provider_credentials (id, name, provider, auth_type, credential, project_id, region, api_host, created_at, updated_at, team_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 		cred.ID, cred.Name, cred.Provider, cred.AuthType, encrypted,
-		cred.ProjectID, cred.Region, cred.APIHost, cred.CreatedAt, cred.UpdatedAt, owner)
+		cred.ProjectID, cred.Region, cred.APIHost, cred.CreatedAt, cred.UpdatedAt, teamIDVal)
 	if err != nil {
 		return fmt.Errorf("inserting credential: %w", err)
 	}
@@ -142,22 +147,17 @@ func (cs *CredentialStore) CreateCredential(ctx context.Context, cred *Credentia
 }
 
 // ListCredentials returns credentials without their encrypted material.
-// If owner is non-empty, only credentials belonging to that owner are returned.
-func (cs *CredentialStore) ListCredentials(ctx context.Context, owner string) ([]Credential, error) {
-	query := `SELECT id, name, provider, auth_type, project_id, region, api_host, created_at, updated_at, owner
+// If teamID is non-empty, only credentials belonging to that team are returned.
+func (cs *CredentialStore) ListCredentials(ctx context.Context, teamID string) ([]Credential, error) {
+	query := `SELECT id, name, provider, auth_type, project_id, region, api_host, created_at, updated_at, COALESCE(team_id::text, '')
 		FROM provider_credentials`
 	args := []any{}
-	if owner != "" {
-		query += ` WHERE owner = $1`
-		args = append(args, owner)
-	}
-	// Always exclude system credentials from user lists.
-	if owner != "_system" {
-		if len(args) > 0 {
-			query += ` AND owner != '_system'`
-		} else {
-			query += ` WHERE owner != '_system'`
-		}
+	if teamID != "" {
+		query += ` WHERE team_id = $1`
+		args = append(args, teamID)
+	} else {
+		// Exclude system credentials (NULL team_id) from general lists.
+		query += ` WHERE team_id IS NOT NULL`
 	}
 	query += ` ORDER BY created_at DESC`
 
@@ -171,7 +171,7 @@ func (cs *CredentialStore) ListCredentials(ctx context.Context, owner string) ([
 	for rows.Next() {
 		var c Credential
 		if err := rows.Scan(&c.ID, &c.Name, &c.Provider, &c.AuthType,
-			&c.ProjectID, &c.Region, &c.APIHost, &c.CreatedAt, &c.UpdatedAt, &c.Owner); err != nil {
+			&c.ProjectID, &c.Region, &c.APIHost, &c.CreatedAt, &c.UpdatedAt, &c.TeamID); err != nil {
 			return nil, fmt.Errorf("scanning credential: %w", err)
 		}
 		creds = append(creds, c)
@@ -185,19 +185,19 @@ func (cs *CredentialStore) ListCredentials(ctx context.Context, owner string) ([
 }
 
 // GetCredential returns a single credential by ID without its encrypted material.
-// If owner is non-empty, only returns the credential if it belongs to that owner.
-func (cs *CredentialStore) GetCredential(ctx context.Context, id, owner string) (*Credential, error) {
-	query := `SELECT id, name, provider, auth_type, project_id, region, api_host, created_at, updated_at, owner
+// If teamID is non-empty, only returns the credential if it belongs to that team.
+func (cs *CredentialStore) GetCredential(ctx context.Context, id, teamID string) (*Credential, error) {
+	query := `SELECT id, name, provider, auth_type, project_id, region, api_host, created_at, updated_at, COALESCE(team_id::text, '')
 		FROM provider_credentials WHERE id = $1`
 	args := []any{id}
-	if owner != "" {
-		query += ` AND owner = $2`
-		args = append(args, owner)
+	if teamID != "" {
+		query += ` AND team_id = $2`
+		args = append(args, teamID)
 	}
 
 	var c Credential
 	err := cs.db.QueryRow(ctx, query, args...).Scan(&c.ID, &c.Name, &c.Provider, &c.AuthType,
-		&c.ProjectID, &c.Region, &c.APIHost, &c.CreatedAt, &c.UpdatedAt, &c.Owner)
+		&c.ProjectID, &c.Region, &c.APIHost, &c.CreatedAt, &c.UpdatedAt, &c.TeamID)
 	if err != nil {
 		return nil, fmt.Errorf("credential not found: %w", err)
 	}
@@ -205,13 +205,13 @@ func (cs *CredentialStore) GetCredential(ctx context.Context, id, owner string) 
 }
 
 // DeleteCredential removes a credential by ID. Returns an error if not found.
-// If owner is non-empty, only deletes the credential if it belongs to that owner.
-func (cs *CredentialStore) DeleteCredential(ctx context.Context, id, owner string) error {
+// If teamID is non-empty, only deletes the credential if it belongs to that team.
+func (cs *CredentialStore) DeleteCredential(ctx context.Context, id, teamID string) error {
 	query := `DELETE FROM provider_credentials WHERE id = $1`
 	args := []any{id}
-	if owner != "" {
-		query += ` AND owner = $2`
-		args = append(args, owner)
+	if teamID != "" {
+		query += ` AND team_id = $2`
+		args = append(args, teamID)
 	}
 
 	result, err := cs.db.Exec(ctx, query, args...)
@@ -231,7 +231,7 @@ func (cs *CredentialStore) AcquireToken(ctx context.Context, providerName string
 	var authType, provider string
 	var encrypted []byte
 	err := cs.db.QueryRow(ctx,
-		`SELECT auth_type, provider, credential FROM provider_credentials WHERE (provider = $1 OR name = $1) AND owner != '_system' ORDER BY created_at DESC LIMIT 1`, providerName,
+		`SELECT auth_type, provider, credential FROM provider_credentials WHERE (provider = $1 OR name = $1) AND team_id IS NOT NULL ORDER BY created_at DESC LIMIT 1`, providerName,
 	).Scan(&authType, &provider, &encrypted)
 	if err != nil {
 		return nil, fmt.Errorf("credential for provider %q not found: %w", providerName, err)
@@ -288,7 +288,7 @@ func (cs *CredentialStore) AcquireSystemToken(ctx context.Context, providerName 
 	var encrypted []byte
 	err := cs.db.QueryRow(ctx,
 		`SELECT auth_type, provider, credential FROM provider_credentials
-		 WHERE (provider = $1 OR name = $1) AND owner = '_system'
+		 WHERE (provider = $1 OR name = $1) AND team_id IS NULL
 		 ORDER BY created_at DESC LIMIT 1`,
 		providerName).Scan(&authType, &provider, &encrypted)
 	if err != nil {
@@ -342,7 +342,7 @@ func (cs *CredentialStore) AcquireSystemToken(ctx context.Context, providerName 
 // This is used to clean up existing system credentials before saving new ones.
 func (cs *CredentialStore) DeleteSystemCredentialByName(ctx context.Context, name string) error {
 	_, err := cs.db.Exec(ctx,
-		`DELETE FROM provider_credentials WHERE name = $1 AND owner = '_system'`, name)
+		`DELETE FROM provider_credentials WHERE name = $1 AND team_id IS NULL`, name)
 	return err
 }
 
@@ -383,14 +383,14 @@ func (cs *CredentialStore) AcquireSCMTokenWithHost(ctx context.Context, service 
 
 // AcquireSCMTokenForOwner looks up an SCM credential for a specific owner and returns
 // the token and API host. Falls back to AcquireSCMTokenWithHost if no owner-specific credential exists.
-func (cs *CredentialStore) AcquireSCMTokenForOwner(ctx context.Context, service, owner string) (token string, apiHost string, err error) {
+func (cs *CredentialStore) AcquireSCMTokenForOwner(ctx context.Context, service, teamID string) (token string, apiHost string, err error) {
 	var encrypted []byte
 	var host string
 	err = cs.db.QueryRow(ctx,
 		`SELECT credential, COALESCE(api_host, '') FROM provider_credentials
-		WHERE (provider = $1 OR name = $1) AND owner = $2
+		WHERE (provider = $1 OR name = $1) AND team_id = $2
 		ORDER BY created_at DESC LIMIT 1`,
-		service, owner).Scan(&encrypted, &host)
+		service, teamID).Scan(&encrypted, &host)
 	if err != nil {
 		// Fall back to any available credential for this service.
 		return cs.AcquireSCMTokenWithHost(ctx, service)
@@ -420,13 +420,13 @@ func (cs *CredentialStore) AcquireTokenBySessionID(ctx context.Context, sessionI
 func (cs *CredentialStore) FirstAvailableProvider(ctx context.Context) (*Credential, error) {
 	var c Credential
 	err := cs.db.QueryRow(ctx,
-		`SELECT id, name, provider, auth_type, project_id, region, api_host, created_at, updated_at, owner
+		`SELECT id, name, provider, auth_type, project_id, region, api_host, created_at, updated_at, COALESCE(team_id::text, '')
 		FROM provider_credentials
-		WHERE owner != '_system'
+		WHERE team_id IS NOT NULL
 		AND provider NOT IN ('github', 'gitlab', 'jira')
 		ORDER BY created_at ASC LIMIT 1`,
 	).Scan(&c.ID, &c.Name, &c.Provider, &c.AuthType,
-		&c.ProjectID, &c.Region, &c.APIHost, &c.CreatedAt, &c.UpdatedAt, &c.Owner)
+		&c.ProjectID, &c.Region, &c.APIHost, &c.CreatedAt, &c.UpdatedAt, &c.TeamID)
 	if err != nil {
 		return nil, fmt.Errorf("no LLM credentials available: %w", err)
 	}
@@ -438,13 +438,13 @@ func (cs *CredentialStore) FirstAvailableProvider(ctx context.Context) (*Credent
 func (cs *CredentialStore) LookupProviderCredential(ctx context.Context, providerName string) (*Credential, error) {
 	var c Credential
 	err := cs.db.QueryRow(ctx,
-		`SELECT id, name, provider, auth_type, project_id, region, api_host, created_at, updated_at, owner
+		`SELECT id, name, provider, auth_type, project_id, region, api_host, created_at, updated_at, COALESCE(team_id::text, '')
 		FROM provider_credentials
-		WHERE (provider = $1 OR name = $1) AND owner != '_system'
+		WHERE (provider = $1 OR name = $1) AND team_id IS NOT NULL
 		ORDER BY created_at DESC LIMIT 1`,
 		providerName,
 	).Scan(&c.ID, &c.Name, &c.Provider, &c.AuthType,
-		&c.ProjectID, &c.Region, &c.APIHost, &c.CreatedAt, &c.UpdatedAt, &c.Owner)
+		&c.ProjectID, &c.Region, &c.APIHost, &c.CreatedAt, &c.UpdatedAt, &c.TeamID)
 	if err != nil {
 		return nil, fmt.Errorf("credential for provider %q not found: %w", providerName, err)
 	}
@@ -455,9 +455,9 @@ func (cs *CredentialStore) LookupProviderCredential(ctx context.Context, provide
 // mapped to internal.Provider structs. Excludes system and SCM credentials.
 func (cs *CredentialStore) ListDistinctProviders(ctx context.Context) ([]Credential, error) {
 	rows, err := cs.db.Query(ctx,
-		`SELECT DISTINCT ON (provider) id, name, provider, auth_type, project_id, region, api_host, created_at, updated_at, owner
+		`SELECT DISTINCT ON (provider) id, name, provider, auth_type, project_id, region, api_host, created_at, updated_at, COALESCE(team_id::text, '')
 		FROM provider_credentials
-		WHERE owner != '_system'
+		WHERE team_id IS NOT NULL
 		AND provider NOT IN ('github', 'gitlab', 'jira')
 		ORDER BY provider, created_at DESC`)
 	if err != nil {
@@ -469,7 +469,7 @@ func (cs *CredentialStore) ListDistinctProviders(ctx context.Context) ([]Credent
 	for rows.Next() {
 		var c Credential
 		if err := rows.Scan(&c.ID, &c.Name, &c.Provider, &c.AuthType,
-			&c.ProjectID, &c.Region, &c.APIHost, &c.CreatedAt, &c.UpdatedAt, &c.Owner); err != nil {
+			&c.ProjectID, &c.Region, &c.APIHost, &c.CreatedAt, &c.UpdatedAt, &c.TeamID); err != nil {
 			return nil, fmt.Errorf("scanning credential: %w", err)
 		}
 		creds = append(creds, c)

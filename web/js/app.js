@@ -22,6 +22,10 @@
         if (token && !rhIdentityMode) {
             headers['Authorization'] = 'Bearer ' + token;
         }
+        // Include active team header on all requests
+        if (activeTeamId) {
+            headers['X-Alcove-Team'] = activeTeamId;
+        }
         const opts = { method, headers };
         if (body) opts.body = JSON.stringify(body);
         const resp = await fetch(basePath + path, opts);
@@ -124,6 +128,11 @@
     let proxyLogSortField = 'timestamp';
     let proxyLogSortAsc = true;
 
+    // Teams state
+    let teamsList = [];
+    let activeTeamId = null;
+    let viewingTeamId = null;
+
     // ---------------------
     // Auth
     // ---------------------
@@ -187,6 +196,8 @@
         }).catch(() => {});
         updateAdminUI(); // also call immediately with cached value
         updateRHIdentityUI();
+        // Load teams for the switcher (non-blocking)
+        loadTeams().catch(function() {});
         startSystemStateCheck();
     }
 
@@ -281,11 +292,14 @@
         e.stopPropagation();
         const menu = $('#user-dropdown-menu');
         menu.hidden = !menu.hidden;
+        // Close team switcher if open
+        hide($('#team-switcher-menu'));
     });
 
-    // Close dropdown when clicking outside
+    // Close dropdowns when clicking outside
     document.addEventListener('click', () => {
         hide($('#user-dropdown-menu'));
+        hide($('#team-switcher-menu'));
     });
 
     // Prevent menu clicks from closing
@@ -1230,13 +1244,14 @@
         stopSSE();
 
         const route = getRoute();
-        const pages = ['sessions', 'task-new', 'schedules', 'repos', 'credentials', 'security', 'tools', 'session-detail', 'users', 'account', 'workflows', 'workflow-detail'];
+        const pages = ['sessions', 'task-new', 'schedules', 'repos', 'credentials', 'security', 'tools', 'session-detail', 'users', 'account', 'workflows', 'workflow-detail', 'teams', 'team-detail'];
         pages.forEach((p) => hide($('#page-' + p)));
 
         // Update active nav tab
         var navRoute = route.startsWith('session/') ? 'sessions' : route;
         if (navRoute === 'tools' || navRoute === 'tools-admin') navRoute = 'security';
         if (route.startsWith('workflow-run/')) navRoute = 'workflows';
+        if (route.startsWith('team/')) navRoute = 'teams';
         $$('.nav-tab').forEach((tab) => {
             tab.classList.toggle('active', tab.dataset.tab === navRoute);
         });
@@ -1290,6 +1305,13 @@
         } else if (route === 'account') {
             show($('#page-account'));
             loadAccountPage();
+        } else if (route === 'teams') {
+            show($('#page-teams'));
+            loadTeamsPage();
+        } else if (route.startsWith('team/')) {
+            var teamId = route.replace('team/', '');
+            show($('#page-team-detail'));
+            loadTeamDetail(teamId);
         } else {
             show($('#page-sessions'));
             loadSessions();
@@ -6270,6 +6292,567 @@
     }
 
     // ---------------------
+    // Teams
+    // ---------------------
+
+    async function loadTeams() {
+        try {
+            // Temporarily clear activeTeamId so this request is not scoped
+            var savedTeamId = activeTeamId;
+            activeTeamId = null;
+            var resp = await api('GET', '/api/v1/teams');
+            activeTeamId = savedTeamId;
+            if (!resp.ok) return;
+            var data = await resp.json();
+            teamsList = data.teams || [];
+
+            // Restore active team from localStorage or default to personal
+            var savedId = localStorage.getItem('alcove_active_team');
+            var found = teamsList.find(function(t) { return t.id === savedId; });
+            if (found) {
+                activeTeamId = found.id;
+            } else {
+                // Default to personal team
+                var personal = teamsList.find(function(t) { return t.is_personal; });
+                activeTeamId = personal ? personal.id : (teamsList.length > 0 ? teamsList[0].id : null);
+            }
+            if (activeTeamId) {
+                localStorage.setItem('alcove_active_team', activeTeamId);
+            }
+            renderTeamSwitcher();
+        } catch (err) {
+            // Teams API may not be available yet; fail silently
+            console.debug('Failed to load teams:', err);
+        }
+    }
+
+    function getActiveTeamName() {
+        if (!activeTeamId || teamsList.length === 0) return 'My Workspace';
+        var team = teamsList.find(function(t) { return t.id === activeTeamId; });
+        if (!team) return 'My Workspace';
+        return team.is_personal ? 'My Workspace' : team.name;
+    }
+
+    function renderTeamSwitcher() {
+        var nameEl = $('#active-team-name');
+        if (nameEl) nameEl.textContent = getActiveTeamName();
+
+        var listEl = $('#team-switcher-list');
+        if (!listEl) return;
+
+        var html = '';
+        for (var i = 0; i < teamsList.length; i++) {
+            var t = teamsList[i];
+            var displayName = t.is_personal ? 'My Workspace' : escapeHtml(t.name);
+            var isActive = t.id === activeTeamId;
+            html += '<button class="team-switcher-item' + (isActive ? ' active' : '') + '" data-team-id="' + escapeHtml(t.id) + '">' + displayName + '</button>';
+        }
+        html += '<button class="team-switcher-manage" id="team-switcher-manage-btn">Manage Teams</button>';
+        listEl.innerHTML = html;
+
+        // Event listeners for team items
+        listEl.querySelectorAll('.team-switcher-item').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var teamId = btn.getAttribute('data-team-id');
+                if (teamId !== activeTeamId) {
+                    activeTeamId = teamId;
+                    localStorage.setItem('alcove_active_team', teamId);
+                    renderTeamSwitcher();
+                    hide($('#team-switcher-menu'));
+                    // Reload the current view with new team context
+                    handleRoute();
+                } else {
+                    hide($('#team-switcher-menu'));
+                }
+            });
+        });
+
+        var manageBtn = $('#team-switcher-manage-btn');
+        if (manageBtn) {
+            manageBtn.addEventListener('click', function() {
+                hide($('#team-switcher-menu'));
+                navigate('teams');
+            });
+        }
+    }
+
+    // Team switcher toggle
+    $('#team-switcher-toggle').addEventListener('click', function(e) {
+        e.stopPropagation();
+        var menu = $('#team-switcher-menu');
+        menu.hidden = !menu.hidden;
+        // Close user dropdown if open
+        hide($('#user-dropdown-menu'));
+    });
+
+    // Prevent team menu clicks from closing via document handler
+    $('#team-switcher-menu').addEventListener('click', function(e) {
+        e.stopPropagation();
+    });
+
+    // Teams list page
+    async function loadTeamsPage() {
+        var listEl = $('#teams-list');
+        var emptyEl = $('#teams-empty');
+        var loadingEl = $('#teams-loading');
+
+        show(loadingEl);
+        hide(emptyEl);
+        listEl.innerHTML = '';
+
+        try {
+            var savedTeamId = activeTeamId;
+            activeTeamId = null;
+            var resp = await api('GET', '/api/v1/teams');
+            activeTeamId = savedTeamId;
+            if (!resp.ok) {
+                hide(loadingEl);
+                listEl.innerHTML = '<p class="error-message">Failed to load teams.</p>';
+                return;
+            }
+            var data = await resp.json();
+            var teams = data.teams || [];
+            hide(loadingEl);
+
+            if (teams.length === 0) {
+                show(emptyEl);
+                return;
+            }
+
+            var html = '';
+            for (var i = 0; i < teams.length; i++) {
+                var t = teams[i];
+                var displayName = t.is_personal ? 'My Workspace (Personal)' : escapeHtml(t.name);
+                var badge = t.is_personal ? '<span class="team-card-badge">Personal</span>' : '';
+                var isActive = t.id === activeTeamId;
+                var activeIndicator = isActive ? '<span class="team-card-badge" style="background:rgba(46,204,113,0.15);color:var(--status-completed);">Active</span>' : '';
+                var createdDate = t.created_at ? new Date(t.created_at).toLocaleDateString() : '';
+                html += '<div class="team-card" data-team-id="' + escapeHtml(t.id) + '">';
+                html += '<div class="team-card-header">';
+                html += '<span class="team-card-name">' + displayName + '</span>';
+                html += '<span style="display:flex;gap:6px;">' + activeIndicator + badge + '</span>';
+                html += '</div>';
+                if (createdDate) html += '<div class="team-card-meta">Created ' + escapeHtml(createdDate) + '</div>';
+                html += '</div>';
+            }
+            listEl.innerHTML = html;
+
+            // Click handlers for team cards
+            listEl.querySelectorAll('.team-card').forEach(function(card) {
+                card.addEventListener('click', function() {
+                    var teamId = card.getAttribute('data-team-id');
+                    navigate('team/' + teamId);
+                });
+            });
+        } catch (err) {
+            hide(loadingEl);
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
+                listEl.innerHTML = '<p class="error-message">Failed to load teams.</p>';
+            }
+        }
+    }
+
+    // Create team
+    $('#show-create-team').addEventListener('click', function() {
+        show($('#create-team-form-container'));
+        hide($('#create-team-error'));
+        $('#new-team-name').value = '';
+        $('#new-team-name').focus();
+    });
+
+    $('#cancel-create-team').addEventListener('click', function() {
+        hide($('#create-team-form-container'));
+    });
+
+    $('#create-team-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        var name = $('#new-team-name').value.trim();
+        if (!name) return;
+
+        var errEl = $('#create-team-error');
+        hide(errEl);
+
+        try {
+            var savedTeamId = activeTeamId;
+            activeTeamId = null;
+            var resp = await api('POST', '/api/v1/teams', { name: name });
+            activeTeamId = savedTeamId;
+            if (!resp.ok) {
+                var data = await resp.json().catch(function() { return {}; });
+                errEl.textContent = data.error || data.message || 'Failed to create team.';
+                show(errEl);
+                return;
+            }
+            hide($('#create-team-form-container'));
+            // Refresh teams list and switcher
+            await loadTeams();
+            loadTeamsPage();
+        } catch (err) {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
+                errEl.textContent = 'Failed to create team.';
+                show(errEl);
+            }
+        }
+    });
+
+    // Team detail page
+    async function loadTeamDetail(teamId) {
+        viewingTeamId = teamId;
+
+        try {
+            var savedTeamId = activeTeamId;
+            activeTeamId = null;
+            var resp = await api('GET', '/api/v1/teams/' + teamId);
+            activeTeamId = savedTeamId;
+            if (!resp.ok) {
+                $('#team-detail-content').innerHTML = '<p class="error-message">Failed to load team details.</p>';
+                return;
+            }
+            var team = await resp.json();
+
+            // Set title
+            var displayName = team.is_personal ? 'My Workspace' : team.name;
+            $('#team-detail-title').textContent = displayName;
+
+            // Team name editing
+            var nameInput = $('#team-detail-name');
+            nameInput.value = team.name;
+            if (team.is_personal) {
+                nameInput.disabled = true;
+                $('#team-save-name').hidden = true;
+            } else {
+                nameInput.disabled = false;
+                $('#team-save-name').hidden = false;
+            }
+            hide($('#team-name-error'));
+            hide($('#team-name-success'));
+
+            // Delete section
+            var deleteSection = $('#team-delete-section');
+            if (team.is_personal) {
+                deleteSection.hidden = true;
+            } else {
+                deleteSection.hidden = false;
+            }
+
+            // Members
+            renderTeamMembers(team.members || [], team.is_personal);
+
+            // Add member section visibility
+            var addMemberSection = $('#team-add-member-section');
+            if (team.is_personal) {
+                addMemberSection.hidden = true;
+            } else {
+                addMemberSection.hidden = false;
+            }
+            hide($('#team-member-error'));
+            hide($('#team-member-success'));
+
+            // Load agent repos for this team
+            loadTeamTaskRepos(teamId);
+
+        } catch (err) {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
+                $('#team-detail-content').innerHTML = '<p class="error-message">Failed to load team details.</p>';
+            }
+        }
+    }
+
+    function renderTeamMembers(members, isPersonal) {
+        var listEl = $('#team-members-list');
+        if (!members || members.length === 0) {
+            listEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">No members.</p>';
+            return;
+        }
+        var html = '';
+        for (var i = 0; i < members.length; i++) {
+            var m = members[i];
+            var username = m.username || m;
+            html += '<div class="team-member-item">';
+            html += '<span class="team-member-name">' + escapeHtml(username) + '</span>';
+            if (!isPersonal) {
+                html += '<button class="team-member-remove" data-username="' + escapeHtml(username) + '" title="Remove member">x</button>';
+            }
+            html += '</div>';
+        }
+        listEl.innerHTML = html;
+
+        // Remove member handlers
+        if (!isPersonal) {
+            listEl.querySelectorAll('.team-member-remove').forEach(function(btn) {
+                btn.addEventListener('click', async function() {
+                    var username = btn.getAttribute('data-username');
+                    await removeTeamMember(viewingTeamId, username);
+                });
+            });
+        }
+    }
+
+    // Save team name
+    $('#team-save-name').addEventListener('click', async function() {
+        var name = $('#team-detail-name').value.trim();
+        if (!name) return;
+
+        var errEl = $('#team-name-error');
+        var successEl = $('#team-name-success');
+        hide(errEl);
+        hide(successEl);
+
+        try {
+            var savedTeamId = activeTeamId;
+            activeTeamId = null;
+            var resp = await api('PUT', '/api/v1/teams/' + viewingTeamId, { name: name });
+            activeTeamId = savedTeamId;
+            if (!resp.ok) {
+                var data = await resp.json().catch(function() { return {}; });
+                errEl.textContent = data.error || data.message || 'Failed to update team name.';
+                show(errEl);
+                return;
+            }
+            successEl.textContent = 'Team name updated.';
+            show(successEl);
+            $('#team-detail-title').textContent = name;
+            // Refresh team list in switcher
+            await loadTeams();
+        } catch (err) {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
+                errEl.textContent = 'Failed to update team name.';
+                show(errEl);
+            }
+        }
+    });
+
+    // Add team member
+    $('#team-add-member-btn').addEventListener('click', async function() {
+        var username = $('#team-add-member-username').value.trim();
+        if (!username) return;
+
+        var errEl = $('#team-member-error');
+        var successEl = $('#team-member-success');
+        hide(errEl);
+        hide(successEl);
+
+        try {
+            var savedTeamId = activeTeamId;
+            activeTeamId = null;
+            var resp = await api('POST', '/api/v1/teams/' + viewingTeamId + '/members', { username: username });
+            activeTeamId = savedTeamId;
+            if (!resp.ok) {
+                var data = await resp.json().catch(function() { return {}; });
+                errEl.textContent = data.error || data.message || 'Failed to add member.';
+                show(errEl);
+                return;
+            }
+            $('#team-add-member-username').value = '';
+            successEl.textContent = 'Member added.';
+            show(successEl);
+            // Reload team detail
+            loadTeamDetail(viewingTeamId);
+        } catch (err) {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
+                errEl.textContent = 'Failed to add member.';
+                show(errEl);
+            }
+        }
+    });
+
+    async function removeTeamMember(teamId, username) {
+        if (!confirm('Remove ' + username + ' from this team?')) return;
+
+        try {
+            var savedTeamId = activeTeamId;
+            activeTeamId = null;
+            var resp = await api('DELETE', '/api/v1/teams/' + teamId + '/members/' + encodeURIComponent(username));
+            activeTeamId = savedTeamId;
+            if (!resp.ok) {
+                var data = await resp.json().catch(function() { return {}; });
+                alert(data.error || data.message || 'Failed to remove member.');
+                return;
+            }
+            loadTeamDetail(teamId);
+        } catch (err) {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
+                alert('Failed to remove member.');
+            }
+        }
+    }
+
+    // Delete team
+    $('#team-delete-btn').addEventListener('click', function() {
+        var team = teamsList.find(function(t) { return t.id === viewingTeamId; });
+        if (!team) return;
+        $('#delete-team-name').textContent = team.name;
+        hide($('#delete-team-error'));
+        show($('#delete-team-modal'));
+    });
+
+    $('#cancel-delete-team').addEventListener('click', function() {
+        hide($('#delete-team-modal'));
+    });
+
+    $('#delete-team-modal').addEventListener('click', function(e) {
+        if (e.target === e.currentTarget) hide(e.currentTarget);
+    });
+
+    $('#confirm-delete-team').addEventListener('click', async function() {
+        var errEl = $('#delete-team-error');
+        hide(errEl);
+
+        try {
+            var savedTeamId = activeTeamId;
+            activeTeamId = null;
+            var resp = await api('DELETE', '/api/v1/teams/' + viewingTeamId);
+            activeTeamId = savedTeamId;
+            if (!resp.ok) {
+                var data = await resp.json().catch(function() { return {}; });
+                errEl.textContent = data.error || data.message || 'Failed to delete team.';
+                show(errEl);
+                return;
+            }
+            hide($('#delete-team-modal'));
+            // If deleting the active team, switch to personal team
+            if (viewingTeamId === activeTeamId) {
+                localStorage.removeItem('alcove_active_team');
+            }
+            await loadTeams();
+            navigate('teams');
+        } catch (err) {
+            if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
+                errEl.textContent = 'Failed to delete team.';
+                show(errEl);
+            }
+        }
+    });
+
+    // Back to teams
+    $('#back-to-teams').addEventListener('click', function() {
+        navigate('teams');
+    });
+
+    // Team-scoped agent repos
+    var teamTaskReposList = [];
+
+    async function loadTeamTaskRepos(teamId) {
+        var listEl = $('#team-task-repos-list');
+        if (!listEl) return;
+        listEl.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Loading...</p></div>';
+        try {
+            var savedTeamId = activeTeamId;
+            activeTeamId = teamId;
+            var resp = await api('GET', '/api/v1/user/settings/agent-repos');
+            activeTeamId = savedTeamId;
+            if (!resp.ok) {
+                listEl.innerHTML = '<p class="error-message">Failed to load agent repos.</p>';
+                return;
+            }
+            var data = await resp.json();
+            teamTaskReposList = data.repos || [];
+            renderTeamTaskRepos(teamId);
+        } catch (err) {
+            listEl.innerHTML = '<p class="error-message">Failed to load agent repos.</p>';
+        }
+    }
+
+    function renderTeamTaskRepos(teamId) {
+        var listEl = $('#team-task-repos-list');
+        if (!listEl) return;
+        if (teamTaskReposList.length === 0) {
+            listEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">No agent repos configured for this team.</p>';
+            return;
+        }
+        var html = '';
+        for (var i = 0; i < teamTaskReposList.length; i++) {
+            var r = teamTaskReposList[i];
+            var isEnabled = r.enabled === undefined || r.enabled === null || r.enabled === true;
+            var displayUrl = (r.url || '').replace(/^https?:\/\//, '').replace(/\.git$/, '');
+            var toggleTitle = isEnabled ? 'Pause sessions from this repo' : 'Resume sessions from this repo';
+            html += '<div class="repo-item ' + (isEnabled ? 'repo-active' : 'repo-paused') + '">';
+            html += '<label class="toggle-switch" title="' + toggleTitle + '"><input type="checkbox" class="team-repo-enabled" data-index="' + i + '"' + (isEnabled ? ' checked' : '') + '><span class="toggle-slider"></span></label>';
+            html += '<span class="' + (isEnabled ? 'toggle-label-active' : 'toggle-label-paused') + '">' + (isEnabled ? 'Active' : 'Paused') + '</span>';
+            html += '<span class="repo-item-url">' + escapeHtml(displayUrl) + '</span>';
+            if (r.ref && r.ref !== 'main') html += ' <span class="repo-item-ref">' + escapeHtml(r.ref) + '</span>';
+            html += ' <button class="btn btn-small btn-outline team-repo-remove" data-index="' + i + '" style="color:var(--status-error);border-color:var(--status-error);padding:2px 8px;font-size:11px;">Remove</button>';
+            if (!isEnabled) html += '<div class="repo-paused-message">Sessions from this repo are paused.</div>';
+            html += '</div>';
+        }
+        listEl.innerHTML = html;
+
+        listEl.querySelectorAll('.team-repo-enabled').forEach(function(cb) {
+            cb.addEventListener('change', async function() {
+                var idx = parseInt(cb.getAttribute('data-index'), 10);
+                teamTaskReposList[idx].enabled = cb.checked;
+                await saveTeamTaskRepos(teamId);
+            });
+        });
+
+        listEl.querySelectorAll('.team-repo-remove').forEach(function(btn) {
+            btn.addEventListener('click', async function() {
+                var idx = parseInt(btn.getAttribute('data-index'), 10);
+                teamTaskReposList.splice(idx, 1);
+                await saveTeamTaskRepos(teamId);
+            });
+        });
+    }
+
+    async function saveTeamTaskRepos(teamId) {
+        try {
+            var savedTeamId = activeTeamId;
+            activeTeamId = teamId;
+            var resp = await api('PUT', '/api/v1/user/settings/agent-repos', { repos: teamTaskReposList });
+            activeTeamId = savedTeamId;
+            if (!resp.ok) {
+                alert('Failed to save agent repos.');
+            }
+            renderTeamTaskRepos(teamId);
+        } catch (err) {
+            alert('Failed to save agent repos.');
+        }
+    }
+
+    $('#team-task-repo-add').addEventListener('click', async function() {
+        var url = $('#team-task-repo-url').value.trim();
+        if (!url) return;
+        var ref = $('#team-task-repo-ref').value.trim() || 'main';
+        var name = '';
+        var parts = url.replace(/\.git$/, '').split('/');
+        name = parts[parts.length - 1] || 'repo';
+
+        var btn = $('#team-task-repo-add');
+        var statusEl = $('#team-task-repo-status');
+        btn.disabled = true;
+        btn.textContent = 'Validating...';
+        statusEl.removeAttribute('hidden');
+        statusEl.style.color = 'var(--text-muted)';
+        statusEl.textContent = 'Cloning and validating repository...';
+
+        try {
+            var savedTeamId = activeTeamId;
+            activeTeamId = viewingTeamId;
+            var resp = await api('POST', '/api/v1/agent-repos/validate', { url: url, ref: ref, name: name });
+            activeTeamId = savedTeamId;
+            var data = await resp.json();
+            if (!data.valid) {
+                statusEl.style.color = 'var(--status-error)';
+                statusEl.textContent = 'Validation failed: ' + (data.error || 'unknown error');
+                btn.disabled = false;
+                btn.textContent = 'Add';
+                return;
+            }
+            teamTaskReposList.push({ url: url, ref: ref, name: name });
+            $('#team-task-repo-url').value = '';
+            $('#team-task-repo-ref').value = '';
+            statusEl.style.color = 'var(--status-running)';
+            statusEl.textContent = 'Found ' + data.agent_definition_count + ' agent definition(s): ' + data.agent_definitions.join(', ');
+            await saveTeamTaskRepos(viewingTeamId);
+        } catch (err) {
+            statusEl.style.color = 'var(--status-error)';
+            statusEl.textContent = 'Validation error: ' + err.message;
+        }
+        btn.disabled = false;
+        btn.textContent = 'Add';
+    });
+
+    // ---------------------
     // Init
     // ---------------------
     // Try to detect rh-identity mode by calling /api/v1/auth/me without a token.
@@ -6334,6 +6917,11 @@
 
         // Load version footer
         await loadVersionFooter();
+
+        // Load teams for the team switcher (if logged in)
+        if (isLoggedIn()) {
+            await loadTeams();
+        }
 
         handleRoute();
     })();
