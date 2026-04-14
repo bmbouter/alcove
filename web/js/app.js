@@ -196,8 +196,10 @@
         }).catch(() => {});
         updateAdminUI(); // also call immediately with cached value
         updateRHIdentityUI();
-        // Load teams for the switcher (non-blocking)
-        loadTeams().catch(function() {});
+        // Load teams for the switcher (only on first load, not on every route change)
+        if (teamsList.length === 0) {
+            loadTeams().catch(function() {});
+        }
         startSystemStateCheck();
     }
 
