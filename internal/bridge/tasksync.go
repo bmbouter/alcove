@@ -616,6 +616,11 @@ func (s *AgentRepoSyncer) syncWorkflowDefinitions(ctx context.Context, cloneDir 
 			log.Printf("agent-repo-syncer: workflow upsert error for %s: %v", sourceKey, err)
 			continue
 		}
+
+		// Register workflow trigger if present.
+		if err := s.reconcileWorkflowTrigger(ctx, wd, sourceKey, username); err != nil {
+			log.Printf("agent-repo-syncer: workflow trigger reconcile error for %s: %v", sourceKey, err)
+		}
 	}
 
 	// Delete workflows that no longer exist in the repo.
@@ -625,9 +630,12 @@ func (s *AgentRepoSyncer) syncWorkflowDefinitions(ctx context.Context, cloneDir 
 	}
 	for _, wf := range existing {
 		if !seenKeys[wf.SourceKey] {
-			// Remove the workflow.
+			// Remove the workflow and its schedule.
 			if _, err := s.db.Exec(ctx, `DELETE FROM workflows WHERE source_key = $1`, wf.SourceKey); err != nil {
 				log.Printf("agent-repo-syncer: error deleting stale workflow %s: %v", wf.SourceKey, err)
+			}
+			if _, err := s.db.Exec(ctx, `DELETE FROM schedules WHERE source_key = $1`, wf.SourceKey); err != nil {
+				log.Printf("agent-repo-syncer: error deleting stale workflow schedule for %s: %v", wf.SourceKey, err)
 			}
 		}
 	}
@@ -682,4 +690,45 @@ func (s *AgentRepoSyncer) validateWorkflowAgentReferences(ctx context.Context, r
 			}
 		}
 	}
+}
+
+// reconcileWorkflowTrigger creates, updates, or removes a schedule for a workflow trigger.
+func (s *AgentRepoSyncer) reconcileWorkflowTrigger(ctx context.Context, wd *WorkflowDefinition, sourceKey string, username string) error {
+	if wd.Trigger == nil {
+		// No trigger in YAML — remove any existing YAML-sourced schedule for this workflow.
+		_, err := s.db.Exec(ctx, `DELETE FROM schedules WHERE source_key = $1 AND source = 'yaml'`, sourceKey)
+		return err
+	}
+
+	// Marshal event config.
+	eventConfigJSON, err := json.Marshal(wd.Trigger)
+	if err != nil {
+		return fmt.Errorf("marshaling event config: %w", err)
+	}
+
+	// Workflow triggers are event-only (no cron scheduling).
+	triggerType := "event"
+	enabled := true
+
+	// Check if a schedule with this source_key already exists.
+	var existingID string
+	err = s.db.QueryRow(ctx, `SELECT id FROM schedules WHERE source_key = $1 AND source = 'yaml'`, sourceKey).Scan(&existingID)
+
+	if err != nil {
+		// No existing schedule — create one.
+		now := time.Now().UTC()
+		// For workflow triggers, we create a schedule that points to the workflow (not an agent definition)
+		_, err = s.db.Exec(ctx, `
+			INSERT INTO schedules (id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, next_run, created_at, owner, debug, source, source_key, trigger_type, event_config)
+			VALUES ($1, $2, '', '', '', 'workflow', '', 0, $3, NULL, $4, $5, false, 'yaml', $6, $7, $8)
+		`, uuid.New().String(), wd.Name, enabled, now, username, sourceKey, triggerType, eventConfigJSON)
+		return err
+	}
+
+	// Existing schedule — update it.
+	_, err = s.db.Exec(ctx, `
+		UPDATE schedules SET name = $1, enabled = $2, trigger_type = $3, event_config = $4
+		WHERE id = $5 AND source = 'yaml'
+	`, wd.Name, enabled, triggerType, eventConfigJSON, existingID)
+	return err
 }
