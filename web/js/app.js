@@ -167,9 +167,10 @@
         if (changePassBtn) changePassBtn.hidden = rhIdentityMode;
         if (logoutBtn) logoutBtn.hidden = rhIdentityMode;
 
-        // Show/hide Account tab based on rh-identity mode
+        // Account tab is always visible — shows TBR associations for
+        // rh-identity mode, personal API tokens for postgres mode.
         var accountTab = $('#account-tab');
-        if (accountTab) accountTab.hidden = !rhIdentityMode;
+        if (accountTab) accountTab.hidden = false;
 
         // Show RH Identity banner in rh-identity mode (unless dismissed for session)
         var banner = $('#rh-identity-banner');
