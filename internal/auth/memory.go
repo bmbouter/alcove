@@ -20,15 +20,6 @@ import (
 	"time"
 )
 
-const (
-	// Session and rate-limiting constants.
-	sessionExpiry     = 8 * time.Hour
-	tokenBytes        = 32
-	maxFailedAttempts = 5
-	failedWindow      = 15 * time.Minute
-	lockoutDuration   = 30 * time.Minute
-)
-
 // MemoryStore manages users, sessions, and rate limiting in memory.
 type MemoryStore struct {
 	mu       sync.RWMutex
@@ -40,11 +31,6 @@ type MemoryStore struct {
 type sessionEntry struct {
 	Username  string
 	ExpiresAt time.Time
-}
-
-type failureRecord struct {
-	Attempts []time.Time
-	LockedAt *time.Time
 }
 
 // NewMemoryStore creates a store populated from the given user list.

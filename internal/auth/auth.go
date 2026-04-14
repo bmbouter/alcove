@@ -38,6 +38,13 @@ const (
 	argonParallelism = 4
 	argonKeyLength   = 32
 	argonSaltLength  = 16
+
+	// Session and rate-limiting constants.
+	tokenBytes        = 32
+	sessionExpiry     = 8 * time.Hour
+	maxFailedAttempts = 5
+	failedWindow      = 15 * time.Minute
+	lockoutDuration   = 30 * time.Minute
 )
 
 // Authenticator defines the interface for authentication backends.
@@ -65,6 +72,12 @@ type UserInfo struct {
 	CreatedAt    time.Time `json:"created_at"`
 	IsAdmin      bool      `json:"is_admin"`
 	SessionCount int       `json:"session_count"`
+}
+
+// failureRecord tracks failed login attempts for rate limiting.
+type failureRecord struct {
+	Attempts []time.Time
+	LockedAt *time.Time
 }
 
 // HashPassword produces an argon2id hash suitable for storage in config.
