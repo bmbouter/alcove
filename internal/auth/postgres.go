@@ -20,6 +20,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -84,8 +85,8 @@ func (s *PgStore) ValidateCredentials(username, password string) (string, error)
 	var hash string
 	err := s.db.QueryRow(context.Background(),
 		"SELECT password FROM auth_users WHERE username = $1", username).Scan(&hash)
-	if err != nil || !VerifyPassword(hash, password) {
-		// Account password didn't match — try personal API tokens
+	if err != nil {
+		// Account not found - try personal API tokens
 		if validatedUser, tokenErr := s.validateAPIToken(context.Background(), username, password); tokenErr == nil {
 			// Clear failures on API token success.
 			delete(s.failures, username)
@@ -96,8 +97,28 @@ func (s *PgStore) ValidateCredentials(username, password string) (string, error)
 		return "", fmt.Errorf("invalid credentials")
 	}
 
-	// Clear failures on success.
-	delete(s.failures, username)
+	// Try argon2id verification first (current standard)
+	if VerifyPassword(hash, password) {
+		// Clear failures on success.
+		delete(s.failures, username)
+		return username, nil
+	}
+
+	// Try bcrypt verification for legacy compatibility
+	if strings.HasPrefix(hash, "$2") {
+		if bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil {
+			// Clear failures on success.
+			delete(s.failures, username)
+			return username, nil
+		}
+	}
+
+	// Account password didn't match — try personal API tokens
+	if validatedUser, tokenErr := s.validateAPIToken(context.Background(), username, password); tokenErr == nil {
+		// Clear failures on API token success.
+		delete(s.failures, username)
+		return validatedUser, nil
+	}
 
 	return username, nil
 }
@@ -249,20 +270,29 @@ func (s *PgStore) ListUsers(ctx context.Context) ([]UserInfo, error) {
 
 // ChangePassword updates a user's password.
 func (s *PgStore) ChangePassword(ctx context.Context, username, newPassword string) error {
+	log.Printf("debug: ChangePassword called for user %s", username)
+
 	hash, err := HashPassword(newPassword)
 	if err != nil {
+		log.Printf("error: failed to hash new password for user %s: %v", username, err)
 		return fmt.Errorf("hashing password: %w", err)
 	}
+
+	log.Printf("debug: generated new password hash for user %s - hash length: %d", username, len(hash))
 
 	tag, err := s.db.Exec(ctx,
 		"UPDATE auth_users SET password = $1, updated_at = NOW() WHERE username = $2",
 		hash, username)
 	if err != nil {
+		log.Printf("error: database update failed for user %s: %v", username, err)
 		return fmt.Errorf("changing password: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
+		log.Printf("error: no rows affected when changing password for user %s", username)
 		return fmt.Errorf("user not found: %s", username)
 	}
+
+	log.Printf("debug: successfully changed password for user %s", username)
 	return nil
 }
 
@@ -296,9 +326,47 @@ func (s *PgStore) VerifyUserPassword(ctx context.Context, username, password str
 	var hash string
 	err := s.db.QueryRow(ctx, "SELECT password FROM auth_users WHERE username = $1", username).Scan(&hash)
 	if err != nil {
+		log.Printf("error: VerifyUserPassword failed to query user %s: %v", username, err)
 		return false, fmt.Errorf("user not found: %w", err)
 	}
-	return VerifyPassword(hash, password), nil
+
+	log.Printf("debug: VerifyUserPassword for user %s - hash length: %d, starts with: %s",
+		username, len(hash),
+		func() string {
+			if len(hash) > 20 {
+				return hash[:20] + "..."
+			}
+			return hash
+		}())
+
+	// Check if it's an empty hash
+	if hash == "" {
+		log.Printf("error: empty password hash for user %s", username)
+		return false, nil
+	}
+
+	// First, try argon2id verification (the current standard)
+	isValid := VerifyPassword(hash, password)
+	if isValid {
+		log.Printf("debug: VerifyUserPassword for user %s - argon2id verification successful", username)
+		return true, nil
+	}
+
+	// If argon2id verification fails, try bcrypt for legacy compatibility
+	if strings.HasPrefix(hash, "$2") {
+		log.Printf("debug: trying bcrypt verification for user %s (legacy hash detected)", username)
+		err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+		if err == nil {
+			log.Printf("debug: VerifyUserPassword for user %s - bcrypt verification successful (legacy)", username)
+			// Optionally, we could upgrade the hash here to argon2id
+			// But for safety, we'll leave the hash as-is for now
+			return true, nil
+		}
+		log.Printf("debug: VerifyUserPassword for user %s - bcrypt verification failed: %v", username, err)
+	}
+
+	log.Printf("debug: VerifyUserPassword for user %s - all verification methods failed", username)
+	return false, nil
 }
 
 // SeedUsers inserts users from a config map (username -> hash) without

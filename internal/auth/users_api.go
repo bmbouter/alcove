@@ -57,7 +57,13 @@ func ChangeOwnPasswordHandler(mgr UserManager) http.HandlerFunc {
 
 		// Verify current password
 		valid, err := mgr.VerifyUserPassword(r.Context(), username, req.CurrentPassword)
-		if err != nil || !valid {
+		if err != nil {
+			log.Printf("error: VerifyUserPassword failed for user %s: %v", username, err)
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "current password is incorrect"})
+			return
+		}
+		if !valid {
+			log.Printf("error: current password verification failed for user %s", username)
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "current password is incorrect"})
 			return
 		}
