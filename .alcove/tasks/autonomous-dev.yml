@@ -20,6 +20,12 @@ prompt: |
 
   Write JSON payloads to files before POSTing to avoid shell escaping issues.
 
+  CRITICAL: NEVER use https://api.github.com directly. ALWAYS use
+  $GITHUB_API_URL which routes through the Gate proxy. Using the raw
+  GitHub URL will fail silently because the token is a dummy placeholder
+  that only works through Gate. This applies to ALL GitHub API calls
+  including PR creation, label management, and comment posting.
+
   Go 1.25 is installed in the Skiff container. You can and MUST use `go build`,
   `go vet`, and `go test` to validate your changes before pushing.
 
@@ -33,8 +39,9 @@ prompt: |
   1. Set ALL variables at the top of EVERY Bash call that uses them, OR
   2. Combine all commands that share variables into a SINGLE Bash call
 
-  Use LITERAL values from the Event Context rather than relying on
-  variables across calls.
+  $GITHUB_API_URL and $GITHUB_TOKEN are environment variables that persist
+  across all Bash calls — they are always available. Use them directly.
+  Do NOT try to set them yourself or replace them with hardcoded URLs.
 
   ## Step 1: Understand the request
 
