@@ -3,6 +3,15 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.15.4
+
+### Bug Fixes
+- Fix team scoping race condition in dashboard. loadTeams() was called
+  on every route change, temporarily nulling activeTeamId while async.
+  Other load functions fired during this window without the team header,
+  causing all pages to show the personal team's data regardless of
+  which team was selected.
+
 ## v0.15.3
 
 ### Bug Fixes
