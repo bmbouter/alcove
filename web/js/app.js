@@ -1199,12 +1199,13 @@
         stopSSE();
 
         const route = getRoute();
-        const pages = ['sessions', 'task-new', 'schedules', 'repos', 'credentials', 'security', 'tools', 'session-detail', 'users', 'account'];
+        const pages = ['sessions', 'task-new', 'schedules', 'repos', 'credentials', 'security', 'tools', 'session-detail', 'users', 'account', 'workflows', 'workflow-detail'];
         pages.forEach((p) => hide($('#page-' + p)));
 
         // Update active nav tab
         var navRoute = route.startsWith('session/') ? 'sessions' : route;
         if (navRoute === 'tools' || navRoute === 'tools-admin') navRoute = 'security';
+        if (route.startsWith('workflow-run/')) navRoute = 'workflows';
         $$('.nav-tab').forEach((tab) => {
             tab.classList.toggle('active', tab.dataset.tab === navRoute);
         });
@@ -1244,6 +1245,13 @@
             const id = route.replace('session/', '');
             show($('#page-session-detail'));
             loadSessionDetail(id);
+        } else if (route === 'workflows') {
+            show($('#page-workflows'));
+            loadWorkflowRuns();
+        } else if (route.startsWith('workflow-run/')) {
+            var wfRunId = route.replace('workflow-run/', '');
+            show($('#page-workflow-detail'));
+            loadWorkflowRunDetail(wfRunId);
         } else if (route === 'users') {
             if (!isAdmin()) { navigate('sessions'); return; }
             show($('#page-users'));
@@ -5877,6 +5885,187 @@
         checkSystemState();
         systemStateInterval = setInterval(checkSystemState, 30000);
     }
+
+    // ---------------------
+    // Workflows
+    // ---------------------
+
+    async function loadWorkflowRuns() {
+        var list = $('#workflow-runs-list');
+        var empty = $('#workflow-runs-empty');
+        var loading = $('#workflow-runs-loading');
+
+        list.innerHTML = '';
+        hide(empty);
+        show(loading);
+
+        try {
+            var statusFilter = $('#workflow-filter-status') ? $('#workflow-filter-status').value : '';
+            var url = '/api/v1/workflow-runs';
+            if (statusFilter) url += '?status=' + encodeURIComponent(statusFilter);
+
+            var resp = await api('GET', url);
+            var data = await resp.json();
+            hide(loading);
+
+            if (!data.workflow_runs || data.workflow_runs.length === 0) {
+                show(empty);
+                return;
+            }
+
+            data.workflow_runs.forEach(function (run) {
+                var card = document.createElement('div');
+                card.className = 'workflow-run-card';
+                card.onclick = function () { navigate('workflow-run/' + run.id); };
+
+                var statusClass = 'badge-' + (run.status === 'awaiting_approval' ? 'cancelled' : run.status === 'failed' ? 'error' : run.status);
+                var startTime = run.started_at ? new Date(run.started_at).toLocaleString() : 'Not started';
+
+                card.innerHTML =
+                    '<div class="workflow-run-header">' +
+                        '<span class="workflow-run-name">Run ' + escapeHtml(run.id.substring(0, 8)) + '</span>' +
+                        '<span class="badge ' + statusClass + '">' + escapeHtml(run.status) + '</span>' +
+                    '</div>' +
+                    '<div class="workflow-run-meta">' +
+                        '<span>Started: ' + escapeHtml(startTime) + '</span>' +
+                        (run.trigger_type ? '<span>Trigger: ' + escapeHtml(run.trigger_type) + '</span>' : '') +
+                        (run.current_step ? '<span>Current: ' + escapeHtml(run.current_step) + '</span>' : '') +
+                    '</div>';
+
+                list.appendChild(card);
+            });
+        } catch (err) {
+            hide(loading);
+            if (err.message !== 'unauthorized') {
+                list.innerHTML = '<div class="error-message">Failed to load workflow runs.</div>';
+            }
+        }
+    }
+
+    // Attach filter change handler
+    (function() {
+        var filterEl = $('#workflow-filter-status');
+        if (filterEl) {
+            filterEl.addEventListener('change', function () {
+                loadWorkflowRuns();
+            });
+        }
+    })();
+
+    async function loadWorkflowRunDetail(runId) {
+        var meta = $('#workflow-meta');
+        var stepsList = $('#workflow-steps-list');
+        var title = $('#workflow-detail-title');
+
+        meta.innerHTML = '';
+        stepsList.innerHTML = '';
+        title.textContent = 'Workflow Run';
+
+        try {
+            var resp = await api('GET', '/api/v1/workflow-runs/' + runId);
+            var data = await resp.json();
+
+            var run = data.workflow_run;
+            var steps = data.steps || [];
+
+            title.textContent = 'Workflow Run ' + run.id.substring(0, 8);
+
+            // Build meta cards
+            var statusClass = 'badge-' + (run.status === 'awaiting_approval' ? 'cancelled' : run.status === 'failed' ? 'error' : run.status);
+            meta.innerHTML =
+                '<div class="meta-card"><div class="meta-label">Status</div><div class="meta-value"><span class="badge ' + statusClass + '">' + escapeHtml(run.status) + '</span></div></div>' +
+                '<div class="meta-card"><div class="meta-label">Started</div><div class="meta-value">' + (run.started_at ? new Date(run.started_at).toLocaleString() : 'Not started') + '</div></div>' +
+                '<div class="meta-card"><div class="meta-label">Finished</div><div class="meta-value">' + (run.finished_at ? new Date(run.finished_at).toLocaleString() : '-') + '</div></div>' +
+                '<div class="meta-card"><div class="meta-label">Trigger</div><div class="meta-value">' + escapeHtml(run.trigger_type || 'manual') + '</div></div>';
+
+            // Build steps list with connectors
+            steps.forEach(function (step, idx) {
+                if (idx > 0) {
+                    var connector = document.createElement('div');
+                    connector.className = 'workflow-step-connector';
+                    stepsList.appendChild(connector);
+                }
+
+                var item = document.createElement('div');
+                item.className = 'workflow-step-item';
+
+                var dotClass = 'workflow-step-dot workflow-step-dot-' + step.status;
+                var statusBadgeClass = 'badge-' + (step.status === 'awaiting_approval' ? 'cancelled' : step.status === 'failed' ? 'error' : step.status);
+
+                var actionsHtml = '';
+                if (step.status === 'awaiting_approval') {
+                    actionsHtml =
+                        '<div class="workflow-step-actions">' +
+                            '<button class="btn btn-small btn-primary" onclick="window._approveStep(\'' + escapeHtml(runId) + '\',\'' + escapeHtml(step.step_id) + '\')">Approve</button>' +
+                            '<button class="btn btn-small btn-outline" style="color:var(--status-error);border-color:var(--status-error);" onclick="window._rejectStep(\'' + escapeHtml(runId) + '\',\'' + escapeHtml(step.step_id) + '\')">Reject</button>' +
+                        '</div>';
+                }
+
+                var sessionLink = '';
+                if (step.session_id) {
+                    sessionLink = ' <a href="#session/' + escapeHtml(step.session_id) + '" class="trigger-link" onclick="event.stopPropagation()">View Session</a>';
+                }
+
+                item.innerHTML =
+                    '<div class="' + dotClass + '"></div>' +
+                    '<div class="workflow-step-info">' +
+                        '<div class="workflow-step-name">' + escapeHtml(step.step_id) + '</div>' +
+                        '<div class="workflow-step-agent">' +
+                            '<span class="badge ' + statusBadgeClass + '">' + escapeHtml(step.status) + '</span>' +
+                            sessionLink +
+                        '</div>' +
+                    '</div>' +
+                    actionsHtml;
+
+                stepsList.appendChild(item);
+            });
+
+        } catch (err) {
+            if (err.message !== 'unauthorized') {
+                stepsList.innerHTML = '<div class="error-message">Failed to load workflow run detail.</div>';
+            }
+        }
+    }
+
+    // Back button for workflow detail
+    (function() {
+        var backBtn = $('#back-to-workflows');
+        if (backBtn) {
+            backBtn.addEventListener('click', function () {
+                navigate('workflows');
+            });
+        }
+    })();
+
+    // Expose approve/reject functions to window for inline onclick handlers
+    window._approveStep = async function (runId, stepId) {
+        try {
+            var resp = await api('POST', '/api/v1/workflow-runs/' + runId + '/approve/' + stepId);
+            if (resp.ok) {
+                loadWorkflowRunDetail(runId);
+            } else {
+                var data = await resp.json();
+                alert('Failed to approve step: ' + (data.error || 'Unknown error'));
+            }
+        } catch (err) {
+            alert('Failed to approve step: ' + err.message);
+        }
+    };
+
+    window._rejectStep = async function (runId, stepId) {
+        if (!confirm('Are you sure you want to reject this step? The workflow will be marked as failed.')) return;
+        try {
+            var resp = await api('POST', '/api/v1/workflow-runs/' + runId + '/reject/' + stepId);
+            if (resp.ok) {
+                loadWorkflowRunDetail(runId);
+            } else {
+                var data = await resp.json();
+                alert('Failed to reject step: ' + (data.error || 'Unknown error'));
+            }
+        } catch (err) {
+            alert('Failed to reject step: ' + err.message);
+        }
+    };
 
     // ---------------------
     // Version Footer

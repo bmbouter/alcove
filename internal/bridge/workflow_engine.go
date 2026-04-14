@@ -28,6 +28,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// templateRegex matches template references like {{steps.X.outputs.Y}}.
+var templateRegex = regexp.MustCompile(`\{\{[^}]+\}\}`)
+
 // WorkflowEngine manages workflow execution: DAG evaluation, step dispatch, and completion tracking.
 type WorkflowEngine struct {
 	db            *pgxpool.Pool
@@ -166,7 +169,10 @@ func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, st
 		if err := we.updateStepStatus(ctx, run.ID, step.ID, "awaiting_approval", nil, nil); err != nil {
 			return fmt.Errorf("marking step as awaiting approval: %w", err)
 		}
-		// TODO: Implement approval mechanism
+		// Update workflow run status to awaiting_approval
+		if err := we.updateWorkflowRunStatus(ctx, run.ID, "awaiting_approval", nil, nil); err != nil {
+			return fmt.Errorf("marking workflow run as awaiting approval: %w", err)
+		}
 		return nil
 	}
 
@@ -470,15 +476,24 @@ func (we *WorkflowEngine) injectStepInputs(ctx context.Context, runID string, st
 		processedInputs[key] = processedValue
 	}
 
-	// Convert inputs to environment variables or modify prompt
-	// For now, append inputs as JSON to the prompt
+	// Build a "Workflow Context" section and prepend it to the prompt
 	if len(processedInputs) > 0 {
-		inputsJSON, err := json.Marshal(processedInputs)
-		if err != nil {
-			return fmt.Errorf("marshaling inputs: %w", err)
+		var contextLines []string
+		contextLines = append(contextLines, "Workflow Context (from previous steps):")
+		for key, value := range processedInputs {
+			if str, ok := value.(string); ok {
+				contextLines = append(contextLines, fmt.Sprintf("  %s: %s", key, str))
+			} else {
+				valueJSON, err := json.Marshal(value)
+				if err != nil {
+					contextLines = append(contextLines, fmt.Sprintf("  %s: %v", key, value))
+				} else {
+					contextLines = append(contextLines, fmt.Sprintf("  %s: %s", key, string(valueJSON)))
+				}
+			}
 		}
-
-		taskReq.Prompt = taskReq.Prompt + "\n\nWorkflow Step Inputs:\n" + string(inputsJSON)
+		workflowContext := strings.Join(contextLines, "\n")
+		taskReq.Prompt = workflowContext + "\n\n" + taskReq.Prompt
 	}
 
 	return nil
@@ -520,6 +535,28 @@ func (we *WorkflowEngine) expandTemplate(template string, stepOutputs map[string
 	}
 
 	return result, nil
+}
+
+// resolveInputs resolves template references in step inputs using outputs from previous steps.
+// Template references like {{steps.X.outputs.Y}} are replaced with actual values from stepOutputs.
+func resolveInputs(inputs map[string]string, stepOutputs map[string]map[string]string) map[string]string {
+	resolved := make(map[string]string)
+	for key, value := range inputs {
+		// Replace {{steps.X.outputs.Y}} with actual values
+		resolved[key] = templateRegex.ReplaceAllStringFunc(value, func(match string) string {
+			// Parse steps.X.outputs.Y
+			parts := strings.Split(strings.Trim(match, "{}"), ".")
+			if len(parts) == 4 && parts[0] == "steps" && parts[2] == "outputs" {
+				if outputs, ok := stepOutputs[parts[1]]; ok {
+					if val, ok := outputs[parts[3]]; ok {
+						return val
+					}
+				}
+			}
+			return match // leave unresolved templates as-is
+		})
+	}
+	return resolved
 }
 
 // readStepOutputs reads outputs from a completed session.
@@ -625,6 +662,210 @@ func (we *WorkflowEngine) resumeWorkflowRun(ctx context.Context, run *WorkflowRu
 	}
 
 	return nil
+}
+
+// ApproveStep approves a pending approval gate step and dispatches it.
+func (we *WorkflowEngine) ApproveStep(ctx context.Context, runID, stepID string) error {
+	// Verify the step is in awaiting_approval status
+	status, err := we.getStepStatus(ctx, runID, stepID)
+	if err != nil {
+		return fmt.Errorf("getting step status: %w", err)
+	}
+	if status != "awaiting_approval" {
+		return fmt.Errorf("step %s is not awaiting approval (current status: %s)", stepID, status)
+	}
+
+	// Get the workflow run
+	run, err := we.GetWorkflowRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("getting workflow run: %w", err)
+	}
+
+	// Get the workflow definition
+	workflow, err := we.getWorkflowByID(ctx, run.WorkflowID)
+	if err != nil {
+		return fmt.Errorf("getting workflow definition: %w", err)
+	}
+
+	// Get the step definition
+	stepDef := workflow.GetStepByID(stepID)
+	if stepDef == nil {
+		return fmt.Errorf("step %s not found in workflow definition", stepID)
+	}
+
+	// Update workflow run status back to running
+	if err := we.updateWorkflowRunStatus(ctx, runID, "running", nil, nil); err != nil {
+		return fmt.Errorf("updating workflow run status: %w", err)
+	}
+
+	// Reset step status to pending so dispatchStep can proceed
+	if err := we.updateStepStatus(ctx, runID, stepID, "pending", nil, nil); err != nil {
+		return fmt.Errorf("resetting step status: %w", err)
+	}
+
+	// Create a temporary copy of the step without the approval requirement
+	approvedStep := *stepDef
+	approvedStep.Approval = ""
+
+	// Dispatch the step
+	if err := we.dispatchStep(ctx, run, &approvedStep, workflow); err != nil {
+		return fmt.Errorf("dispatching approved step: %w", err)
+	}
+
+	log.Printf("step %s approved and dispatched for workflow run %s", stepID, runID)
+	return nil
+}
+
+// RejectStep rejects a pending approval gate step and marks the workflow as failed.
+func (we *WorkflowEngine) RejectStep(ctx context.Context, runID, stepID string) error {
+	// Verify the step is in awaiting_approval status
+	status, err := we.getStepStatus(ctx, runID, stepID)
+	if err != nil {
+		return fmt.Errorf("getting step status: %w", err)
+	}
+	if status != "awaiting_approval" {
+		return fmt.Errorf("step %s is not awaiting approval (current status: %s)", stepID, status)
+	}
+
+	// Mark the step as failed
+	now := time.Now().UTC()
+	if err := we.updateStepStatus(ctx, runID, stepID, "failed", &now, nil); err != nil {
+		return fmt.Errorf("marking step as failed: %w", err)
+	}
+
+	// Mark the workflow run as failed
+	if err := we.updateWorkflowRunStatus(ctx, runID, "failed", nil, &now); err != nil {
+		return fmt.Errorf("marking workflow run as failed: %w", err)
+	}
+
+	log.Printf("step %s rejected for workflow run %s", stepID, runID)
+	return nil
+}
+
+// GetWorkflowRun retrieves a workflow run by ID.
+func (we *WorkflowEngine) GetWorkflowRun(ctx context.Context, runID string) (*WorkflowRun, error) {
+	row := we.db.QueryRow(ctx, `
+		SELECT id, workflow_id, status, trigger_type, trigger_ref, current_step, step_outputs, started_at, finished_at, owner, created_at
+		FROM workflow_runs
+		WHERE id = $1
+	`, runID)
+
+	var run WorkflowRun
+	var stepOutputsJSON []byte
+	var currentStep *string
+	var triggerType, triggerRef *string
+
+	if err := row.Scan(
+		&run.ID, &run.WorkflowID, &run.Status, &triggerType, &triggerRef,
+		&currentStep, &stepOutputsJSON, &run.StartedAt, &run.FinishedAt, &run.Owner, &run.CreatedAt,
+	); err != nil {
+		return nil, fmt.Errorf("getting workflow run %s: %w", runID, err)
+	}
+
+	if currentStep != nil {
+		run.CurrentStep = *currentStep
+	}
+	if triggerType != nil {
+		run.TriggerType = *triggerType
+	}
+	if triggerRef != nil {
+		run.TriggerRef = *triggerRef
+	}
+	if stepOutputsJSON != nil {
+		if err := json.Unmarshal(stepOutputsJSON, &run.StepOutputs); err != nil {
+			run.StepOutputs = make(map[string]interface{})
+		}
+	} else {
+		run.StepOutputs = make(map[string]interface{})
+	}
+
+	return &run, nil
+}
+
+// ListWorkflowRuns lists workflow runs, optionally filtered by status and owner.
+func (we *WorkflowEngine) ListWorkflowRuns(ctx context.Context, status, owner string) ([]WorkflowRun, error) {
+	query := `
+		SELECT id, workflow_id, status, trigger_type, trigger_ref, current_step, step_outputs, started_at, finished_at, owner, created_at
+		FROM workflow_runs
+		WHERE 1=1
+	`
+	args := []interface{}{}
+	argN := 1
+
+	if owner != "" {
+		query += fmt.Sprintf(" AND owner = $%d", argN)
+		args = append(args, owner)
+		argN++
+	}
+	if status != "" {
+		query += fmt.Sprintf(" AND status = $%d", argN)
+		args = append(args, status)
+		argN++
+	}
+
+	query += " ORDER BY created_at DESC LIMIT 100"
+
+	rows, err := we.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("listing workflow runs: %w", err)
+	}
+	defer rows.Close()
+
+	var runs []WorkflowRun
+	for rows.Next() {
+		var run WorkflowRun
+		var stepOutputsJSON []byte
+		var currentStep, triggerType, triggerRef *string
+
+		if err := rows.Scan(
+			&run.ID, &run.WorkflowID, &run.Status, &triggerType, &triggerRef,
+			&currentStep, &stepOutputsJSON, &run.StartedAt, &run.FinishedAt, &run.Owner, &run.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scanning workflow run: %w", err)
+		}
+
+		if currentStep != nil {
+			run.CurrentStep = *currentStep
+		}
+		if triggerType != nil {
+			run.TriggerType = *triggerType
+		}
+		if triggerRef != nil {
+			run.TriggerRef = *triggerRef
+		}
+		if stepOutputsJSON != nil {
+			if err := json.Unmarshal(stepOutputsJSON, &run.StepOutputs); err != nil {
+				run.StepOutputs = make(map[string]interface{})
+			}
+		} else {
+			run.StepOutputs = make(map[string]interface{})
+		}
+
+		runs = append(runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating workflow runs: %w", err)
+	}
+
+	if runs == nil {
+		runs = []WorkflowRun{}
+	}
+	return runs, nil
+}
+
+// GetWorkflowRunDetail retrieves a workflow run with all its steps.
+func (we *WorkflowEngine) GetWorkflowRunDetail(ctx context.Context, runID string) (*WorkflowRun, []WorkflowRunStep, error) {
+	run, err := we.GetWorkflowRun(ctx, runID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	steps, err := we.getWorkflowRunSteps(ctx, runID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("getting workflow run steps: %w", err)
+	}
+
+	return run, steps, nil
 }
 
 // Database helper methods
