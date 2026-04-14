@@ -1368,18 +1368,45 @@
         }
 
         try {
-            const resp = await api('GET', '/api/v1/sessions?page=' + currentPage + '&per_page=' + perPage);
-            const data = await resp.json();
+            const statusFilter = $('#filter-status').value;
+            let runningSessions = [];
+            let paginated = {};
+
+            // Always fetch running sessions separately to pin them at the top
+            if (!statusFilter || statusFilter === 'running') {
+                const runningResp = await api('GET', '/api/v1/sessions?status=running&per_page=100');
+                const runningData = await runningResp.json();
+                runningSessions = Array.isArray(runningData) ? runningData : (runningData.sessions || runningData.items || []);
+            }
+
+            // Fetch paginated sessions based on filter
+            let paginatedUrl = '/api/v1/sessions?page=' + currentPage + '&per_page=' + perPage;
+            if (statusFilter) {
+                paginatedUrl += '&status=' + encodeURIComponent(statusFilter);
+            } else {
+                // When not filtering, exclude running sessions from pagination since we show them separately
+                paginatedUrl += '&status=completed,error,cancelled,timeout';
+            }
+
+            const paginatedResp = await api('GET', paginatedUrl);
+            paginated = await paginatedResp.json();
             hide(loading);
 
-            const sessions = Array.isArray(data) ? data : (data.sessions || data.items || []);
-            if (sessions.length === 0) {
+            const paginatedSessions = Array.isArray(paginated) ? paginated : (paginated.sessions || paginated.items || []);
+
+            // If we're filtering for non-running statuses, don't show the separate running section
+            if (statusFilter && statusFilter !== 'running') {
+                runningSessions = [];
+            }
+
+            // Check if we have any sessions at all
+            if (runningSessions.length === 0 && paginatedSessions.length === 0) {
                 renderEmptyState();
                 return;
             }
 
-            renderSessions(sessions);
-            renderPagination(data.page, data.pages, data.total);
+            renderSessionsWithPinnedRunning(runningSessions, paginatedSessions);
+            renderPagination(paginated.page, paginated.pages, paginated.total);
             startAutoRefresh();
         } catch (err) {
             hide(loading);
@@ -1445,6 +1472,90 @@
             '<td class="mono">' + durationHtml + '</td>' +
             '<td>' + triggerHtml + '</td>' +
             '</tr>';
+    }
+
+    function renderSessionsWithPinnedRunning(runningSessions, paginatedSessions) {
+        var tbody = $('#sessions-tbody');
+        var table = $('#sessions-table');
+        var searchFilter = $('#filter-search').value.toLowerCase();
+
+        if (table) table.hidden = false;
+
+        // Apply search filter to both running and paginated sessions
+        var filteredRunning = runningSessions.filter(function (s) {
+            if (searchFilter) {
+                var text = (s.id + ' ' + (s.task_name || '') + ' ' + (s.trigger_context || '') + ' ' + (s.prompt || '')).toLowerCase();
+                if (!text.includes(searchFilter)) return false;
+            }
+            return true;
+        });
+
+        var filteredPaginated = paginatedSessions.filter(function (s) {
+            if (searchFilter) {
+                var text = (s.id + ' ' + (s.task_name || '') + ' ' + (s.trigger_context || '') + ' ' + (s.prompt || '')).toLowerCase();
+                if (!text.includes(searchFilter)) return false;
+            }
+            return true;
+        });
+
+        var empty = $('#sessions-empty');
+        if (filteredRunning.length === 0 && filteredPaginated.length === 0) {
+            tbody.innerHTML = '';
+            empty.innerHTML = '<p>No sessions match your filters.</p>';
+            show(empty);
+            return;
+        }
+        hide(empty);
+
+        var html = '';
+
+        // Pinned running section - always visible when there are running sessions
+        if (filteredRunning.length > 0) {
+            html += '<tr><td colspan="6" class="section-label section-label-running">RUNNING (' + filteredRunning.length + ')</td></tr>';
+            filteredRunning.forEach(function (s) {
+                html += renderSessionRow(s);
+            });
+        }
+
+        // Recent/paginated section
+        if (filteredPaginated.length > 0) {
+            var statusFilter = $('#filter-status').value;
+            var sectionTitle = 'RECENT';
+            if (statusFilter === 'completed') sectionTitle = 'COMPLETED';
+            else if (statusFilter === 'error') sectionTitle = 'ERROR';
+            else if (statusFilter === 'cancelled') sectionTitle = 'CANCELLED';
+            else if (statusFilter === 'timeout') sectionTitle = 'TIMEOUT';
+
+            if (filteredRunning.length > 0) {
+                html += '<tr><td colspan="6" class="section-label">' + sectionTitle + '</td></tr>';
+            }
+            filteredPaginated.forEach(function (s) {
+                html += renderSessionRow(s);
+            });
+        }
+
+        tbody.innerHTML = html;
+
+        // Start live timers for running tasks
+        if (filteredRunning.length > 0) {
+            startRunningTimers();
+        } else if (window._runningTimer) {
+            clearInterval(window._runningTimer);
+            window._runningTimer = null;
+        }
+
+        // Click and keyboard handlers
+        tbody.querySelectorAll('tr.clickable').forEach(function (row) {
+            row.addEventListener('click', function () {
+                navigate('session/' + row.dataset.sessionId);
+            });
+            row.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    navigate('session/' + row.dataset.sessionId);
+                }
+            });
+        });
     }
 
     function renderSessions(sessions) {
