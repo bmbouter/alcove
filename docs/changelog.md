@@ -3,6 +3,13 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.15.2
+
+### Bug Fixes
+- Fix workflow sync: add missing definition column to INSERT. Workflow
+  definitions were never stored because UpsertWorkflow omitted a NOT NULL
+  column, causing every insert to silently fail.
+
 ## v0.15.1
 
 ### Bug Fixes
