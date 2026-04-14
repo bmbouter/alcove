@@ -3223,18 +3223,55 @@
         // --- user / human ---
         if (type === 'user' || type === 'human') {
             var text = '';
+            var hasToolResults = false;
+
+            // First, check for text content in the standard locations
             if (typeof ev.content === 'string') text = ev.content;
             else if (Array.isArray(ev.content)) {
                 text = ev.content.filter(function(b) { return b.type === 'text'; }).map(function(b) { return b.text; }).join('\n');
             } else if (ev.message && typeof ev.message === 'string') text = ev.message;
             else if (ev.text) text = ev.text;
-            if (!text) text = JSON.stringify(ev, null, 2);
 
-            var div = document.createElement('div');
-            div.className = 'tx-msg tx-msg-user tx-hierarchy-main';
-            div.innerHTML = '<div class="tx-msg-label">User</div>' +
-                '<div class="tx-msg-body">' + renderMarkdown(text) + '</div>';
-            container.appendChild(div);
+            // Check for tool_result blocks in ev.message.content[]
+            var messageContent = ev.message && Array.isArray(ev.message.content) ? ev.message.content : [];
+            var toolResultBlocks = messageContent.filter(function(block) { return block.type === 'tool_result'; });
+
+            if (toolResultBlocks.length > 0) {
+                hasToolResults = true;
+                // Render each tool_result block using the existing tool_result logic
+                toolResultBlocks.forEach(function(toolResultBlock) {
+                    // Create a synthetic event that matches the tool_result handler expectations
+                    var syntheticEvent = {
+                        type: 'tool_result',
+                        content: toolResultBlock.content,
+                        tool_use_id: toolResultBlock.tool_use_id,
+                        is_error: toolResultBlock.is_error || false,
+                        tool_use_result: toolResultBlock.tool_use_result
+                    };
+
+                    // Call the existing tool_result handler logic
+                    appendTranscriptEvent(container, syntheticEvent);
+                });
+            }
+
+            // If we have text content, render it
+            if (text) {
+                var div = document.createElement('div');
+                div.className = 'tx-msg tx-msg-user tx-hierarchy-main';
+                div.innerHTML = '<div class="tx-msg-label">User</div>' +
+                    '<div class="tx-msg-body">' + renderMarkdown(text) + '</div>';
+                container.appendChild(div);
+            }
+
+            // Only fall back to JSON.stringify if we have neither text nor tool results
+            if (!text && !hasToolResults) {
+                var div = document.createElement('div');
+                div.className = 'tx-msg tx-msg-user tx-hierarchy-main';
+                div.innerHTML = '<div class="tx-msg-label">User</div>' +
+                    '<div class="tx-msg-body"><pre>' + JSON.stringify(ev, null, 2) + '</pre></div>';
+                container.appendChild(div);
+            }
+
             return;
         }
 
