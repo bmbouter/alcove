@@ -236,6 +236,89 @@ Personal teams cannot be renamed, deleted, or have members added/removed. They
 always have exactly one member: the user they were created for. The
 `is_personal` flag on the `teams` table enforces this in the API handlers.
 
+## Functional Tests
+
+New test script `scripts/test-teams.sh` covering the full team lifecycle. Tests
+run against a live Bridge instance (same pattern as existing functional tests).
+
+### Team CRUD and Membership
+
+- Create a team, verify it appears in `GET /api/v1/teams`
+- Add a second user as a member, verify membership in team detail
+- Remove a member, verify they lose access
+- Rename a team, verify updated name
+- Delete a team, verify it and its resources are gone
+- Verify personal team cannot be deleted (expect 400/403)
+- Verify personal team cannot have members added (expect 400/403)
+
+### Team-Scoped Resource Isolation
+
+- User A creates a credential in Team X
+- User B (member of Team X) lists credentials with `X-Alcove-Team` header,
+  verify they see User A's credential
+- User C (not a member of Team X) lists credentials with Team X header,
+  expect 403
+- User B switches to their personal team, verify Team X credentials are not
+  visible
+
+### Cross-Team Isolation
+
+- Create resources (credential, schedule, security profile) in Team X
+- Create resources with the same names in Team Y
+- Verify no collision (unique per team) and each team only sees its own
+
+### Backward Compatibility
+
+- Omit the `X-Alcove-Team` header entirely, verify requests default to the
+  user's personal team
+- Verify existing test scripts (`test-credentials.sh`, `test-schedules.sh`,
+  `test-user-isolation.sh`) still pass without modification (they don't send
+  `X-Alcove-Team`, so they operate on personal teams)
+
+### Admin Override
+
+- Admin user sets `X-Alcove-Team` to a team they are not a member of
+- Verify admin can list and manage that team's resources
+
+### Updates to Existing Test Scripts
+
+- `test-user-isolation.sh`: verify that user isolation still holds — two users
+  in different personal teams cannot see each other's resources (existing
+  behavior preserved)
+- `test-credentials.sh`, `test-schedules.sh`, `test-agent-repos.sh`: no changes
+  expected (they use personal team by default)
+
+## Documentation Updates
+
+### docs/getting-started.md
+
+- Add a "Teams" section after the existing user management content
+- Cover creating a team, inviting members, and switching teams in the dashboard
+- Cover the CLI team commands (`alcove teams create`, `use`, `add-member`)
+
+### docs/configuration.md
+
+- Document the `X-Alcove-Team` header
+- Document the `active_team` profile config option
+- Document the `--team` CLI flag
+
+### docs/development-guide.md
+
+- Add the `teams`, `team_members`, and `team_settings` tables to the database
+  schema reference
+- Document the `X-Alcove-Team` middleware behavior
+- Add `test-teams.sh` to the functional test inventory
+
+### docs/design/implementation-status.md
+
+- Add Teams to the feature list with current status
+- Update the resource ownership model description from per-user to per-team
+
+### CLAUDE.md
+
+- Update the Architecture section to mention teams as the ownership unit
+- Add `X-Alcove-Team` to the Key Decisions section
+
 ## Components Not Affected
 
 - **Gate**: No changes. Gate receives session-level config (credentials, scopes)
