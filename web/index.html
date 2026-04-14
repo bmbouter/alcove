@@ -510,20 +510,45 @@
             <div id="page-workflows" class="page" hidden>
                 <div class="page-header">
                     <h2>Workflows</h2>
-                    <div class="filters">
-                        <select id="workflow-filter-status" class="input input-small" aria-label="Filter by status">
-                            <option value="">All Statuses</option>
-                            <option value="pending">Pending</option>
-                            <option value="running">Running</option>
-                            <option value="completed">Completed</option>
-                            <option value="failed">Failed</option>
-                            <option value="awaiting_approval">Awaiting Approval</option>
-                        </select>
+                </div>
+
+                <!-- Section 1: Available Workflows (definitions) -->
+                <div class="workflow-section">
+                    <h3>Available Workflows</h3>
+                    <div id="workflow-definitions-list"></div>
+                    <div id="workflow-definitions-empty" class="empty-state" hidden>
+                        <p>No workflows configured. Add workflow YAML files to your agent repo under <code>.alcove/workflows/</code>.</p>
+                    </div>
+                    <div id="workflow-definitions-loading" class="loading-state" hidden>
+                        <div class="spinner"></div>
+                        <p>Loading workflow definitions...</p>
                     </div>
                 </div>
-                <div id="workflow-runs-list"></div>
-                <div id="workflow-runs-empty" class="empty-state" hidden><p>No workflow runs found.</p></div>
-                <div id="workflow-runs-loading" class="loading-state" hidden><div class="spinner"></div><p>Loading workflow runs...</p></div>
+
+                <!-- Section 2: Recent Runs -->
+                <div class="workflow-section" style="margin-top: 32px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                        <h3>Recent Runs</h3>
+                        <div class="filters">
+                            <select id="workflow-filter-status" class="input input-small" aria-label="Filter by status">
+                                <option value="">All Statuses</option>
+                                <option value="pending">Pending</option>
+                                <option value="running">Running</option>
+                                <option value="completed">Completed</option>
+                                <option value="failed">Failed</option>
+                                <option value="awaiting_approval">Awaiting Approval</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="workflow-runs-list"></div>
+                    <div id="workflow-runs-empty" class="empty-state" hidden>
+                        <p>No workflow runs yet. Workflows run when triggered by events or schedules.</p>
+                    </div>
+                    <div id="workflow-runs-loading" class="loading-state" hidden>
+                        <div class="spinner"></div>
+                        <p>Loading workflow runs...</p>
+                    </div>
+                </div>
             </div>
 
             <!-- Workflow Run Detail -->
