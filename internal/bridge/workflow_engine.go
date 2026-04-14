@@ -63,14 +63,15 @@ type WorkflowRun struct {
 
 // WorkflowRunStep represents a single step execution within a workflow run.
 type WorkflowRunStep struct {
-	ID         string                 `json:"id"`
-	RunID      string                 `json:"run_id"`
-	StepID     string                 `json:"step_id"`
-	SessionID  string                 `json:"session_id,omitempty"`
-	Status     string                 `json:"status"` // pending, running, completed, failed, skipped, awaiting_approval
-	Outputs    map[string]interface{} `json:"outputs,omitempty"`
-	StartedAt  *time.Time             `json:"started_at,omitempty"`
-	FinishedAt *time.Time             `json:"finished_at,omitempty"`
+	ID               string                 `json:"id"`
+	RunID            string                 `json:"run_id"`
+	StepID           string                 `json:"step_id"`
+	SessionID        string                 `json:"session_id,omitempty"`
+	Status           string                 `json:"status"` // pending, running, completed, failed, skipped, awaiting_approval
+	ApprovalDeadline *time.Time             `json:"approval_deadline,omitempty"`
+	Outputs          map[string]interface{} `json:"outputs,omitempty"`
+	StartedAt        *time.Time             `json:"started_at,omitempty"`
+	FinishedAt       *time.Time             `json:"finished_at,omitempty"`
 }
 
 // StartWorkflowRun creates a new workflow run and dispatches initial steps.
@@ -163,10 +164,25 @@ func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, st
 	// Check if approval is required
 	if step.Approval == "required" {
 		log.Printf("step %s requires approval", step.ID)
-		if err := we.updateStepStatus(ctx, run.ID, step.ID, "awaiting_approval", nil, nil); err != nil {
+
+		// Calculate approval deadline
+		timeout := "72h" // default timeout
+		if step.ApprovalTimeout != "" {
+			timeout = step.ApprovalTimeout
+		}
+		duration, _ := time.ParseDuration(timeout) // validated during YAML parsing
+		deadline := time.Now().UTC().Add(duration)
+
+		if err := we.updateStepStatusWithApproval(ctx, run.ID, step.ID, "awaiting_approval", &deadline, nil, nil); err != nil {
 			return fmt.Errorf("marking step as awaiting approval: %w", err)
 		}
-		// TODO: Implement approval mechanism
+
+		// Update workflow run status to awaiting_approval if no other steps are running
+		if err := we.checkAndUpdateWorkflowRunForApproval(ctx, run); err != nil {
+			log.Printf("error updating workflow run status for approval: %v", err)
+		}
+
+		log.Printf("step %s awaiting approval until %v", step.ID, deadline)
 		return nil
 	}
 
@@ -675,9 +691,9 @@ func (we *WorkflowEngine) insertWorkflowRunStep(ctx context.Context, step *Workf
 	}
 
 	_, err = we.db.Exec(ctx, `
-		INSERT INTO workflow_run_steps (id, run_id, step_id, session_id, status, outputs, started_at, finished_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, step.ID, step.RunID, step.StepID, step.SessionID, step.Status, outputsJSON, step.StartedAt, step.FinishedAt)
+		INSERT INTO workflow_run_steps (id, run_id, step_id, session_id, status, approval_deadline, outputs, started_at, finished_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, step.ID, step.RunID, step.StepID, step.SessionID, step.Status, step.ApprovalDeadline, outputsJSON, step.StartedAt, step.FinishedAt)
 
 	return err
 }
@@ -738,7 +754,7 @@ func (we *WorkflowEngine) getStepStatus(ctx context.Context, runID, stepID strin
 // getWorkflowRunSteps gets all steps for a workflow run.
 func (we *WorkflowEngine) getWorkflowRunSteps(ctx context.Context, runID string) ([]WorkflowRunStep, error) {
 	rows, err := we.db.Query(ctx, `
-		SELECT id, run_id, step_id, session_id, status, outputs, started_at, finished_at
+		SELECT id, run_id, step_id, session_id, status, approval_deadline, outputs, started_at, finished_at
 		FROM workflow_run_steps
 		WHERE run_id = $1
 	`, runID)
@@ -754,7 +770,7 @@ func (we *WorkflowEngine) getWorkflowRunSteps(ctx context.Context, runID string)
 		var outputsJSON []byte
 		var startedAt, finishedAt *time.Time
 
-		if err := rows.Scan(&step.ID, &step.RunID, &step.StepID, &sessionID, &step.Status, &outputsJSON, &startedAt, &finishedAt); err != nil {
+		if err := rows.Scan(&step.ID, &step.RunID, &step.StepID, &sessionID, &step.Status, &step.ApprovalDeadline, &outputsJSON, &startedAt, &finishedAt); err != nil {
 			return nil, err
 		}
 
@@ -780,7 +796,7 @@ func (we *WorkflowEngine) getWorkflowRunSteps(ctx context.Context, runID string)
 // getStepAndRunBySessionID gets the workflow run step and run by session ID.
 func (we *WorkflowEngine) getStepAndRunBySessionID(ctx context.Context, sessionID string) (*WorkflowRunStep, *WorkflowRun, error) {
 	row := we.db.QueryRow(ctx, `
-		SELECT wrs.id, wrs.run_id, wrs.step_id, wrs.session_id, wrs.status, wrs.outputs, wrs.started_at, wrs.finished_at,
+		SELECT wrs.id, wrs.run_id, wrs.step_id, wrs.session_id, wrs.status, wrs.approval_deadline, wrs.outputs, wrs.started_at, wrs.finished_at,
 		       wr.id, wr.workflow_id, wr.status, wr.trigger_type, wr.trigger_ref, wr.current_step, wr.step_outputs, wr.owner
 		FROM workflow_run_steps wrs
 		JOIN workflow_runs wr ON wrs.run_id = wr.id
@@ -794,7 +810,7 @@ func (we *WorkflowEngine) getStepAndRunBySessionID(ctx context.Context, sessionI
 	var stepStartedAt, stepFinishedAt, runStartedAt, runFinishedAt *time.Time
 
 	err := row.Scan(
-		&step.ID, &step.RunID, &step.StepID, &sessionIDPtr, &step.Status, &stepOutputsJSON, &stepStartedAt, &stepFinishedAt,
+		&step.ID, &step.RunID, &step.StepID, &sessionIDPtr, &step.Status, &step.ApprovalDeadline, &stepOutputsJSON, &stepStartedAt, &stepFinishedAt,
 		&run.ID, &run.WorkflowID, &run.Status, &run.TriggerType, &run.TriggerRef, &run.CurrentStep, &runStepOutputsJSON, &run.Owner,
 	)
 	if err != nil {
@@ -991,10 +1007,279 @@ func (we *WorkflowEngine) handleFieldBasedRouting(ctx context.Context, run *Work
 	}
 
 	// Dispatch the routed step
-	log.Printf("field-based routing: dispatching step %s based on %s=%s", nextStepID, step.RouteField, routeValueStr)
-	if err := we.dispatchStep(ctx, run, nextStepDef, workflow); err != nil {
-		return fmt.Errorf("dispatching routed step %s: %w", nextStepID, err)
+		log.Printf("field-based routing: dispatching step %s based on %s=%s", nextStepID, step.RouteField, routeValueStr)
+		if err := we.dispatchStep(ctx, run, nextStepDef, workflow); err != nil {
+			return fmt.Errorf("dispatching routed step %s: %w", nextStepID, err)
+		}
+
+		return nil
 	}
 
-	return nil
-}
+	// updateStepStatusWithApproval updates a workflow run step's status with approval deadline.
+	func (we *WorkflowEngine) updateStepStatusWithApproval(ctx context.Context, runID, stepID, status string, approvalDeadline *time.Time, finishedAt *time.Time, outputs map[string]interface{}) error {
+		var outputsJSON []byte
+		var err error
+		if outputs != nil {
+			outputsJSON, err = json.Marshal(outputs)
+			if err != nil {
+				return fmt.Errorf("marshaling step outputs: %w", err)
+			}
+		}
+
+		_, err = we.db.Exec(ctx, `
+			UPDATE workflow_run_steps
+			SET status = $3, approval_deadline = $4, finished_at = $5, outputs = $6
+			WHERE run_id = $1 AND step_id = $2
+		`, runID, stepID, status, approvalDeadline, finishedAt, outputsJSON)
+
+		return err
+	}
+
+	// checkAndUpdateWorkflowRunForApproval checks if the workflow should be marked as awaiting_approval.
+	func (we *WorkflowEngine) checkAndUpdateWorkflowRunForApproval(ctx context.Context, run *WorkflowRun) error {
+		// Check if there are any running steps
+		steps, err := we.getWorkflowRunSteps(ctx, run.ID)
+		if err != nil {
+			return fmt.Errorf("getting workflow run steps: %w", err)
+		}
+
+		hasRunning := false
+		hasAwaitingApproval := false
+
+		for _, step := range steps {
+			if step.Status == "running" {
+				hasRunning = true
+			} else if step.Status == "awaiting_approval" {
+				hasAwaitingApproval = true
+			}
+		}
+
+		// If there are no running steps but there are steps awaiting approval, mark workflow as awaiting_approval
+		if !hasRunning && hasAwaitingApproval && run.Status == "running" {
+			if err := we.updateWorkflowRunStatus(ctx, run.ID, "awaiting_approval", nil, nil); err != nil {
+				return fmt.Errorf("updating workflow run status to awaiting_approval: %w", err)
+			}
+			log.Printf("workflow run %s marked as awaiting_approval", run.ID)
+		}
+
+		return nil
+	}
+
+	// ApproveStep approves a workflow step and resumes execution.
+	func (we *WorkflowEngine) ApproveStep(ctx context.Context, runID, stepID string) error {
+		// Get the step and validate it's awaiting approval
+		stepStatus, err := we.getStepStatus(ctx, runID, stepID)
+		if err != nil {
+			return fmt.Errorf("getting step status: %w", err)
+		}
+
+		if stepStatus != "awaiting_approval" {
+			return fmt.Errorf("step %s is not awaiting approval (current status: %s)", stepID, stepStatus)
+		}
+
+		// Update step to pending so it can be dispatched
+		if err := we.updateStepStatus(ctx, runID, stepID, "pending", nil, nil); err != nil {
+			return fmt.Errorf("updating step status to pending: %w", err)
+		}
+
+		// Get the workflow run and definition
+		run, err := we.getWorkflowRunByID(ctx, runID)
+		if err != nil {
+			return fmt.Errorf("getting workflow run: %w", err)
+		}
+
+		workflow, err := we.getWorkflowByID(ctx, run.WorkflowID)
+		if err != nil {
+			return fmt.Errorf("getting workflow definition: %w", err)
+		}
+
+		// Find and dispatch the approved step
+		stepDef := workflow.GetStepByID(stepID)
+		if stepDef == nil {
+			return fmt.Errorf("step %s not found in workflow", stepID)
+		}
+
+		// Check if dependencies are still satisfied
+		ready, err := we.areStepDependenciesSatisfied(ctx, runID, stepDef.Needs)
+		if err != nil {
+			return fmt.Errorf("checking dependencies for approved step: %w", err)
+		}
+
+		if !ready {
+			return fmt.Errorf("step dependencies are no longer satisfied")
+		}
+
+		// Resume workflow run status if needed
+		if run.Status == "awaiting_approval" {
+			if err := we.updateWorkflowRunStatus(ctx, runID, "running", nil, nil); err != nil {
+				return fmt.Errorf("updating workflow run status to running: %w", err)
+			}
+		}
+
+		// Dispatch the step (without approval check since we just approved it)
+		return we.dispatchApprovedStep(ctx, run, stepDef, workflow)
+	}
+
+	// RejectStep rejects a workflow step and marks the workflow as failed.
+	func (we *WorkflowEngine) RejectStep(ctx context.Context, runID, stepID string) error {
+		// Get the step and validate it's awaiting approval
+		stepStatus, err := we.getStepStatus(ctx, runID, stepID)
+		if err != nil {
+			return fmt.Errorf("getting step status: %w", err)
+		}
+
+		if stepStatus != "awaiting_approval" {
+			return fmt.Errorf("step %s is not awaiting approval (current status: %s)", stepID, stepStatus)
+		}
+
+		// Mark step as failed
+		now := time.Now().UTC()
+		if err := we.updateStepStatus(ctx, runID, stepID, "failed", &now, nil); err != nil {
+			return fmt.Errorf("updating step status to failed: %w", err)
+		}
+
+		// Mark workflow run as failed
+		if err := we.updateWorkflowRunStatus(ctx, runID, "failed", nil, &now); err != nil {
+			return fmt.Errorf("updating workflow run status to failed: %w", err)
+		}
+
+		log.Printf("workflow run %s rejected via step %s", runID, stepID)
+		return nil
+	}
+
+	// dispatchApprovedStep dispatches a step that has been approved (bypasses approval check).
+	func (we *WorkflowEngine) dispatchApprovedStep(ctx context.Context, run *WorkflowRun, step *WorkflowStep, workflow *WorkflowDefinition) error {
+		log.Printf("dispatching approved step %s for workflow run %s", step.ID, run.ID)
+
+		// Check condition if present (same as normal dispatch)
+		if step.Condition != "" {
+			shouldRun, err := we.evaluateCondition(ctx, run.ID, step.Condition)
+			if err != nil {
+				return fmt.Errorf("evaluating condition for step %s: %w", step.ID, err)
+			}
+			if !shouldRun {
+				log.Printf("step %s skipped due to condition", step.ID)
+				if err := we.updateStepStatus(ctx, run.ID, step.ID, "skipped", nil, nil); err != nil {
+					return fmt.Errorf("marking step as skipped: %w", err)
+				}
+				return we.checkAndDispatchDependents(ctx, run, step.ID, workflow)
+			}
+		}
+
+		// Get the agent definition
+		agentDef, err := we.defStore.GetAgentDefinition(ctx, step.Agent, run.Owner)
+		if err != nil {
+			return fmt.Errorf("getting agent definition %s: %w", step.Agent, err)
+		}
+
+		// Build TaskRequest (same as normal dispatch)
+		taskReq := agentDef.ToTaskRequest()
+		taskReq.TaskName = step.Agent
+		taskReq.TriggerType = run.TriggerType
+		taskReq.TriggerRef = run.TriggerRef
+
+		// If step has a repo specified, override the agent's repo
+		if step.Repo != "" {
+			taskReq.Repo = step.Repo
+
+			if err := we.validateCrossRepoCredentials(ctx, step.Repo, run.Owner); err != nil {
+				return fmt.Errorf("cross-repo credential validation failed for repo %s: %w", step.Repo, err)
+			}
+
+			if err := we.enhanceTaskRequestForRepo(ctx, &taskReq, step.Repo, run.Owner); err != nil {
+				return fmt.Errorf("cross-repo enhancement failed for repo %s: %w", step.Repo, err)
+			}
+		}
+
+		// Inject step inputs into the task request
+		if err := we.injectStepInputs(ctx, run.ID, step, &taskReq); err != nil {
+			return fmt.Errorf("injecting inputs for step %s: %w", step.ID, err)
+		}
+
+		// Dispatch the task
+		session, err := we.dispatcher.DispatchTask(ctx, taskReq, run.Owner)
+		if err != nil {
+			return fmt.Errorf("dispatching task for step %s: %w", step.ID, err)
+		}
+
+		// Update step with session ID and mark as running
+		now := time.Now().UTC()
+		if err := we.updateStepWithSession(ctx, run.ID, step.ID, session.ID, "running", &now); err != nil {
+			return fmt.Errorf("updating step with session: %w", err)
+		}
+
+		log.Printf("dispatched approved step %s with session %s", step.ID, session.ID)
+		return nil
+	}
+
+	// getWorkflowRunByID retrieves a workflow run by its ID.
+	func (we *WorkflowEngine) getWorkflowRunByID(ctx context.Context, runID string) (*WorkflowRun, error) {
+		var run WorkflowRun
+		var stepOutputsJSON []byte
+		var startedAt, finishedAt *time.Time
+
+		err := we.db.QueryRow(ctx, `
+			SELECT id, workflow_id, status, trigger_type, trigger_ref, current_step, step_outputs, owner, created_at, started_at, finished_at
+			FROM workflow_runs
+			WHERE id = $1
+		`, runID).Scan(&run.ID, &run.WorkflowID, &run.Status, &run.TriggerType, &run.TriggerRef, &run.CurrentStep, &stepOutputsJSON, &run.Owner, &run.CreatedAt, &startedAt, &finishedAt)
+		if err != nil {
+			return nil, err
+		}
+
+		if stepOutputsJSON != nil {
+			if err := json.Unmarshal(stepOutputsJSON, &run.StepOutputs); err != nil {
+				log.Printf("error unmarshaling step outputs: %v", err)
+				run.StepOutputs = make(map[string]interface{})
+			}
+		} else {
+			run.StepOutputs = make(map[string]interface{})
+		}
+
+		run.StartedAt = startedAt
+		run.FinishedAt = finishedAt
+
+		return &run, nil
+	}
+
+	// ProcessExpiredApprovals processes approval steps that have expired and marks them as cancelled.
+	func (we *WorkflowEngine) ProcessExpiredApprovals(ctx context.Context) error {
+		rows, err := we.db.Query(ctx, `
+			SELECT run_id, step_id FROM workflow_run_steps
+			WHERE status = 'awaiting_approval' AND approval_deadline < NOW()
+		`)
+		if err != nil {
+			return fmt.Errorf("querying expired approvals: %w", err)
+		}
+		defer rows.Close()
+
+		var expiredCount int
+		for rows.Next() {
+			var runID, stepID string
+			if err := rows.Scan(&runID, &stepID); err != nil {
+				log.Printf("error scanning expired approval: %v", err)
+				continue
+			}
+
+			// Mark step as failed due to timeout
+			now := time.Now().UTC()
+			if err := we.updateStepStatus(ctx, runID, stepID, "failed", &now, nil); err != nil {
+				log.Printf("error marking step %s as failed due to approval timeout: %v", stepID, err)
+				continue
+			}
+
+			// Mark workflow run as cancelled
+			if err := we.updateWorkflowRunStatus(ctx, runID, "cancelled", nil, &now); err != nil {
+				log.Printf("error marking workflow run %s as cancelled: %v", runID, err)
+			}
+
+			log.Printf("step %s in run %s cancelled due to approval timeout", stepID, runID)
+			expiredCount++
+		}
+
+		if expiredCount > 0 {
+			log.Printf("processed %d expired approvals", expiredCount)
+		}
+
+		return rows.Err()
+	}

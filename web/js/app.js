@@ -1212,6 +1212,13 @@
         if (route === 'sessions') {
             show($('#page-sessions'));
             loadSessions();
+        } else if (route === 'workflows') {
+            show($('#page-workflows'));
+            loadWorkflowRuns();
+        } else if (route.startsWith('workflows/')) {
+            const runId = route.split('/')[1];
+            show($('#page-workflow-detail'));
+            loadWorkflowDetail(runId);
         } else if (route === 'task/new') {
             show($('#page-task-new'));
             hide($('#task-error'));
@@ -2053,6 +2060,308 @@
                 hide(container);
             }
         });
+    });
+
+    // ---------------------
+    // Workflow Runs
+    // ---------------------
+    async function loadWorkflowRuns() {
+        const loading = $('#workflow-runs-loading');
+        const table = $('#workflow-runs-table');
+        const tbody = $('#workflow-runs-tbody');
+        const empty = $('#workflow-runs-empty');
+
+        show(loading);
+        hide(table);
+        hide(empty);
+
+        try {
+            const resp = await api('GET', '/api/v1/workflow-runs');
+            if (!resp.ok) {
+                throw new Error('Failed to load workflow runs');
+            }
+
+            const data = await resp.json();
+            const runs = data.workflow_runs || [];
+
+            if (runs.length === 0) {
+                hide(loading);
+                show(empty);
+                return;
+            }
+
+            tbody.innerHTML = '';
+            runs.forEach(run => {
+                const statusClass = getStatusClass(run.status);
+                const statusLabel = formatStatus(run.status);
+                const startedAt = run.started_at ? formatTime(run.started_at) : '-';
+
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td style="text-align:center;">
+                        <div class="status-indicator status-${statusClass}"></div>
+                    </td>
+                    <td>
+                        <div class="session-info">
+                            <div class="session-id">${escapeHtml(run.id.substring(0, 12))}</div>
+                            <div class="session-meta">${escapeHtml(run.workflow_id.substring(0, 20))}...</div>
+                        </div>
+                    </td>
+                    <td>
+                        <span class="status-badge status-${statusClass}">${statusLabel}</span>
+                    </td>
+                    <td>
+                        <div>${escapeHtml(run.trigger_type || '')}</div>
+                        <div class="session-meta">${escapeHtml(run.trigger_ref || '')}</div>
+                    </td>
+                    <td>${startedAt}</td>
+                    <td style="text-align:center;">
+                        <button class="btn btn-small btn-outline" onclick="showWorkflowDetail('${run.id}')">
+                            View
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            hide(loading);
+            show(table);
+
+        } catch (error) {
+            hide(loading);
+            console.error('Error loading workflow runs:', error);
+            empty.innerHTML = '<p>Error loading workflow runs. Please try again.</p>';
+            show(empty);
+        }
+    }
+
+    function showWorkflowDetail(runId) {
+        window.location.hash = `#workflows/${runId}`;
+    }
+
+    // ---------------------
+    // Workflow Detail
+    // ---------------------
+    async function loadWorkflowDetail(runId) {
+        const loading = $('#workflow-detail-loading');
+        const content = $('#workflow-detail-content');
+
+        show(loading);
+        hide(content);
+
+        try {
+            const resp = await api('GET', `/api/v1/workflow-runs/${runId}`);
+            if (!resp.ok) {
+                throw new Error('Failed to load workflow details');
+            }
+
+            const run = await resp.json();
+
+            // Update summary
+            $('#workflow-status').textContent = formatStatus(run.status);
+            $('#workflow-status').className = `status-badge status-${getStatusClass(run.status)}`;
+            $('#workflow-trigger').textContent = `${run.trigger_type || 'Manual'} - ${run.trigger_ref || 'N/A'}`;
+            $('#workflow-started').textContent = run.started_at ? formatTime(run.started_at) : '-';
+            $('#workflow-finished').textContent = run.finished_at ? formatTime(run.finished_at) : '-';
+
+            // Update steps
+            const stepsContainer = $('#workflow-steps-container');
+            stepsContainer.innerHTML = '';
+
+            if (run.steps && run.steps.length > 0) {
+                run.steps.forEach(step => {
+                    const stepElement = createWorkflowStepElement(step, runId);
+                    stepsContainer.appendChild(stepElement);
+                });
+            } else {
+                stepsContainer.innerHTML = '<p>No steps found for this workflow run.</p>';
+            }
+
+            hide(loading);
+            show(content);
+
+        } catch (error) {
+            hide(loading);
+            console.error('Error loading workflow details:', error);
+            content.innerHTML = '<div class="error-message">Error loading workflow details. Please try again.</div>';
+            show(content);
+        }
+    }
+
+    function createWorkflowStepElement(step, runId) {
+        const div = document.createElement('div');
+        div.className = `workflow-step ${step.status === 'awaiting_approval' ? 'awaiting-approval' : ''}`;
+
+        const statusClass = getStatusClass(step.status);
+        const statusLabel = formatStatus(step.status);
+        const startedAt = step.started_at ? formatTime(step.started_at) : '-';
+        const finishedAt = step.finished_at ? formatTime(step.finished_at) : '-';
+
+        let approvalSection = '';
+        if (step.status === 'awaiting_approval') {
+            const deadline = step.approval_deadline ? new Date(step.approval_deadline) : null;
+            const isExpired = deadline && deadline < new Date();
+
+            approvalSection = `
+                <div class="approval-section">
+                    <h4>🔒 Approval Required</h4>
+                    <p>This step requires manual approval before it can proceed.</p>
+                    <div class="approval-actions">
+                        <button class="btn-approve" onclick="approveStep('${runId}', '${step.step_id}')">
+                            ✓ Approve
+                        </button>
+                        <button class="btn-reject" onclick="rejectStep('${runId}', '${step.step_id}')">
+                            ✗ Reject
+                        </button>
+                    </div>
+                    ${deadline ? `
+                        <div class="approval-deadline ${isExpired ? 'expired' : ''}">
+                            ${isExpired ? 'Expired:' : 'Deadline:'} ${formatTime(deadline)}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        let outputsSection = '';
+        if (step.outputs && Object.keys(step.outputs).length > 0) {
+            outputsSection = `
+                <div class="workflow-step-outputs">
+                    <strong>Outputs:</strong><br>
+                    ${escapeHtml(JSON.stringify(step.outputs, null, 2))}
+                </div>
+            `;
+        }
+
+        div.innerHTML = `
+            <div class="workflow-step-header">
+                <div class="workflow-step-title">${escapeHtml(step.step_id)}</div>
+                <span class="workflow-step-status status-badge status-${statusClass}">${statusLabel}</span>
+            </div>
+            <div class="workflow-step-body">
+                <div class="workflow-step-meta">
+                    <span>Started: ${startedAt}</span>
+                    <span>Finished: ${finishedAt}</span>
+                    ${step.session_id ? `<span>Session: ${step.session_id.substring(0, 12)}</span>` : ''}
+                </div>
+                ${approvalSection}
+                ${outputsSection}
+            </div>
+        `;
+
+        return div;
+    }
+
+    // Workflow approval functions (global scope for onclick handlers)
+    window.approveStep = async function(runId, stepId) {
+        try {
+            const resp = await api('POST', `/api/v1/workflow-runs/${runId}/steps/${stepId}?action=approve`);
+            if (!resp.ok) {
+                const error = await resp.json();
+                throw new Error(error.error || 'Failed to approve step');
+            }
+
+            // Refresh the workflow detail view
+            loadWorkflowDetail(runId);
+
+            // Show success message
+            showNotification('Step approved successfully', 'success');
+        } catch (error) {
+            console.error('Error approving step:', error);
+            showNotification(`Error approving step: ${error.message}`, 'error');
+        }
+    };
+
+    window.rejectStep = async function(runId, stepId) {
+        if (!confirm('Are you sure you want to reject this step? This will fail the entire workflow.')) {
+            return;
+        }
+
+        try {
+            const resp = await api('POST', `/api/v1/workflow-runs/${runId}/steps/${stepId}?action=reject`);
+            if (!resp.ok) {
+                const error = await resp.json();
+                throw new Error(error.error || 'Failed to reject step');
+            }
+
+            // Refresh the workflow detail view
+            loadWorkflowDetail(runId);
+
+            // Show success message
+            showNotification('Step rejected successfully', 'success');
+        } catch (error) {
+            console.error('Error rejecting step:', error);
+            showNotification(`Error rejecting step: ${error.message}`, 'error');
+        }
+    };
+
+    // Helper functions for workflow status formatting
+    function getStatusClass(status) {
+        switch (status) {
+            case 'running': return 'running';
+            case 'completed': return 'completed';
+            case 'failed': return 'error';
+            case 'cancelled': return 'cancelled';
+            case 'awaiting_approval': return 'awaiting_approval';
+            case 'pending': return 'neutral';
+            case 'skipped': return 'neutral';
+            default: return 'neutral';
+        }
+    }
+
+    function formatStatus(status) {
+        switch (status) {
+            case 'awaiting_approval': return 'Awaiting Approval';
+            case 'running': return 'Running';
+            case 'completed': return 'Completed';
+            case 'failed': return 'Failed';
+            case 'cancelled': return 'Cancelled';
+            case 'pending': return 'Pending';
+            case 'skipped': return 'Skipped';
+            default: return status;
+        }
+    }
+
+    function showNotification(message, type = 'info') {
+        // Simple notification system - could be enhanced
+        const notification = document.createElement('div');
+        notification.className = `notification notification-${type}`;
+        notification.textContent = message;
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 6px;
+            color: white;
+            font-weight: 500;
+            z-index: 10000;
+            transition: opacity 0.3s ease;
+        `;
+
+        if (type === 'success') {
+            notification.style.background = '#2ecc71';
+        } else if (type === 'error') {
+            notification.style.background = '#e74c3c';
+        } else {
+            notification.style.background = '#3498db';
+        }
+
+        document.body.appendChild(notification);
+
+        setTimeout(() => {
+            notification.style.opacity = '0';
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 300);
+        }, 3000);
+    }
+
+    // Add event listener for workflow back button
+    $('#workflow-back-btn').addEventListener('click', () => {
+        window.location.hash = '#workflows';
     });
 
     // ---------------------

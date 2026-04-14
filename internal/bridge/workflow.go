@@ -46,7 +46,8 @@ type WorkflowStep struct {
 	Trigger    *EventTrigger          `json:"trigger,omitempty" yaml:"trigger,omitempty"`
 	Needs      []string               `json:"needs,omitempty" yaml:"needs,omitempty"`
 	Condition  string                 `json:"condition,omitempty" yaml:"condition,omitempty"`
-	Approval   string                 `json:"approval,omitempty" yaml:"approval,omitempty"` // "required" or empty
+	Approval        string `json:"approval,omitempty" yaml:"approval,omitempty"`                 // "required" or empty
+	ApprovalTimeout string `json:"approval_timeout,omitempty" yaml:"approval_timeout,omitempty"` // e.g. "72h", "4h", "30m"
 	Outputs    []string               `json:"outputs,omitempty" yaml:"outputs,omitempty"`
 	Inputs     map[string]interface{} `json:"inputs,omitempty" yaml:"inputs,omitempty"`
 	RouteField string                 `json:"route_field,omitempty" yaml:"route_field,omitempty"`        // Field name for routing decisions
@@ -105,6 +106,16 @@ func validateWorkflowSteps(steps []WorkflowStep) error {
 		// Validate approval field
 		if step.Approval != "" && step.Approval != "required" {
 			return fmt.Errorf("workflow step '%s' has invalid approval value '%s' (must be 'required' or empty)", step.ID, step.Approval)
+		}
+
+		// Validate approval timeout
+		if step.ApprovalTimeout != "" {
+			if step.Approval != "required" {
+				return fmt.Errorf("workflow step '%s' has approval_timeout but approval is not required", step.ID)
+			}
+			if err := validateApprovalTimeout(step.ApprovalTimeout); err != nil {
+				return fmt.Errorf("workflow step '%s' has invalid approval_timeout: %w", step.ID, err)
+			}
 		}
 
 		// Validate condition syntax (basic check for template variables)
@@ -547,4 +558,21 @@ func (s *WorkflowStore) ValidateWorkflowAgentReferences(ctx context.Context, wd 
 	}
 
 	return missing
+}
+
+// validateApprovalTimeout validates that an approval timeout string is a valid duration.
+func validateApprovalTimeout(timeout string) error {
+	_, err := time.ParseDuration(timeout)
+	if err != nil {
+		return fmt.Errorf("invalid duration format: %w", err)
+	}
+	return nil
+}
+
+// nilIfEmpty returns nil if the string is empty, otherwise returns the string pointer.
+func nilIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }

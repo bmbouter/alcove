@@ -1,0 +1,49 @@
+name: Production Deployment with Approval
+workflow:
+  - id: build
+    agent: build-agent
+    trigger:
+      github:
+        events: [push]
+        branches: [main]
+    outputs: [artifact_url, build_number]
+
+  - id: deploy-staging
+    agent: deploy-agent
+    needs: [build]
+    inputs:
+      artifact: "{{steps.build.outputs.artifact_url}}"
+    outputs: [staging_url]
+
+  - id: run-tests
+    agent: test-agent
+    needs: [deploy-staging]
+    inputs:
+      target_url: "{{steps.deploy-staging.outputs.staging_url}}"
+    outputs: [test_results, coverage]
+
+  - id: security-scan
+    agent: security-agent
+    needs: [deploy-staging]
+    inputs:
+      target_url: "{{steps.deploy-staging.outputs.staging_url}}"
+    outputs: [scan_results]
+
+  - id: deploy-production
+    agent: deploy-agent
+    needs: [run-tests, security-scan]
+    approval: required
+    approval_timeout: 4h
+    inputs:
+      artifact: "{{steps.build.outputs.artifact_url}}"
+      test_results: "{{steps.run-tests.outputs.test_results}}"
+      security_results: "{{steps.security-scan.outputs.scan_results}}"
+    outputs: [production_url]
+    condition: "steps.run-tests.outcome == 'completed' && steps.security-scan.outcome == 'completed'"
+
+  - id: notify-deployment
+    agent: notification-agent
+    needs: [deploy-production]
+    inputs:
+      deployment_url: "{{steps.deploy-production.outputs.production_url}}"
+      build_number: "{{steps.build.outputs.build_number}}"

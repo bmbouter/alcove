@@ -2419,3 +2419,172 @@ details[open] > .tx-tool-expand-toggle::before {
     background: var(--bg-dark);
     border-top: 1px solid rgba(0,0,0,0.1);
 }
+
+/* === Workflows === */
+.workflow-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.workflow-summary, .workflow-steps {
+    background: var(--bg-card);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    border: 1px solid var(--border);
+}
+
+.workflow-info {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.info-item label {
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.workflow-step {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 16px;
+    overflow: hidden;
+}
+
+.workflow-step.awaiting-approval {
+    border-color: #f39c12;
+    box-shadow: 0 0 0 1px rgba(243, 156, 18, 0.3);
+}
+
+.workflow-step-header {
+    padding: 16px;
+    background: var(--bg-input);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+}
+
+.workflow-step-title {
+    font-weight: 600;
+    color: var(--text);
+}
+
+.workflow-step-status {
+    padding: 4px 8px;
+    border-radius: var(--radius);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.workflow-step-body {
+    padding: 16px;
+    background: var(--bg-card);
+}
+
+.workflow-step-meta {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.workflow-step-meta span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.approval-section {
+    background: rgba(243, 156, 18, 0.1);
+    border: 1px solid rgba(243, 156, 18, 0.3);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-top: 12px;
+}
+
+.approval-section h4 {
+    color: #f39c12;
+    margin-bottom: 8px;
+}
+
+.approval-section p {
+    margin-bottom: 12px;
+    color: var(--text-muted);
+}
+
+.approval-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-approve {
+    background: #2ecc71;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: var(--transition);
+}
+
+.btn-approve:hover {
+    background: #27ae60;
+}
+
+.btn-reject {
+    background: #e74c3c;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: var(--transition);
+}
+
+.btn-reject:hover {
+    background: #c0392b;
+}
+
+.approval-deadline {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 8px;
+}
+
+.approval-deadline.expired {
+    color: #e74c3c;
+    font-weight: 500;
+}
+
+.workflow-step-outputs {
+    margin-top: 12px;
+    padding: 12px;
+    background: var(--bg-input);
+    border-radius: var(--radius);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.status-badge.awaiting_approval {
+    background: rgba(243, 156, 18, 0.2);
+    color: #f39c12;
+}

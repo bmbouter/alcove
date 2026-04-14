@@ -209,6 +209,18 @@ func main() {
 	if err := workflowEngine.RecoverWorkflows(context.Background()); err != nil {
 		log.Printf("error recovering workflows: %v", err)
 	}
+
+	// Start approval timeout processor
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute) // Check every minute
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := workflowEngine.ProcessExpiredApprovals(context.Background()); err != nil {
+				log.Printf("error processing expired approvals: %v", err)
+			}
+		}
+	}()
+
 	log.Println("workflow engine initialized")
 
 	// Create and start the scheduler.
@@ -222,7 +234,7 @@ func main() {
 	defer syncer.Stop()
 	log.Println("agent repo syncer started")
 
-	api := bridge.NewAPI(dispatcher, dbpool, cfg, scheduler, credStore, toolStore, profileStore, settingsStore, bridgeLLM, defStore, syncer, store)
+	api := bridge.NewAPI(dispatcher, dbpool, cfg, scheduler, credStore, toolStore, profileStore, settingsStore, bridgeLLM, defStore, syncer, store, workflowEngine)
 
 	// Build HTTP server.
 	mux := http.NewServeMux()

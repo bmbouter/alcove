@@ -56,6 +56,7 @@
             <nav class="top-bar-nav" aria-label="Main navigation">
                 <a href="#task/new" class="nav-tab" data-tab="task/new">New Session</a>
                 <a href="#sessions" class="nav-tab" data-tab="sessions">Sessions</a>
+                <a href="#workflows" class="nav-tab" data-tab="workflows">Workflows</a>
                 <a href="#schedules" class="nav-tab" data-tab="schedules">Schedules</a>
                 <a href="#credentials" class="nav-tab" data-tab="credentials">Credentials</a>
                 <a href="#security" class="nav-tab" data-tab="security">Security</a>
@@ -132,6 +133,88 @@
                         <div class="spinner"></div>
                         <p>Loading sessions...</p>
                     </div>
+                </div>
+            </div>
+
+            <!-- Workflows -->
+            <div id="page-workflows" class="page" hidden>
+                <div class="page-header">
+                    <h2>Workflow Runs</h2>
+                    <div class="filters">
+                        <select id="workflow-filter-status" class="input input-small" aria-label="Filter by status">
+                            <option value="">All Statuses</option>
+                            <option value="running">Running</option>
+                            <option value="awaiting_approval">Awaiting Approval</option>
+                            <option value="completed">Completed</option>
+                            <option value="failed">Failed</option>
+                            <option value="cancelled">Cancelled</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="workflow-runs-table-container" class="table-container">
+                    <table class="data-table" id="workflow-runs-table">
+                        <thead>
+                            <tr>
+                                <th style="width:40px"></th>
+                                <th>Workflow Run</th>
+                                <th>Status</th>
+                                <th>Trigger</th>
+                                <th>Started</th>
+                                <th style="width:100px">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="workflow-runs-tbody"></tbody>
+                    </table>
+                    <div id="workflow-runs-empty" hidden>
+                        <p>No workflow runs found.</p>
+                    </div>
+                    <div id="workflow-runs-loading" class="loading-state" hidden>
+                        <div class="spinner"></div>
+                        <p>Loading workflow runs...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Workflow Detail -->
+            <div id="page-workflow-detail" class="page" hidden>
+                <div class="page-header">
+                    <h2>Workflow Run Detail</h2>
+                    <button id="workflow-back-btn" class="btn btn-outline">← Back to Workflows</button>
+                </div>
+
+                <div id="workflow-detail-content" class="workflow-detail">
+                    <div class="workflow-summary card">
+                        <h3>Summary</h3>
+                        <div class="workflow-info">
+                            <div class="info-item">
+                                <label>Status:</label>
+                                <span id="workflow-status" class="status-badge"></span>
+                            </div>
+                            <div class="info-item">
+                                <label>Trigger:</label>
+                                <span id="workflow-trigger"></span>
+                            </div>
+                            <div class="info-item">
+                                <label>Started:</label>
+                                <span id="workflow-started"></span>
+                            </div>
+                            <div class="info-item">
+                                <label>Finished:</label>
+                                <span id="workflow-finished"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="workflow-steps card">
+                        <h3>Steps</h3>
+                        <div id="workflow-steps-container"></div>
+                    </div>
+                </div>
+
+                <div id="workflow-detail-loading" class="loading-state" hidden>
+                    <div class="spinner"></div>
+                    <p>Loading workflow details...</p>
                 </div>
             </div>
 
