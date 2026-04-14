@@ -19,6 +19,10 @@ prompt: |
 
   Write JSON payloads to files before POSTing to avoid shell escaping issues.
 
+  CRITICAL: NEVER use https://api.github.com directly. ALWAYS use
+  $GITHUB_API_URL which routes through the Gate proxy. The token is a
+  dummy placeholder that only works through Gate.
+
   ## CRITICAL: Shell variable scope
 
   Each Bash tool call runs in a SEPARATE shell. Variables set in one call
