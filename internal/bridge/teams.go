@@ -173,6 +173,7 @@ func (ts *TeamStore) DeleteTeam(ctx context.Context, id string) error {
 }
 
 // AddMember adds a user to a team. Cannot add members to personal teams.
+// The username must correspond to an existing user in auth_users.
 func (ts *TeamStore) AddMember(ctx context.Context, teamID, username string) error {
 	// Verify team is not personal.
 	var isPersonal bool
@@ -182,6 +183,16 @@ func (ts *TeamStore) AddMember(ctx context.Context, teamID, username string) err
 	}
 	if isPersonal {
 		return fmt.Errorf("cannot add members to a personal team")
+	}
+
+	// Verify user exists.
+	var exists bool
+	err = ts.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM auth_users WHERE username = $1)`, username).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("checking user existence: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("user %q does not exist", username)
 	}
 
 	_, err = ts.db.Exec(ctx,
