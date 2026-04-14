@@ -1278,7 +1278,7 @@
             loadSessionDetail(id);
         } else if (route === 'workflows') {
             show($('#page-workflows'));
-            loadWorkflowRuns();
+            loadWorkflowsPage();
         } else if (route.startsWith('workflow-run/')) {
             var wfRunId = route.replace('workflow-run/', '');
             show($('#page-workflow-detail'));
@@ -6069,56 +6069,226 @@
     // Workflows
     // ---------------------
 
-    async function loadWorkflowRuns() {
-        var list = $('#workflow-runs-list');
-        var empty = $('#workflow-runs-empty');
-        var loading = $('#workflow-runs-loading');
+    async function loadWorkflowsPage() {
+        var definitionsList = $('#workflow-definitions-list');
+        var definitionsEmpty = $('#workflow-definitions-empty');
+        var definitionsLoading = $('#workflow-definitions-loading');
 
-        list.innerHTML = '';
-        hide(empty);
-        show(loading);
+        var runsList = $('#workflow-runs-list');
+        var runsEmpty = $('#workflow-runs-empty');
+        var runsLoading = $('#workflow-runs-loading');
+
+        // Clear both sections
+        definitionsList.innerHTML = '';
+        runsList.innerHTML = '';
+        hide(definitionsEmpty);
+        hide(runsEmpty);
+        show(definitionsLoading);
+        show(runsLoading);
 
         try {
-            var statusFilter = $('#workflow-filter-status') ? $('#workflow-filter-status').value : '';
-            var url = '/api/v1/workflow-runs';
-            if (statusFilter) url += '?status=' + encodeURIComponent(statusFilter);
+            // Fetch both workflows and workflow runs in parallel
+            var results = await Promise.allSettled([
+                api('GET', '/api/v1/workflows'),
+                api('GET', '/api/v1/workflow-runs' + (($('#workflow-filter-status') && $('#workflow-filter-status').value) ? '?status=' + encodeURIComponent($('#workflow-filter-status').value) : ''))
+            ]);
 
-            var resp = await api('GET', url);
-            var data = await resp.json();
-            hide(loading);
+            // Process workflow definitions
+            if (results[0].status === 'fulfilled' && results[0].value.ok) {
+                var workflowsData = await results[0].value.json();
+                var workflows = Array.isArray(workflowsData) ? workflowsData : (workflowsData.workflows || workflowsData.definitions || []);
+                hide(definitionsLoading);
 
-            if (!data.workflow_runs || data.workflow_runs.length === 0) {
-                show(empty);
-                return;
+                if (workflows.length === 0) {
+                    show(definitionsEmpty);
+                } else {
+                    workflows.forEach(function (workflow) {
+                        renderWorkflowDefinitionCard(workflow, definitionsList);
+                    });
+                }
+            } else {
+                hide(definitionsLoading);
+                definitionsList.innerHTML = '<div class="error-message">Failed to load workflow definitions.</div>';
             }
 
-            data.workflow_runs.forEach(function (run) {
-                var card = document.createElement('div');
-                card.className = 'workflow-run-card';
-                card.onclick = function () { navigate('workflow-run/' + run.id); };
+            // Process workflow runs
+            if (results[1].status === 'fulfilled' && results[1].value.ok) {
+                var runsData = await results[1].value.json();
+                var runs = runsData.workflow_runs || [];
+                hide(runsLoading);
 
-                var statusClass = 'badge-' + (run.status === 'awaiting_approval' ? 'cancelled' : run.status === 'failed' ? 'error' : run.status);
-                var startTime = run.started_at ? new Date(run.started_at).toLocaleString() : 'Not started';
+                if (runs.length === 0) {
+                    show(runsEmpty);
+                } else {
+                    runs.forEach(function (run) {
+                        renderWorkflowRunCard(run, runsList);
+                    });
+                }
+            } else {
+                hide(runsLoading);
+                runsList.innerHTML = '<div class="error-message">Failed to load workflow runs.</div>';
+            }
 
-                card.innerHTML =
-                    '<div class="workflow-run-header">' +
-                        '<span class="workflow-run-name">Run ' + escapeHtml(run.id.substring(0, 8)) + '</span>' +
-                        '<span class="badge ' + statusClass + '">' + escapeHtml(run.status) + '</span>' +
-                    '</div>' +
-                    '<div class="workflow-run-meta">' +
-                        '<span>Started: ' + escapeHtml(startTime) + '</span>' +
-                        (run.trigger_type ? '<span>Trigger: ' + escapeHtml(run.trigger_type) + '</span>' : '') +
-                        (run.current_step ? '<span>Current: ' + escapeHtml(run.current_step) + '</span>' : '') +
-                    '</div>';
-
-                list.appendChild(card);
-            });
         } catch (err) {
-            hide(loading);
+            hide(definitionsLoading);
+            hide(runsLoading);
             if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
-                list.innerHTML = '<div class="error-message">Failed to load workflow runs.</div>';
+                definitionsList.innerHTML = '<div class="error-message">Failed to load workflow definitions.</div>';
+                runsList.innerHTML = '<div class="error-message">Failed to load workflow runs.</div>';
             }
         }
+    }
+
+    function renderWorkflowDefinitionCard(workflow, container) {
+        var card = document.createElement('div');
+        card.className = 'workflow-def-card';
+
+        var stepCount = workflow.steps ? Object.keys(workflow.steps).length : 0;
+        var dag = buildMiniDAG(workflow.steps || {});
+        var triggerInfo = buildTriggerInfo(workflow.trigger);
+        var lastSynced = workflow.last_synced ? new Date(workflow.last_synced).toLocaleString() : 'Never';
+        var sourceRepo = workflow.source_repo || 'Unknown';
+
+        var syncError = '';
+        if (workflow.sync_error) {
+            syncError = '<div class="workflow-def-error">⚠️ Sync Error: ' + escapeHtml(workflow.sync_error) + '</div>';
+        }
+
+        card.innerHTML =
+            '<div class="workflow-def-header">' +
+                '<div>' +
+                    '<div class="workflow-def-name">' + escapeHtml(workflow.name || 'Unnamed Workflow') + '</div>' +
+                    '<div class="workflow-def-step-count">' + stepCount + ' step' + (stepCount === 1 ? '' : 's') + '</div>' +
+                '</div>' +
+                '<div class="workflow-def-actions">' +
+                    '<button class="btn btn-small btn-outline" disabled>Trigger Manually</button>' +
+                '</div>' +
+            '</div>' +
+            dag +
+            '<div class="workflow-def-meta">' +
+                '<span>📁 ' + escapeHtml(sourceRepo) + '</span>' +
+                '<span>🔄 Last synced: ' + escapeHtml(lastSynced) + '</span>' +
+                (triggerInfo ? '<span class="workflow-def-trigger-info">' + triggerInfo + '</span>' : '') +
+            '</div>' +
+            syncError;
+
+        container.appendChild(card);
+    }
+
+    function renderWorkflowRunCard(run, container) {
+        var card = document.createElement('div');
+        card.className = 'workflow-run-card';
+        card.onclick = function () { navigate('workflow-run/' + run.id); };
+
+        var statusClass = 'badge-' + (run.status === 'awaiting_approval' ? 'cancelled' : run.status === 'failed' ? 'error' : run.status);
+        var startTime = run.started_at ? new Date(run.started_at).toLocaleString() : 'Not started';
+
+        card.innerHTML =
+            '<div class="workflow-run-header">' +
+                '<span class="workflow-run-name">Run ' + escapeHtml(run.id.substring(0, 8)) + '</span>' +
+                '<span class="badge ' + statusClass + '">' + escapeHtml(run.status) + '</span>' +
+            '</div>' +
+            '<div class="workflow-run-meta">' +
+                '<span>Started: ' + escapeHtml(startTime) + '</span>' +
+                (run.trigger_type ? '<span>Trigger: ' + escapeHtml(run.trigger_type) + '</span>' : '') +
+                (run.current_step ? '<span>Current: ' + escapeHtml(run.current_step) + '</span>' : '') +
+            '</div>';
+
+        container.appendChild(card);
+    }
+
+    function buildMiniDAG(steps) {
+        if (!steps || Object.keys(steps).length === 0) {
+            return '<div class="workflow-dag"><span class="workflow-dag-step">No steps defined</span></div>';
+        }
+
+        // Build dependency graph
+        var stepNames = Object.keys(steps);
+        var dependencyGraph = {};
+        var inDegree = {};
+
+        stepNames.forEach(function(stepName) {
+            dependencyGraph[stepName] = [];
+            inDegree[stepName] = 0;
+        });
+
+        stepNames.forEach(function(stepName) {
+            var step = steps[stepName];
+            var needs = step.needs || [];
+            if (typeof needs === 'string') needs = [needs];
+            needs.forEach(function(dependency) {
+                if (dependencyGraph[dependency]) {
+                    dependencyGraph[dependency].push(stepName);
+                    inDegree[stepName]++;
+                }
+            });
+        });
+
+        // Topological sort to get execution order
+        var executionOrder = [];
+        var queue = [];
+
+        stepNames.forEach(function(stepName) {
+            if (inDegree[stepName] === 0) {
+                queue.push(stepName);
+            }
+        });
+
+        while (queue.length > 0) {
+            var current = queue.shift();
+            executionOrder.push(current);
+
+            dependencyGraph[current].forEach(function(dependent) {
+                inDegree[dependent]--;
+                if (inDegree[dependent] === 0) {
+                    queue.push(dependent);
+                }
+            });
+        }
+
+        // If there are remaining steps, add them (handles cycles)
+        stepNames.forEach(function(stepName) {
+            if (executionOrder.indexOf(stepName) === -1) {
+                executionOrder.push(stepName);
+            }
+        });
+
+        var dagHtml = '<div class="workflow-dag">';
+        executionOrder.forEach(function(stepName, index) {
+            var step = steps[stepName];
+            var hasApproval = step.approval === 'required';
+            var approvalIcon = hasApproval ? '<span class="approval-icon">🔒</span>' : '';
+
+            dagHtml += '<span class="workflow-dag-step' + (hasApproval ? ' has-approval' : '') + '">' +
+                       escapeHtml(stepName) + approvalIcon + '</span>';
+
+            if (index < executionOrder.length - 1) {
+                dagHtml += '<span class="workflow-dag-arrow">→</span>';
+            }
+        });
+        dagHtml += '</div>';
+
+        return dagHtml;
+    }
+
+    function buildTriggerInfo(trigger) {
+        if (!trigger) return '🔧 Manual only';
+
+        var info = [];
+        if (trigger.events && trigger.events.length > 0) {
+            info.push('📡 Events: ' + trigger.events.join(', '));
+        }
+        if (trigger.labels && trigger.labels.length > 0) {
+            info.push('🏷️ Labels: ' + trigger.labels.join(', '));
+        }
+        if (trigger.repos && trigger.repos.length > 0) {
+            info.push('📦 Repos: ' + trigger.repos.join(', '));
+        }
+        if (trigger.schedule) {
+            info.push('⏰ Schedule: ' + trigger.schedule);
+        }
+
+        return info.length > 0 ? info.join(' • ') : '🔧 Manual only';
     }
 
     // Attach filter change handler
@@ -6126,7 +6296,7 @@
         var filterEl = $('#workflow-filter-status');
         if (filterEl) {
             filterEl.addEventListener('change', function () {
-                loadWorkflowRuns();
+                loadWorkflowsPage();
             });
         }
     })();
