@@ -410,19 +410,20 @@ func (s *WorkflowStore) UpsertWorkflow(ctx context.Context, wd *WorkflowDefiniti
 	now := time.Now().UTC()
 
 	_, err = s.db.Exec(ctx, `
-		INSERT INTO workflows (id, name, source_repo, source_file, source_key, raw_yaml, parsed, sync_error, last_synced, team_id, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		INSERT INTO workflows (id, name, source_repo, source_file, source_key, raw_yaml, parsed, definition, sync_error, last_synced, team_id, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		ON CONFLICT (source_key, team_id) DO UPDATE SET
 			name = EXCLUDED.name,
 			source_repo = EXCLUDED.source_repo,
 			source_file = EXCLUDED.source_file,
 			raw_yaml = EXCLUDED.raw_yaml,
 			parsed = EXCLUDED.parsed,
+			definition = EXCLUDED.definition,
 			sync_error = EXCLUDED.sync_error,
 			last_synced = EXCLUDED.last_synced,
 			team_id = EXCLUDED.team_id,
 			updated_at = EXCLUDED.updated_at
-	`, id, wd.Name, wd.SourceRepo, wd.SourceFile, sourceKey, rawYAML, parsedJSON, nilIfEmpty(syncError), now, wd.TeamID, now, now)
+	`, id, wd.Name, wd.SourceRepo, wd.SourceFile, sourceKey, rawYAML, parsedJSON, parsedJSON, nilIfEmpty(syncError), now, wd.TeamID, now, now)
 	if err != nil {
 		return fmt.Errorf("upserting workflow: %w", err)
 	}
