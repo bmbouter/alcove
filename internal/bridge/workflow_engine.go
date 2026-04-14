@@ -66,14 +66,17 @@ type WorkflowRun struct {
 
 // WorkflowRunStep represents a single step execution within a workflow run.
 type WorkflowRunStep struct {
-	ID         string                 `json:"id"`
-	RunID      string                 `json:"run_id"`
-	StepID     string                 `json:"step_id"`
-	SessionID  string                 `json:"session_id,omitempty"`
-	Status     string                 `json:"status"` // pending, running, completed, failed, skipped, awaiting_approval
-	Outputs    map[string]interface{} `json:"outputs,omitempty"`
-	StartedAt  *time.Time             `json:"started_at,omitempty"`
-	FinishedAt *time.Time             `json:"finished_at,omitempty"`
+	ID              string                 `json:"id"`
+	RunID           string                 `json:"run_id"`
+	StepID          string                 `json:"step_id"`
+	SessionID       string                 `json:"session_id,omitempty"`
+	Status          string                 `json:"status"` // pending, running, completed, failed, skipped, awaiting_approval
+	Outputs         map[string]interface{} `json:"outputs,omitempty"`
+	StartedAt       *time.Time             `json:"started_at,omitempty"`
+	FinishedAt      *time.Time             `json:"finished_at,omitempty"`
+	TokensIn        int                    `json:"tokens_in,omitempty"`        // Input token count for cost tracking
+	TokensOut       int                    `json:"tokens_out,omitempty"`       // Output token count for cost tracking
+	DurationSeconds int                    `json:"duration_seconds,omitempty"` // Step execution duration for performance monitoring
 }
 
 // StartWorkflowRun creates a new workflow run and dispatches initial steps.
@@ -245,14 +248,17 @@ func (we *WorkflowEngine) OnStepCompletion(ctx context.Context, sessionID string
 		outputs = make(map[string]interface{})
 	}
 
-	// Update step status
+	// Extract token counts and duration from session data
+	tokensIn, tokensOut, durationSeconds := we.extractStepMetrics(ctx, sessionID, step.StartedAt)
+
+	// Update step status with token tracking information
 	now := time.Now().UTC()
 	stepStatus := "completed"
 	if status != "completed" || (exitCode != nil && *exitCode != 0) {
 		stepStatus = "failed"
 	}
 
-	if err := we.updateStepStatus(ctx, run.ID, step.StepID, stepStatus, &now, outputs); err != nil {
+	if err := we.updateStepStatusWithTokens(ctx, run.ID, step.StepID, stepStatus, &now, outputs, tokensIn, tokensOut, durationSeconds); err != nil {
 		return fmt.Errorf("updating step status: %w", err)
 	}
 
@@ -916,9 +922,9 @@ func (we *WorkflowEngine) insertWorkflowRunStep(ctx context.Context, step *Workf
 	}
 
 	_, err = we.db.Exec(ctx, `
-		INSERT INTO workflow_run_steps (id, run_id, step_id, session_id, status, outputs, started_at, finished_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, step.ID, step.RunID, step.StepID, step.SessionID, step.Status, outputsJSON, step.StartedAt, step.FinishedAt)
+		INSERT INTO workflow_run_steps (id, run_id, step_id, session_id, status, outputs, started_at, finished_at, tokens_in, tokens_out, duration_seconds)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`, step.ID, step.RunID, step.StepID, step.SessionID, step.Status, outputsJSON, step.StartedAt, step.FinishedAt, step.TokensIn, step.TokensOut, step.DurationSeconds)
 
 	return err
 }
@@ -936,6 +942,11 @@ func (we *WorkflowEngine) updateWorkflowRunStatus(ctx context.Context, runID, st
 
 // updateStepStatus updates a workflow run step's status and outputs.
 func (we *WorkflowEngine) updateStepStatus(ctx context.Context, runID, stepID, status string, finishedAt *time.Time, outputs map[string]interface{}) error {
+	return we.updateStepStatusWithTokens(ctx, runID, stepID, status, finishedAt, outputs, 0, 0, 0)
+}
+
+// updateStepStatusWithTokens updates a workflow run step's status, outputs, and token tracking information.
+func (we *WorkflowEngine) updateStepStatusWithTokens(ctx context.Context, runID, stepID, status string, finishedAt *time.Time, outputs map[string]interface{}, tokensIn, tokensOut, durationSeconds int) error {
 	var outputsJSON []byte
 	var err error
 	if outputs != nil {
@@ -947,9 +958,9 @@ func (we *WorkflowEngine) updateStepStatus(ctx context.Context, runID, stepID, s
 
 	_, err = we.db.Exec(ctx, `
 		UPDATE workflow_run_steps
-		SET status = $3, finished_at = $4, outputs = $5
+		SET status = $3, finished_at = $4, outputs = $5, tokens_in = $6, tokens_out = $7, duration_seconds = $8
 		WHERE run_id = $1 AND step_id = $2
-	`, runID, stepID, status, finishedAt, outputsJSON)
+	`, runID, stepID, status, finishedAt, outputsJSON, tokensIn, tokensOut, durationSeconds)
 
 	return err
 }
@@ -979,7 +990,8 @@ func (we *WorkflowEngine) getStepStatus(ctx context.Context, runID, stepID strin
 // getWorkflowRunSteps gets all steps for a workflow run.
 func (we *WorkflowEngine) getWorkflowRunSteps(ctx context.Context, runID string) ([]WorkflowRunStep, error) {
 	rows, err := we.db.Query(ctx, `
-		SELECT id, run_id, step_id, session_id, status, outputs, started_at, finished_at
+		SELECT id, run_id, step_id, session_id, status, outputs, started_at, finished_at,
+		       COALESCE(tokens_in, 0), COALESCE(tokens_out, 0), COALESCE(duration_seconds, 0)
 		FROM workflow_run_steps
 		WHERE run_id = $1
 	`, runID)
@@ -995,7 +1007,7 @@ func (we *WorkflowEngine) getWorkflowRunSteps(ctx context.Context, runID string)
 		var outputsJSON []byte
 		var startedAt, finishedAt *time.Time
 
-		if err := rows.Scan(&step.ID, &step.RunID, &step.StepID, &sessionID, &step.Status, &outputsJSON, &startedAt, &finishedAt); err != nil {
+		if err := rows.Scan(&step.ID, &step.RunID, &step.StepID, &sessionID, &step.Status, &outputsJSON, &startedAt, &finishedAt, &step.TokensIn, &step.TokensOut, &step.DurationSeconds); err != nil {
 			return nil, err
 		}
 
@@ -1022,6 +1034,7 @@ func (we *WorkflowEngine) getWorkflowRunSteps(ctx context.Context, runID string)
 func (we *WorkflowEngine) getStepAndRunBySessionID(ctx context.Context, sessionID string) (*WorkflowRunStep, *WorkflowRun, error) {
 	row := we.db.QueryRow(ctx, `
 		SELECT wrs.id, wrs.run_id, wrs.step_id, wrs.session_id, wrs.status, wrs.outputs, wrs.started_at, wrs.finished_at,
+		       COALESCE(wrs.tokens_in, 0), COALESCE(wrs.tokens_out, 0), COALESCE(wrs.duration_seconds, 0),
 		       wr.id, wr.workflow_id, wr.status, wr.trigger_type, wr.trigger_ref, wr.current_step, wr.step_outputs, wr.owner
 		FROM workflow_run_steps wrs
 		JOIN workflow_runs wr ON wrs.run_id = wr.id
@@ -1036,6 +1049,7 @@ func (we *WorkflowEngine) getStepAndRunBySessionID(ctx context.Context, sessionI
 
 	err := row.Scan(
 		&step.ID, &step.RunID, &step.StepID, &sessionIDPtr, &step.Status, &stepOutputsJSON, &stepStartedAt, &stepFinishedAt,
+		&step.TokensIn, &step.TokensOut, &step.DurationSeconds,
 		&run.ID, &run.WorkflowID, &run.Status, &run.TriggerType, &run.TriggerRef, &run.CurrentStep, &runStepOutputsJSON, &run.Owner,
 	)
 	if err != nil {
@@ -1235,6 +1249,107 @@ func (we *WorkflowEngine) handleFieldBasedRouting(ctx context.Context, run *Work
 	log.Printf("field-based routing: dispatching step %s based on %s=%s", nextStepID, step.RouteField, routeValueStr)
 	if err := we.dispatchStep(ctx, run, nextStepDef, workflow); err != nil {
 		return fmt.Errorf("dispatching routed step %s: %w", nextStepID, err)
+	}
+
+	return nil
+}
+
+// extractStepMetrics extracts token counts and duration from session data.
+// This implements the token/cost tracking requested by @decko's feedback.
+func (we *WorkflowEngine) extractStepMetrics(ctx context.Context, sessionID string, startedAt *time.Time) (tokensIn, tokensOut, durationSeconds int) {
+	// Calculate duration from start time to now
+	if startedAt != nil {
+		duration := time.Since(*startedAt)
+		durationSeconds = int(duration.Seconds())
+	}
+
+	// Extract token counts from proxy log
+	tokensIn, tokensOut = we.extractTokenCounts(ctx, sessionID)
+
+	return tokensIn, tokensOut, durationSeconds
+}
+
+// extractTokenCounts extracts input and output token counts from session proxy logs.
+// This parses LLM API calls to count tokens as mentioned in @decko's comment.
+func (we *WorkflowEngine) extractTokenCounts(ctx context.Context, sessionID string) (tokensIn, tokensOut int) {
+	// Query proxy log for this session
+	var proxyLogJSON []byte
+	err := we.db.QueryRow(ctx, `
+		SELECT COALESCE(proxy_log, '[]'::jsonb) FROM sessions WHERE id = $1
+	`, sessionID).Scan(&proxyLogJSON)
+	if err != nil {
+		log.Printf("error querying proxy log for session %s: %v", sessionID, err)
+		return 0, 0
+	}
+
+	// Parse proxy log entries
+	var logEntries []map[string]interface{}
+	if err := json.Unmarshal(proxyLogJSON, &logEntries); err != nil {
+		log.Printf("error unmarshaling proxy log for session %s: %v", sessionID, err)
+		return 0, 0
+	}
+
+	// Sum up token counts from LLM API calls
+	totalTokensIn := 0
+	totalTokensOut := 0
+
+	for _, entry := range logEntries {
+		// Check if this is an LLM API response with token usage
+		if respData, ok := entry["response"]; ok {
+			if respMap, ok := respData.(map[string]interface{}); ok {
+				// Look for usage information in various LLM API response formats
+				if usage := extractTokenUsage(respMap); usage != nil {
+					if tokensInFloat, ok := usage["prompt_tokens"].(float64); ok {
+						totalTokensIn += int(tokensInFloat)
+					}
+					if tokensOutFloat, ok := usage["completion_tokens"].(float64); ok {
+						totalTokensOut += int(tokensOutFloat)
+					}
+					// Also check for total_tokens if individual counts aren't available
+					if totalFloat, ok := usage["total_tokens"].(float64); ok && totalTokensIn == 0 && totalTokensOut == 0 {
+						// If we only have total tokens, estimate 70% input, 30% output
+						total := int(totalFloat)
+						totalTokensIn = total * 7 / 10
+						totalTokensOut = total * 3 / 10
+					}
+				}
+			}
+		}
+	}
+
+	return totalTokensIn, totalTokensOut
+}
+
+// extractTokenUsage extracts token usage information from an LLM API response.
+// Handles different LLM provider response formats (OpenAI, Anthropic, etc.).
+func extractTokenUsage(response map[string]interface{}) map[string]interface{} {
+	// OpenAI format: response.usage.{prompt_tokens, completion_tokens, total_tokens}
+	if usage, ok := response["usage"].(map[string]interface{}); ok {
+		return usage
+	}
+
+	// Anthropic format: response.usage.{input_tokens, output_tokens}
+	if usage, ok := response["usage"].(map[string]interface{}); ok {
+		// Convert Anthropic field names to OpenAI-compatible names
+		converted := make(map[string]interface{})
+		if inputTokens, ok := usage["input_tokens"]; ok {
+			converted["prompt_tokens"] = inputTokens
+		}
+		if outputTokens, ok := usage["output_tokens"]; ok {
+			converted["completion_tokens"] = outputTokens
+		}
+		if len(converted) > 0 {
+			return converted
+		}
+	}
+
+	// Look for other common token usage patterns
+	for key, value := range response {
+		if strings.Contains(strings.ToLower(key), "token") {
+			if tokenMap, ok := value.(map[string]interface{}); ok {
+				return tokenMap
+			}
+		}
 	}
 
 	return nil
