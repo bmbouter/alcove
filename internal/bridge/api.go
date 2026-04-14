@@ -2724,6 +2724,7 @@ func (a *API) handleWorkflowRunByID(w http.ResponseWriter, r *http.Request) {
 
 func respondJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(v)
 }
