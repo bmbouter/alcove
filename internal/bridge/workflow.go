@@ -31,6 +31,7 @@ import (
 type WorkflowDefinition struct {
 	Name     string         `json:"name" yaml:"name"`
 	Workflow []WorkflowStep `json:"workflow" yaml:"workflow"`
+	Trigger  *EventTrigger  `json:"trigger,omitempty" yaml:"trigger,omitempty"`
 
 	// Metadata (not from YAML).
 	SourceRepo string `json:"source_repo,omitempty"`
@@ -76,6 +77,13 @@ func ParseWorkflowDefinition(data []byte) (*WorkflowDefinition, error) {
 
 	if err := validateWorkflowSteps(wd.Workflow); err != nil {
 		return nil, fmt.Errorf("workflow validation error: %w", err)
+	}
+
+	// Validate workflow-level trigger if present.
+	if wd.Trigger != nil {
+		if wd.Trigger.GitHub != nil && len(wd.Trigger.GitHub.Events) == 0 {
+			return nil, fmt.Errorf("workflow trigger.github block present but events list is empty")
+		}
 	}
 
 	return &wd, nil
