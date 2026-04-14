@@ -117,12 +117,11 @@ func (s *AgentRepoSyncer) resolveUsernameToTeamID(ctx context.Context, username 
 	return teamID
 }
 
-// SyncAll collects all user agent repos and syncs each per-user.
+// SyncAll collects all team agent repos and syncs each per-team.
 func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 	s.syncMu.Lock()
 	defer s.syncMu.Unlock()
 
-	// Collect per-user agent repos from team_settings (new) and user_settings (legacy).
 	type userRepoSet struct {
 		username string
 		teamID   string
@@ -131,18 +130,20 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 	var userRepoSets []userRepoSet
 	totalRepos := 0
 
-	// Collect all users who have agent_repos configured (even if empty — they may need cleanup).
-	allUsersWithRepos := make(map[string][]SkillRepo)
-	// Build a username -> teamID map for later use.
-	usernameToTeamID := make(map[string]string)
+	// Track all teams with repos configured (even if empty — they may need cleanup).
+	allTeamsWithRepos := make(map[string][]SkillRepo) // teamID -> repos
+	// Track which username to use for each team (for credential lookup).
+	teamToUsername := make(map[string]string)
+	handledTeams := make(map[string]bool)
 
-	// First, check team_settings for agent_repos (new path).
+	// Check team_settings for agent_repos (all teams, not just personal).
+	// Pick one member per team to avoid duplicate syncs.
 	teamRows, teamErr := s.db.Query(ctx, `
-		SELECT tm.username, ts.team_id, ts.value
+		SELECT DISTINCT ON (ts.team_id) tm.username, ts.team_id, ts.value
 		FROM team_settings ts
 		JOIN team_members tm ON ts.team_id = tm.team_id
-		JOIN teams t ON ts.team_id = t.id AND t.is_personal = true
 		WHERE ts.key = 'agent_repos'
+		ORDER BY ts.team_id, tm.username
 	`)
 	if teamErr == nil {
 		defer teamRows.Close()
@@ -156,8 +157,9 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 			if json.Unmarshal(value, &repos) != nil {
 				continue
 			}
-			allUsersWithRepos[username] = repos
-			usernameToTeamID[username] = teamID
+			allTeamsWithRepos[teamID] = repos
+			teamToUsername[teamID] = username
+			handledTeams[teamID] = true
 			if len(repos) > 0 {
 				userRepoSets = append(userRepoSets, userRepoSet{username: username, teamID: teamID, repos: repos})
 				totalRepos += len(repos)
@@ -174,14 +176,15 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 			if err := rows.Scan(&username); err != nil {
 				continue
 			}
-			// Skip users already handled via team_settings.
-			if _, handled := usernameToTeamID[username]; handled {
+			teamID := s.resolveUsernameToTeamID(ctx, username)
+			// Skip if this team was already handled via team_settings.
+			if handledTeams[teamID] {
 				continue
 			}
 			if userRepos, err := s.settingsStore.GetUserAgentRepos(ctx, username); err == nil {
-				teamID := s.resolveUsernameToTeamID(ctx, username)
-				allUsersWithRepos[username] = userRepos
-				usernameToTeamID[username] = teamID
+				allTeamsWithRepos[teamID] = userRepos
+				teamToUsername[teamID] = username
+				handledTeams[teamID] = true
 				if len(userRepos) > 0 {
 					userRepoSets = append(userRepoSets, userRepoSet{username: username, teamID: teamID, repos: userRepos})
 					totalRepos += len(userRepos)
@@ -190,22 +193,19 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 		}
 	}
 
-	// Per-user cleanup: remove definitions/profiles for repos the user no longer has configured.
-	for username, repos := range allUsersWithRepos {
-		teamID := usernameToTeamID[username]
-		if teamID == "" {
-			continue
-		}
+	// Per-team cleanup: remove definitions/profiles for repos the team no longer has configured.
+	for teamID, repos := range allTeamsWithRepos {
+		username := teamToUsername[teamID]
 		configuredURLs := make(map[string]bool)
 		for _, repo := range repos {
 			configuredURLs[repo.URL] = true
 		}
-		userDefs, err := s.defStore.ListAgentDefinitions(ctx, teamID)
+		teamDefs, err := s.defStore.ListAgentDefinitions(ctx, teamID)
 		if err == nil {
 			removedRepos := make(map[string]bool)
-			for _, def := range userDefs {
+			for _, def := range teamDefs {
 				if !configuredURLs[def.SourceRepo] && !removedRepos[def.SourceRepo] {
-					log.Printf("agent-repo-syncer: removing agent definitions, workflows, and profiles from %s for user %s (no longer configured)", def.SourceRepo, username)
+					log.Printf("agent-repo-syncer: removing agent definitions, workflows, and profiles from %s for team %s (no longer configured)", def.SourceRepo, teamID)
 					_ = s.defStore.DeleteAgentDefinitionsByRepo(ctx, def.SourceRepo, teamID)
 					_ = s.profileStore.DeleteYAMLProfilesByRepo(ctx, def.SourceRepo, teamID)
 					_ = s.workflowStore.DeleteWorkflowsByRepo(ctx, def.SourceRepo, teamID)
