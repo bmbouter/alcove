@@ -1122,8 +1122,8 @@ func (we *WorkflowEngine) validateCrossRepoCredentials(ctx context.Context, repo
 		return fmt.Errorf("unable to parse repository service from URL %s: %w", repoURL, err)
 	}
 
-	// Create a credential store instance with the database connection
-	credStore := &CredentialStore{db: we.db}
+	// Use the dispatcher's credential store which has proper encryption key
+	credStore := we.dispatcher.credStore
 
 	// First try to find owner-specific credentials for cross-repo access
 	_, _, err = credStore.AcquireSCMTokenForOwner(ctx, service, owner)
@@ -1189,8 +1189,8 @@ func (we *WorkflowEngine) enhanceTaskRequestForRepo(ctx context.Context, taskReq
 	// Override the repository in the task request to ensure the agent works on the target repo
 	taskReq.Repo = targetRepo
 
-	// Enhance credentials for the target repository
-	credStore := &CredentialStore{db: we.db}
+	// Enhance credentials for the target repository using the dispatcher's credential store
+	credStore := we.dispatcher.credStore
 
 	// Prefer owner-specific credentials for cross-repo access to ensure proper scoping
 	token, apiHost, err := credStore.AcquireSCMTokenForOwner(ctx, service, owner)
