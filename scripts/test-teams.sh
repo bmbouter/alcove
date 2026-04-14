@@ -89,7 +89,7 @@ PERSONAL_DETAIL=$(curl -s "$BRIDGE_URL/api/v1/teams/$PERSONAL_TEAM_ID" \
 ALICE_IS_MEMBER=$(echo "$PERSONAL_DETAIL" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
-members=[m.get('username','') for m in d.get('members',[])]
+members=d.get('members',[])
 print('yes' if 'team-alice' in members else 'no')
 ")
 if [ "$ALICE_IS_MEMBER" = "yes" ]; then
@@ -138,7 +138,7 @@ DETAIL_NAME=$(echo "$DETAIL" | python3 -c "import json,sys; print(json.load(sys.
 CREATOR_IS_MEMBER=$(echo "$DETAIL" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
-members=[m.get('username','') for m in d.get('members',[])]
+members=d.get('members',[])
 print('yes' if 'team-alice' in members else 'no')
 ")
 if [ "$DETAIL_NAME" = "test-team" ]; then
@@ -230,7 +230,7 @@ BOB_IN_MEMBERS=$(curl -s "$BRIDGE_URL/api/v1/teams/$MEMBER_TEAM_ID" \
   -H "Authorization: Bearer $ALICE_TOKEN" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
-members=[m.get('username','') for m in d.get('members',[])]
+members=d.get('members',[])
 print('yes' if 'team-bob' in members else 'no')
 ")
 if [ "$BOB_IN_MEMBERS" = "yes" ]; then
@@ -255,7 +255,7 @@ BOB_GONE=$(curl -s "$BRIDGE_URL/api/v1/teams/$MEMBER_TEAM_ID" \
   -H "Authorization: Bearer $ALICE_TOKEN" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
-members=[m.get('username','') for m in d.get('members',[])]
+members=d.get('members',[])
 print('yes' if 'team-bob' in members else 'no')
 ")
 if [ "$BOB_GONE" = "no" ]; then
@@ -539,6 +539,258 @@ fi
 curl -s -X DELETE "$BRIDGE_URL/api/v1/credentials/$COMPAT_CRED_ID" \
   -H "Authorization: Bearer $ALICE_TOKEN" > /dev/null 2>&1
 curl -s -X DELETE "$BRIDGE_URL/api/v1/schedules/$COMPAT_SCHED_ID" \
+  -H "Authorization: Bearer $ALICE_TOKEN" > /dev/null 2>&1
+
+# =====================================================================
+# Test 8: Credential scoping — no team header must NOT leak all creds
+# =====================================================================
+log "Test 8: No-header credential leak prevention"
+
+# Create a shared team and put a credential in it
+LEAK_TEAM=$(curl -s -X POST "$BRIDGE_URL/api/v1/teams" \
+  -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"leak-test-team"}')
+LEAK_TEAM_ID=$(echo "$LEAK_TEAM" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id','ERROR'))")
+
+curl -s -X POST "$BRIDGE_URL/api/v1/credentials" \
+  -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "X-Alcove-Team: $LEAK_TEAM_ID" \
+  -d '{"name":"leak-test-cred","provider":"anthropic","auth_type":"api_key","credential":"sk-leak-test"}' > /dev/null
+
+# Also put a credential in the personal team
+curl -s -X POST "$BRIDGE_URL/api/v1/credentials" \
+  -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "X-Alcove-Team: $PERSONAL_TEAM_ID" \
+  -d '{"name":"personal-only-cred","provider":"anthropic","auth_type":"api_key","credential":"sk-personal"}' > /dev/null
+
+# Request credentials WITHOUT team header — should only show personal, not shared
+NO_HEADER_CREDS=$(curl -s "$BRIDGE_URL/api/v1/credentials" \
+  -H "Authorization: Bearer $ALICE_TOKEN")
+NO_HEADER_NAMES=$(echo "$NO_HEADER_CREDS" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+names=[c.get('name','') for c in d.get('credentials',[])]
+print(','.join(names))
+")
+NO_HEADER_COUNT=$(echo "$NO_HEADER_CREDS" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('credentials',[])))")
+
+if echo "$NO_HEADER_NAMES" | grep -q "leak-test-cred"; then
+  fail "DATA LEAK: shared team credential visible without team header ($NO_HEADER_NAMES)"
+else
+  pass "Shared team credential not visible without team header"
+fi
+
+if echo "$NO_HEADER_NAMES" | grep -q "personal-only-cred"; then
+  pass "Personal credential visible without team header (correct default)"
+else
+  fail "Personal credential not visible without team header"
+fi
+
+# Request with shared team header — should only show shared cred
+SHARED_HEADER_NAMES=$(curl -s "$BRIDGE_URL/api/v1/credentials" \
+  -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "X-Alcove-Team: $LEAK_TEAM_ID" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+names=[c.get('name','') for c in d.get('credentials',[])]
+print(','.join(names))
+")
+
+if echo "$SHARED_HEADER_NAMES" | grep -q "leak-test-cred"; then
+  pass "Shared team credential visible with shared team header"
+else
+  fail "Shared team credential not visible with its own team header"
+fi
+
+if echo "$SHARED_HEADER_NAMES" | grep -q "personal-only-cred"; then
+  fail "Personal credential leaked into shared team view"
+else
+  pass "Personal credential not visible in shared team view"
+fi
+
+# Cleanup
+curl -s -X DELETE "$BRIDGE_URL/api/v1/teams/$LEAK_TEAM_ID" \
+  -H "Authorization: Bearer $ALICE_TOKEN" > /dev/null 2>&1
+
+# =====================================================================
+# Test 9: Session scoping — sessions belong to the team they were dispatched for
+# =====================================================================
+log "Test 9: Session scoping"
+
+# List sessions with personal team header
+PERSONAL_SESSIONS=$(curl -s "$BRIDGE_URL/api/v1/sessions" \
+  -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "X-Alcove-Team: $PERSONAL_TEAM_ID" | python3 -c "
+import json,sys; d=json.load(sys.stdin); print(d.get('count', len(d.get('sessions',[]))))")
+
+# No team header should default to personal team and return same count
+DEFAULT_SESSIONS=$(curl -s "$BRIDGE_URL/api/v1/sessions" \
+  -H "Authorization: Bearer $ALICE_TOKEN" | python3 -c "
+import json,sys; d=json.load(sys.stdin); print(d.get('count', len(d.get('sessions',[]))))")
+
+if [ "$PERSONAL_SESSIONS" = "$DEFAULT_SESSIONS" ]; then
+  pass "No-header sessions match personal team sessions ($PERSONAL_SESSIONS)"
+else
+  fail "No-header sessions ($DEFAULT_SESSIONS) != personal team sessions ($PERSONAL_SESSIONS)"
+fi
+
+# =====================================================================
+# Test 10: Workflow scoping
+# =====================================================================
+log "Test 10: Workflow scoping"
+
+# Configure alcove repo on personal team, sync, and check workflows
+curl -s -X PUT "$BRIDGE_URL/api/v1/user/settings/agent-repos" \
+  -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "X-Alcove-Team: $PERSONAL_TEAM_ID" \
+  -d '{"repos":[{"url":"https://github.com/bmbouter/alcove/","ref":"main","name":"alcove"}]}' > /dev/null
+
+curl -s -X POST "$BRIDGE_URL/api/v1/agent-definitions/sync" \
+  -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "X-Alcove-Team: $PERSONAL_TEAM_ID" > /dev/null
+sleep 8
+
+PERSONAL_WFS=$(curl -s "$BRIDGE_URL/api/v1/workflows" \
+  -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "X-Alcove-Team: $PERSONAL_TEAM_ID" | python3 -c "
+import json,sys; d=json.load(sys.stdin); print(len(d.get('workflows',[])))")
+
+if [ "$PERSONAL_WFS" -gt "0" ]; then
+  pass "Workflows synced to personal team ($PERSONAL_WFS workflows)"
+else
+  fail "No workflows synced to personal team"
+fi
+
+# Create a second team and verify it has 0 workflows
+WF_TEAM=$(curl -s -X POST "$BRIDGE_URL/api/v1/teams" \
+  -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"wf-isolation-team"}')
+WF_TEAM_ID=$(echo "$WF_TEAM" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))")
+
+OTHER_WFS=$(curl -s "$BRIDGE_URL/api/v1/workflows" \
+  -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "X-Alcove-Team: $WF_TEAM_ID" | python3 -c "
+import json,sys; d=json.load(sys.stdin); print(len(d.get('workflows',[])))")
+
+if [ "$OTHER_WFS" = "0" ]; then
+  pass "Other team has 0 workflows (not leaked from personal)"
+else
+  fail "Other team has $OTHER_WFS workflows (expected 0)"
+fi
+
+# No-header should return personal team's workflows
+DEFAULT_WFS=$(curl -s "$BRIDGE_URL/api/v1/workflows" \
+  -H "Authorization: Bearer $ALICE_TOKEN" | python3 -c "
+import json,sys; d=json.load(sys.stdin); print(len(d.get('workflows',[])))")
+
+if [ "$DEFAULT_WFS" = "$PERSONAL_WFS" ]; then
+  pass "No-header workflows match personal team ($DEFAULT_WFS)"
+else
+  fail "No-header workflows ($DEFAULT_WFS) != personal ($PERSONAL_WFS)"
+fi
+
+# Cleanup
+curl -s -X DELETE "$BRIDGE_URL/api/v1/teams/$WF_TEAM_ID" \
+  -H "Authorization: Bearer $ALICE_TOKEN" > /dev/null 2>&1
+curl -s -X PUT "$BRIDGE_URL/api/v1/user/settings/agent-repos" \
+  -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "X-Alcove-Team: $PERSONAL_TEAM_ID" \
+  -d '{"repos":[]}' > /dev/null
+
+# =====================================================================
+# Test 11: Agent definition scoping
+# =====================================================================
+log "Test 11: Agent definition and schedule scoping after sync"
+
+# After the sync above, agent defs should be on personal team only
+PERSONAL_DEFS=$(curl -s "$BRIDGE_URL/api/v1/agent-definitions" \
+  -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "X-Alcove-Team: $PERSONAL_TEAM_ID" | python3 -c "
+import json,sys; d=json.load(sys.stdin); print(len(d.get('agent_definitions',[])))")
+
+DEFAULT_DEFS=$(curl -s "$BRIDGE_URL/api/v1/agent-definitions" \
+  -H "Authorization: Bearer $ALICE_TOKEN" | python3 -c "
+import json,sys; d=json.load(sys.stdin); print(len(d.get('agent_definitions',[])))")
+
+if [ "$PERSONAL_DEFS" -gt "0" ]; then
+  pass "Agent definitions synced ($PERSONAL_DEFS defs on personal team)"
+else
+  fail "No agent definitions synced to personal team"
+fi
+
+if [ "$DEFAULT_DEFS" = "$PERSONAL_DEFS" ]; then
+  pass "No-header defs match personal team ($DEFAULT_DEFS)"
+else
+  fail "No-header defs ($DEFAULT_DEFS) != personal ($PERSONAL_DEFS)"
+fi
+
+# Schedules
+PERSONAL_SCHEDS=$(curl -s "$BRIDGE_URL/api/v1/schedules" \
+  -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "X-Alcove-Team: $PERSONAL_TEAM_ID" | python3 -c "
+import json,sys; d=json.load(sys.stdin); print(len(d.get('schedules',[]) or []))")
+
+DEFAULT_SCHEDS=$(curl -s "$BRIDGE_URL/api/v1/schedules" \
+  -H "Authorization: Bearer $ALICE_TOKEN" | python3 -c "
+import json,sys; d=json.load(sys.stdin); print(len(d.get('schedules',[]) or []))")
+
+if [ "$DEFAULT_SCHEDS" = "$PERSONAL_SCHEDS" ]; then
+  pass "No-header schedules match personal team ($DEFAULT_SCHEDS)"
+else
+  fail "No-header schedules ($DEFAULT_SCHEDS) != personal ($PERSONAL_SCHEDS)"
+fi
+
+# =====================================================================
+# Test 12: Cache-Control header on API responses
+# =====================================================================
+log "Test 12: Cache-Control headers"
+
+CC=$(curl -sI "$BRIDGE_URL/api/v1/credentials" \
+  -H "Authorization: Bearer $ALICE_TOKEN" | grep -i "cache-control" | tr -d '\r')
+if echo "$CC" | grep -qi "no-store"; then
+  pass "Cache-Control: no-store on credentials API"
+else
+  fail "Missing Cache-Control: no-store header on credentials API ($CC)"
+fi
+
+CC2=$(curl -sI "$BRIDGE_URL/api/v1/sessions" \
+  -H "Authorization: Bearer $ALICE_TOKEN" | grep -i "cache-control" | tr -d '\r')
+if echo "$CC2" | grep -qi "no-store"; then
+  pass "Cache-Control: no-store on sessions API"
+else
+  fail "Missing Cache-Control: no-store header on sessions API ($CC2)"
+fi
+
+# =====================================================================
+# Test 13: Member validation — cannot add non-existent user
+# =====================================================================
+log "Test 13: Member validation"
+
+VALIDATION_TEAM=$(curl -s -X POST "$BRIDGE_URL/api/v1/teams" \
+  -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"validation-test"}')
+VALIDATION_TEAM_ID=$(echo "$VALIDATION_TEAM" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))")
+
+ADD_FAKE_RESP=$(curl -s -w "\n%{http_code}" -X POST "$BRIDGE_URL/api/v1/teams/$VALIDATION_TEAM_ID/members" \
+  -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"does_not_exist_xyz"}')
+ADD_FAKE_CODE=$(echo "$ADD_FAKE_RESP" | tail -1)
+
+if [ "$ADD_FAKE_CODE" = "400" ] || [ "$ADD_FAKE_CODE" = "404" ]; then
+  pass "Cannot add non-existent user (HTTP $ADD_FAKE_CODE)"
+else
+  fail "Adding non-existent user returned HTTP $ADD_FAKE_CODE (expected 400 or 404)"
+fi
+
+curl -s -X DELETE "$BRIDGE_URL/api/v1/teams/$VALIDATION_TEAM_ID" \
   -H "Authorization: Bearer $ALICE_TOKEN" > /dev/null 2>&1
 
 # --- Summary ---
