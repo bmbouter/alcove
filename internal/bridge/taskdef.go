@@ -67,7 +67,7 @@ type TaskDefinition struct {
 	CIGate      *CIGate               `json:"ci_gate,omitempty" yaml:"ci_gate"`
 
 	// Metadata (not from YAML).
-	Owner        string     `json:"owner,omitempty"`
+	TeamID       string     `json:"team_id,omitempty"`
 	SourceRepo   string     `json:"source_repo"`
 	SourceFile   string     `json:"source_file"`
 	SourceKey    string     `json:"source_key"`
@@ -155,8 +155,8 @@ func NewAgentDefStore(db *pgxpool.Pool) *AgentDefStore {
 	return &AgentDefStore{db: db}
 }
 
-// ListAgentDefinitions returns agent definitions owned by the given user, with parsed data and schedule info.
-func (s *AgentDefStore) ListAgentDefinitions(ctx context.Context, owner string) ([]TaskDefinition, error) {
+// ListAgentDefinitions returns agent definitions for the given team, with parsed data and schedule info.
+func (s *AgentDefStore) ListAgentDefinitions(ctx context.Context, teamID string) ([]TaskDefinition, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT td.id, td.name, td.description, td.source_repo, td.source_file, td.source_key,
 		       td.parsed, td.has_schedule, td.sync_error, td.last_synced,
@@ -164,9 +164,9 @@ func (s *AgentDefStore) ListAgentDefinitions(ctx context.Context, owner string) 
 		       s.next_run, s.last_run
 		FROM agent_definitions td
 		LEFT JOIN schedules s ON s.source_key = td.source_key AND s.source = 'yaml'
-		WHERE td.owner = $1
+		WHERE td.team_id = $1
 		ORDER BY td.name ASC
-	`, owner)
+	`, teamID)
 	if err != nil {
 		return nil, fmt.Errorf("querying agent definitions: %w", err)
 	}
@@ -218,8 +218,8 @@ func (s *AgentDefStore) ListAgentDefinitions(ctx context.Context, owner string) 
 	return defs, nil
 }
 
-// GetAgentDefinition retrieves a single agent definition by ID, scoped to the given owner.
-func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, owner string) (*TaskDefinition, error) {
+// GetAgentDefinition retrieves a single agent definition by ID, scoped to the given team.
+func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, teamID string) (*TaskDefinition, error) {
 	var td TaskDefinition
 	var parsedJSON []byte
 	var syncError *string
@@ -233,8 +233,8 @@ func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, owner string
 		       s.next_run, s.last_run
 		FROM agent_definitions td
 		LEFT JOIN schedules s ON s.source_key = td.source_key AND s.source = 'yaml'
-		WHERE td.id = $1 AND td.owner = $2
-	`, id, owner).Scan(
+		WHERE td.id = $1 AND td.team_id = $2
+	`, id, teamID).Scan(
 		&td.ID, &td.Name, &td.Description, &td.SourceRepo, &td.SourceFile,
 		&td.SourceKey, &td.RawYAML, &parsedJSON, &hasSchedule, &syncError,
 		&td.LastSynced, &createdAt, &updatedAt,
@@ -288,9 +288,9 @@ func (s *AgentDefStore) UpsertAgentDefinition(ctx context.Context, def *TaskDefi
 
 	_, err = s.db.Exec(ctx, `
 		INSERT INTO agent_definitions (id, name, description, source_repo, source_file,
-		    source_key, raw_yaml, parsed, has_schedule, sync_error, last_synced, owner, created_at, updated_at)
+		    source_key, raw_yaml, parsed, has_schedule, sync_error, last_synced, team_id, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-		ON CONFLICT (source_key) DO UPDATE SET
+		ON CONFLICT (source_key, team_id) DO UPDATE SET
 		    name = EXCLUDED.name,
 		    description = EXCLUDED.description,
 		    source_repo = EXCLUDED.source_repo,
@@ -300,11 +300,11 @@ func (s *AgentDefStore) UpsertAgentDefinition(ctx context.Context, def *TaskDefi
 		    has_schedule = EXCLUDED.has_schedule,
 		    sync_error = EXCLUDED.sync_error,
 		    last_synced = EXCLUDED.last_synced,
-		    owner = EXCLUDED.owner,
+		    team_id = EXCLUDED.team_id,
 		    updated_at = EXCLUDED.updated_at
 	`, def.ID, def.Name, def.Description, def.SourceRepo, def.SourceFile,
 		def.SourceKey, def.RawYAML, parsedJSON, hasSchedule, nilIfEmpty(def.SyncError),
-		now, def.Owner, now, now,
+		now, def.TeamID, now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("upserting agent definition: %w", err)
@@ -313,23 +313,23 @@ func (s *AgentDefStore) UpsertAgentDefinition(ctx context.Context, def *TaskDefi
 	return nil
 }
 
-// DeleteAgentDefinitionsByRepo removes all agent definitions from a given repo URL and owner.
-func (s *AgentDefStore) DeleteAgentDefinitionsByRepo(ctx context.Context, repoURL, owner string) error {
-	_, err := s.db.Exec(ctx, `DELETE FROM agent_definitions WHERE source_repo = $1 AND owner = $2`, repoURL, owner)
+// DeleteAgentDefinitionsByRepo removes all agent definitions from a given repo URL and team.
+func (s *AgentDefStore) DeleteAgentDefinitionsByRepo(ctx context.Context, repoURL, teamID string) error {
+	_, err := s.db.Exec(ctx, `DELETE FROM agent_definitions WHERE source_repo = $1 AND team_id = $2`, repoURL, teamID)
 	if err != nil {
 		return fmt.Errorf("deleting agent definitions for repo %s: %w", repoURL, err)
 	}
 	return nil
 }
 
-// ListAgentDefinitionsByRepo returns all agent definitions from a given repo URL and owner.
-func (s *AgentDefStore) ListAgentDefinitionsByRepo(ctx context.Context, repoURL, owner string) ([]TaskDefinition, error) {
+// ListAgentDefinitionsByRepo returns all agent definitions from a given repo URL and team.
+func (s *AgentDefStore) ListAgentDefinitionsByRepo(ctx context.Context, repoURL, teamID string) ([]TaskDefinition, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, name, description, source_repo, source_file, source_key,
 		       has_schedule, sync_error, last_synced, created_at, updated_at, parsed
-		FROM agent_definitions WHERE source_repo = $1 AND owner = $2
+		FROM agent_definitions WHERE source_repo = $1 AND team_id = $2
 		ORDER BY name ASC
-	`, repoURL, owner)
+	`, repoURL, teamID)
 	if err != nil {
 		return nil, fmt.Errorf("querying agent definitions for repo %s: %w", repoURL, err)
 	}

@@ -28,6 +28,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/argon2"
 )
 
@@ -183,11 +184,55 @@ func LoginHandler(store Authenticator, mgr UserManager) http.HandlerFunc {
 	}
 }
 
+// resolveTeamID looks up the team to use for the request.
+// If X-Alcove-Team header is set, validates the user is a member of that team.
+// Otherwise, returns the user's personal team.
+func resolveTeamID(ctx context.Context, db *pgxpool.Pool, username string, teamHeader string, isAdmin bool) (string, error) {
+	if db == nil {
+		return "", nil
+	}
+
+	if teamHeader != "" {
+		// Validate user is a member of the requested team (or is admin).
+		var exists bool
+		err := db.QueryRow(ctx,
+			`SELECT EXISTS(SELECT 1 FROM team_members WHERE team_id = $1 AND username = $2)`,
+			teamHeader, username).Scan(&exists)
+		if err != nil {
+			return "", fmt.Errorf("checking team membership: %w", err)
+		}
+		if !exists && !isAdmin {
+			return "", fmt.Errorf("not a member of team %s", teamHeader)
+		}
+		return teamHeader, nil
+	}
+
+	// Look up personal team.
+	var teamID string
+	err := db.QueryRow(ctx, `
+		SELECT t.id FROM teams t
+		JOIN team_members tm ON t.id = tm.team_id
+		WHERE tm.username = $1 AND t.is_personal = true
+	`, username).Scan(&teamID)
+	if err != nil {
+		// No personal team yet — this can happen during migration or for new users
+		// before their personal team is created. Return empty string.
+		return "", nil
+	}
+	return teamID, nil
+}
+
 // AuthMiddleware returns middleware that validates session tokens on
 // protected routes. It skips /api/v1/auth/login and /api/v1/health.
 // When the auth backend is rh-identity, it reads the X-RH-Identity header
 // instead of requiring Bearer tokens.
-func AuthMiddleware(store Authenticator, mgr UserManager) func(http.Handler) http.Handler {
+func AuthMiddleware(store Authenticator, mgr UserManager, db ...*pgxpool.Pool) func(http.Handler) http.Handler {
+	// Extract optional db pool for team resolution.
+	var dbPool *pgxpool.Pool
+	if len(db) > 0 {
+		dbPool = db[0]
+	}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			path := r.URL.Path
@@ -288,6 +333,12 @@ func AuthMiddleware(store Authenticator, mgr UserManager) func(http.Handler) htt
 						r.Header.Set("X-Alcove-Admin", "true")
 					}
 				}
+				// Resolve team ID.
+				isAdmin := r.Header.Get("X-Alcove-Admin") == "true"
+				teamHeader := r.Header.Get("X-Alcove-Team")
+				if teamID, err := resolveTeamID(r.Context(), dbPool, username, teamHeader, isAdmin); err == nil && teamID != "" {
+					r.Header.Set("X-Alcove-Team-ID", teamID)
+				}
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -363,6 +414,13 @@ func AuthMiddleware(store Authenticator, mgr UserManager) func(http.Handler) htt
 				if admin, err := mgr.IsAdmin(context.Background(), username); err == nil && admin {
 					r.Header.Set("X-Alcove-Admin", "true")
 				}
+			}
+
+			// Resolve team ID.
+			isAdmin := r.Header.Get("X-Alcove-Admin") == "true"
+			teamHeader := r.Header.Get("X-Alcove-Team")
+			if teamID, err := resolveTeamID(r.Context(), dbPool, username, teamHeader, isAdmin); err == nil && teamID != "" {
+				r.Header.Set("X-Alcove-Team-ID", teamID)
 			}
 
 			next.ServeHTTP(w, r)

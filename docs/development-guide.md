@@ -165,7 +165,7 @@ are applied automatically on Bridge startup.
 
    ```bash
    ls internal/bridge/migrations/
-   # 001_initial_schema.sql
+   # 001_initial_schema.sql  ...  026_teams.sql
    ```
 
 2. Create a new file with the next numeric prefix and a descriptive name:
@@ -299,6 +299,14 @@ Use the two provided helpers for all responses:
 respondJSON(w, http.StatusOK, data)           // success with JSON body
 respondError(w, http.StatusBadRequest, "msg") // error with {"error": "msg"}
 ```
+
+### Team Scoping
+
+API routes use the `X-Alcove-Team` header to scope requests to a team. The
+team middleware extracts this header on every authenticated request and makes
+the team ID available to handlers. If the header is missing, the request is
+scoped to the user's personal team. The middleware validates that the
+authenticated user is a member of the requested team (returning 403 if not).
 
 ### Authentication
 
@@ -529,6 +537,35 @@ operation-level scope (e.g., allowing `create_pr_draft` but blocking
 `merge_pr`), injects real SCM credentials, and forwards to the upstream API.
 See `internal/gate/` for the proxy implementation and
 `docs/design/gate-scm-authorization.md` for the full design.
+
+## Team-Based Ownership
+
+All resources are owned by teams rather than individual users. The database
+schema reflects this with a `team_id` column on all resource tables (sessions,
+credentials, security profiles, agent definitions, schedules, tools, agent
+repos). The migration `026_teams.sql` creates three tables:
+
+| Table | Columns | Purpose |
+|-------|---------|---------|
+| `teams` | `id`, `name`, `type`, `created_at`, `updated_at` | Team registry. Type is `personal` or `shared`. |
+| `team_members` | `team_id`, `username`, `joined_at` | Maps users to teams. |
+| `team_settings` | `team_id`, `key`, `value` | Per-team settings (e.g., agent repos). |
+
+The same migration renames `owner` to `team_id` on existing resource tables.
+
+A personal team is auto-created for each user on signup. Personal teams cannot
+be deleted, renamed, or have members added. Users can create additional shared
+teams and invite others. All team members have equal permissions.
+
+The `X-Alcove-Team` header is required on all authenticated API requests. The
+team middleware validates membership and injects the team context. If the
+header is omitted, the user's personal team is used as the default.
+
+### Functional Tests
+
+The `test-teams.sh` script in `scripts/` exercises team CRUD, membership
+management, and team-scoped resource isolation against a running Bridge
+instance.
 
 ## Testing Patterns
 

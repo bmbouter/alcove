@@ -60,7 +60,7 @@ type WorkflowRun struct {
 	StepOutputs map[string]interface{} `json:"step_outputs"`
 	StartedAt   *time.Time             `json:"started_at,omitempty"`
 	FinishedAt  *time.Time             `json:"finished_at,omitempty"`
-	Owner       string                 `json:"owner"`
+	TeamID      string                 `json:"team_id"`
 	CreatedAt   time.Time              `json:"created_at"`
 }
 
@@ -77,7 +77,7 @@ type WorkflowRunStep struct {
 }
 
 // StartWorkflowRun creates a new workflow run and dispatches initial steps.
-func (we *WorkflowEngine) StartWorkflowRun(ctx context.Context, workflowID, triggerType, triggerRef, owner string) (*WorkflowRun, error) {
+func (we *WorkflowEngine) StartWorkflowRun(ctx context.Context, workflowID, triggerType, triggerRef, teamID string) (*WorkflowRun, error) {
 	// Get the workflow definition
 	workflow, err := we.getWorkflowByID(ctx, workflowID)
 	if err != nil {
@@ -94,7 +94,7 @@ func (we *WorkflowEngine) StartWorkflowRun(ctx context.Context, workflowID, trig
 		TriggerType: triggerType,
 		TriggerRef:  triggerRef,
 		StepOutputs: make(map[string]interface{}),
-		Owner:       owner,
+		TeamID:      teamID,
 		CreatedAt:   now,
 	}
 
@@ -177,7 +177,7 @@ func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, st
 	}
 
 	// Get the agent definition
-	agentDef, err := we.defStore.GetAgentDefinition(ctx, step.Agent, run.Owner)
+	agentDef, err := we.defStore.GetAgentDefinition(ctx, step.Agent, run.TeamID)
 	if err != nil {
 		return fmt.Errorf("getting agent definition %s: %w", step.Agent, err)
 	}
@@ -193,12 +193,12 @@ func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, st
 		taskReq.Repo = step.Repo
 
 		// Validate cross-repo access: ensure credentials are available for the target repo
-		if err := we.validateCrossRepoCredentials(ctx, step.Repo, run.Owner); err != nil {
+		if err := we.validateCrossRepoCredentials(ctx, step.Repo, run.TeamID); err != nil {
 			return fmt.Errorf("cross-repo credential validation failed for repo %s: %w", step.Repo, err)
 		}
 
 		// Apply cross-repo enhancements to the task request
-		if err := we.enhanceTaskRequestForRepo(ctx, &taskReq, step.Repo, run.Owner); err != nil {
+		if err := we.enhanceTaskRequestForRepo(ctx, &taskReq, step.Repo, run.TeamID); err != nil {
 			return fmt.Errorf("cross-repo enhancement failed for repo %s: %w", step.Repo, err)
 		}
 	}
@@ -209,7 +209,7 @@ func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, st
 	}
 
 	// Dispatch the task
-	session, err := we.dispatcher.DispatchTask(ctx, taskReq, run.Owner)
+	session, err := we.dispatcher.DispatchTask(ctx, taskReq, "workflow", run.TeamID)
 	if err != nil {
 		return fmt.Errorf("dispatching task for step %s: %w", step.ID, err)
 	}
@@ -572,7 +572,7 @@ func (we *WorkflowEngine) RecoverWorkflows(ctx context.Context) error {
 
 	// Query for running workflow runs
 	rows, err := we.db.Query(ctx, `
-		SELECT id, workflow_id, trigger_type, trigger_ref, current_step, step_outputs, owner
+		SELECT id, workflow_id, trigger_type, trigger_ref, current_step, step_outputs, team_id
 		FROM workflow_runs
 		WHERE status = 'running'
 	`)
@@ -583,10 +583,10 @@ func (we *WorkflowEngine) RecoverWorkflows(ctx context.Context) error {
 
 	var recovered int
 	for rows.Next() {
-		var runID, workflowID, triggerType, triggerRef, currentStep, owner string
+		var runID, workflowID, triggerType, triggerRef, currentStep, teamID string
 		var stepOutputsJSON []byte
 
-		if err := rows.Scan(&runID, &workflowID, &triggerType, &triggerRef, &currentStep, &stepOutputsJSON, &owner); err != nil {
+		if err := rows.Scan(&runID, &workflowID, &triggerType, &triggerRef, &currentStep, &stepOutputsJSON, &teamID); err != nil {
 			log.Printf("error scanning workflow run: %v", err)
 			continue
 		}
@@ -598,7 +598,7 @@ func (we *WorkflowEngine) RecoverWorkflows(ctx context.Context) error {
 			TriggerType: triggerType,
 			TriggerRef:  triggerRef,
 			CurrentStep: currentStep,
-			Owner:       owner,
+			TeamID:      teamID,
 		}
 
 		if stepOutputsJSON != nil {
@@ -745,7 +745,7 @@ func (we *WorkflowEngine) RejectStep(ctx context.Context, runID, stepID string) 
 // GetWorkflowRun retrieves a workflow run by ID.
 func (we *WorkflowEngine) GetWorkflowRun(ctx context.Context, runID string) (*WorkflowRun, error) {
 	row := we.db.QueryRow(ctx, `
-		SELECT id, workflow_id, status, trigger_type, trigger_ref, current_step, step_outputs, started_at, finished_at, owner, created_at
+		SELECT id, workflow_id, status, trigger_type, trigger_ref, current_step, step_outputs, started_at, finished_at, team_id, created_at
 		FROM workflow_runs
 		WHERE id = $1
 	`, runID)
@@ -757,7 +757,7 @@ func (we *WorkflowEngine) GetWorkflowRun(ctx context.Context, runID string) (*Wo
 
 	if err := row.Scan(
 		&run.ID, &run.WorkflowID, &run.Status, &triggerType, &triggerRef,
-		&currentStep, &stepOutputsJSON, &run.StartedAt, &run.FinishedAt, &run.Owner, &run.CreatedAt,
+		&currentStep, &stepOutputsJSON, &run.StartedAt, &run.FinishedAt, &run.TeamID, &run.CreatedAt,
 	); err != nil {
 		return nil, fmt.Errorf("getting workflow run %s: %w", runID, err)
 	}
@@ -783,18 +783,18 @@ func (we *WorkflowEngine) GetWorkflowRun(ctx context.Context, runID string) (*Wo
 }
 
 // ListWorkflowRuns lists workflow runs, optionally filtered by status and owner.
-func (we *WorkflowEngine) ListWorkflowRuns(ctx context.Context, status, owner string) ([]WorkflowRun, error) {
+func (we *WorkflowEngine) ListWorkflowRuns(ctx context.Context, status, teamID string) ([]WorkflowRun, error) {
 	query := `
-		SELECT id, workflow_id, status, trigger_type, trigger_ref, current_step, step_outputs, started_at, finished_at, owner, created_at
+		SELECT id, workflow_id, status, trigger_type, trigger_ref, current_step, step_outputs, started_at, finished_at, team_id, created_at
 		FROM workflow_runs
 		WHERE 1=1
 	`
 	args := []interface{}{}
 	argN := 1
 
-	if owner != "" {
-		query += fmt.Sprintf(" AND owner = $%d", argN)
-		args = append(args, owner)
+	if teamID != "" {
+		query += fmt.Sprintf(" AND team_id = $%d", argN)
+		args = append(args, teamID)
 		argN++
 	}
 	if status != "" {
@@ -819,7 +819,7 @@ func (we *WorkflowEngine) ListWorkflowRuns(ctx context.Context, status, owner st
 
 		if err := rows.Scan(
 			&run.ID, &run.WorkflowID, &run.Status, &triggerType, &triggerRef,
-			&currentStep, &stepOutputsJSON, &run.StartedAt, &run.FinishedAt, &run.Owner, &run.CreatedAt,
+			&currentStep, &stepOutputsJSON, &run.StartedAt, &run.FinishedAt, &run.TeamID, &run.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scanning workflow run: %w", err)
 		}
@@ -897,9 +897,9 @@ func (we *WorkflowEngine) insertWorkflowRun(ctx context.Context, run *WorkflowRu
 	}
 
 	_, err = we.db.Exec(ctx, `
-		INSERT INTO workflow_runs (id, workflow_id, status, trigger_type, trigger_ref, current_step, step_outputs, owner, created_at)
+		INSERT INTO workflow_runs (id, workflow_id, status, trigger_type, trigger_ref, current_step, step_outputs, team_id, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, run.ID, run.WorkflowID, run.Status, run.TriggerType, run.TriggerRef, run.CurrentStep, stepOutputsJSON, run.Owner, run.CreatedAt)
+	`, run.ID, run.WorkflowID, run.Status, run.TriggerType, run.TriggerRef, run.CurrentStep, stepOutputsJSON, run.TeamID, run.CreatedAt)
 
 	return err
 }
@@ -1022,7 +1022,7 @@ func (we *WorkflowEngine) getWorkflowRunSteps(ctx context.Context, runID string)
 func (we *WorkflowEngine) getStepAndRunBySessionID(ctx context.Context, sessionID string) (*WorkflowRunStep, *WorkflowRun, error) {
 	row := we.db.QueryRow(ctx, `
 		SELECT wrs.id, wrs.run_id, wrs.step_id, wrs.session_id, wrs.status, wrs.outputs, wrs.started_at, wrs.finished_at,
-		       wr.id, wr.workflow_id, wr.status, wr.trigger_type, wr.trigger_ref, wr.current_step, wr.step_outputs, wr.owner
+		       wr.id, wr.workflow_id, wr.status, wr.trigger_type, wr.trigger_ref, wr.current_step, wr.step_outputs, wr.team_id
 		FROM workflow_run_steps wrs
 		JOIN workflow_runs wr ON wrs.run_id = wr.id
 		WHERE wrs.session_id = $1
@@ -1036,7 +1036,7 @@ func (we *WorkflowEngine) getStepAndRunBySessionID(ctx context.Context, sessionI
 
 	err := row.Scan(
 		&step.ID, &step.RunID, &step.StepID, &sessionIDPtr, &step.Status, &stepOutputsJSON, &stepStartedAt, &stepFinishedAt,
-		&run.ID, &run.WorkflowID, &run.Status, &run.TriggerType, &run.TriggerRef, &run.CurrentStep, &runStepOutputsJSON, &run.Owner,
+		&run.ID, &run.WorkflowID, &run.Status, &run.TriggerType, &run.TriggerRef, &run.CurrentStep, &runStepOutputsJSON, &run.TeamID,
 	)
 	if err != nil {
 		return nil, nil, err

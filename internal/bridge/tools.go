@@ -36,7 +36,7 @@ type ToolDefinition struct {
 	AuthHeader  string          `json:"auth_header,omitempty"`
 	AuthFormat  string          `json:"auth_format,omitempty"`
 	Operations  json.RawMessage `json:"operations"`             // [{name, description, risk}]
-	Owner       string          `json:"owner,omitempty"`
+	TeamID      string          `json:"team_id,omitempty"`
 	CreatedAt   time.Time       `json:"created_at"`
 }
 
@@ -58,12 +58,12 @@ func NewToolStore(db *pgxpool.Pool) *ToolStore {
 }
 
 // CreateTool inserts a new custom tool into the registry.
-func (ts *ToolStore) CreateTool(ctx context.Context, tool *ToolDefinition, owner string) error {
+func (ts *ToolStore) CreateTool(ctx context.Context, tool *ToolDefinition, teamID string) error {
 	if tool.ID == "" {
 		tool.ID = uuid.New().String()
 	}
 	tool.CreatedAt = time.Now().UTC()
-	tool.Owner = owner
+	tool.TeamID = teamID
 	tool.ToolType = "custom"
 
 	if tool.MCPArgs == nil {
@@ -80,12 +80,12 @@ func (ts *ToolStore) CreateTool(ctx context.Context, tool *ToolDefinition, owner
 	}
 
 	_, err := ts.db.Exec(ctx,
-		`INSERT INTO mcp_tools (id, name, display_name, tool_type, mcp_command, mcp_args, api_host, auth_header, auth_format, operations, owner, created_at)
+		`INSERT INTO mcp_tools (id, name, display_name, tool_type, mcp_command, mcp_args, api_host, auth_header, auth_format, operations, team_id, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
 		tool.ID, tool.Name, tool.DisplayName, tool.ToolType,
 		tool.MCPCommand, string(tool.MCPArgs), tool.APIHost,
 		tool.AuthHeader, tool.AuthFormat, string(tool.Operations),
-		tool.Owner, tool.CreatedAt)
+		tool.TeamID, tool.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("inserting tool: %w", err)
 	}
@@ -93,13 +93,13 @@ func (ts *ToolStore) CreateTool(ctx context.Context, tool *ToolDefinition, owner
 }
 
 // ListTools returns ALL builtin tools plus the given owner's custom tools.
-func (ts *ToolStore) ListTools(ctx context.Context, owner string) ([]ToolDefinition, error) {
-	query := `SELECT id, name, display_name, tool_type, mcp_command, mcp_args, api_host, auth_header, auth_format, operations, owner, created_at
+func (ts *ToolStore) ListTools(ctx context.Context, teamID string) ([]ToolDefinition, error) {
+	query := `SELECT id, name, display_name, tool_type, mcp_command, mcp_args, api_host, auth_header, auth_format, operations, team_id, created_at
 		FROM mcp_tools
-		WHERE tool_type = 'builtin' OR owner = $1
+		WHERE tool_type = 'builtin' OR team_id = $1
 		ORDER BY tool_type ASC, name ASC`
 
-	rows, err := ts.db.Query(ctx, query, owner)
+	rows, err := ts.db.Query(ctx, query, teamID)
 	if err != nil {
 		return nil, fmt.Errorf("querying tools: %w", err)
 	}
@@ -113,7 +113,7 @@ func (ts *ToolStore) ListTools(ctx context.Context, owner string) ([]ToolDefinit
 
 		if err := rows.Scan(&t.ID, &t.Name, &t.DisplayName, &t.ToolType,
 			&mcpCommand, &mcpArgs, &apiHost, &authHeader, &authFormat,
-			&operations, &t.Owner, &t.CreatedAt); err != nil {
+			&operations, &t.TeamID, &t.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scanning tool: %w", err)
 		}
 
@@ -144,20 +144,20 @@ func (ts *ToolStore) ListTools(ctx context.Context, owner string) ([]ToolDefinit
 
 // GetTool looks up a tool by name. Returns builtin tools regardless of owner;
 // returns custom tools only if the owner matches.
-func (ts *ToolStore) GetTool(ctx context.Context, name, owner string) (*ToolDefinition, error) {
-	query := `SELECT id, name, display_name, tool_type, mcp_command, mcp_args, api_host, auth_header, auth_format, operations, owner, created_at
+func (ts *ToolStore) GetTool(ctx context.Context, name, teamID string) (*ToolDefinition, error) {
+	query := `SELECT id, name, display_name, tool_type, mcp_command, mcp_args, api_host, auth_header, auth_format, operations, team_id, created_at
 		FROM mcp_tools
-		WHERE name = $1 AND (tool_type = 'builtin' OR owner = $2)
+		WHERE name = $1 AND (tool_type = 'builtin' OR team_id = $2)
 		LIMIT 1`
 
 	var t ToolDefinition
 	var mcpCommand, apiHost, authHeader, authFormat *string
 	var mcpArgs, operations string
 
-	err := ts.db.QueryRow(ctx, query, name, owner).Scan(
+	err := ts.db.QueryRow(ctx, query, name, teamID).Scan(
 		&t.ID, &t.Name, &t.DisplayName, &t.ToolType,
 		&mcpCommand, &mcpArgs, &apiHost, &authHeader, &authFormat,
-		&operations, &t.Owner, &t.CreatedAt)
+		&operations, &t.TeamID, &t.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("tool %q not found: %w", name, err)
 	}
@@ -181,7 +181,7 @@ func (ts *ToolStore) GetTool(ctx context.Context, name, owner string) (*ToolDefi
 }
 
 // UpdateTool updates an existing custom tool. Builtin tools cannot be updated.
-func (ts *ToolStore) UpdateTool(ctx context.Context, tool *ToolDefinition, owner string) error {
+func (ts *ToolStore) UpdateTool(ctx context.Context, tool *ToolDefinition, teamID string) error {
 	if tool.MCPArgs == nil {
 		tool.MCPArgs = json.RawMessage(`[]`)
 	}
@@ -193,10 +193,10 @@ func (ts *ToolStore) UpdateTool(ctx context.Context, tool *ToolDefinition, owner
 		`UPDATE mcp_tools
 		SET display_name = $1, mcp_command = $2, mcp_args = $3, api_host = $4,
 		    auth_header = $5, auth_format = $6, operations = $7
-		WHERE name = $8 AND tool_type = 'custom' AND owner = $9`,
+		WHERE name = $8 AND tool_type = 'custom' AND team_id = $9`,
 		tool.DisplayName, tool.MCPCommand, string(tool.MCPArgs), tool.APIHost,
 		tool.AuthHeader, tool.AuthFormat, string(tool.Operations),
-		tool.Name, owner)
+		tool.Name, teamID)
 	if err != nil {
 		return fmt.Errorf("updating tool: %w", err)
 	}
@@ -207,10 +207,10 @@ func (ts *ToolStore) UpdateTool(ctx context.Context, tool *ToolDefinition, owner
 }
 
 // DeleteTool removes a custom tool from the registry. Builtin tools cannot be deleted.
-func (ts *ToolStore) DeleteTool(ctx context.Context, name, owner string) error {
+func (ts *ToolStore) DeleteTool(ctx context.Context, name, teamID string) error {
 	result, err := ts.db.Exec(ctx,
-		`DELETE FROM mcp_tools WHERE name = $1 AND tool_type = 'custom' AND owner = $2`,
-		name, owner)
+		`DELETE FROM mcp_tools WHERE name = $1 AND tool_type = 'custom' AND team_id = $2`,
+		name, teamID)
 	if err != nil {
 		return fmt.Errorf("deleting tool: %w", err)
 	}
@@ -322,9 +322,9 @@ func (ts *ToolStore) SeedBuiltinTools(ctx context.Context) error {
 	for _, b := range builtins {
 		id := uuid.New().String()
 		_, err := ts.db.Exec(ctx,
-			`INSERT INTO mcp_tools (id, name, display_name, tool_type, mcp_command, mcp_args, api_host, auth_header, auth_format, operations, owner, created_at)
-			VALUES ($1, $2, $3, 'builtin', $4, $5, $6, $7, $8, $9, '', NOW())
-			ON CONFLICT (name, owner) DO UPDATE SET
+			`INSERT INTO mcp_tools (id, name, display_name, tool_type, mcp_command, mcp_args, api_host, auth_header, auth_format, operations, team_id, created_at)
+			VALUES ($1, $2, $3, 'builtin', $4, $5, $6, $7, $8, $9, NULL, NOW())
+			ON CONFLICT (name) WHERE team_id IS NULL DO UPDATE SET
 				display_name = EXCLUDED.display_name,
 				mcp_command = EXCLUDED.mcp_command,
 				mcp_args = EXCLUDED.mcp_args,

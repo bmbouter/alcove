@@ -103,14 +103,29 @@ func (s *AgentRepoSyncer) Stop() {
 	s.wg.Wait()
 }
 
+// resolveUsernameToTeamID looks up the personal team ID for a username.
+func (s *AgentRepoSyncer) resolveUsernameToTeamID(ctx context.Context, username string) string {
+	var teamID string
+	err := s.db.QueryRow(ctx, `
+		SELECT t.id FROM teams t
+		JOIN team_members tm ON t.id = tm.team_id
+		WHERE tm.username = $1 AND t.is_personal = true
+	`, username).Scan(&teamID)
+	if err != nil {
+		return ""
+	}
+	return teamID
+}
+
 // SyncAll collects all user agent repos and syncs each per-user.
 func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 	s.syncMu.Lock()
 	defer s.syncMu.Unlock()
 
-	// Collect per-user agent repos.
+	// Collect per-user agent repos from team_settings (new) and user_settings (legacy).
 	type userRepoSet struct {
 		username string
+		teamID   string
 		repos    []SkillRepo
 	}
 	var userRepoSets []userRepoSet
@@ -118,6 +133,39 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 
 	// Collect all users who have agent_repos configured (even if empty — they may need cleanup).
 	allUsersWithRepos := make(map[string][]SkillRepo)
+	// Build a username -> teamID map for later use.
+	usernameToTeamID := make(map[string]string)
+
+	// First, check team_settings for agent_repos (new path).
+	teamRows, teamErr := s.db.Query(ctx, `
+		SELECT tm.username, ts.team_id, ts.value
+		FROM team_settings ts
+		JOIN team_members tm ON ts.team_id = tm.team_id
+		JOIN teams t ON ts.team_id = t.id AND t.is_personal = true
+		WHERE ts.key = 'agent_repos'
+	`)
+	if teamErr == nil {
+		defer teamRows.Close()
+		for teamRows.Next() {
+			var username, teamID string
+			var value json.RawMessage
+			if err := teamRows.Scan(&username, &teamID, &value); err != nil {
+				continue
+			}
+			var repos []SkillRepo
+			if json.Unmarshal(value, &repos) != nil {
+				continue
+			}
+			allUsersWithRepos[username] = repos
+			usernameToTeamID[username] = teamID
+			if len(repos) > 0 {
+				userRepoSets = append(userRepoSets, userRepoSet{username: username, teamID: teamID, repos: repos})
+				totalRepos += len(repos)
+			}
+		}
+	}
+
+	// Fallback: also check user_settings for users not yet migrated.
 	rows, err := s.db.Query(ctx, `SELECT DISTINCT username FROM user_settings WHERE key = 'agent_repos'`)
 	if err == nil {
 		defer rows.Close()
@@ -126,10 +174,16 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 			if err := rows.Scan(&username); err != nil {
 				continue
 			}
+			// Skip users already handled via team_settings.
+			if _, handled := usernameToTeamID[username]; handled {
+				continue
+			}
 			if userRepos, err := s.settingsStore.GetUserAgentRepos(ctx, username); err == nil {
+				teamID := s.resolveUsernameToTeamID(ctx, username)
 				allUsersWithRepos[username] = userRepos
+				usernameToTeamID[username] = teamID
 				if len(userRepos) > 0 {
-					userRepoSets = append(userRepoSets, userRepoSet{username: username, repos: userRepos})
+					userRepoSets = append(userRepoSets, userRepoSet{username: username, teamID: teamID, repos: userRepos})
 					totalRepos += len(userRepos)
 				}
 			}
@@ -138,21 +192,25 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 
 	// Per-user cleanup: remove definitions/profiles for repos the user no longer has configured.
 	for username, repos := range allUsersWithRepos {
+		teamID := usernameToTeamID[username]
+		if teamID == "" {
+			continue
+		}
 		configuredURLs := make(map[string]bool)
 		for _, repo := range repos {
 			configuredURLs[repo.URL] = true
 		}
-		userDefs, err := s.defStore.ListAgentDefinitions(ctx, username)
+		userDefs, err := s.defStore.ListAgentDefinitions(ctx, teamID)
 		if err == nil {
 			removedRepos := make(map[string]bool)
 			for _, def := range userDefs {
 				if !configuredURLs[def.SourceRepo] && !removedRepos[def.SourceRepo] {
 					log.Printf("agent-repo-syncer: removing agent definitions, workflows, and profiles from %s for user %s (no longer configured)", def.SourceRepo, username)
-					_ = s.defStore.DeleteAgentDefinitionsByRepo(ctx, def.SourceRepo, username)
-					_ = s.profileStore.DeleteYAMLProfilesByRepo(ctx, def.SourceRepo, username)
-					_ = s.workflowStore.DeleteWorkflowsByRepo(ctx, def.SourceRepo, username)
+					_ = s.defStore.DeleteAgentDefinitionsByRepo(ctx, def.SourceRepo, teamID)
+					_ = s.profileStore.DeleteYAMLProfilesByRepo(ctx, def.SourceRepo, teamID)
+					_ = s.workflowStore.DeleteWorkflowsByRepo(ctx, def.SourceRepo, teamID)
 					// Also clean up schedules from this repo.
-					s.db.Exec(ctx, `DELETE FROM schedules WHERE source_key LIKE $1 AND owner = $2`, username+"::%", username)
+					s.db.Exec(ctx, `DELETE FROM schedules WHERE source_key LIKE $1 AND team_id = $2`, username+"::%", teamID)
 					removedRepos[def.SourceRepo] = true
 				}
 			}
@@ -167,6 +225,9 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 
 	var errs []string
 	for _, urs := range userRepoSets {
+		if urs.teamID == "" {
+			continue // Skip users without a team
+		}
 		for _, repo := range urs.repos {
 			if !repo.IsEnabled() {
 				// Repo is disabled — disable all its schedules but don't remove them.
@@ -177,7 +238,7 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 				log.Printf("agent-repo-syncer: repo %s disabled for user %s, schedules paused", repo.URL, urs.username)
 				continue
 			}
-			if err := s.syncRepo(ctx, repo, urs.username); err != nil {
+			if err := s.syncRepo(ctx, repo, urs.username, urs.teamID); err != nil {
 				errs = append(errs, fmt.Sprintf("%s (user %s): %v", repo.URL, urs.username, err))
 			}
 		}
@@ -189,8 +250,8 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 	return nil
 }
 
-// syncRepo clones or pulls a single repo and syncs its agent definitions for the given user.
-func (s *AgentRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo, username string) error {
+// syncRepo clones or pulls a single repo and syncs its agent definitions for the given user and team.
+func (s *AgentRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo, username, teamID string) error {
 	// Determine local clone directory.
 	name := repo.Name
 	if name == "" {
@@ -233,7 +294,7 @@ func (s *AgentRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo, username
 	}
 
 	// Sync security profiles from .alcove/security-profiles/*.yml.
-	s.syncSecurityProfiles(ctx, cloneDir, repo, username)
+	s.syncSecurityProfiles(ctx, cloneDir, repo, username, teamID)
 
 	// Read all .alcove/tasks/*.yml files.
 	tasksDir := filepath.Join(cloneDir, ".alcove", "tasks")
@@ -242,7 +303,7 @@ func (s *AgentRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo, username
 		if os.IsNotExist(err) {
 			log.Printf("agent-repo-syncer: no .alcove/tasks/ directory in %s", repo.URL)
 			// Remove any previously synced definitions from this repo.
-			return s.defStore.DeleteAgentDefinitionsByRepo(ctx, repo.URL, username)
+			return s.defStore.DeleteAgentDefinitionsByRepo(ctx, repo.URL, teamID)
 		}
 		return fmt.Errorf("reading agent definitions dir: %w", err)
 	}
@@ -277,7 +338,7 @@ func (s *AgentRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo, username
 				SourceKey:  sourceKey,
 				RawYAML:    string(data),
 				SyncError:  err.Error(),
-				Owner:      username,
+				TeamID:      teamID,
 			}
 			_ = s.defStore.UpsertAgentDefinition(ctx, errDef)
 			continue
@@ -287,7 +348,7 @@ func (s *AgentRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo, username
 		td.SourceFile = entry.Name()
 		td.SourceKey = sourceKey
 		td.RawYAML = string(data)
-		td.Owner = username
+		td.TeamID = teamID
 
 		if err := s.defStore.UpsertAgentDefinition(ctx, td); err != nil {
 			log.Printf("agent-repo-syncer: upsert error for %s: %v", sourceKey, err)
@@ -295,13 +356,13 @@ func (s *AgentRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo, username
 		}
 
 		// Reconcile schedule.
-		if err := s.reconcileSchedule(ctx, td, repo.URL, username); err != nil {
+		if err := s.reconcileSchedule(ctx, td, repo.URL, username, teamID); err != nil {
 			log.Printf("agent-repo-syncer: schedule reconcile error for %s: %v", sourceKey, err)
 		}
 	}
 
 	// Delete definitions that no longer exist in the repo.
-	existing, err := s.defStore.ListAgentDefinitionsByRepo(ctx, repo.URL, username)
+	existing, err := s.defStore.ListAgentDefinitionsByRepo(ctx, repo.URL, teamID)
 	if err != nil {
 		return fmt.Errorf("listing existing definitions: %w", err)
 	}
@@ -320,18 +381,18 @@ func (s *AgentRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo, username
 	log.Printf("agent-repo-syncer: synced %d agent definition(s) from %s", len(seenKeys), repo.URL)
 
 	// Sync workflow definitions from .alcove/workflows/*.yml.
-	if err := s.syncWorkflowDefinitions(ctx, cloneDir, repo, username); err != nil {
+	if err := s.syncWorkflowDefinitions(ctx, cloneDir, repo, username, teamID); err != nil {
 		log.Printf("agent-repo-syncer: workflow sync error for %s: %v", repo.URL, err)
 	}
 
 	// Validate profile references in agent definitions.
-	s.validateProfileReferences(ctx, repo.URL, username)
+	s.validateProfileReferences(ctx, repo.URL, teamID)
 
 	return nil
 }
 
 // syncSecurityProfiles syncs .alcove/security-profiles/*.yml from a cloned repo for the given user.
-func (s *AgentRepoSyncer) syncSecurityProfiles(ctx context.Context, cloneDir string, repo SkillRepo, username string) {
+func (s *AgentRepoSyncer) syncSecurityProfiles(ctx context.Context, cloneDir string, repo SkillRepo, username, teamID string) {
 	profilesDir := filepath.Join(cloneDir, ".alcove", "security-profiles")
 	entries, err := os.ReadDir(profilesDir)
 	if err != nil {
@@ -339,7 +400,7 @@ func (s *AgentRepoSyncer) syncSecurityProfiles(ctx context.Context, cloneDir str
 			log.Printf("agent-repo-syncer: error reading security-profiles dir: %v", err)
 		}
 		// No profiles dir — clean up any previously synced profiles from this repo.
-		_ = s.profileStore.DeleteYAMLProfilesByRepo(ctx, repo.URL, username)
+		_ = s.profileStore.DeleteYAMLProfilesByRepo(ctx, repo.URL, teamID)
 		return
 	}
 
@@ -369,7 +430,7 @@ func (s *AgentRepoSyncer) syncSecurityProfiles(ctx context.Context, cloneDir str
 		profile.Source = "yaml"
 		profile.SourceRepo = repo.URL
 		profile.SourceKey = sourceKey
-		profile.Owner = username
+		profile.TeamID = teamID
 
 		if err := s.profileStore.UpsertYAMLProfile(ctx, profile); err != nil {
 			log.Printf("agent-repo-syncer: profile upsert error for %s: %v", sourceKey, err)
@@ -377,7 +438,7 @@ func (s *AgentRepoSyncer) syncSecurityProfiles(ctx context.Context, cloneDir str
 	}
 
 	// Delete stale YAML profiles from this repo.
-	existingKeys, err := s.profileStore.ListYAMLProfileKeysByRepo(ctx, repo.URL, username)
+	existingKeys, err := s.profileStore.ListYAMLProfileKeysByRepo(ctx, repo.URL, teamID)
 	if err != nil {
 		log.Printf("agent-repo-syncer: error listing existing profile keys: %v", err)
 		return
@@ -396,15 +457,15 @@ func (s *AgentRepoSyncer) syncSecurityProfiles(ctx context.Context, cloneDir str
 // validateProfileReferences checks that all profile references in agent definitions
 // from the given repo resolve to known profiles. Sets sync_error on definitions
 // with unknown profile references.
-func (s *AgentRepoSyncer) validateProfileReferences(ctx context.Context, repoURL string, username string) {
-	defs, err := s.defStore.ListAgentDefinitionsByRepo(ctx, repoURL, username)
+func (s *AgentRepoSyncer) validateProfileReferences(ctx context.Context, repoURL string, teamID string) {
+	defs, err := s.defStore.ListAgentDefinitionsByRepo(ctx, repoURL, teamID)
 	if err != nil {
 		log.Printf("agent-repo-syncer: error listing definitions for validation: %v", err)
 		return
 	}
 
 	for _, def := range defs {
-		def.Owner = username // Ensure owner is set for any upserts below.
+		def.TeamID = teamID // Ensure team_id is set for any upserts below.
 		if def.SyncError != "" && !strings.HasPrefix(def.SyncError, "unknown security profile:") {
 			// Definition has a parse error (not a profile error) — skip validation.
 			continue
@@ -421,7 +482,7 @@ func (s *AgentRepoSyncer) validateProfileReferences(ctx context.Context, repoURL
 		// Check each referenced profile.
 		var missing []string
 		for _, profileName := range def.Profiles {
-			if _, err := s.profileStore.GetProfile(ctx, profileName, username); err != nil {
+			if _, err := s.profileStore.GetProfile(ctx, profileName, teamID); err != nil {
 				missing = append(missing, profileName)
 			}
 		}
@@ -489,7 +550,7 @@ func (s *AgentRepoSyncer) ValidateRepo(ctx context.Context, repo SkillRepo) ([]s
 }
 
 // reconcileSchedule creates, updates, or removes a schedule for an agent definition.
-func (s *AgentRepoSyncer) reconcileSchedule(ctx context.Context, td *TaskDefinition, repoURL string, username string) error {
+func (s *AgentRepoSyncer) reconcileSchedule(ctx context.Context, td *TaskDefinition, repoURL string, username, teamID string) error {
 	hasCron := td.Schedule != nil
 	hasTrigger := td.Trigger != nil
 
@@ -545,10 +606,10 @@ func (s *AgentRepoSyncer) reconcileSchedule(ctx context.Context, td *TaskDefinit
 		// No existing schedule — create one.
 		now := time.Now().UTC()
 		_, err = s.db.Exec(ctx, `
-			INSERT INTO schedules (id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, next_run, created_at, owner, debug, source, source_key, trigger_type, event_config)
+			INSERT INTO schedules (id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, next_run, created_at, team_id, debug, source, source_key, trigger_type, event_config)
 			VALUES ($1, $2, $3, $4, $5, $6, '', $7, $8, $9, $10, $15, $11, 'yaml', $12, $13, $14)
 		`, uuid.New().String(), td.Name, cronExpr, td.Prompt, td.Repo, td.Provider,
-			td.Timeout, enabled, nextRun, now, td.Debug, td.SourceKey, triggerType, eventConfigJSON, username)
+			td.Timeout, enabled, nextRun, now, td.Debug, td.SourceKey, triggerType, eventConfigJSON, teamID)
 		return err
 	}
 
@@ -564,14 +625,14 @@ func (s *AgentRepoSyncer) reconcileSchedule(ctx context.Context, td *TaskDefinit
 }
 
 // syncWorkflowDefinitions syncs .alcove/workflows/*.yml from a cloned repo for the given user.
-func (s *AgentRepoSyncer) syncWorkflowDefinitions(ctx context.Context, cloneDir string, repo SkillRepo, username string) error {
+func (s *AgentRepoSyncer) syncWorkflowDefinitions(ctx context.Context, cloneDir string, repo SkillRepo, username, teamID string) error {
 	workflowsDir := filepath.Join(cloneDir, ".alcove", "workflows")
 	entries, err := os.ReadDir(workflowsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			log.Printf("agent-repo-syncer: no .alcove/workflows/ directory in %s", repo.URL)
 			// Remove any previously synced workflows from this repo.
-			return s.workflowStore.DeleteWorkflowsByRepo(ctx, repo.URL, username)
+			return s.workflowStore.DeleteWorkflowsByRepo(ctx, repo.URL, teamID)
 		}
 		return fmt.Errorf("reading workflows dir: %w", err)
 	}
@@ -602,7 +663,7 @@ func (s *AgentRepoSyncer) syncWorkflowDefinitions(ctx context.Context, cloneDir 
 				Name:       entry.Name(),
 				SourceRepo: repo.URL,
 				SourceFile: entry.Name(),
-				Owner:      username,
+				TeamID:      teamID,
 			}
 			_ = s.workflowStore.UpsertWorkflow(ctx, errWorkflow, sourceKey, string(data), err.Error())
 			continue
@@ -610,7 +671,7 @@ func (s *AgentRepoSyncer) syncWorkflowDefinitions(ctx context.Context, cloneDir 
 
 		wd.SourceRepo = repo.URL
 		wd.SourceFile = entry.Name()
-		wd.Owner = username
+		wd.TeamID = teamID
 
 		if err := s.workflowStore.UpsertWorkflow(ctx, wd, sourceKey, string(data), ""); err != nil {
 			log.Printf("agent-repo-syncer: workflow upsert error for %s: %v", sourceKey, err)
@@ -618,13 +679,13 @@ func (s *AgentRepoSyncer) syncWorkflowDefinitions(ctx context.Context, cloneDir 
 		}
 
 		// Register workflow trigger if present.
-		if err := s.reconcileWorkflowTrigger(ctx, wd, sourceKey, username); err != nil {
+		if err := s.reconcileWorkflowTrigger(ctx, wd, sourceKey, username, teamID); err != nil {
 			log.Printf("agent-repo-syncer: workflow trigger reconcile error for %s: %v", sourceKey, err)
 		}
 	}
 
 	// Delete workflows that no longer exist in the repo.
-	existing, err := s.workflowStore.ListWorkflowsByRepo(ctx, repo.URL, username)
+	existing, err := s.workflowStore.ListWorkflowsByRepo(ctx, repo.URL, teamID)
 	if err != nil {
 		return fmt.Errorf("listing existing workflows: %w", err)
 	}
@@ -643,7 +704,7 @@ func (s *AgentRepoSyncer) syncWorkflowDefinitions(ctx context.Context, cloneDir 
 	log.Printf("agent-repo-syncer: synced %d workflow(s) from %s", len(seenKeys), repo.URL)
 
 	// Validate agent references in workflows.
-	s.validateWorkflowAgentReferences(ctx, repo.URL, username)
+	s.validateWorkflowAgentReferences(ctx, repo.URL, teamID)
 
 	return nil
 }
@@ -651,15 +712,15 @@ func (s *AgentRepoSyncer) syncWorkflowDefinitions(ctx context.Context, cloneDir 
 // validateWorkflowAgentReferences checks that all agents referenced in workflows
 // from the given repo resolve to known agent definitions. Sets sync_error on workflows
 // with unknown agent references.
-func (s *AgentRepoSyncer) validateWorkflowAgentReferences(ctx context.Context, repoURL string, username string) {
-	workflows, err := s.workflowStore.ListWorkflowsByRepo(ctx, repoURL, username)
+func (s *AgentRepoSyncer) validateWorkflowAgentReferences(ctx context.Context, repoURL string, teamID string) {
+	workflows, err := s.workflowStore.ListWorkflowsByRepo(ctx, repoURL, teamID)
 	if err != nil {
 		log.Printf("agent-repo-syncer: error listing workflows for validation: %v", err)
 		return
 	}
 
 	// Get all agent definitions for this user (across all repos).
-	agentDefs, err := s.defStore.ListAgentDefinitions(ctx, username)
+	agentDefs, err := s.defStore.ListAgentDefinitions(ctx, teamID)
 	if err != nil {
 		log.Printf("agent-repo-syncer: error listing agent definitions for validation: %v", err)
 		return
@@ -693,7 +754,7 @@ func (s *AgentRepoSyncer) validateWorkflowAgentReferences(ctx context.Context, r
 }
 
 // reconcileWorkflowTrigger creates, updates, or removes a schedule for a workflow trigger.
-func (s *AgentRepoSyncer) reconcileWorkflowTrigger(ctx context.Context, wd *WorkflowDefinition, sourceKey string, username string) error {
+func (s *AgentRepoSyncer) reconcileWorkflowTrigger(ctx context.Context, wd *WorkflowDefinition, sourceKey string, username, teamID string) error {
 	if wd.Trigger == nil {
 		// No trigger in YAML — remove any existing YAML-sourced schedule for this workflow.
 		_, err := s.db.Exec(ctx, `DELETE FROM schedules WHERE source_key = $1 AND source = 'yaml'`, sourceKey)
@@ -719,9 +780,9 @@ func (s *AgentRepoSyncer) reconcileWorkflowTrigger(ctx context.Context, wd *Work
 		now := time.Now().UTC()
 		// For workflow triggers, we create a schedule that points to the workflow (not an agent definition)
 		_, err = s.db.Exec(ctx, `
-			INSERT INTO schedules (id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, next_run, created_at, owner, debug, source, source_key, trigger_type, event_config)
+			INSERT INTO schedules (id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, next_run, created_at, team_id, debug, source, source_key, trigger_type, event_config)
 			VALUES ($1, $2, '', '', '', 'workflow', '', 0, $3, NULL, $4, $5, false, 'yaml', $6, $7, $8)
-		`, uuid.New().String(), wd.Name, enabled, now, username, sourceKey, triggerType, eventConfigJSON)
+		`, uuid.New().String(), wd.Name, enabled, now, teamID, sourceKey, triggerType, eventConfigJSON)
 		return err
 	}
 

@@ -222,7 +222,8 @@ func main() {
 	defer syncer.Stop()
 	log.Println("agent repo syncer started")
 
-	api := bridge.NewAPI(dispatcher, dbpool, cfg, scheduler, credStore, toolStore, profileStore, settingsStore, bridgeLLM, defStore, syncer, store, workflowEngine)
+	teamStore := bridge.NewTeamStore(dbpool)
+	api := bridge.NewAPI(dispatcher, dbpool, cfg, scheduler, credStore, toolStore, profileStore, settingsStore, bridgeLLM, defStore, syncer, store, workflowEngine, teamStore)
 
 	// Build HTTP server.
 	mux := http.NewServeMux()
@@ -259,7 +260,7 @@ func main() {
 	}
 
 	// Wrap with auth middleware.
-	handler := auth.AuthMiddleware(store, mgr)(mux)
+	handler := auth.AuthMiddleware(store, mgr, dbpool)(mux)
 
 	server := &http.Server{
 		Addr:         ":" + cfg.Port,
