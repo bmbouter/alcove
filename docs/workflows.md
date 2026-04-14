@@ -61,6 +61,8 @@ workflow:
 | `inputs` | No | Key-value map injected into the agent's prompt |
 | `outputs` | No | List of output keys the step produces |
 | `approval` | No | Set to `"required"` for human approval before dispatch |
+| `route_field` | No | Output field name for field-based routing decisions |
+| `route_map` | No | Value-to-step mapping for field-based routing |
 | `trigger` | No | Event trigger (only on the first step) |
 
 ## Output Contract
@@ -106,6 +108,44 @@ condition: "steps.test.outcome == 'completed' && steps.test.outputs.coverage > 8
 ```
 
 If the condition evaluates to false, the step is marked as `skipped`.
+
+## Field-Based Routing
+
+For simpler routing decisions, workflows support field-based routing using
+`route_field` and `route_map`. This approach works well when routing decisions
+come from a single output field from the completed step.
+
+```yaml
+- id: triage
+  agent: triage-agent
+  route_field: is_clear
+  route_map:
+    "true": planning      # → planning step
+    "false": manual-review # → manual-review step
+  outputs: [triage_result, is_clear]
+
+- id: planning
+  agent: planning-agent
+  needs: [triage]
+
+- id: manual-review
+  agent: manual-review-agent
+  needs: [triage]
+```
+
+When the `triage` step completes, the workflow engine:
+
+1. Reads the value of `outputs.is_clear` from the triage step
+2. Looks up the value in the `route_map` 
+3. Automatically dispatches the corresponding step if its dependencies are satisfied
+
+**Route Field Requirements:**
+- Must be a valid identifier (alphanumeric + underscore)
+- Both `route_field` and `route_map` must be specified together
+- Route map values must reference valid step IDs in the workflow
+
+Field-based routing is recommended for single-field decisions. Use `condition` 
+expressions for more complex cross-step logic.
 
 ## Approval Gates
 
@@ -233,4 +273,43 @@ workflow:
   - id: monitor
     agent: monitor-agent
     needs: [promote-prod]
+```
+
+### Field-Based Routing for Triage
+
+```yaml
+name: Issue Triage and Routing
+workflow:
+  - id: triage
+    agent: triage-agent
+    trigger:
+      github:
+        events: [issues]
+        labels: [needs-triage]
+    route_field: triage_decision
+    route_map:
+      clear: implement          # Clear requirements → implement
+      unclear: clarification    # Unclear → request clarification
+      duplicate: close-duplicate # Duplicate → close as duplicate
+    outputs: [triage_decision, analysis, confidence]
+
+  - id: implement
+    agent: autonomous-developer
+    needs: [triage]
+    inputs:
+      requirements: "{{steps.triage.outputs.analysis}}"
+
+  - id: clarification
+    agent: clarification-agent
+    needs: [triage]
+    inputs:
+      analysis: "{{steps.triage.outputs.analysis}}"
+      confidence: "{{steps.triage.outputs.confidence}}"
+
+  - id: close-duplicate
+    agent: close-issue-agent
+    needs: [triage]
+    inputs:
+      reason: "Duplicate issue"
+      analysis: "{{steps.triage.outputs.analysis}}"
 ```
