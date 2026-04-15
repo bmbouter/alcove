@@ -130,7 +130,7 @@ func (d *DockerRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHandle,
 	}
 	gateArgs = append(gateArgs,
 		"--name", gateName,
-		"--network", internalNet+","+externalNet,
+		"--network", internalNet, "--network", externalNet,
 	)
 	for k, v := range spec.GateEnv {
 		gateArgs = append(gateArgs, "--env", k+"="+v)

@@ -59,8 +59,8 @@ func TestDockerRunTask_CreatesContainers(t *testing.T) {
 	if !strings.Contains(gateArgs, "--name gate-task-1") {
 		t.Errorf("gate call missing --name gate-task-1: %s", gateArgs)
 	}
-	if !strings.Contains(gateArgs, "--network test-internal,test-external") {
-		t.Errorf("gate call missing dual network (test-internal,test-external): %s", gateArgs)
+	if !strings.Contains(gateArgs, "--network test-internal --network test-external") {
+		t.Errorf("gate call missing dual network (--network test-internal --network test-external): %s", gateArgs)
 	}
 	if !strings.Contains(gateArgs, "quay.io/alcove/gate:latest") {
 		t.Errorf("gate call missing gate image: %s", gateArgs)
