@@ -3,6 +3,18 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.16.0
+
+### Changes
+- Consolidate dashboard navigation: remove Teams tab from top nav (use
+  team switcher dropdown → Manage Teams instead), remove duplicate Agent
+  Repos from team detail page, remove Skill/Agent Repos section from
+  Repos page (to be replaced by Catalog feature).
+- Remove skill-repos API endpoints (/api/v1/admin/settings/skill-repos
+  and /api/v1/user/settings/skill-repos). These are replaced by the
+  upcoming Catalog feature.
+- Add Docker CLI to Bridge container image.
+
 ## v0.15.6
 
 ### Bug Fixes
