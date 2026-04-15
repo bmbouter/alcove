@@ -141,8 +141,8 @@ Bridge reads these environment variables:
 | `LEDGER_DATABASE_URL` | PostgreSQL connection string | `postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable` |
 | `HAIL_URL` | NATS server URL | `nats://localhost:4222` |
 | `RUNTIME` | Container runtime to use | `podman` or `kubernetes` |
-| `SKIFF_IMAGE` | Skiff container image | `localhost/alcove-skiff-base:dev` |
-| `GATE_IMAGE` | Gate container image | `localhost/alcove-gate:dev` |
+| `SKIFF_IMAGE` | Skiff container image | `ghcr.io/bmbouter/alcove-skiff-base:latest` |
+| `GATE_IMAGE` | Gate container image | `ghcr.io/bmbouter/alcove-gate:latest` |
 | `ALCOVE_WEB_DIR` | Path to dashboard static files | `/web` or `./web` |
 | `ALCOVE_NETWORK` | Podman internal network name | `alcove-internal` |
 | `ALCOVE_EXTERNAL_NETWORK` | Podman external network for Gate egress | `alcove-external` |
