@@ -223,7 +223,37 @@ for a single invocation.
 
 After configuring your LLM provider, you can optionally set up agent
 definitions to automate your workflow. The Catalog feature provides a browsable
-collection of available agents.
+collection of available plugins, agents, language servers, and MCP integrations.
+
+### Catalog: Sources and Items
+
+The catalog uses a two-level hierarchy:
+
+- **Sources** are git repositories -- the unit of distribution. Each source
+  contains one or more items.
+- **Items** are individual things within a source: plugins, agents, language
+  servers, or MCP integrations.
+
+Teams toggle individual items on or off, not entire sources. In the dashboard,
+expand a source to see its items and enable the ones you need. Enabled agents
+become available for use in workflow steps via `source/item` slug references.
+
+#### CLI
+
+```bash
+# List all catalog sources
+alcove catalog list
+
+# List items within a source
+alcove catalog items <source>
+
+# List all enabled agents (across all sources)
+alcove catalog agents
+
+# Enable/disable individual items
+alcove catalog enable <source>/<item>
+alcove catalog disable <source>/<item>
+```
 
 ### Agent Definitions
 

@@ -2874,73 +2874,160 @@ details[open] > .tx-tool-expand-toggle::before {
     background: rgba(231, 76, 60, 0.15);
 }
 
-/* Catalog page */
-.catalog-filter-bar {
+/* Catalog page — two-level collapsible list */
+.catalog-sources-list {
     display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 20px;
-    flex-wrap: wrap;
-}
-.catalog-category-pills {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    flex: 1;
-}
-.catalog-pill {
-    padding: 6px 14px;
-    border-radius: 16px;
-    border: 1px solid var(--border);
-    background: transparent;
-    color: var(--text-muted);
-    font-size: 13px;
-    cursor: pointer;
-    transition: all 0.15s;
-}
-.catalog-pill:hover { border-color: var(--accent); color: var(--text); }
-.catalog-pill.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-.catalog-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-    gap: 12px;
+    flex-direction: column;
+    gap: 4px;
     margin-bottom: 16px;
 }
-.catalog-card {
-    display: flex;
-    align-items: flex-start;
-    gap: 14px;
-    padding: 16px;
+.catalog-source {
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     transition: border-color 0.15s;
 }
-.catalog-card:hover { border-color: var(--text-muted); }
-.catalog-card-icon {
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
+.catalog-source:hover { border-color: var(--text-muted); }
+.catalog-source-header {
     display: flex;
     align-items: center;
-    justify-content: center;
-    font-size: 16px;
+    gap: 12px;
+    padding: 14px 16px;
+    cursor: pointer;
+    user-select: none;
+}
+.catalog-source-arrow {
+    font-size: 12px;
+    color: var(--text-muted);
+    width: 16px;
+    text-align: center;
+    flex-shrink: 0;
+    transition: transform 0.15s;
+}
+.catalog-source-expanded .catalog-source-arrow {
+    transform: rotate(90deg);
+}
+.catalog-source-name {
     font-weight: 600;
-    color: #fff;
+    font-size: 14px;
+    color: var(--text);
+    flex: 1;
+    min-width: 0;
+}
+.catalog-source-badge {
+    font-size: 11px;
+    padding: 2px 10px;
+    border-radius: 10px;
+    font-weight: 500;
     flex-shrink: 0;
 }
-.catalog-card-info { flex: 1; min-width: 0; }
-.catalog-card-name { font-weight: 600; font-size: 14px; color: var(--text); }
-.catalog-card-desc { font-size: 13px; color: var(--text-muted); margin-top: 2px; line-height: 1.4; }
-.catalog-card-tags { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; }
-.catalog-card-tag {
+.catalog-badge-plugins { background: rgba(52, 152, 219, 0.15); color: #3498db; }
+.catalog-badge-language-servers { background: rgba(46, 204, 113, 0.15); color: #2ecc71; }
+.catalog-badge-integrations { background: rgba(155, 89, 182, 0.15); color: #9b59b6; }
+.catalog-badge-agent-templates { background: rgba(230, 126, 34, 0.15); color: #e67e22; }
+.catalog-badge-security { background: rgba(231, 76, 60, 0.15); color: #e74c3c; }
+.catalog-source-stats {
+    font-size: 12px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+.catalog-source-counts {
+    font-size: 12px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    min-width: 50px;
+    text-align: right;
+}
+.catalog-source-inline-toggle {
+    flex-shrink: 0;
+}
+.catalog-items-container {
+    display: none;
+    border-top: 1px solid var(--border);
+    padding: 12px 16px 16px 44px;
+}
+.catalog-source-expanded .catalog-items-container {
+    display: block;
+}
+.catalog-item-search {
+    width: 100%;
+    max-width: 300px;
+    padding: 6px 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 13px;
+    margin-bottom: 10px;
+}
+.catalog-item-search::placeholder { color: var(--text-muted); }
+.catalog-item-search:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: -1px;
+    border-color: var(--accent);
+}
+.catalog-items-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.catalog-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    transition: background 0.1s;
+}
+.catalog-item:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+.catalog-item input[type="checkbox"] {
+    margin-top: 3px;
+    flex-shrink: 0;
+    cursor: pointer;
+    accent-color: var(--accent);
+    width: 16px;
+    height: 16px;
+}
+.catalog-item-info {
+    flex: 1;
+    min-width: 0;
+}
+.catalog-item-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+}
+.catalog-item-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.catalog-item-type {
     font-size: 11px;
     padding: 1px 8px;
     border-radius: 10px;
-    background: rgba(255,255,255,0.06);
+    background: rgba(255, 255, 255, 0.06);
     color: var(--text-muted);
+    flex-shrink: 0;
+    margin-top: 2px;
 }
-.catalog-card-toggle { flex-shrink: 0; padding-top: 2px; }
+.catalog-show-all {
+    background: none;
+    border: none;
+    color: var(--accent-light);
+    cursor: pointer;
+    font-size: 13px;
+    padding: 8px 12px;
+    text-align: left;
+}
+.catalog-show-all:hover { color: var(--text); text-decoration: underline; }
 .catalog-custom-section { border-top: 1px solid var(--border); padding-top: 24px; }
 .catalog-custom-item {
     display: flex;
@@ -2954,6 +3041,18 @@ details[open] > .tx-tool-expand-toggle::before {
 }
 .catalog-custom-item .custom-url { flex: 1; font-size: 13px; color: var(--text); }
 .catalog-custom-item .custom-ref { font-size: 12px; color: var(--text-muted); }
+
+/* Workflow sync error — disabled agent warning */
+.workflow-agent-warning {
+    background: rgba(230, 126, 34, 0.12);
+    border: 1px solid rgba(230, 126, 34, 0.3);
+    border-radius: 4px;
+    padding: 10px 12px;
+    margin-top: 8px;
+    color: #e67e22;
+    font-size: 13px;
+    line-height: 1.4;
+}
 
 /* === Footer === */
 .alcove-footer {

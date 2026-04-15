@@ -448,6 +448,72 @@ env:
 
 ---
 
+## Catalog
+
+The catalog organizes available plugins, agents, language servers, and MCP
+integrations into a two-level hierarchy of **sources** and **items**.
+
+- **Sources** are git repositories (the unit of distribution).
+- **Items** are individual entries within a source (plugins, agents, LSPs, MCPs).
+- Teams enable or disable individual items, not whole sources.
+- Enabled agents are referenced in workflow steps using `source/item` slugs.
+
+### Catalog API
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/catalog` | List all catalog sources |
+| `GET` | `/api/v1/catalog/{source}/items` | List items within a source |
+| `GET` | `/api/v1/teams/{id}/catalog` | Get team catalog with per-item enabled state |
+| `PUT` | `/api/v1/teams/{id}/catalog/{source}/{item}` | Enable or disable a specific item |
+| `GET` | `/api/v1/teams/{id}/agents` | List all enabled agents for the team |
+
+The `GET /api/v1/catalog` response includes sources with their items:
+
+```json
+{
+  "sources": [
+    {
+      "id": "claude-plugins-official",
+      "name": "Claude Plugins Official",
+      "url": "https://github.com/anthropics/claude-plugins-official",
+      "items": [
+        {"id": "code-review", "name": "Code Review", "category": "plugins"},
+        {"id": "gopls-lsp", "name": "Go Language Server", "category": "language-servers"}
+      ]
+    }
+  ]
+}
+```
+
+The `PUT` request to enable or disable an item:
+
+```bash
+curl -X PUT /api/v1/teams/{id}/catalog/claude-plugins-official/code-review \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"enabled": true}'
+```
+
+### Agent Slug Format
+
+Enabled agents are referenced in workflow steps using the `source/item` slug
+format. For example, an agent named `dev` from source `my-agents` is referenced
+as `my-agents/dev`. Use `GET /api/v1/teams/{id}/agents` or
+`alcove catalog agents` to see all available agent slugs for your team.
+
+### Workflow Validation
+
+When Bridge syncs agent definitions that contain workflow steps, it validates
+agent references at sync time:
+
+- References to unknown agents (not in any catalog source) produce a sync error.
+- References to disabled agents (present in catalog but not enabled for the
+  team) produce a sync warning.
+
+This prevents workflows from silently failing at runtime due to missing agents.
+
+---
+
 ## Agent Repos and Agent Definitions
 
 Agent repos are git repositories containing YAML agent definitions in
@@ -762,7 +828,7 @@ review/revision patterns.
 |-------|------|----------|---------|-------------|
 | `id` | string | yes | — | Unique step identifier within the workflow |
 | `type` | string | no | `agent` | Step type: `agent` or `bridge` |
-| `agent` | string | no | — | Agent definition name (for `type: agent` steps) |
+| `agent` | string | no | — | Agent reference using `source/item` slug format (for `type: agent` steps). Must be an enabled catalog agent. |
 | `action` | string | no | — | Bridge action name (for `type: bridge` steps) |
 | `depends` | string | no | — | Boolean expression defining step dependencies |
 | `max_iterations` | int | no | `1` | Maximum times this step can execute (1 = no revisiting) |

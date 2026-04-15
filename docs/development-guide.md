@@ -165,7 +165,7 @@ are applied automatically on Bridge startup.
 
    ```bash
    ls internal/bridge/migrations/
-   # 001_initial_schema.sql  ...  028_workflow_graph_v2.sql
+   # 001_initial_schema.sql  ...  029_catalog_items.sql
    ```
 
 2. Create a new file with the next numeric prefix and a descriptive name:
@@ -551,6 +551,24 @@ teams and invite others. All team members have equal permissions.
 The `X-Alcove-Team` header is required on all authenticated API requests. The
 team middleware validates membership and injects the team context. If the
 header is omitted, the user's personal team is used as the default.
+
+### Catalog Tables
+
+The catalog uses per-item granularity for enabling and disabling individual
+items within sources. Migration `029_catalog_items.sql` creates two tables:
+
+| Table | Columns | Purpose |
+|-------|---------|---------|
+| `catalog_items` | `id`, `source_id`, `name`, `category`, `description`, `created_at` | Individual items within catalog sources (plugins, agents, LSPs, MCPs). |
+| `team_catalog_items` | `team_id`, `item_id`, `enabled`, `updated_at` | Per-team enable/disable state for individual catalog items. |
+
+The catalog introspection flow:
+
+1. Bridge loads catalog sources from `catalog.json` (embedded at compile time).
+2. Each source contains items discovered during sync.
+3. Teams enable or disable individual items via the API.
+4. At dispatch time, Bridge resolves enabled items into skill repos for Skiff.
+5. At sync time, Bridge validates workflow agent references against enabled items.
 
 ### Functional Tests
 
