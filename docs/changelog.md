@@ -3,6 +3,13 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.18.1
+
+### Bug Fixes
+- Fix workflow template validation to allow {{trigger.*}} templates
+  in step inputs, fixing sync error for feature-pipeline.yml.
+- Add Splunk proxy support to Gate and compiled agent documentation.
+
 ## v0.18.0
 
 ### Features
