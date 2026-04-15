@@ -384,8 +384,8 @@ LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disa
 HAIL_URL="nats://localhost:4222" \
 RUNTIME=podman \
 BRIDGE_PORT=8080 \
-SKIFF_IMAGE="localhost/alcove-skiff-base:dev" \
-GATE_IMAGE="localhost/alcove-gate:dev" \
+SKIFF_IMAGE="ghcr.io/bmbouter/alcove-skiff-base:latest" \
+GATE_IMAGE="ghcr.io/bmbouter/alcove-gate:latest" \
 ./bin/bridge
 
 # 4. In another terminal, use the CLI or curl
@@ -459,8 +459,8 @@ See the full roadmap in [architecture-decisions.md](architecture-decisions.md#ro
 | `HAIL_URL` | (required) | NATS server URL |
 | `RUNTIME` | `podman` | Container runtime (`podman`, `docker`, or `kubernetes`) |
 | `BRIDGE_PORT` | `8080` | HTTP server port |
-| `SKIFF_IMAGE` | `localhost/alcove-skiff-base:dev` | Skiff container image |
-| `GATE_IMAGE` | `localhost/alcove-gate:dev` | Gate container image |
+| `SKIFF_IMAGE` | `ghcr.io/bmbouter/alcove-skiff-base:latest` | Skiff container image |
+| `GATE_IMAGE` | `ghcr.io/bmbouter/alcove-gate:latest` | Gate container image |
 | `ALCOVE_NETWORK` | `alcove-internal` | Podman internal network name |
 | `ALCOVE_EXTERNAL_NETWORK` | `alcove-external` | Podman external network name (Gate egress) |
 | `AUTH_BACKEND` | `memory` | Auth backend: `memory`, `postgres`, or `rh-identity` |

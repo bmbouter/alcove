@@ -90,8 +90,8 @@ can also be set in `alcove.yaml` (see [alcove.yaml](#alcoveyaml) above).
 | `VERTEX_PROJECT` | string | _(unset)_ | Google Cloud project ID. Registers the `vertex` provider when set. |
 | `VERTEX_API_KEY` | string | _(unset)_ | API key for Google Vertex AI. Auto-migrated to credential store on startup. |
 | `VERTEX_MODEL` | string | `claude-sonnet-4-20250514` | Default model for the Vertex AI provider. |
-| `SKIFF_IMAGE` | string | `localhost/alcove-skiff-base:dev` | Container image for Skiff workers. |
-| `GATE_IMAGE` | string | `localhost/alcove-gate:dev` | Container image for Gate sidecars. |
+| `SKIFF_IMAGE` | string | `ghcr.io/bmbouter/alcove-skiff-base:latest` | Container image for Skiff workers. |
+| `GATE_IMAGE` | string | `ghcr.io/bmbouter/alcove-gate:latest` | Container image for Gate sidecars. |
 | `ALCOVE_NETWORK` | string | `alcove-internal` | Podman network name for internal container networking (created with `--internal` flag, no external access). |
 | `ALCOVE_EXTERNAL_NETWORK` | string | `alcove-external` | External podman network for Gate egress. Gate bridges both networks; Skiff is attached only to the internal network. |
 | `BRIDGE_URL` | string | `http://alcove-bridge:<port>` | URL where Bridge can be reached by Skiff/Gate containers. |

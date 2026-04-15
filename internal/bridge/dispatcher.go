@@ -633,8 +633,8 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 	// Start Skiff pod via Runtime.
 	spec := runtime.TaskSpec{
 		TaskID:      taskID,
-		Image:       envOrDefault("SKIFF_IMAGE", "localhost/alcove-skiff-base:dev"),
-		GateImage:   envOrDefault("GATE_IMAGE", "localhost/alcove-gate:dev"),
+		Image:       envOrDefault("SKIFF_IMAGE", "ghcr.io/bmbouter/alcove-skiff-base:latest"),
+		GateImage:   envOrDefault("GATE_IMAGE", "ghcr.io/bmbouter/alcove-gate:latest"),
 		Env:         skiffEnv,
 		GateEnv:     gateEnv,
 		Timeout:     int64(timeout),
