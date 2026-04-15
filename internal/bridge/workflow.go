@@ -399,9 +399,9 @@ func splitByOperatorForValidation(s, operator string) []string {
 func validateInputsTemplateSyntax(inputs map[string]interface{}) error {
 	for key, value := range inputs {
 		if str, ok := value.(string); ok {
-			// Check for template syntax like "{{steps.implement.outputs.summary}}"
+			// Check for template syntax like "{{steps.implement.outputs.summary}}" or "{{trigger.issue_number}}"
 			if strings.Contains(str, "{{") && strings.Contains(str, "}}") {
-				if !strings.Contains(str, "steps.") {
+				if !strings.Contains(str, "steps.") && !strings.Contains(str, "trigger.") {
 					return fmt.Errorf("input '%s' contains invalid template syntax: %s", key, str)
 				}
 			}
