@@ -881,9 +881,20 @@ func (a *API) listSessions(ctx context.Context, status, repo, since, until, team
 		argN++
 	}
 	if status != "" {
-		whereClause += fmt.Sprintf(" AND s.outcome = $%d", argN)
-		args = append(args, status)
-		argN++
+		statuses := strings.Split(status, ",")
+		if len(statuses) == 1 {
+			whereClause += fmt.Sprintf(" AND s.outcome = $%d", argN)
+			args = append(args, status)
+			argN++
+		} else {
+			placeholders := make([]string, len(statuses))
+			for i, s := range statuses {
+				placeholders[i] = fmt.Sprintf("$%d", argN)
+				args = append(args, s)
+				argN++
+			}
+			whereClause += " AND s.outcome IN (" + strings.Join(placeholders, ",") + ")"
+		}
 	}
 	if repo != "" {
 		whereClause += fmt.Sprintf(" AND s.prompt ILIKE '%%' || $%d || '%%'", argN)
