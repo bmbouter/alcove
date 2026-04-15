@@ -102,6 +102,7 @@ func main() {
 		newProfileCmd(),
 		newTeamsCmd(),
 		newCatalogCmd(),
+		newCredentialsCmd(),
 		newVersionCmd(),
 	)
 

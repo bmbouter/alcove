@@ -385,6 +385,16 @@
                             </table>
                         </div>
                     </div>
+
+                    <div id="credentials-section-generic" class="credentials-section" hidden>
+                        <div class="credentials-section-label">Secrets</div>
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead><tr><th>Name</th><th>Type</th><th>Created</th><th>Actions</th></tr></thead>
+                                <tbody id="credentials-tbody-generic"></tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -1115,6 +1125,7 @@ alcove list</pre>
                         <option value="gitlab">GitLab</option>
                         <option value="jira">Jira</option>
                         <option value="splunk">Splunk</option>
+                        <option value="generic">Generic Secret</option>
                     </select>
                 </div>
             </div>
@@ -1258,6 +1269,13 @@ cat ~/.config/gcloud/application_default_credentials.json   # or just cat and co
                     <label>API Host</label>
                     <input type="text" data-role="cred-splunk-host" class="input" placeholder="splunk.company.com:8089 (optional, for self-hosted instances)">
                     <small class="form-help">Leave empty for Splunk Cloud. For self-hosted Splunk, enter the hostname and port.</small>
+                </div>
+            </div>
+            <div data-role="cred-generic-fields" hidden>
+                <div class="form-group">
+                    <label>Secret Value <span class="required">*</span></label>
+                    <input type="password" data-role="cred-generic-value" class="input mono" placeholder="Enter secret value...">
+                    <small class="form-help">This value will be injected as an environment variable into agent containers.</small>
                 </div>
             </div>
             <div data-role="credential-form-error" class="error-message" role="alert" hidden></div>

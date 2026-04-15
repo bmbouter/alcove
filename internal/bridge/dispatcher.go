@@ -624,20 +624,20 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 	}
 
 	// Resolve credentials from agent definition.
-	// Inject real credential tokens into Skiff environment variables.
-	for envVar, providerName := range req.Credentials {
-		tokenResult, err := d.credStore.AcquireToken(ctx, providerName)
-		if err != nil {
-			// Try SCM token path
-			token, _, err := d.credStore.AcquireSCMTokenWithHost(ctx, providerName)
-			if err != nil {
-				log.Printf("warning: credential %q not found for env var %s", providerName, envVar)
-				continue
-			}
-			skiffEnv[envVar] = token
+	for envVar, credName := range req.Credentials {
+		// Try AcquireToken first (works for LLM and generic secrets).
+		tokenResult, err := d.credStore.AcquireToken(ctx, credName)
+		if err == nil {
+			skiffEnv[envVar] = tokenResult.Token
 			continue
 		}
-		skiffEnv[envVar] = tokenResult.Token
+		// Fall back to SCM token path.
+		token, _, err := d.credStore.AcquireSCMTokenWithHost(ctx, credName)
+		if err != nil {
+			log.Printf("warning: credential %q not found for env var %s", credName, envVar)
+			continue
+		}
+		skiffEnv[envVar] = token
 	}
 
 	// Start Skiff pod via Runtime.
