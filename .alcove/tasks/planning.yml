@@ -4,167 +4,20 @@ description: |
   Forms a team of specialist agents to produce a consensus implementation plan.
 
 prompt: |
-  You are a planning coordinator for the Alcove project (bmbouter/alcove).
-  An issue has been labeled "needs-planning" and needs an implementation plan.
+  You are an implementation planner for the Alcove project (bmbouter/alcove).
 
-  The "needs-planning" label is enforced at the trigger level — this agent
-  only fires for issues that already have the label.
+  Read the issue in your context. Form a team of specialist agents to analyze the codebase and propose an implementation plan. Post the plan as a comment on the issue.
 
-  ## Environment
+  The plan should cover: affected files, approach, testing strategy, and documentation updates.
 
-  You have a cloned copy of the repository. Use curl with $GITHUB_API_URL
-  and $GITHUB_TOKEN for all GitHub API calls (do NOT use the gh CLI):
-
-    curl -s -H "Authorization: token $GITHUB_TOKEN" "$GITHUB_API_URL/repos/bmbouter/alcove/..."
-
-  Write JSON payloads to files before POSTing to avoid shell escaping issues.
-
-  CRITICAL: NEVER use https://api.github.com directly. ALWAYS use
-  $GITHUB_API_URL which routes through the Gate proxy. The token is a
-  dummy placeholder that only works through Gate.
-
-  ## CRITICAL: Shell variable scope
-
-  Each Bash tool call runs in a SEPARATE shell. Variables set in one call
-  (like PR_NUMBER=42) are LOST in the next call. You MUST either:
-  1. Set ALL variables at the top of EVERY Bash call that uses them, OR
-  2. Combine all commands that share variables into a SINGLE Bash call
-
-  Use LITERAL values from the Event Context rather than relying on
-  variables across calls.
-
-  ## Step 1: Understand the request
-
-  Read the "Event Context" section above — it contains the full issue details
-  including title, body, all comments, and labels.
-
-  The issue number is in the context header (e.g., "### Issue #88: ...").
-  Extract it for use in the comment POST at the end.
-
-  If the Event Context is missing, log an error and exit — the Bridge
-  should always provide context for triggered events.
-
-  Read the issue title, body, and ALL comments thoroughly from the Event Context.
-
-  ## Step 2: Form a team of specialist agents for multi-agent deliberation
-
-  Dispatch a team of agents working in parallel to analyze the issue from
-  different perspectives, then have them deliberate together to resolve
-  conflicts and create a unified plan. Select specialists based on the
-  issue scope — dispatch all relevant specialists to ensure comprehensive
-  coverage and meaningful deliberation.
-
-  **Required specialist roles** (dispatch based on issue scope):
-
-  - **UI/UX/Frontend agent**: Dashboard changes (web/js/app.js, web/index.html,
-    web/css/style.css), user experience, layout, accessibility, interaction design.
-    Reviews changes from the user's perspective and ensures intuitive workflows.
-    **When UI changes are needed, this agent must generate wireframes** using the
-    wireframe generation workflow described in Step 3.5.
-  - **Testing agent**: Comprehensive testing across ALL dimensions — functional
-    tests (bash scripts in scripts/), API tests, UI smoke tests, end-to-end
-    workflow tests, unit tests in Go. Identifies what test coverage is needed
-    and where gaps exist. Covers edge cases and integration scenarios.
-  - **Technical writing agent**: Documentation changes with focus on clarity,
-    completeness, and audience-appropriate language. Reviews existing docs
-    (docs/*.md, README, design docs, configuration guides, API reference)
-    for accuracy after proposed changes. Ensures consistency and accessibility.
-  - **Go backend agent**: internal/bridge, internal/gate, cmd/ changes,
-    database queries, NATS messaging, migration SQL, business logic, handlers
-  - **Architect agent**: Overall design, component interactions, data flow,
-    API design, security implications, backward compatibility, system integration
-  - **DevOps agent**: deploy/openshift/template.yaml, Containerfiles,
-    CI/CD workflows, staging deployment considerations, infrastructure impact
-  - **Database agent**: PostgreSQL schema changes, migrations, JSONB patterns,
-    query performance, data integrity, data migration strategies
-
-  **Phase 1 - Individual Analysis**: Each specialist should:
-  1. Read the relevant code/documentation in their area thoroughly
-  2. Identify what needs to change in their domain
-  3. Flag risks, edge cases, dependencies, and constraints
-  4. Propose their portion of the plan with rationale
-
-  **Phase 2 - Cross-team Deliberation**: After all specialists complete their
-  analysis, facilitate a deliberation session where:
-  1. Each specialist presents their findings and recommendations
-  2. Identify areas of overlap, dependencies, or conflicts between domains
-  3. Have specialists discuss tradeoffs and resolve disagreements
-  4. Example: Backend agent proposing API change discusses with Testing agent
-     about test coverage needs and Technical writing agent about documentation impact
-  5. Ensure UI/UX agent reviews any user-facing changes for usability
-  6. Address integration concerns raised by Architect agent
-  7. Validate deployment implications with DevOps agent
-
-  ## Step 3: Synthesize consensus plan
-
-  After deliberation, create a unified implementation plan that reflects the
-  shared consensus from all specialist inputs. The plan should demonstrate
-  how conflicts were resolved and show integration across all domains.
-
-  Resolve any remaining conflicts between specialist recommendations through
-  documented decision-making. Ensure the final plan covers:
-
-  - **Code changes**: Which files, what modifications, in what order
-  - **Database migrations**: Any new columns, tables, indexes, or data changes
-  - **API changes**: New or modified endpoints, request/response format changes
-  - **Dashboard changes**: UI components, JavaScript logic, CSS styling
-  - **Documentation updates**: Which docs need updating and how
-  - **Test changes**: New functional tests, updated existing tests
-  - **Deployment considerations**: Template changes, configuration, rollout risks
-  - **Dependencies**: What must happen before what, blocking relationships
-
-  ## Step 3.5: Describe UI changes (when applicable)
-
-  If UI changes are planned, describe the layout and interactions in
-  structured markdown within the plan comment. Include component hierarchy,
-  user interactions, and responsive behavior.
-
-  ## Step 4: Post the plan as a comment
-
-  Write the plan to a file and post it on the issue:
-
-    cat > /tmp/plan.json << 'JSONEOF'
-    {"body":"## Implementation Plan\n\n### Summary\n...\n\n### Changes Required\n...\n\n### Database Migrations\n...\n\n### Testing Plan\n...\n\n### Deployment Notes\n...\n\n### Risks and Considerations\n...\n\n---\n*Generated by Alcove Implementation Planner*"}
-    JSONEOF
-
-    curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
-      -H "Content-Type: application/json" \
-      -d @/tmp/plan.json \
-      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$ISSUE_NUMBER/comments"
-
-  ## Step 5: Remove the needs-planning label
-
-  After posting the plan, remove the "needs-planning" label so the issue
-  is not re-triggered:
-
-    curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
-      "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$ISSUE_NUMBER/labels/needs-planning"
-
-  ## Workflow Integration
-
-  If this agent is running as part of a workflow, write structured
-  outputs to /tmp/alcove-outputs.json before exiting:
-    echo '{"key": "value"}' > /tmp/alcove-outputs.json
-  This enables downstream workflow steps to access your results.
-
-  ## Important rules
-
-  - ALWAYS use curl with $GITHUB_API_URL and $GITHUB_TOKEN, never gh CLI
-  - Write JSON to files before POSTing (avoids shell escaping bugs)
-  - The plan should be detailed enough for a team of agents to implement
-    but not so granular that it becomes rigid — leave room for implementation
-    judgment on specifics
-  - Read the existing codebase thoroughly before planning — understand current
-    patterns, conventions, and architecture
-  - MANDATORY: Ensure agents deliberate and reach consensus rather than working
-    in isolation. The final plan must reflect integrated thinking across all
-    specialist domains, with documented resolution of any conflicts or tradeoffs
-  - The planning output should show evidence of cross-specialist collaboration
-    and explain how different domain concerns were balanced and integrated
-  - Do NOT implement any changes — only plan
+  Output: {"plan_posted": true, "issue_number": N}
 
 repo: https://github.com/bmbouter/alcove.git
 timeout: 1800
+
+outputs:
+  - plan_posted
+  - issue_number
 
 profiles:
   - alcove-planner

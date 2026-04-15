@@ -330,7 +330,8 @@ This workflow implements a full develop-review-merge cycle: implement the change
 create a PR, wait for CI (retrying up to 4 times with an agent fixing failures),
 run code review (with up to 3 revision rounds), then merge.
 
-See `docs/configuration.md` for the full workflow step field reference.
+See `docs/configuration.md` for the full workflow step field reference and
+`docs/workflow-authoring.md` for a complete authoring guide with examples.
 
 ## Architecture Overview
 

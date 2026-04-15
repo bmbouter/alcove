@@ -1,12 +1,10 @@
 # Example workflow definition demonstrating the YAML schema
 # This file showcases all supported workflow features including:
-# - Multi-step dependencies with DAG structure
+# - Bridge actions (create-pr, await-ci, merge-pr) for deterministic operations
+# - Depends expressions with && and || operators
 # - Cross-repository agent dispatch
-# - Enhanced conditional execution with boolean operators and numeric comparisons
-# - Field-based routing for simple output-driven decisions
 # - Input/output templating
 # - Approval gates
-# - GitHub event triggers
 
 name: Feature Delivery Pipeline
 
@@ -14,85 +12,103 @@ workflow:
   # Root step: triggered by GitHub issues with ready-for-dev label
   # Cross-repo dispatch: agent works on pulp_python repo
   - id: implement
+    type: agent
     agent: autonomous-developer
-    repo: pulp/pulp_python  # Agent will work on this repo instead of the workflow's repo
+    repo: pulp/pulp_python
     trigger:
       github:
         events: [issues]
         labels: [ready-for-dev]
-    outputs: [pr_url, summary, branch_name]
+    outputs: [summary, branch_name]
 
-  # Triage step: demonstrates field-based routing
-  - id: triage
-    agent: triage-agent
-    needs: [implement]
-    route_field: complexity
-    route_map:
-      simple: quick-review
-      complex: thorough-review
-    outputs: [complexity, risk_assessment]
+  # Create a PR from the implementation branch
+  - id: create-pr
+    type: bridge
+    action: create-pr
+    depends: "implement.Succeeded"
+    inputs:
+      repo: pulp/pulp_python
+      branch: "{{steps.implement.outputs.branch_name}}"
+      title: "Implement feature from issue"
+      base: main
 
-  # Quick review path for simple changes
-  - id: quick-review
-    agent: quick-reviewer
-    needs: [triage]
-    outputs: [review_status, issues_found]
+  # Wait for CI to pass on the PR
+  - id: await-ci
+    type: bridge
+    action: await-ci
+    depends: "create-pr.Succeeded"
+    max_iterations: 4
+    inputs:
+      repo: pulp/pulp_python
+      pr: "{{steps.create-pr.outputs.pr_number}}"
 
-  # Thorough review path for complex changes
-  - id: thorough-review
+  # Review the PR after CI passes
+  - id: review
+    type: agent
     agent: thorough-reviewer
-    needs: [triage]
-    outputs: [review_status, security_check, performance_check]
+    depends: "await-ci.Succeeded"
+    inputs:
+      pr: "{{steps.create-pr.outputs.pr_number}}"
+    outputs: [approved, review_status, security_check, performance_check]
 
   # Cross-repo step: update core library based on plugin implementation
-  # Demonstrates enhanced condition evaluation with boolean operators
   - id: update-core
+    type: agent
     agent: autonomous-developer
-    repo: pulp/pulpcore  # Different repository from the first step
-    needs: [quick-review, thorough-review]
-    condition: "(steps.quick-review.outputs.review_status == 'approved' || steps.thorough-review.outputs.review_status == 'approved') && steps.implement.outcome == 'completed'"
+    repo: pulp/pulpcore
+    depends: "review.Succeeded"
     inputs:
-      context: "Update core to support changes in {{steps.implement.outputs.pr_url}}"
+      context: "Update core to support changes in PR #{{steps.create-pr.outputs.pr_number}}"
       plugin_summary: "{{steps.implement.outputs.summary}}"
     outputs: [core_pr_url, core_changes]
 
-  # Deploy to staging: runs after core update completes successfully
-  - id: deploy-staging
-    agent: deploy-agent
-    needs: [update-core]
-    condition: "steps.update-core.outcome == 'completed'"
+  # Merge the plugin PR after review passes
+  - id: merge-plugin-pr
+    type: bridge
+    action: merge-pr
+    depends: "review.Succeeded"
     inputs:
-      pr_url: "{{steps.implement.outputs.pr_url}}"
+      repo: pulp/pulp_python
+      pr: "{{steps.create-pr.outputs.pr_number}}"
+
+  # Deploy to staging: runs after both PRs are ready
+  - id: deploy-staging
+    type: agent
+    agent: deploy-agent
+    depends: "merge-plugin-pr.Succeeded && update-core.Succeeded"
+    inputs:
+      pr: "{{steps.create-pr.outputs.pr_number}}"
       core_pr_url: "{{steps.update-core.outputs.core_pr_url}}"
       context: "{{steps.implement.outputs.summary}}"
       environment: "staging"
     outputs: [deployment_url, version]
 
-  # Smoke tests: runs after staging deployment with numeric comparison
+  # Smoke tests: runs after staging deployment
   - id: verify-staging
+    type: agent
     agent: smoke-test
-    needs: [deploy-staging]
+    depends: "deploy-staging.Succeeded"
     inputs:
       target_url: "{{steps.deploy-staging.outputs.deployment_url}}"
       version: "{{steps.deploy-staging.outputs.version}}"
     outputs: [test_results, status, coverage_percent]
 
-  # Production deployment: requires manual approval and enhanced conditions
+  # Production deployment: requires manual approval
   - id: deploy-production
+    type: agent
     agent: deploy-agent
-    needs: [verify-staging]
+    depends: "verify-staging.Succeeded"
     approval: required
-    condition: "steps.verify-staging.outputs.status == 'passed' && steps.verify-staging.outputs.coverage_percent >= 85"
     inputs:
-      pr_url: "{{steps.implement.outputs.pr_url}}"
       context: "Deploying verified version {{steps.deploy-staging.outputs.version}}"
       environment: "production"
     outputs: [production_url, deployment_id]
 
   # Post-deployment verification
   - id: verify-production
+    type: agent
     agent: smoke-test
-    needs: [deploy-production]
+    depends: "deploy-production.Succeeded"
     inputs:
       target_url: "{{steps.deploy-production.outputs.production_url}}"
       deployment_id: "{{steps.deploy-production.outputs.deployment_id}}"
@@ -100,8 +116,9 @@ workflow:
 
   # Cleanup: runs regardless of success/failure of verification
   - id: cleanup
+    type: agent
     agent: cleanup-agent
-    needs: [verify-production]
+    depends: "verify-production.Succeeded || verify-production.Failed"
     inputs:
       branch_name: "{{steps.implement.outputs.branch_name}}"
       staging_url: "{{steps.deploy-staging.outputs.deployment_url}}"
