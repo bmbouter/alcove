@@ -37,15 +37,19 @@ type WorkflowEngine struct {
 	dispatcher    *Dispatcher
 	workflowStore *WorkflowStore
 	defStore      *AgentDefStore
+	credStore     *CredentialStore
+	bridgeActions map[string]BridgeActionHandler
 }
 
 // NewWorkflowEngine creates a new workflow engine with the given dependencies.
-func NewWorkflowEngine(db *pgxpool.Pool, dispatcher *Dispatcher, workflowStore *WorkflowStore, defStore *AgentDefStore) *WorkflowEngine {
+func NewWorkflowEngine(db *pgxpool.Pool, dispatcher *Dispatcher, workflowStore *WorkflowStore, defStore *AgentDefStore, credStore *CredentialStore) *WorkflowEngine {
 	return &WorkflowEngine{
 		db:            db,
 		dispatcher:    dispatcher,
 		workflowStore: workflowStore,
 		defStore:      defStore,
+		credStore:     credStore,
+		bridgeActions: RegisterBridgeActions(),
 	}
 }
 
@@ -72,6 +76,7 @@ type WorkflowRunStep struct {
 	SessionID  string                 `json:"session_id,omitempty"`
 	Status     string                 `json:"status"` // pending, running, completed, failed, skipped, awaiting_approval
 	Outputs    map[string]interface{} `json:"outputs,omitempty"`
+	Iteration  int                    `json:"iteration"`
 	StartedAt  *time.Time             `json:"started_at,omitempty"`
 	FinishedAt *time.Time             `json:"finished_at,omitempty"`
 }
@@ -143,9 +148,36 @@ func (we *WorkflowEngine) StartWorkflowRun(ctx context.Context, workflowID, trig
 	return run, nil
 }
 
-// DispatchStep dispatches a single workflow step.
+// dispatchStep dispatches a single workflow step.
 func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, step *WorkflowStep, workflow *WorkflowDefinition) error {
 	log.Printf("dispatching step %s for workflow run %s", step.ID, run.ID)
+
+	// Check iteration limit before dispatching.
+	maxIter := step.MaxIterations
+	if maxIter <= 0 {
+		maxIter = 1
+	}
+	currentIter, err := we.getStepIteration(ctx, run.ID, step.ID)
+	if err != nil {
+		return fmt.Errorf("getting iteration count for step %s: %w", step.ID, err)
+	}
+	if currentIter >= maxIter {
+		log.Printf("step %s reached max_iterations (%d), marking as failed", step.ID, maxIter)
+		now := time.Now().UTC()
+		outputs := map[string]interface{}{"error": "max_iterations_exceeded"}
+		if err := we.updateStepStatus(ctx, run.ID, step.ID, "failed", &now, outputs); err != nil {
+			return fmt.Errorf("marking step as failed (max iterations): %w", err)
+		}
+		if err := we.updateRunStepOutputs(ctx, run.ID, step.ID, outputs); err != nil {
+			log.Printf("error updating run step outputs for max_iterations: %v", err)
+		}
+		return we.checkAndDispatchDependents(ctx, run, step.ID, workflow)
+	}
+
+	// Increment the iteration counter.
+	if err := we.incrementStepIteration(ctx, run.ID, step.ID); err != nil {
+		return fmt.Errorf("incrementing iteration for step %s: %w", step.ID, err)
+	}
 
 	// Check condition if present
 	if step.Condition != "" {
@@ -176,6 +208,17 @@ func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, st
 		return nil
 	}
 
+	// Dispatch based on step type.
+	stepType := step.Type
+	if stepType == "" {
+		stepType = "agent"
+	}
+
+	if stepType == "bridge" {
+		return we.executeBridgeAction(ctx, run, step, workflow)
+	}
+
+	// Agent step: dispatch via Dispatcher.
 	// Get the agent definition
 	agentDef, err := we.defStore.GetAgentDefinition(ctx, step.Agent, run.TeamID)
 	if err != nil {
@@ -222,6 +265,108 @@ func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, st
 
 	log.Printf("dispatched step %s with session %s", step.ID, session.ID)
 	return nil
+}
+
+// executeBridgeAction executes a bridge-type step (no external agent, runs inside Bridge).
+func (we *WorkflowEngine) executeBridgeAction(ctx context.Context, run *WorkflowRun, step *WorkflowStep, workflow *WorkflowDefinition) error {
+	log.Printf("executing bridge action %s for step %s in run %s", step.Action, step.ID, run.ID)
+
+	handler, ok := we.bridgeActions[step.Action]
+	if !ok {
+		return fmt.Errorf("unknown bridge action: %s", step.Action)
+	}
+
+	// Resolve inputs (expand templates).
+	resolvedInputs, err := we.resolveStepInputs(ctx, run.ID, step)
+	if err != nil {
+		return fmt.Errorf("resolving inputs for bridge step %s: %w", step.ID, err)
+	}
+
+	// Mark step as running.
+	now := time.Now().UTC()
+	if err := we.updateStepStatus(ctx, run.ID, step.ID, "running", nil, nil); err != nil {
+		return fmt.Errorf("marking bridge step as running: %w", err)
+	}
+	if _, err := we.db.Exec(ctx, `UPDATE workflow_run_steps SET started_at = $3 WHERE run_id = $1 AND step_id = $2`, run.ID, step.ID, &now); err != nil {
+		log.Printf("error setting started_at for bridge step %s: %v", step.ID, err)
+	}
+
+	// Execute the action.
+	result, err := handler(ctx, resolvedInputs, we.credStore, run.TeamID)
+	if err != nil {
+		failNow := time.Now().UTC()
+		outputs := map[string]interface{}{"error": err.Error()}
+		if updateErr := we.updateStepStatus(ctx, run.ID, step.ID, "failed", &failNow, outputs); updateErr != nil {
+			log.Printf("error marking bridge step %s as failed: %v", step.ID, updateErr)
+		}
+		return we.checkAndDispatchDependents(ctx, run, step.ID, workflow)
+	}
+
+	// Record outputs and mark step as completed/failed.
+	finishedNow := time.Now().UTC()
+	var stepStatus string
+	if result.Status == "succeeded" {
+		stepStatus = "completed"
+	} else {
+		stepStatus = "failed"
+		if result.Outputs == nil {
+			result.Outputs = make(map[string]interface{})
+		}
+		if result.Error != "" {
+			result.Outputs["error"] = result.Error
+		}
+	}
+
+	if err := we.updateStepStatus(ctx, run.ID, step.ID, stepStatus, &finishedNow, result.Outputs); err != nil {
+		return fmt.Errorf("updating bridge step status: %w", err)
+	}
+
+	if err := we.updateRunStepOutputs(ctx, run.ID, step.ID, result.Outputs); err != nil {
+		log.Printf("error updating run step outputs for bridge step %s: %v", step.ID, err)
+	}
+
+	log.Printf("bridge action %s completed with status %s for step %s", step.Action, stepStatus, step.ID)
+
+	// Check and dispatch dependents.
+	if err := we.checkAndDispatchDependents(ctx, run, step.ID, workflow); err != nil {
+		return fmt.Errorf("checking dependents for bridge step %s: %w", step.ID, err)
+	}
+
+	// Check if workflow is complete.
+	return we.checkWorkflowCompletion(ctx, run)
+}
+
+// resolveStepInputs resolves template references in step inputs.
+func (we *WorkflowEngine) resolveStepInputs(ctx context.Context, runID string, step *WorkflowStep) (map[string]interface{}, error) {
+	if len(step.Inputs) == 0 {
+		return make(map[string]interface{}), nil
+	}
+
+	stepOutputs, err := we.getRunStepOutputs(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("getting step outputs: %w", err)
+	}
+
+	resolved := make(map[string]interface{})
+	for key, value := range step.Inputs {
+		processedValue, err := we.processInputValue(value, stepOutputs)
+		if err != nil {
+			return nil, fmt.Errorf("processing input %s: %w", key, err)
+		}
+		resolved[key] = processedValue
+	}
+
+	return resolved, nil
+}
+
+// resetStepForReexecution resets a step so it can be dispatched again (for bounded cycles).
+func (we *WorkflowEngine) resetStepForReexecution(ctx context.Context, runID, stepID string) error {
+	_, err := we.db.Exec(ctx, `
+		UPDATE workflow_run_steps
+		SET status = 'pending', session_id = NULL, started_at = NULL, finished_at = NULL, outputs = NULL
+		WHERE run_id = $1 AND step_id = $2
+	`, runID, stepID)
+	return err
 }
 
 // OnStepCompletion is called when a session completes to handle workflow step completion.
@@ -291,26 +436,97 @@ func (we *WorkflowEngine) OnStepCompletion(ctx context.Context, sessionID string
 
 // checkAndDispatchDependents checks if any dependent steps are now ready to run.
 func (we *WorkflowEngine) checkAndDispatchDependents(ctx context.Context, run *WorkflowRun, completedStepID string, workflow *WorkflowDefinition) error {
-	dependents := workflow.GetDependents(completedStepID)
+	// Get all step statuses for expression evaluation.
+	stepStatuses, err := we.getAllStepStatuses(ctx, run.ID)
+	if err != nil {
+		return fmt.Errorf("getting all step statuses: %w", err)
+	}
 
-	for _, dependent := range dependents {
-		// Check if all dependencies are satisfied
-		ready, err := we.areStepDependenciesSatisfied(ctx, run.ID, dependent.Needs)
-		if err != nil {
-			return fmt.Errorf("checking dependencies for step %s: %w", dependent.ID, err)
-		}
+	// Check ALL steps in the workflow that reference the completed step.
+	for _, step := range workflow.Workflow {
+		dependent := step // capture loop variable
+		ready := false
 
-		if ready {
-			// Check if step is still pending
-			stepStatus, err := we.getStepStatus(ctx, run.ID, dependent.ID)
-			if err != nil {
-				return fmt.Errorf("getting status for step %s: %w", dependent.ID, err)
+		if dependent.Depends != "" {
+			// Check if this step's Depends expression references the completed step.
+			referencedIDs := ExtractDependsStepIDs(dependent.Depends)
+			references := false
+			for _, refID := range referencedIDs {
+				if refID == completedStepID {
+					references = true
+					break
+				}
+			}
+			if !references {
+				continue
 			}
 
-			if stepStatus == "pending" {
+			// Evaluate the full expression.
+			result, err := EvaluateDepends(dependent.Depends, stepStatuses)
+			if err != nil {
+				log.Printf("error evaluating depends for step %s: %v", dependent.ID, err)
+				continue
+			}
+			ready = result
+		} else if len(dependent.Needs) > 0 {
+			// Legacy: check if all Needs are completed.
+			references := false
+			for _, dep := range dependent.Needs {
+				if dep == completedStepID {
+					references = true
+					break
+				}
+			}
+			if !references {
+				continue
+			}
+
+			result, err := we.areStepDependenciesSatisfied(ctx, run.ID, dependent.Needs)
+			if err != nil {
+				return fmt.Errorf("checking dependencies for step %s: %w", dependent.ID, err)
+			}
+			ready = result
+		} else {
+			continue // No dependencies, skip (root step).
+		}
+
+		if !ready {
+			continue
+		}
+
+		// Check step status and max_iterations for re-dispatch.
+		stepStatus, err := we.getStepStatus(ctx, run.ID, dependent.ID)
+		if err != nil {
+			return fmt.Errorf("getting status for step %s: %w", dependent.ID, err)
+		}
+
+		maxIter := dependent.MaxIterations
+		if maxIter <= 0 {
+			maxIter = 1
+		}
+
+		if stepStatus == "pending" {
+			if err := we.dispatchStep(ctx, run, &dependent, workflow); err != nil {
+				log.Printf("error dispatching dependent step %s: %v", dependent.ID, err)
+				if err := we.updateStepStatus(ctx, run.ID, dependent.ID, "failed", nil, nil); err != nil {
+					log.Printf("error marking step %s as failed: %v", dependent.ID, err)
+				}
+			}
+		} else if (stepStatus == "completed" || stepStatus == "failed") && maxIter > 1 {
+			// Re-execute for bounded cycles if under iteration limit.
+			currentIter, err := we.getStepIteration(ctx, run.ID, dependent.ID)
+			if err != nil {
+				log.Printf("error getting iteration for step %s: %v", dependent.ID, err)
+				continue
+			}
+			if currentIter < maxIter {
+				log.Printf("re-dispatching step %s for iteration %d/%d", dependent.ID, currentIter+1, maxIter)
+				if err := we.resetStepForReexecution(ctx, run.ID, dependent.ID); err != nil {
+					log.Printf("error resetting step %s for re-execution: %v", dependent.ID, err)
+					continue
+				}
 				if err := we.dispatchStep(ctx, run, &dependent, workflow); err != nil {
-					log.Printf("error dispatching dependent step %s: %v", dependent.ID, err)
-					// Mark the step as failed
+					log.Printf("error re-dispatching step %s: %v", dependent.ID, err)
 					if err := we.updateStepStatus(ctx, run.ID, dependent.ID, "failed", nil, nil); err != nil {
 						log.Printf("error marking step %s as failed: %v", dependent.ID, err)
 					}
@@ -634,18 +850,34 @@ func (we *WorkflowEngine) resumeWorkflowRun(ctx context.Context, run *WorkflowRu
 		return fmt.Errorf("getting workflow definition: %w", err)
 	}
 
+	// Get all step statuses for expression evaluation.
+	stepStatuses, err := we.getAllStepStatuses(ctx, run.ID)
+	if err != nil {
+		return fmt.Errorf("getting all step statuses: %w", err)
+	}
+
 	// Find steps that might be ready to dispatch
 	for _, step := range workflow.Workflow {
-		stepStatus, err := we.getStepStatus(ctx, run.ID, step.ID)
-		if err != nil {
-			return fmt.Errorf("getting step status: %w", err)
+		stepStatus, statusErr := we.getStepStatus(ctx, run.ID, step.ID)
+		if statusErr != nil {
+			return fmt.Errorf("getting step status: %w", statusErr)
 		}
 
 		if stepStatus == "pending" {
-			// Check if dependencies are satisfied
-			ready, err := we.areStepDependenciesSatisfied(ctx, run.ID, step.Needs)
-			if err != nil {
-				return fmt.Errorf("checking dependencies for step %s: %w", step.ID, err)
+			ready := false
+			if step.Depends != "" {
+				result, evalErr := EvaluateDepends(step.Depends, stepStatuses)
+				if evalErr != nil {
+					log.Printf("error evaluating depends for step %s during recovery: %v", step.ID, evalErr)
+					continue
+				}
+				ready = result
+			} else {
+				result, depsErr := we.areStepDependenciesSatisfied(ctx, run.ID, step.Needs)
+				if depsErr != nil {
+					return fmt.Errorf("checking dependencies for step %s: %w", step.ID, depsErr)
+				}
+				ready = result
 			}
 
 			if ready {
@@ -916,9 +1148,9 @@ func (we *WorkflowEngine) insertWorkflowRunStep(ctx context.Context, step *Workf
 	}
 
 	_, err = we.db.Exec(ctx, `
-		INSERT INTO workflow_run_steps (id, run_id, step_id, session_id, status, outputs, started_at, finished_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, step.ID, step.RunID, step.StepID, step.SessionID, step.Status, outputsJSON, step.StartedAt, step.FinishedAt)
+		INSERT INTO workflow_run_steps (id, run_id, step_id, session_id, status, outputs, iteration, started_at, finished_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, step.ID, step.RunID, step.StepID, step.SessionID, step.Status, outputsJSON, step.Iteration, step.StartedAt, step.FinishedAt)
 
 	return err
 }
@@ -979,7 +1211,7 @@ func (we *WorkflowEngine) getStepStatus(ctx context.Context, runID, stepID strin
 // getWorkflowRunSteps gets all steps for a workflow run.
 func (we *WorkflowEngine) getWorkflowRunSteps(ctx context.Context, runID string) ([]WorkflowRunStep, error) {
 	rows, err := we.db.Query(ctx, `
-		SELECT id, run_id, step_id, session_id, status, outputs, started_at, finished_at
+		SELECT id, run_id, step_id, session_id, status, outputs, iteration, started_at, finished_at
 		FROM workflow_run_steps
 		WHERE run_id = $1
 	`, runID)
@@ -995,7 +1227,7 @@ func (we *WorkflowEngine) getWorkflowRunSteps(ctx context.Context, runID string)
 		var outputsJSON []byte
 		var startedAt, finishedAt *time.Time
 
-		if err := rows.Scan(&step.ID, &step.RunID, &step.StepID, &sessionID, &step.Status, &outputsJSON, &startedAt, &finishedAt); err != nil {
+		if err := rows.Scan(&step.ID, &step.RunID, &step.StepID, &sessionID, &step.Status, &outputsJSON, &step.Iteration, &startedAt, &finishedAt); err != nil {
 			return nil, err
 		}
 
@@ -1021,7 +1253,7 @@ func (we *WorkflowEngine) getWorkflowRunSteps(ctx context.Context, runID string)
 // getStepAndRunBySessionID gets the workflow run step and run by session ID.
 func (we *WorkflowEngine) getStepAndRunBySessionID(ctx context.Context, sessionID string) (*WorkflowRunStep, *WorkflowRun, error) {
 	row := we.db.QueryRow(ctx, `
-		SELECT wrs.id, wrs.run_id, wrs.step_id, wrs.session_id, wrs.status, wrs.outputs, wrs.started_at, wrs.finished_at,
+		SELECT wrs.id, wrs.run_id, wrs.step_id, wrs.session_id, wrs.status, wrs.outputs, wrs.iteration, wrs.started_at, wrs.finished_at,
 		       wr.id, wr.workflow_id, wr.status, wr.trigger_type, wr.trigger_ref, wr.current_step, wr.step_outputs, wr.team_id
 		FROM workflow_run_steps wrs
 		JOIN workflow_runs wr ON wrs.run_id = wr.id
@@ -1035,7 +1267,7 @@ func (we *WorkflowEngine) getStepAndRunBySessionID(ctx context.Context, sessionI
 	var stepStartedAt, stepFinishedAt, runStartedAt, runFinishedAt *time.Time
 
 	err := row.Scan(
-		&step.ID, &step.RunID, &step.StepID, &sessionIDPtr, &step.Status, &stepOutputsJSON, &stepStartedAt, &stepFinishedAt,
+		&step.ID, &step.RunID, &step.StepID, &sessionIDPtr, &step.Status, &stepOutputsJSON, &step.Iteration, &stepStartedAt, &stepFinishedAt,
 		&run.ID, &run.WorkflowID, &run.Status, &run.TriggerType, &run.TriggerRef, &run.CurrentStep, &runStepOutputsJSON, &run.TeamID,
 	)
 	if err != nil {
@@ -1177,6 +1409,26 @@ func (we *WorkflowEngine) enhanceTaskRequestForRepo(ctx context.Context, taskReq
 
 	log.Printf("enhanced task request for cross-repo dispatch to %s", targetRepo)
 	return nil
+}
+
+// getStepIteration retrieves the current iteration count for a workflow run step.
+func (we *WorkflowEngine) getStepIteration(ctx context.Context, runID, stepID string) (int, error) {
+	var iteration int
+	err := we.db.QueryRow(ctx, `
+		SELECT iteration FROM workflow_run_steps
+		WHERE run_id = $1 AND step_id = $2
+	`, runID, stepID).Scan(&iteration)
+	return iteration, err
+}
+
+// incrementStepIteration increments the iteration counter for a workflow run step.
+func (we *WorkflowEngine) incrementStepIteration(ctx context.Context, runID, stepID string) error {
+	_, err := we.db.Exec(ctx, `
+		UPDATE workflow_run_steps
+		SET iteration = iteration + 1
+		WHERE run_id = $1 AND step_id = $2
+	`, runID, stepID)
+	return err
 }
 
 // handleFieldBasedRouting processes field-based routing for a completed step.

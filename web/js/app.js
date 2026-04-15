@@ -6131,18 +6131,32 @@
         container.appendChild(card);
     }
 
+    function workflowStatusBadgeClass(status) {
+        if (status === 'awaiting_approval') return 'badge-cancelled';
+        if (status === 'failed') return 'badge-error';
+        if (status === 'max_iterations_exceeded') return 'badge-max_iterations_exceeded';
+        return 'badge-' + status;
+    }
+
+    function workflowStatusLabel(status) {
+        if (status === 'max_iterations_exceeded') return 'Max Iterations';
+        if (status === 'awaiting_approval') return 'Awaiting Approval';
+        return status;
+    }
+
     function renderWorkflowRunCard(run, container) {
         var card = document.createElement('div');
         card.className = 'workflow-run-card';
         card.onclick = function () { navigate('workflow-run/' + run.id); };
 
-        var statusClass = 'badge-' + (run.status === 'awaiting_approval' ? 'cancelled' : run.status === 'failed' ? 'error' : run.status);
+        var statusClass = workflowStatusBadgeClass(run.status);
+        var statusLabel = workflowStatusLabel(run.status);
         var startTime = run.started_at ? new Date(run.started_at).toLocaleString() : 'Not started';
 
         card.innerHTML =
             '<div class="workflow-run-header">' +
                 '<span class="workflow-run-name">Run ' + escapeHtml(run.id.substring(0, 8)) + '</span>' +
-                '<span class="badge ' + statusClass + '">' + escapeHtml(run.status) + '</span>' +
+                '<span class="badge ' + statusClass + '">' + escapeHtml(statusLabel) + '</span>' +
             '</div>' +
             '<div class="workflow-run-meta">' +
                 '<span>Started: ' + escapeHtml(startTime) + '</span>' +
@@ -6170,8 +6184,18 @@
 
         stepNames.forEach(function(stepName) {
             var step = steps[stepName];
+            // Support both old 'needs' list and new 'depends' expression
             var needs = step.needs || [];
             if (typeof needs === 'string') needs = [needs];
+            // If depends is set (expression string), extract step names from it
+            if (!needs.length && step.depends) {
+                var depMatches = step.depends.match(/\b([A-Za-z_][A-Za-z0-9_-]*)\./g);
+                if (depMatches) {
+                    needs = depMatches.map(function(m) { return m.replace('.', ''); });
+                    // Deduplicate
+                    needs = needs.filter(function(v, i, a) { return a.indexOf(v) === i; });
+                }
+            }
             needs.forEach(function(dependency) {
                 if (dependencyGraph[dependency]) {
                     dependencyGraph[dependency].push(stepName);
@@ -6213,10 +6237,13 @@
         executionOrder.forEach(function(stepName, index) {
             var step = steps[stepName];
             var hasApproval = step.approval === 'required';
+            var isBridge = step.type === 'bridge';
             var approvalIcon = hasApproval ? '<span class="approval-icon">🔒</span>' : '';
+            var bridgeBadge = isBridge ? '<span class="bridge-badge">bridge</span>' : '';
+            var stepTypeIcon = isBridge ? '<span class="step-type-icon-mini">&#9881;</span>' : '';
 
-            dagHtml += '<span class="workflow-dag-step' + (hasApproval ? ' has-approval' : '') + '">' +
-                       escapeHtml(stepName) + approvalIcon + '</span>';
+            dagHtml += '<span class="workflow-dag-step' + (hasApproval ? ' has-approval' : '') + (isBridge ? ' dag-step-bridge' : '') + '">' +
+                       stepTypeIcon + escapeHtml(stepName) + approvalIcon + bridgeBadge + '</span>';
 
             if (index < executionOrder.length - 1) {
                 dagHtml += '<span class="workflow-dag-arrow">→</span>';
@@ -6276,9 +6303,10 @@
             title.textContent = 'Workflow Run ' + run.id.substring(0, 8);
 
             // Build meta cards
-            var statusClass = 'badge-' + (run.status === 'awaiting_approval' ? 'cancelled' : run.status === 'failed' ? 'error' : run.status);
+            var statusClass = workflowStatusBadgeClass(run.status);
+            var statusLabel = workflowStatusLabel(run.status);
             meta.innerHTML =
-                '<div class="meta-card"><div class="meta-label">Status</div><div class="meta-value"><span class="badge ' + statusClass + '">' + escapeHtml(run.status) + '</span></div></div>' +
+                '<div class="meta-card"><div class="meta-label">Status</div><div class="meta-value"><span class="badge ' + statusClass + '">' + escapeHtml(statusLabel) + '</span></div></div>' +
                 '<div class="meta-card"><div class="meta-label">Started</div><div class="meta-value">' + (run.started_at ? new Date(run.started_at).toLocaleString() : 'Not started') + '</div></div>' +
                 '<div class="meta-card"><div class="meta-label">Finished</div><div class="meta-value">' + (run.finished_at ? new Date(run.finished_at).toLocaleString() : '-') + '</div></div>' +
                 '<div class="meta-card"><div class="meta-label">Trigger</div><div class="meta-value">' + escapeHtml(run.trigger_type || 'manual') + '</div></div>';
@@ -6291,11 +6319,20 @@
                     stepsList.appendChild(connector);
                 }
 
+                var isBridge = step.type === 'bridge';
+                var isAgent = !isBridge;
+
                 var item = document.createElement('div');
-                item.className = 'workflow-step-item';
+                item.className = 'workflow-step-item ' + (isBridge ? 'step-bridge' : 'step-agent');
 
                 var dotClass = 'workflow-step-dot workflow-step-dot-' + step.status;
-                var statusBadgeClass = 'badge-' + (step.status === 'awaiting_approval' ? 'cancelled' : step.status === 'failed' ? 'error' : step.status);
+                var statusBadgeClass = workflowStatusBadgeClass(step.status);
+                var stepStatusLabel = workflowStatusLabel(step.status);
+
+                // Type icon: gear for bridge, circle for agent
+                var typeIcon = isBridge
+                    ? '<div class="workflow-step-type-icon" title="Bridge step">&#9881;</div>'
+                    : '<div class="workflow-step-type-icon" title="Agent step">&#9679;</div>';
 
                 var actionsHtml = '';
                 if (step.status === 'awaiting_approval') {
@@ -6306,19 +6343,45 @@
                         '</div>';
                 }
 
+                // Session link only for agent steps
                 var sessionLink = '';
-                if (step.session_id) {
+                if (isAgent && step.session_id) {
                     sessionLink = ' <a href="#session/' + escapeHtml(step.session_id) + '" class="trigger-link" onclick="event.stopPropagation()">View Session</a>';
+                }
+
+                // Action badge for bridge steps
+                var actionBadge = '';
+                if (isBridge && step.action) {
+                    actionBadge = '<span class="workflow-step-action">' + escapeHtml(step.action) + '</span>';
+                }
+
+                // Iteration display (only for steps with max_iterations > 1)
+                var iterationBadge = '';
+                if (step.max_iterations && step.max_iterations > 1) {
+                    var currentIteration = step.iteration || 0;
+                    var isExceeded = step.status === 'max_iterations_exceeded';
+                    iterationBadge = '<span class="workflow-step-iteration' + (isExceeded ? ' iteration-exceeded' : '') + '">' +
+                        'Iteration ' + currentIteration + '/' + step.max_iterations +
+                        (isExceeded ? ' — limit reached' : '') +
+                        '</span>';
+                }
+
+                // Depends expression
+                var dependsHtml = '';
+                if (step.depends) {
+                    dependsHtml = '<span class="workflow-step-depends">' + escapeHtml(step.depends) + '</span>';
                 }
 
                 item.innerHTML =
                     '<div class="' + dotClass + '"></div>' +
+                    typeIcon +
                     '<div class="workflow-step-info">' +
-                        '<div class="workflow-step-name">' + escapeHtml(step.step_id) + '</div>' +
+                        '<div class="workflow-step-name">' + escapeHtml(step.step_id) + actionBadge + iterationBadge + '</div>' +
                         '<div class="workflow-step-agent">' +
-                            '<span class="badge ' + statusBadgeClass + '">' + escapeHtml(step.status) + '</span>' +
+                            '<span class="badge ' + statusBadgeClass + '">' + escapeHtml(stepStatusLabel) + '</span>' +
                             sessionLink +
                         '</div>' +
+                        dependsHtml +
                     '</div>' +
                     actionsHtml;
 

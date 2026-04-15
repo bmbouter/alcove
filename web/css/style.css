@@ -2593,6 +2593,115 @@ details[open] > .tx-tool-expand-toggle::before {
     font-size: 13px;
 }
 
+/* === Workflow Step Types: Agent vs Bridge === */
+.workflow-step-item.step-bridge {
+    border-left: 3px solid #7c3aed;
+}
+
+.workflow-step-item.step-agent {
+    border-left: 3px solid var(--status-running);
+}
+
+.workflow-step-type-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    font-size: 14px;
+}
+
+.step-bridge .workflow-step-type-icon {
+    background: rgba(124, 58, 237, 0.2);
+    color: #a78bfa;
+}
+
+.step-agent .workflow-step-type-icon {
+    background: rgba(52, 152, 219, 0.2);
+    color: var(--status-running);
+}
+
+.workflow-step-action {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    background: rgba(124, 58, 237, 0.15);
+    color: #a78bfa;
+    margin-left: 6px;
+}
+
+.workflow-step-iteration {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-muted);
+    margin-left: 6px;
+}
+
+.workflow-step-iteration.iteration-exceeded {
+    background: rgba(231, 76, 60, 0.15);
+    color: var(--status-error);
+    font-weight: 600;
+}
+
+.workflow-step-depends {
+    display: block;
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+}
+
+.workflow-step-depends::before {
+    content: "Depends: ";
+    font-family: var(--font-sans);
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+/* Max iterations exceeded status dot */
+.workflow-step-dot-max_iterations_exceeded {
+    background: var(--status-error);
+}
+
+/* Badge for max_iterations_exceeded */
+.badge-max_iterations_exceeded {
+    background: rgba(231, 76, 60, 0.2);
+    color: var(--status-error);
+}
+
+/* Bridge badge in workflow definition DAG */
+.workflow-dag-step.dag-step-bridge {
+    border-color: #7c3aed;
+    background: rgba(124, 58, 237, 0.1);
+}
+
+.workflow-dag-step .bridge-badge {
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    background: rgba(124, 58, 237, 0.25);
+    color: #a78bfa;
+    margin-left: 4px;
+    letter-spacing: 0.3px;
+}
+
+.workflow-dag-step .step-type-icon-mini {
+    font-size: 10px;
+    margin-right: 2px;
+}
+
 /* === Team Switcher === */
 .team-switcher {
     position: relative;

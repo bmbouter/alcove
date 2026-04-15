@@ -746,6 +746,121 @@ The credential is encrypted and stored in the `provider_credentials` table. The 
 
 ---
 
+## Workflow Graph
+
+Alcove workflows support multi-step execution with two step types: **agent**
+steps (Skiff pods running Claude Code) and **bridge** steps (deterministic
+actions performed by Bridge). Workflows can contain bounded cycles for
+review/revision patterns.
+
+### Workflow Step Fields
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `id` | string | yes | — | Unique step identifier within the workflow |
+| `type` | string | no | `agent` | Step type: `agent` or `bridge` |
+| `agent` | string | no | — | Agent definition name (for `type: agent` steps) |
+| `action` | string | no | — | Bridge action name (for `type: bridge` steps) |
+| `depends` | string | no | — | Boolean expression defining step dependencies |
+| `max_iterations` | int | no | `1` | Maximum times this step can execute (1 = no revisiting) |
+| `max_retries` | int | no | `0` | Maximum retry count on failure |
+| `inputs` | map | no | — | Key-value inputs passed to the step |
+
+### Bridge Actions
+
+Bridge actions are deterministic operations performed by Bridge inline, with no
+LLM involved. They move infrastructure concerns (PR creation, CI polling,
+merging) out of agent prompts.
+
+#### `create-pr`
+
+Creates a GitHub pull request from a branch.
+
+| Input | Type | Required | Description |
+|-------|------|----------|-------------|
+| `branch` | string | yes | Source branch name |
+| `title` | string | yes | PR title |
+| `base` | string | no | Base branch (default: `main`) |
+
+| Output | Type | Description |
+|--------|------|-------------|
+| `pr_number` | int | The created PR number |
+| `pr_url` | string | URL of the created PR |
+
+#### `await-ci`
+
+Polls CI status on a pull request until all checks complete.
+
+| Input | Type | Required | Description |
+|-------|------|----------|-------------|
+| `pr` | string | yes | PR number to poll |
+
+The step succeeds if all CI checks pass, and fails if any check fails.
+
+#### `merge-pr`
+
+Merges a pull request.
+
+| Input | Type | Required | Description |
+|-------|------|----------|-------------|
+| `pr` | string | yes | PR number to merge |
+
+### Depends Expression Syntax
+
+The `depends` field uses boolean expressions to define when a step should run.
+This replaces the older `needs` list syntax (which is still supported for
+backward compatibility).
+
+**Condition format:** `<step-id>.<Status>` where Status is `Succeeded` or `Failed`.
+
+**Operators:**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `&&` | Both conditions must be true | `"A.Succeeded && B.Succeeded"` |
+| `\|\|` | Either condition must be true | `"A.Failed \|\| B.Failed"` |
+| `()` | Grouping | `"(A.Succeeded \|\| B.Succeeded) && C.Succeeded"` |
+
+**Examples:**
+
+```yaml
+# Simple dependency — run after implement succeeds
+depends: "implement.Succeeded"
+
+# Multiple dependencies — both reviews must pass
+depends: "code-review.Succeeded && security-review.Succeeded"
+
+# Cycle entry point — run on first CI success OR after a revision
+depends: "await-ci.Succeeded || revision.Succeeded"
+
+# Failure handling — run when either review fails
+depends: "code-review.Failed || security-review.Failed"
+```
+
+### Bounded Cycles and Iteration Tracking
+
+Steps can reference each other in cycles (e.g., review -> revision -> review).
+The `max_iterations` field prevents infinite loops:
+
+- Default is `1`, meaning the step runs at most once (no revisiting)
+- When a step has exhausted its iterations, its status becomes
+  `max_iterations_exceeded` and any downstream steps depending on its success
+  will not run
+- Iteration counts are tracked per step in `workflow_run_steps`
+
+### Template Variables
+
+Step inputs support Go template variables for referencing trigger data and
+outputs from previous steps:
+
+| Variable | Description |
+|----------|-------------|
+| `{{trigger.issue_number}}` | Issue number from the event trigger |
+| `{{steps.<id>.inputs.<key>}}` | Input value from a previous step |
+| `{{steps.<id>.outputs.<key>}}` | Output value from a previous step |
+
+---
+
 ## Complete Environment Variable Example
 
 ```bash

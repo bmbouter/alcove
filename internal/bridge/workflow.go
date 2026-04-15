@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 	"time"
@@ -41,17 +42,22 @@ type WorkflowDefinition struct {
 
 // WorkflowStep represents a single step in a workflow.
 type WorkflowStep struct {
-	ID         string                 `json:"id" yaml:"id"`
-	Agent      string                 `json:"agent" yaml:"agent"`
-	Repo       string                 `json:"repo,omitempty" yaml:"repo,omitempty"`
-	Trigger    *EventTrigger          `json:"trigger,omitempty" yaml:"trigger,omitempty"`
-	Needs      []string               `json:"needs,omitempty" yaml:"needs,omitempty"`
-	Condition  string                 `json:"condition,omitempty" yaml:"condition,omitempty"`
-	Approval   string                 `json:"approval,omitempty" yaml:"approval,omitempty"` // "required" or empty
-	Outputs    []string               `json:"outputs,omitempty" yaml:"outputs,omitempty"`
-	Inputs     map[string]interface{} `json:"inputs,omitempty" yaml:"inputs,omitempty"`
-	RouteField string                 `json:"route_field,omitempty" yaml:"route_field,omitempty"`        // Field name for routing decisions
-	RouteMap   map[string]string      `json:"route_map,omitempty" yaml:"route_map,omitempty"`            // Value -> next step mapping
+	ID            string                 `json:"id" yaml:"id"`
+	Agent         string                 `json:"agent,omitempty" yaml:"agent,omitempty"`
+	Type          string                 `json:"type,omitempty" yaml:"type,omitempty"`                     // "agent" (default) or "bridge"
+	Action        string                 `json:"action,omitempty" yaml:"action,omitempty"`                 // Bridge action name (create-pr, await-ci, merge-pr)
+	Repo          string                 `json:"repo,omitempty" yaml:"repo,omitempty"`
+	Trigger       *EventTrigger          `json:"trigger,omitempty" yaml:"trigger,omitempty"`
+	Needs         []string               `json:"needs,omitempty" yaml:"needs,omitempty"`
+	Depends       string                 `json:"depends,omitempty" yaml:"depends,omitempty"`               // Enhanced dependency expression
+	Condition     string                 `json:"condition,omitempty" yaml:"condition,omitempty"`
+	Approval      string                 `json:"approval,omitempty" yaml:"approval,omitempty"`             // "required" or empty
+	Outputs       []string               `json:"outputs,omitempty" yaml:"outputs,omitempty"`
+	Inputs        map[string]interface{} `json:"inputs,omitempty" yaml:"inputs,omitempty"`
+	RouteField    string                 `json:"route_field,omitempty" yaml:"route_field,omitempty"`       // Field name for routing decisions
+	RouteMap      map[string]string      `json:"route_map,omitempty" yaml:"route_map,omitempty"`           // Value -> next step mapping
+	MaxIterations int                    `json:"max_iterations,omitempty" yaml:"max_iterations,omitempty"` // Max times this step can execute (default 1)
+	MaxRetries    int                    `json:"max_retries,omitempty" yaml:"max_retries,omitempty"`       // Max retries on failure within one iteration
 }
 
 // WorkflowTrigger defines when a workflow should be triggered.
@@ -89,18 +95,45 @@ func ParseWorkflowDefinition(data []byte) (*WorkflowDefinition, error) {
 	return &wd, nil
 }
 
+// validBridgeActions lists the allowed bridge action names.
+var validBridgeActions = map[string]bool{
+	"create-pr": true,
+	"await-ci":  true,
+	"merge-pr":  true,
+}
+
 // validateWorkflowSteps performs comprehensive validation on workflow steps.
 func validateWorkflowSteps(steps []WorkflowStep) error {
 	stepIDs := make(map[string]bool)
 	stepMap := make(map[string]WorkflowStep)
 
 	// First pass: check for required fields and collect step IDs
-	for _, step := range steps {
+	for i := range steps {
+		step := &steps[i]
 		if step.ID == "" {
 			return fmt.Errorf("workflow step missing required field: id")
 		}
-		if step.Agent == "" {
-			return fmt.Errorf("workflow step '%s' missing required field: agent", step.ID)
+
+		// Determine effective type.
+		stepType := step.Type
+		if stepType == "" {
+			stepType = "agent"
+		}
+
+		switch stepType {
+		case "agent":
+			if step.Agent == "" {
+				return fmt.Errorf("workflow step '%s' missing required field: agent", step.ID)
+			}
+		case "bridge":
+			if step.Action == "" {
+				return fmt.Errorf("workflow step '%s' of type 'bridge' missing required field: action", step.ID)
+			}
+			if !validBridgeActions[step.Action] {
+				return fmt.Errorf("workflow step '%s' has invalid bridge action '%s' (must be one of: create-pr, await-ci, merge-pr)", step.ID, step.Action)
+			}
+		default:
+			return fmt.Errorf("workflow step '%s' has invalid type '%s' (must be 'agent' or 'bridge')", step.ID, step.Type)
 		}
 
 		// Check for duplicate step IDs
@@ -108,7 +141,7 @@ func validateWorkflowSteps(steps []WorkflowStep) error {
 			return fmt.Errorf("duplicate step ID: %s", step.ID)
 		}
 		stepIDs[step.ID] = true
-		stepMap[step.ID] = step
+		stepMap[step.ID] = *step
 
 		// Validate approval field
 		if step.Approval != "" && step.Approval != "required" {
@@ -133,23 +166,149 @@ func validateWorkflowSteps(steps []WorkflowStep) error {
 				return fmt.Errorf("workflow step '%s' has invalid routing configuration: %w", step.ID, err)
 			}
 		}
+
+		// Validate max_iterations
+		if step.MaxIterations < 0 {
+			return fmt.Errorf("workflow step '%s' has invalid max_iterations: must be positive", step.ID)
+		}
+
+		// Backward compat: if Needs is populated and Depends is empty, auto-generate Depends.
+		if len(step.Needs) > 0 && step.Depends == "" {
+			step.Depends = NeedsToDepends(step.Needs)
+		}
+
+		// Validate depends expression syntax (try to parse it).
+		if step.Depends != "" {
+			_, err := EvaluateDepends(step.Depends, map[string]string{})
+			if err != nil {
+				// Distinguish parse errors from "step not found" (which is expected with empty map).
+				// Re-tokenize and check for syntax issues.
+				if _, tokenErr := tokenizeDepends(step.Depends); tokenErr != nil {
+					return fmt.Errorf("workflow step '%s' has invalid depends expression: %w", step.ID, tokenErr)
+				}
+			}
+		}
 	}
 
-	// Second pass: validate dependencies and check for circular references
+	// Second pass: validate dependencies (both Needs and Depends references)
 	for _, step := range steps {
 		for _, dep := range step.Needs {
 			if !stepIDs[dep] {
 				return fmt.Errorf("workflow step '%s' references non-existent dependency: %s", step.ID, dep)
 			}
 		}
+
+		// Validate step IDs referenced in Depends expressions.
+		if step.Depends != "" {
+			referencedIDs := ExtractDependsStepIDs(step.Depends)
+			for _, refID := range referencedIDs {
+				if !stepIDs[refID] {
+					return fmt.Errorf("workflow step '%s' depends expression references non-existent step: %s", step.ID, refID)
+				}
+			}
+		}
 	}
 
-	// Check for circular dependencies using DFS
-	if err := checkCircularDependencies(steps); err != nil {
-		return err
+	// Build dependency graph for cycle detection using both Needs and Depends.
+	graph := make(map[string][]string)
+	for _, step := range steps {
+		var deps []string
+		if step.Depends != "" {
+			deps = ExtractDependsStepIDs(step.Depends)
+		} else {
+			deps = step.Needs
+		}
+		graph[step.ID] = deps
+	}
+
+	// Check for circular dependencies using DFS.
+	if hasCycles := detectCycles(graph); hasCycles {
+		// Cycles are only allowed if ALL cycle participants have max_iterations > 1 (bounded cycles).
+		cycleParticipants := findCycleParticipants(graph)
+		allBounded := true
+		for _, stepID := range cycleParticipants {
+			s := stepMap[stepID]
+			if s.MaxIterations <= 1 {
+				allBounded = false
+				log.Printf("WARNING: workflow step '%s' participates in a cycle but has max_iterations=%d (should be > 1 for bounded cycles)", stepID, s.MaxIterations)
+			}
+		}
+		if !allBounded {
+			return fmt.Errorf("circular dependency detected in workflow")
+		}
 	}
 
 	return nil
+}
+
+// detectCycles checks if the dependency graph contains any cycles.
+func detectCycles(graph map[string][]string) bool {
+	visited := make(map[string]bool)
+	recStack := make(map[string]bool)
+
+	var hasCycle func(string) bool
+	hasCycle = func(node string) bool {
+		visited[node] = true
+		recStack[node] = true
+
+		for _, neighbor := range graph[node] {
+			if !visited[neighbor] {
+				if hasCycle(neighbor) {
+					return true
+				}
+			} else if recStack[neighbor] {
+				return true
+			}
+		}
+
+		recStack[node] = false
+		return false
+	}
+
+	for node := range graph {
+		if !visited[node] {
+			if hasCycle(node) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// findCycleParticipants returns all step IDs that are part of a cycle.
+func findCycleParticipants(graph map[string][]string) []string {
+	var participants []string
+
+	for node := range graph {
+		// Check if this node can reach itself.
+		visited := make(map[string]bool)
+		if canReach(graph, node, node, visited, true) {
+			participants = append(participants, node)
+		}
+	}
+
+	return participants
+}
+
+// canReach checks if 'target' is reachable from 'current' in the graph.
+// 'firstStep' indicates whether this is the first call (skip self-check on first step).
+func canReach(graph map[string][]string, current, target string, visited map[string]bool, firstStep bool) bool {
+	if !firstStep && current == target {
+		return true
+	}
+	if visited[current] {
+		return false
+	}
+	visited[current] = true
+
+	for _, neighbor := range graph[current] {
+		if canReach(graph, neighbor, target, visited, false) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // validateConditionSyntax performs validation of condition expressions using the condition evaluator.
@@ -343,11 +502,11 @@ func checkCircularDependencies(steps []WorkflowStep) error {
 	return nil
 }
 
-// GetRootSteps returns workflow steps that have no dependencies (no "needs").
+// GetRootSteps returns workflow steps that have no dependencies (no "needs" and no "depends").
 func (wd *WorkflowDefinition) GetRootSteps() []WorkflowStep {
 	var roots []WorkflowStep
 	for _, step := range wd.Workflow {
-		if len(step.Needs) == 0 {
+		if len(step.Needs) == 0 && step.Depends == "" {
 			roots = append(roots, step)
 		}
 	}
@@ -365,9 +524,22 @@ func (wd *WorkflowDefinition) GetStepByID(id string) *WorkflowStep {
 }
 
 // GetDependents returns all steps that depend on the given step ID.
+// This checks both the legacy Needs field and the Depends expression.
 func (wd *WorkflowDefinition) GetDependents(stepID string) []WorkflowStep {
 	var dependents []WorkflowStep
 	for _, step := range wd.Workflow {
+		// Check Depends expression first (it takes precedence).
+		if step.Depends != "" {
+			referencedIDs := ExtractDependsStepIDs(step.Depends)
+			for _, refID := range referencedIDs {
+				if refID == stepID {
+					dependents = append(dependents, step)
+					break
+				}
+			}
+			continue
+		}
+		// Fall back to legacy Needs field.
 		for _, dep := range step.Needs {
 			if dep == stepID {
 				dependents = append(dependents, step)
@@ -542,6 +714,7 @@ func (s *WorkflowStore) ListWorkflows(ctx context.Context, teamID string) ([]Sto
 
 // ValidateWorkflowAgentReferences checks that all agents referenced in the workflow
 // exist in the given agent definitions. Returns a list of missing agent names.
+// Bridge-type steps are skipped since they don't reference agents.
 func (s *WorkflowStore) ValidateWorkflowAgentReferences(ctx context.Context, wd *WorkflowDefinition, agentDefs []TaskDefinition) []string {
 	agentNames := make(map[string]bool)
 	for _, def := range agentDefs {
@@ -550,7 +723,11 @@ func (s *WorkflowStore) ValidateWorkflowAgentReferences(ctx context.Context, wd 
 
 	var missing []string
 	for _, step := range wd.Workflow {
-		if !agentNames[step.Agent] {
+		// Bridge steps don't need agents.
+		if step.Type == "bridge" {
+			continue
+		}
+		if step.Agent != "" && !agentNames[step.Agent] {
 			missing = append(missing, step.Agent)
 		}
 	}
