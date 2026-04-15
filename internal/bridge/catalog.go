@@ -19,12 +19,13 @@ type CatalogEntry struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
-	URL         string   `json:"url"`
-	Ref         string   `json:"ref,omitempty"`
-	Path        string   `json:"path,omitempty"`
 	Category    string   `json:"category"`
+	SourceType  string   `json:"source_type"`
+	SourceURL   string   `json:"source_url"`
+	SourcePath  string   `json:"source_path,omitempty"`
+	Ref         string   `json:"ref,omitempty"`
+	DocsURL     string   `json:"docs_url,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
-	Source      string   `json:"source,omitempty"`
 }
 
 var (
@@ -45,7 +46,7 @@ func ResolveCatalogSkillRepos(catalog []CatalogEntry, enabledMap map[string]bool
 		if enabledMap[entry.ID] {
 			enabled := true
 			repos = append(repos, SkillRepo{
-				URL:     entry.URL,
+				URL:     entry.SourceURL,
 				Ref:     entry.Ref,
 				Name:    entry.Name,
 				Enabled: &enabled,

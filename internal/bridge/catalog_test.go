@@ -6,10 +6,10 @@ import (
 
 func TestLoadCatalog(t *testing.T) {
 	entries := LoadCatalog()
-	if len(entries) == 0 {
-		t.Fatal("LoadCatalog returned 0 entries")
+	if len(entries) < 100 {
+		t.Fatalf("LoadCatalog returned %d entries, expected 100+", len(entries))
 	}
-	// Check first entry has required fields
+	// Check first entry has required fields including new ones
 	first := entries[0]
 	if first.ID == "" {
 		t.Error("first entry has empty ID")
@@ -20,8 +20,11 @@ func TestLoadCatalog(t *testing.T) {
 	if first.Category == "" {
 		t.Error("first entry has empty Category")
 	}
-	if first.URL == "" {
-		t.Error("first entry has empty URL")
+	if first.SourceType == "" {
+		t.Error("first entry has empty SourceType")
+	}
+	if first.SourceURL == "" {
+		t.Error("first entry has empty SourceURL")
 	}
 
 	// Check no duplicate IDs
