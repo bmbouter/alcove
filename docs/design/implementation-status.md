@@ -243,14 +243,9 @@ alcove/
 18. **Session Pagination** — Session list API supports `per_page` and page-based
     pagination for large session histories.
 
-19. **Skill/Agent Repos** — Git repositories containing Claude Code plugins
-    (skills and agents) that are loaded into Skiff containers. System-wide
-    (admin) and per-user configuration via `GET/PUT /api/v1/admin/settings/skill-repos`
-    and `GET/PUT /api/v1/user/settings/skill-repos`. At dispatch time, Bridge
-    merges both lists and passes them to Skiff as `ALCOVE_SKILL_REPOS`. Skiff
-    clones each repo and passes them to Claude Code via `--plugin-dir` flags.
-    Plugin structure: `.claude-plugin/plugin.json` with `skills/` and `agents/`
-    directories.
+19. **Catalog** — Replaced the earlier Skill/Agent Repos feature. The Catalog
+    provides a browsable collection of available agents. The old skill-repos
+    settings API endpoints and dashboard UI have been removed.
 
 20. **YAML Agent Definitions** — Agents defined in `.alcove/tasks/*.yml` in git
     repos. Agent repo registration (system + per-user) via settings API.

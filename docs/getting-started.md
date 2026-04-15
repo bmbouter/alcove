@@ -219,25 +219,11 @@ and you will only see resources owned by that team.
 You can also pass `--team "My Team"` to any command to override the active team
 for a single invocation.
 
-## Skill / Agent Repos and Agent Definitions
+## Catalog and Agent Definitions
 
-After configuring your LLM provider, you can optionally set up skill repos and
-agent definitions to extend and automate your workflow.
-
-### Skill / Agent Repos
-
-Skill repos are git repositories containing Claude Code plugins or lola modules
-that add custom skills and agents to every task. Configure them in the dashboard
-under the user menu (or under admin settings for system-wide repos).
-
-Repos are auto-detected: if a repo contains a `.claude-plugin/plugin.json` file
-it is loaded as a Claude Code plugin; if it contains a `module/` directory it is
-loaded as a lola module. You just add a repo URL and Skiff figures out the
-format automatically. At task dispatch time, all configured repos are cloned
-into the Skiff container and loaded accordingly.
-
-Agent repos are team-scoped. Configure them in the dashboard under team
-settings (or under admin settings for system-wide repos).
+After configuring your LLM provider, you can optionally set up agent
+definitions to automate your workflow. The Catalog feature provides a browsable
+collection of available agents.
 
 ### Agent Definitions
 

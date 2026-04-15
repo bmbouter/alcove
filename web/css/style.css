@@ -1717,57 +1717,6 @@ select.input {
 .repo-item-url { flex: 1; }
 .repo-item-ref { color: var(--text-muted); font-size: 12px; }
 
-/* Skill / Agent Repos */
-.skill-repo-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 12px;
-    background: rgba(0, 0, 0, 0.15);
-    border-radius: 6px;
-    margin-bottom: 8px;
-}
-
-.skill-repo-item .skill-repo-url {
-    flex: 1;
-    font-family: var(--font-mono);
-    font-size: 13px;
-}
-
-.skill-repo-item .skill-repo-ref {
-    color: var(--text-muted);
-    font-size: 12px;
-}
-
-.skill-repo-item .skill-repo-name {
-    color: var(--text-muted);
-    font-size: 12px;
-}
-
-.skill-repo-item .skill-repo-delete {
-    cursor: pointer;
-    color: var(--status-error);
-    background: none;
-    border: none;
-    font-size: 16px;
-}
-
-.skill-repo-item .skill-repo-delete:hover {
-    opacity: 0.8;
-}
-
-.skill-repo-add h4 {
-    color: var(--text);
-    font-size: 14px;
-    margin-bottom: 12px;
-}
-
-.skill-repos-empty {
-    color: var(--text-muted);
-    font-size: 13px;
-    padding: 12px 0;
-}
-
 /* Agent Repos */
 .agent-repo-item {
     display: flex;
