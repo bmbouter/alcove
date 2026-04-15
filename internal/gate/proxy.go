@@ -232,10 +232,28 @@ func (p *Proxy) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 func (p *Proxy) handleLLMRequest(w http.ResponseWriter, r *http.Request) {
 	var targetURL string
 	switch p.config.LLMProvider {
-	case "anthropic":
+	case "anthropic", "claude-oauth":
 		targetURL = "https://api.anthropic.com" + r.URL.Path
 		if r.URL.RawQuery != "" {
 			targetURL += "?" + r.URL.RawQuery
+		}
+
+		// For OAuth (Pro/Max), strip fields not supported by the subscription API.
+		if p.config.LLMProvider == "claude-oauth" {
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err == nil {
+				var bodyMap map[string]any
+				if json.Unmarshal(bodyBytes, &bodyMap) == nil {
+					if _, has := bodyMap["context_management"]; has {
+						delete(bodyMap, "context_management")
+						if newBody, err := json.Marshal(bodyMap); err == nil {
+							bodyBytes = newBody
+						}
+					}
+				}
+				r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+				r.ContentLength = int64(len(bodyBytes))
+			}
 		}
 	case "google-vertex":
 		region := p.config.VertexRegion
@@ -313,13 +331,13 @@ func (p *Proxy) handleLLMRequest(w http.ResponseWriter, r *http.Request) {
 			// Inject credential based on token type
 			switch p.config.LLMTokenType {
 			case "oauth_token":
-				req.Header.Set("x-api-key", p.config.LLMToken)
+				req.Header.Set("Authorization", "Bearer "+p.config.LLMToken)
 				req.Header.Set("anthropic-version", "2023-06-01")
 				req.Header.Set("anthropic-beta", "oauth-2025-04-20,claude-code-20250219")
 			case "bearer":
 				req.Header.Set("Authorization", "Bearer "+p.config.LLMToken)
 			case "api_key":
-				if p.config.LLMProvider == "anthropic" {
+				if p.config.LLMProvider == "anthropic" || p.config.LLMProvider == "claude-oauth" {
 					req.Header.Set("x-api-key", p.config.LLMToken)
 					req.Header.Set("anthropic-version", "2023-06-01")
 				} else {
@@ -368,13 +386,13 @@ func (p *Proxy) handleLLMForward(w http.ResponseWriter, r *http.Request) {
 			// Inject credential based on token type
 			switch p.config.LLMTokenType {
 			case "oauth_token":
-				req.Header.Set("x-api-key", p.config.LLMToken)
+				req.Header.Set("Authorization", "Bearer "+p.config.LLMToken)
 				req.Header.Set("anthropic-version", "2023-06-01")
 				req.Header.Set("anthropic-beta", "oauth-2025-04-20,claude-code-20250219")
 			case "bearer":
 				req.Header.Set("Authorization", "Bearer "+p.config.LLMToken)
 			case "api_key":
-				if p.config.LLMProvider == "anthropic" {
+				if p.config.LLMProvider == "anthropic" || p.config.LLMProvider == "claude-oauth" {
 					req.Header.Set("x-api-key", p.config.LLMToken)
 					req.Header.Set("anthropic-version", "2023-06-01")
 				} else {

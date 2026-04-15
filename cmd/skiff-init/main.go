@@ -703,10 +703,9 @@ func setupEnv(task internal.Task) {
 	// Force HTTPS for git operations (SSH bypasses Gate credential helper).
 	setEnvIfMissing("GIT_SSH_COMMAND", "echo 'SSH disabled — use HTTPS' && exit 1")
 
-	// Configure MCP servers for Claude Code if specified.
-	if mcpConfig := os.Getenv("ALCOVE_MCP_CONFIG"); mcpConfig != "" {
-		configureMCPServers(mcpConfig)
-	}
+	// Configure Claude Code: skip onboarding (prevents startup API key validation
+	// that bypasses ANTHROPIC_BASE_URL) and set up MCP servers if specified.
+	configureClaude(os.Getenv("ALCOVE_MCP_CONFIG"))
 
 	// Load skill/agent repos if specified.
 	loadSkillRepos()
@@ -720,20 +719,24 @@ func setupEnv(task internal.Task) {
 	}
 }
 
-// configureMCPServers writes MCP server configuration for Claude Code.
-// The config is a JSON object mapping server names to their configurations.
-// Claude Code reads MCP servers from ~/.claude.json.
-func configureMCPServers(configJSON string) {
-	// Parse the MCP config
-	var mcpServers map[string]any
-	if err := json.Unmarshal([]byte(configJSON), &mcpServers); err != nil {
-		log.Printf("warning: invalid ALCOVE_MCP_CONFIG: %v", err)
-		return
-	}
-
+// configureClaude writes ~/.claude.json with onboarding flag and optional MCP servers.
+// hasCompletedOnboarding prevents Claude Code from validating the API key at startup
+// via a direct CONNECT tunnel to api.anthropic.com, which bypasses Gate's credential
+// injection.
+func configureClaude(mcpConfigJSON string) {
 	// Build the Claude Code config structure
 	claudeConfig := map[string]any{
-		"mcpServers": mcpServers,
+		"hasCompletedOnboarding": true,
+	}
+
+	// Add MCP servers if configured
+	if mcpConfigJSON != "" {
+		var mcpServers map[string]any
+		if err := json.Unmarshal([]byte(mcpConfigJSON), &mcpServers); err != nil {
+			log.Printf("warning: invalid ALCOVE_MCP_CONFIG: %v", err)
+		} else {
+			claudeConfig["mcpServers"] = mcpServers
+		}
 	}
 
 	// Determine home directory
@@ -755,7 +758,7 @@ func configureMCPServers(configJSON string) {
 		return
 	}
 
-	log.Printf("configured %d MCP server(s) at %s", len(mcpServers), configPath)
+	log.Printf("configured claude at %s (onboarding=true)", configPath)
 
 	// Also write settings to auto-approve MCP servers
 	settingsPath := filepath.Join(homeDir, ".claude", "settings.json")

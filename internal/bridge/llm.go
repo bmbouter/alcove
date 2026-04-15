@@ -117,11 +117,13 @@ func (l *BridgeLLM) completeAnthropic(ctx context.Context, systemPrompt, userPro
 		return "", fmt.Errorf("creating request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", l.apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
 	if l.provider == "claude-oauth" {
+		req.Header.Set("Authorization", "Bearer "+l.apiKey)
 		req.Header.Set("anthropic-beta", "oauth-2025-04-20,claude-code-20250219")
+	} else {
+		req.Header.Set("x-api-key", l.apiKey)
 	}
+	req.Header.Set("anthropic-version", "2023-06-01")
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
