@@ -3063,6 +3063,43 @@ details[open] > .tx-tool-expand-toggle::before {
     line-height: 1.4;
 }
 
+/* === YAML Guidance === */
+.yaml-guidance {
+    background: rgba(52, 152, 219, 0.08);
+    border: 1px solid rgba(52, 152, 219, 0.2);
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    margin-bottom: 20px;
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.6;
+}
+
+.yaml-guidance p {
+    margin: 0;
+}
+
+.yaml-guidance p + p {
+    margin-top: 6px;
+}
+
+.yaml-guidance code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: rgba(255, 255, 255, 0.08);
+    padding: 1px 5px;
+    border-radius: 3px;
+}
+
+.yaml-guidance a {
+    color: var(--status-running);
+    text-decoration: underline;
+}
+
+.yaml-guidance a:hover {
+    text-decoration: none;
+}
+
 /* === Footer === */
 .alcove-footer {
     text-align: center;

@@ -95,7 +95,6 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/tools", a.handleTools)
 	mux.HandleFunc("/api/v1/tools/", a.handleToolByID)
 	mux.HandleFunc("/api/v1/security-profiles", a.handleSecurityProfiles)
-	mux.HandleFunc("/api/v1/security-profiles/build", a.handleSecurityProfileBuild)
 	mux.HandleFunc("/api/v1/security-profiles/", a.handleSecurityProfileByID)
 	mux.HandleFunc("/api/v1/internal/token-refresh", a.handleTokenRefresh)
 	mux.HandleFunc("/api/v1/admin/settings/llm", a.handleAdminSettingsLLM)
@@ -1084,62 +1083,50 @@ func (a *API) getSession(ctx context.Context, id string) (*internal.Session, err
 // --- Schedules ---
 
 func (a *API) handleSchedules(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed — schedules are managed via YAML")
+		return
+	}
+
 	teamID := getActiveTeamID(r)
 
-	switch r.Method {
-	case http.MethodGet:
-		schedules, err := a.scheduler.ListSchedules(r.Context(), teamID)
-		if err != nil {
-			log.Printf("error: listing schedules: %v", err)
-			respondError(w, http.StatusInternalServerError, "failed to list schedules")
-			return
-		}
+	schedules, err := a.scheduler.ListSchedules(r.Context(), teamID)
+	if err != nil {
+		log.Printf("error: listing schedules: %v", err)
+		respondError(w, http.StatusInternalServerError, "failed to list schedules")
+		return
+	}
 
-		// Annotate schedules with repo_disabled by joining through agent definitions.
-		disabledRepos := a.buildDisabledReposMap(r.Context(), teamID)
-		if len(disabledRepos) > 0 {
-			// Build source_key -> source_repo map from agent definitions.
-			defs, defErr := a.defStore.ListAgentDefinitions(r.Context(), teamID)
-			if defErr == nil {
-				sourceKeyToRepo := make(map[string]string)
-				for _, d := range defs {
-					if d.SourceKey != "" {
-						sourceKeyToRepo[d.SourceKey] = d.SourceRepo
-					}
+	// Annotate schedules with repo_disabled by joining through agent definitions.
+	disabledRepos := a.buildDisabledReposMap(r.Context(), teamID)
+	if len(disabledRepos) > 0 {
+		// Build source_key -> source_repo map from agent definitions.
+		defs, defErr := a.defStore.ListAgentDefinitions(r.Context(), teamID)
+		if defErr == nil {
+			sourceKeyToRepo := make(map[string]string)
+			for _, d := range defs {
+				if d.SourceKey != "" {
+					sourceKeyToRepo[d.SourceKey] = d.SourceRepo
 				}
-				for i := range schedules {
-					if sourceRepo, ok := sourceKeyToRepo[schedules[i].SourceKey]; ok {
-						if disabledRepos[sourceRepo] {
-							schedules[i].RepoDisabled = true
-						}
+			}
+			for i := range schedules {
+				if sourceRepo, ok := sourceKeyToRepo[schedules[i].SourceKey]; ok {
+					if disabledRepos[sourceRepo] {
+						schedules[i].RepoDisabled = true
 					}
 				}
 			}
 		}
-
-		respondJSON(w, http.StatusOK, map[string]any{
-			"schedules": schedules,
-			"count":     len(schedules),
-		})
-	case http.MethodPost:
-		var sched Schedule
-		if err := json.NewDecoder(r.Body).Decode(&sched); err != nil {
-			respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
-			return
-		}
-		if err := a.scheduler.CreateSchedule(r.Context(), &sched, teamID); err != nil {
-			log.Printf("error: creating schedule: %v", err)
-			respondError(w, http.StatusInternalServerError, "failed to create schedule: "+err.Error())
-			return
-		}
-		respondJSON(w, http.StatusCreated, sched)
-	default:
-		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"schedules": schedules,
+		"count":     len(schedules),
+	})
 }
 
 func (a *API) handleScheduleByID(w http.ResponseWriter, r *http.Request) {
-	// Parse: /api/v1/schedules/{id} or /api/v1/schedules/{id}/enable
+	// Parse: /api/v1/schedules/{id}
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/schedules/")
 	parts := strings.SplitN(path, "/", 2)
 	id := parts[0]
@@ -1149,63 +1136,19 @@ func (a *API) handleScheduleByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if r.Method != http.MethodGet {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed — schedules are managed via YAML")
+		return
+	}
+
 	teamID := getActiveTeamID(r)
 
-	if len(parts) == 2 {
-		switch parts[1] {
-		case "enable":
-			if r.Method != http.MethodPost {
-				respondError(w, http.StatusMethodNotAllowed, "method not allowed")
-				return
-			}
-			var req struct {
-				Enabled bool `json:"enabled"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
-				return
-			}
-			if err := a.scheduler.EnableSchedule(r.Context(), id, req.Enabled, teamID); err != nil {
-				log.Printf("error: enabling/disabling schedule %s: %v", id, err)
-				respondError(w, http.StatusInternalServerError, "failed to update schedule: "+err.Error())
-				return
-			}
-			respondJSON(w, http.StatusOK, map[string]bool{"updated": true})
-			return
-		}
+	sched, err := a.scheduler.GetSchedule(r.Context(), id, teamID)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "schedule not found")
+		return
 	}
-
-	switch r.Method {
-	case http.MethodGet:
-		sched, err := a.scheduler.GetSchedule(r.Context(), id, teamID)
-		if err != nil {
-			respondError(w, http.StatusNotFound, "schedule not found")
-			return
-		}
-		respondJSON(w, http.StatusOK, sched)
-	case http.MethodPut:
-		var sched Schedule
-		if err := json.NewDecoder(r.Body).Decode(&sched); err != nil {
-			respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
-			return
-		}
-		sched.ID = id
-		if err := a.scheduler.UpdateSchedule(r.Context(), &sched, teamID); err != nil {
-			log.Printf("error: updating schedule %s: %v", id, err)
-			respondError(w, http.StatusInternalServerError, "failed to update schedule: "+err.Error())
-			return
-		}
-		respondJSON(w, http.StatusOK, sched)
-	case http.MethodDelete:
-		if err := a.scheduler.DeleteSchedule(r.Context(), id, teamID); err != nil {
-			log.Printf("error: deleting schedule %s: %v", id, err)
-			respondError(w, http.StatusInternalServerError, "failed to delete schedule: "+err.Error())
-			return
-		}
-		respondJSON(w, http.StatusOK, map[string]bool{"deleted": true})
-	default:
-		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
-	}
+	respondJSON(w, http.StatusOK, sched)
 }
 
 // --- Credentials ---
@@ -1380,42 +1323,31 @@ func (a *API) checkOwnership(ctx context.Context, sessionID, user string) error 
 // --- Tools ---
 
 func (a *API) handleTools(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed — tools are managed via YAML")
+		return
+	}
+
 	teamID := getActiveTeamID(r)
 
-	switch r.Method {
-	case http.MethodGet:
-		tools, err := a.toolStore.ListTools(r.Context(), teamID)
-		if err != nil {
-			log.Printf("error: listing tools: %v", err)
-			respondError(w, http.StatusInternalServerError, "failed to list tools")
-			return
-		}
-		respondJSON(w, http.StatusOK, map[string]any{
-			"tools": tools,
-			"count": len(tools),
-		})
-	case http.MethodPost:
-		var tool ToolDefinition
-		if err := json.NewDecoder(r.Body).Decode(&tool); err != nil {
-			respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
-			return
-		}
-		if tool.Name == "" || tool.DisplayName == "" {
-			respondError(w, http.StatusBadRequest, "name and display_name are required")
-			return
-		}
-		if err := a.toolStore.CreateTool(r.Context(), &tool, teamID); err != nil {
-			log.Printf("error: creating tool: %v", err)
-			respondError(w, http.StatusInternalServerError, "failed to create tool: "+err.Error())
-			return
-		}
-		respondJSON(w, http.StatusCreated, tool)
-	default:
-		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+	tools, err := a.toolStore.ListTools(r.Context(), teamID)
+	if err != nil {
+		log.Printf("error: listing tools: %v", err)
+		respondError(w, http.StatusInternalServerError, "failed to list tools")
+		return
 	}
+	respondJSON(w, http.StatusOK, map[string]any{
+		"tools": tools,
+		"count": len(tools),
+	})
 }
 
 func (a *API) handleToolByID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed — tools are managed via YAML")
+		return
+	}
+
 	name := strings.TrimPrefix(r.URL.Path, "/api/v1/tools/")
 	if name == "" {
 		respondError(w, http.StatusBadRequest, "tool name required")
@@ -1424,197 +1356,42 @@ func (a *API) handleToolByID(w http.ResponseWriter, r *http.Request) {
 
 	teamID := getActiveTeamID(r)
 
-	switch r.Method {
-	case http.MethodGet:
-		tool, err := a.toolStore.GetTool(r.Context(), name, teamID)
-		if err != nil {
-			respondError(w, http.StatusNotFound, "tool not found")
-			return
-		}
-		respondJSON(w, http.StatusOK, tool)
-	case http.MethodPut:
-		var tool ToolDefinition
-		if err := json.NewDecoder(r.Body).Decode(&tool); err != nil {
-			respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
-			return
-		}
-		tool.Name = name
-		if err := a.toolStore.UpdateTool(r.Context(), &tool, teamID); err != nil {
-			log.Printf("error: updating tool %s: %v", name, err)
-			if strings.Contains(err.Error(), "builtin") {
-				respondError(w, http.StatusForbidden, "builtin tools cannot be modified")
-			} else {
-				respondError(w, http.StatusNotFound, "tool not found or cannot be updated")
-			}
-			return
-		}
-		respondJSON(w, http.StatusOK, tool)
-	case http.MethodDelete:
-		// Check if it's a builtin tool first.
-		existing, err := a.toolStore.GetTool(r.Context(), name, teamID)
-		if err != nil {
-			respondError(w, http.StatusNotFound, "tool not found")
-			return
-		}
-		if existing.ToolType == "builtin" {
-			respondError(w, http.StatusForbidden, "builtin tools cannot be deleted")
-			return
-		}
-		if err := a.toolStore.DeleteTool(r.Context(), name, teamID); err != nil {
-			log.Printf("error: deleting tool %s: %v", name, err)
-			respondError(w, http.StatusNotFound, "tool not found")
-			return
-		}
-		respondJSON(w, http.StatusOK, map[string]bool{"deleted": true})
-	default:
-		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
-	}
-}
-
-// --- Security Profile Builder ---
-
-func (a *API) handleSecurityProfileBuild(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-
-	if a.llm == nil || !a.llm.Available() {
-		respondError(w, http.StatusServiceUnavailable, "system LLM not configured")
-		return
-	}
-
-	var req struct {
-		Description string `json:"description"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Description == "" {
-		respondError(w, http.StatusBadRequest, "description is required")
-		return
-	}
-
-	// Get available tools for the prompt context.
-	teamID := getActiveTeamID(r)
-	tools, _ := a.toolStore.ListTools(r.Context(), teamID)
-
-	toolsDesc := ""
-	for _, t := range tools {
-		if t.Operations != nil {
-			toolsDesc += fmt.Sprintf("Tool '%s' (%s) operations: %s\n", t.Name, t.DisplayName, string(t.Operations))
-		}
-	}
-
-	systemPrompt := `You are a security profile builder for Alcove, a platform that runs AI coding agents.
-Given a natural language description, generate a JSON security profile.
-
-Available tools and their operations:
-` + toolsDesc + `
-
-IMPORTANT RULES:
-1. "Code reading" or "read access" means: clone, read_contents, read_prs (GitHub) or read_mrs (GitLab), read_issues
-2. "Opening a PR" means: clone, read_contents, push_branch, create_pr (or create_pr_draft for draft PRs)
-3. "Opening an MR" means: clone, read_contents, push_branch, create_mr (or create_mr_draft for draft MRs)
-4. "Commenting" means: create_comment
-5. If a self-hosted GitLab URL is mentioned (not gitlab.com), note it in the description
-6. Always include "clone" in the rule that has the repos the user wants to work with
-7. GitHub repos use format "org/repo" (extract from URLs like https://github.com/org/repo/)
-8. GitLab repos use format "group/project" (extract from URLs)
-9. Use ["*"] for repos only when the user explicitly says "any repo" or "all repos"
-
-RULES FORMAT:
-Each tool config uses a "rules" array. Each rule specifies repos and operations that apply to those repos.
-- When ALL operations apply to the SAME repos, use a single rule.
-- When DIFFERENT operations apply to DIFFERENT repos, use multiple rules.
-- Example: "read any repo but push only to pulp/pulpcore" produces two rules:
-  Rule 1: repos=["*"], operations=["clone", "read_prs", "read_issues", "read_contents"]
-  Rule 2: repos=["pulp/pulpcore"], operations=["clone", "push_branch", "create_pr_draft"]
-- Global read operations (clone, read_prs, etc.) should use repos=["*"] when the user says "any repo" or "all repos".
-
-Respond with ONLY a JSON object (no markdown, no explanation):
-{
-  "name": "short-kebab-case-name",
-  "display_name": "Human Readable Name",
-  "description": "Brief description including any self-hosted URLs",
-  "tools": {
-    "tool-name": {
-      "rules": [
-        { "repos": ["*"], "operations": ["clone", "read_prs"] },
-        { "repos": ["org/repo"], "operations": ["clone", "push_branch", "create_pr_draft"] }
-      ]
-    }
-  }
-}`
-
-	text, err := a.llm.Complete(r.Context(), systemPrompt, req.Description, 2048)
+	tool, err := a.toolStore.GetTool(r.Context(), name, teamID)
 	if err != nil {
-		log.Printf("error: profile build LLM call: %v", err)
-		respondError(w, http.StatusInternalServerError, "LLM error: "+err.Error())
+		respondError(w, http.StatusNotFound, "tool not found")
 		return
 	}
-
-	// Strip any markdown code fences the LLM might have included.
-	text = strings.TrimSpace(text)
-	if strings.HasPrefix(text, "```") {
-		lines := strings.Split(text, "\n")
-		if len(lines) > 2 {
-			text = strings.Join(lines[1:len(lines)-1], "\n")
-		}
-	}
-
-	var profile SecurityProfile
-	if err := json.Unmarshal([]byte(text), &profile); err != nil {
-		log.Printf("error: profile build: failed to parse LLM response as profile JSON: %s", text)
-		respondError(w, http.StatusInternalServerError, "failed to parse LLM response as profile")
-		return
-	}
-
-	respondJSON(w, http.StatusOK, map[string]any{
-		"profile": profile,
-	})
+	respondJSON(w, http.StatusOK, tool)
 }
 
 // --- Security Profiles ---
 
 func (a *API) handleSecurityProfiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed — security profiles are managed via YAML")
+		return
+	}
+
 	teamID := getActiveTeamID(r)
 
-	switch r.Method {
-	case http.MethodGet:
-		profiles, err := a.profileStore.ListProfiles(r.Context(), teamID)
-		if err != nil {
-			log.Printf("error: listing profiles: %v", err)
-			respondError(w, http.StatusInternalServerError, "failed to list profiles")
-			return
-		}
-		respondJSON(w, http.StatusOK, map[string]any{
-			"profiles": profiles,
-			"count":    len(profiles),
-		})
-	case http.MethodPost:
-		var profile SecurityProfile
-		if err := json.NewDecoder(r.Body).Decode(&profile); err != nil {
-			respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
-			return
-		}
-		if profile.Name == "" {
-			respondError(w, http.StatusBadRequest, "name is required")
-			return
-		}
-		if profile.Tools == nil {
-			respondError(w, http.StatusBadRequest, "tools is required")
-			return
-		}
-		if err := a.profileStore.CreateProfile(r.Context(), &profile, teamID); err != nil {
-			log.Printf("error: creating profile: %v", err)
-			respondError(w, http.StatusInternalServerError, "failed to create profile: "+err.Error())
-			return
-		}
-		respondJSON(w, http.StatusCreated, profile)
-	default:
-		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+	profiles, err := a.profileStore.ListProfiles(r.Context(), teamID)
+	if err != nil {
+		log.Printf("error: listing profiles: %v", err)
+		respondError(w, http.StatusInternalServerError, "failed to list profiles")
+		return
 	}
+	respondJSON(w, http.StatusOK, map[string]any{
+		"profiles": profiles,
+		"count":    len(profiles),
+	})
 }
 
 func (a *API) handleSecurityProfileByID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed — security profiles are managed via YAML")
+		return
+	}
+
 	name := strings.TrimPrefix(r.URL.Path, "/api/v1/security-profiles/")
 	if name == "" {
 		respondError(w, http.StatusBadRequest, "profile name required")
@@ -1623,37 +1400,12 @@ func (a *API) handleSecurityProfileByID(w http.ResponseWriter, r *http.Request) 
 
 	teamID := getActiveTeamID(r)
 
-	switch r.Method {
-	case http.MethodGet:
-		profile, err := a.profileStore.GetProfile(r.Context(), name, teamID)
-		if err != nil {
-			respondError(w, http.StatusNotFound, "profile not found")
-			return
-		}
-		respondJSON(w, http.StatusOK, profile)
-	case http.MethodPut:
-		var profile SecurityProfile
-		if err := json.NewDecoder(r.Body).Decode(&profile); err != nil {
-			respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
-			return
-		}
-		profile.Name = name
-		if err := a.profileStore.UpdateProfile(r.Context(), &profile, teamID); err != nil {
-			log.Printf("error: updating profile %s: %v", name, err)
-			respondError(w, http.StatusNotFound, "profile not found or cannot be updated")
-			return
-		}
-		respondJSON(w, http.StatusOK, profile)
-	case http.MethodDelete:
-		if err := a.profileStore.DeleteProfile(r.Context(), name, teamID); err != nil {
-			log.Printf("error: deleting profile %s: %v", name, err)
-			respondError(w, http.StatusNotFound, "profile not found")
-			return
-		}
-		respondJSON(w, http.StatusOK, map[string]bool{"deleted": true})
-	default:
-		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+	profile, err := a.profileStore.GetProfile(r.Context(), name, teamID)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "profile not found")
+		return
 	}
+	respondJSON(w, http.StatusOK, profile)
 }
 
 // --- Admin Settings ---

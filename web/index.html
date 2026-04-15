@@ -201,7 +201,7 @@
                             </select>
                         </div>
                         <div id="task-profile-effective" class="profile-effective" hidden></div>
-                        <small class="form-help">Select profiles to grant tool access. <a href="#security">Create a new profile</a></small>
+                        <small class="form-help">Select profiles to grant tool access. <a href="#security">View profiles</a></small>
                         <div id="task-profile-stacking-hint" class="profile-stacking-hint" hidden>
                             <strong>Tip: Stack profiles for mixed repo scoping.</strong> For example, use a "read-all" profile (all repos) with a "pulp-contributor" profile (specific repos) to read broadly but write only to selected repos.
                         </div>
@@ -217,125 +217,10 @@
             <div id="page-schedules" class="page" hidden>
                 <div class="page-header">
                     <h2>Schedules</h2>
-                    <button id="show-create-schedule" class="btn btn-small btn-primary">Create Schedule</button>
                 </div>
-                <div id="schedule-form-container" class="form-card" hidden>
-                    <form id="schedule-form">
-                        <div class="form-row">
-                            <div class="form-group form-group-half">
-                                <label for="sched-name">Name <span class="required">*</span></label>
-                                <input type="text" id="sched-name" class="input" placeholder="e.g., Nightly dependency audit" required>
-                            </div>
-                            <div class="form-group form-group-half">
-                                <label for="sched-cron">Cron Expression <span class="required">*</span></label>
-                                <input type="text" id="sched-cron" class="input mono" placeholder="0 2 * * *" required>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label>Trigger Type</label>
-                            <select id="sched-trigger-type" class="input">
-                                <option value="cron">Cron (time-based)</option>
-                                <option value="event">GitHub Event</option>
-                                <option value="cron-and-event">Both Cron and Event</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="sched-natural">Describe your schedule in plain English <small style="color:var(--text-muted)">(optional)</small></label>
-                            <input type="text" id="sched-natural" class="input" placeholder='e.g., "every weekday at 9am" or "daily at 2pm"'>
-                        </div>
-                        <details class="cron-help">
-                            <summary>Cron syntax help</summary>
-                            <div class="cron-help-content">
-                                <p>Format: <code>minute hour day-of-month month day-of-week</code></p>
-                                <table class="cron-examples">
-                                    <tr><td>Every hour</td><td><code>0 * * * *</code></td></tr>
-                                    <tr><td>Every 15 minutes</td><td><code>*/15 * * * *</code></td></tr>
-                                    <tr><td>Daily at 2:00 AM</td><td><code>0 2 * * *</code></td></tr>
-                                    <tr><td>Weekdays at 9:00 AM</td><td><code>0 9 * * 1-5</code></td></tr>
-                                    <tr><td>Every Sunday at 6:00 AM</td><td><code>0 6 * * 0</code></td></tr>
-                                    <tr><td>First of every month</td><td><code>0 0 1 * *</code></td></tr>
-                                    <tr><td>Every 6 hours</td><td><code>0 */6 * * *</code></td></tr>
-                                    <tr><td>Mon-Fri at 8:30 AM</td><td><code>30 8 * * 1-5</code></td></tr>
-                                </table>
-                                <p>Supports: exact values, wildcards (*), steps (*/5), ranges (1-5), lists (1,3,5)</p>
-                            </div>
-                        </details>
-                        <div id="event-config-section" hidden>
-                            <div class="form-group">
-                                <label>GitHub Events</label>
-                                <div class="checkbox-group">
-                                    <label class="checkbox-label checkbox-label-inline"><input type="checkbox" value="push" class="event-checkbox"> Push</label>
-                                    <label class="checkbox-label checkbox-label-inline"><input type="checkbox" value="pull_request" class="event-checkbox"> Pull Request</label>
-                                    <label class="checkbox-label checkbox-label-inline"><input type="checkbox" value="issue_comment" class="event-checkbox"> Issue Comment</label>
-                                    <label class="checkbox-label checkbox-label-inline"><input type="checkbox" value="release" class="event-checkbox"> Release</label>
-                                </div>
-                            </div>
-                            <div class="form-group">
-                                <label>Delivery Mode</label>
-                                <div class="checkbox-group">
-                                    <label class="checkbox-label checkbox-label-inline"><input type="radio" name="sched-delivery-mode" value="polling" checked> Polling (checks GitHub API periodically)</label>
-                                    <label class="checkbox-label checkbox-label-inline"><input type="radio" name="sched-delivery-mode" value="webhook"> Webhook (GitHub sends events to Alcove)</label>
-                                </div>
-                            </div>
-                            <div id="delivery-polling-info" class="form-help" style="margin-bottom:12px;">
-                                Alcove checks the GitHub API every 5 minutes for new events. Requires a GitHub credential to be configured.
-                            </div>
-                            <div id="delivery-webhook-info" style="margin-bottom:12px;" hidden>
-                                <p class="form-help">Configure a webhook in your GitHub repository settings:</p>
-                                <div style="background:var(--bg-secondary);padding:12px;border-radius:8px;margin:8px 0;">
-                                    <p style="margin:0 0 4px;font-size:12px;color:var(--text-muted);">Payload URL:</p>
-                                    <code id="schedule-webhook-url" style="font-size:13px;"></code>
-                                    <p style="margin:8px 0 4px;font-size:12px;color:var(--text-muted);">Content type: <code>application/json</code></p>
-                                    <p style="margin:4px 0 0;font-size:12px;color:var(--text-muted);">Secret: Configure in the Webhook settings (user dropdown)</p>
-                                </div>
-                            </div>
-                            <div class="form-row">
-                                <div class="form-group form-group-half">
-                                    <label>Repository Filter</label>
-                                    <input type="text" id="sched-event-repos" class="input" placeholder="org/repo (comma-separated, empty = all)">
-                                </div>
-                                <div class="form-group form-group-half">
-                                    <label>Branch Filter</label>
-                                    <input type="text" id="sched-event-branches" class="input" placeholder="main, develop (empty = all)">
-                                </div>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label for="sched-prompt">Prompt <span class="required">*</span></label>
-                            <textarea id="sched-prompt" class="input" rows="4" required></textarea>
-                        </div>
-                        <div class="form-row">
-                            <div class="form-group form-group-half">
-                                <label for="sched-provider">Provider</label>
-                                <select id="sched-provider" class="input"><option value="">Select a provider</option></select>
-                            </div>
-                            <div class="form-group form-group-half">
-                                <label for="sched-repo">Repository URL</label>
-                                <input type="url" id="sched-repo" class="input" placeholder="https://github.com/org/repo">
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <div class="form-group form-group-half">
-                                <label for="sched-timeout">Timeout (minutes): <span id="sched-timeout-value">60</span></label>
-                                <input type="range" id="sched-timeout" class="input-range" min="5" max="240" value="60" step="5">
-                            </div>
-                            <div class="form-group form-group-quarter">
-                                <label class="checkbox-label" style="padding-top:28px;">
-                                    <input type="checkbox" id="sched-debug"> <span>Debug</span>
-                                </label>
-                            </div>
-                            <div class="form-group form-group-quarter">
-                                <label class="checkbox-label" style="padding-top:28px;">
-                                    <input type="checkbox" id="sched-enabled" checked> <span>Enabled</span>
-                                </label>
-                            </div>
-                        </div>
-                        <div id="schedule-form-error" class="error-message" role="alert" hidden></div>
-                        <div style="display:flex;gap:8px;margin-top:16px;">
-                            <button type="submit" id="schedule-submit-btn" class="btn btn-primary">Create Schedule</button>
-                            <button type="button" id="cancel-create-schedule" class="btn btn-outline">Cancel</button>
-                        </div>
-                    </form>
+                <div class="yaml-guidance">
+                    <p>Schedules are defined in <code>.alcove/tasks/*.yml</code> files in your agent repos.</p>
+                    <p>See the <a href="/docs/workflow-authoring">workflow authoring guide</a> for details.</p>
                 </div>
                 <div style="display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-bottom:12px;">
                     <button id="sync-task-defs" class="btn btn-small btn-outline">Sync Now</button>
@@ -412,61 +297,11 @@
             <div id="page-security" class="page" hidden>
                 <div class="page-header">
                     <h2>Security</h2>
-                    <button id="show-create-profile" class="btn btn-small btn-primary">Create Security Profile</button>
                 </div>
 
-                <div id="profile-form-container" class="form-card" hidden>
-                    <form id="profile-form">
-                        <div class="form-group">
-                            <label>Build Mode</label>
-                            <div style="display:flex;gap:8px;margin-bottom:12px;">
-                                <button type="button" class="btn btn-small btn-outline profile-mode-btn" data-profile-mode="ai">AI Builder</button>
-                                <button type="button" class="btn btn-small btn-outline profile-mode-btn" data-profile-mode="manual">Manual</button>
-                            </div>
-                        </div>
-
-                        <!-- AI Builder mode (hidden until system-info check determines default) -->
-                        <div id="profile-ai-mode" hidden>
-                            <p id="ai-builder-hint" style="color: var(--status-error); margin-bottom: 16px;" hidden>
-                                System LLM not configured — AI Builder is disabled.
-                            </p>
-                            <div class="form-group">
-                                <label for="profile-ai-description">Describe the profile you need</label>
-                                <textarea id="profile-ai-description" class="input" rows="3" placeholder="e.g., A profile for a contributor who can read and create PRs on GitHub, but not merge or delete branches"></textarea>
-                            </div>
-                            <div style="display:flex;gap:8px;margin-bottom:16px;">
-                                <button type="button" id="profile-ai-generate" class="btn btn-primary btn-small">Generate</button>
-                            </div>
-                            <div id="profile-ai-result" class="ai-builder-result" hidden></div>
-                            <div id="profile-ai-error" class="error-message" role="alert" hidden></div>
-                        </div>
-
-                        <!-- Manual / review mode fields -->
-                        <div id="profile-manual-mode" hidden>
-                            <div class="form-row">
-                                <div class="form-group form-group-half">
-                                    <label for="profile-name">Name <span class="required">*</span></label>
-                                    <input type="text" id="profile-name" class="input" placeholder="e.g., github-contributor" required>
-                                </div>
-                                <div class="form-group form-group-half">
-                                    <label for="profile-description">Description</label>
-                                    <input type="text" id="profile-description" class="input" placeholder="e.g., Can read and create PRs">
-                                </div>
-                            </div>
-                            <div class="form-group">
-                                <label>Tool Permissions</label>
-                                <div id="profile-tool-selection">
-                                    <div class="loading-state"><div class="spinner"></div><p>Loading tools...</p></div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div id="profile-form-error" class="error-message" role="alert" hidden></div>
-                        <div style="display:flex;gap:8px;margin-top:16px;">
-                            <button type="submit" id="profile-submit-btn" class="btn btn-primary">Save Profile</button>
-                            <button type="button" id="cancel-create-profile" class="btn btn-outline">Cancel</button>
-                        </div>
-                    </form>
+                <div class="yaml-guidance">
+                    <p>Security profiles are defined in <code>.alcove/security-profiles/*.yml</code> files in your agent repos.</p>
+                    <p>See the <a href="/docs/workflow-authoring">workflow authoring guide</a> for details.</p>
                 </div>
 
                 <div class="profile-stacking-hint" style="margin-bottom:16px;">
@@ -476,7 +311,7 @@
                 </div>
 
                 <div id="security-profiles-list"></div>
-                <div id="security-empty" class="empty-state" hidden><p>No security profiles yet. Create one or add profiles to an agent repo.</p></div>
+                <div id="security-empty" class="empty-state" hidden><p>No security profiles found. Add profiles to an agent repo.</p></div>
                 <div id="security-loading" class="loading-state" hidden><div class="spinner"></div><p>Loading profiles...</p></div>
 
                 <div style="margin-top:24px;">
@@ -680,48 +515,6 @@
                 <div class="page-header">
                     <button id="back-to-profiles" class="btn btn-small btn-outline">Back to Security</button>
                     <h2>Tools</h2>
-                    <button id="show-create-tool" class="btn btn-small btn-primary">Add Custom Tool</button>
-                </div>
-                <div id="tool-form-container" class="form-card" hidden>
-                    <form id="tool-form">
-                        <div class="form-row">
-                            <div class="form-group form-group-half">
-                                <label for="tool-name">Name <span class="required">*</span></label>
-                                <input type="text" id="tool-name" class="input" placeholder="e.g., my-github" required>
-                            </div>
-                            <div class="form-group form-group-half">
-                                <label for="tool-display-name">Display Name</label>
-                                <input type="text" id="tool-display-name" class="input" placeholder="e.g., My GitHub">
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label for="tool-mcp-command">MCP Command <span class="required">*</span></label>
-                            <input type="text" id="tool-mcp-command" class="input mono" placeholder="e.g., npx @modelcontextprotocol/server-github" required>
-                        </div>
-                        <div class="form-row">
-                            <div class="form-group form-group-half">
-                                <label for="tool-api-host">API Host</label>
-                                <input type="text" id="tool-api-host" class="input" placeholder="e.g., api.github.com">
-                            </div>
-                            <div class="form-group form-group-half">
-                                <label for="tool-auth-header">Auth Header</label>
-                                <input type="text" id="tool-auth-header" class="input" placeholder="e.g., Authorization">
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label for="tool-auth-format">Auth Format</label>
-                            <input type="text" id="tool-auth-format" class="input" placeholder="e.g., token {token}">
-                        </div>
-                        <div class="form-group">
-                            <label for="tool-operations">Operations <small style="color:var(--text-muted)">(one per line)</small></label>
-                            <textarea id="tool-operations" class="input mono" rows="4" placeholder="clone&#10;read_prs&#10;read_issues&#10;push_branch"></textarea>
-                        </div>
-                        <div id="tool-form-error" class="error-message" role="alert" hidden></div>
-                        <div style="display:flex;gap:8px;margin-top:16px;">
-                            <button type="submit" id="tool-submit-btn" class="btn btn-primary">Add Tool</button>
-                            <button type="button" id="cancel-create-tool" class="btn btn-outline">Cancel</button>
-                        </div>
-                    </form>
                 </div>
                 <div class="table-container">
                     <table class="data-table">

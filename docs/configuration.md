@@ -9,7 +9,8 @@ Bridge configuration comes from three sources (highest to lowest priority):
 
 1. **Environment variables** -- always take precedence over config file values
 2. **Config file (`alcove.yaml`)** -- infrastructure settings and system LLM configuration
-3. **Dashboard / API** -- credentials, providers, users, security profiles
+3. **YAML files in agent repos** -- schedules (`.alcove/tasks/*.yml`), security profiles (`.alcove/security-profiles/*.yml`), and tools (catalog/builtin). These are the single source of truth and cannot be created, updated, or deleted through the API.
+4. **Dashboard / API** -- credentials, providers, users, teams, catalog enable/disable
 
 The default admin account is `admin` / `admin`. Change the password in the
 dashboard after first login.
@@ -306,10 +307,10 @@ column) to associate resources with teams.
 ## System LLM Setup
 
 Alcove supports two LLM backends for the system LLM (used by AI-powered
-features like the security profile builder). The system LLM is configured exclusively
-in `alcove.yaml` or via environment variables -- it cannot be changed through
-the dashboard or API. The dashboard shows a read-only status indicating
-whether the system LLM is configured; edit `alcove.yaml` to change it.
+features). The system LLM is configured exclusively in `alcove.yaml` or via
+environment variables -- it cannot be changed through the dashboard or API.
+The dashboard shows a read-only status indicating whether the system LLM is
+configured; edit `alcove.yaml` to change it.
 
 ### alcove.yaml Configuration
 
@@ -518,7 +519,9 @@ This prevents workflows from silently failing at runtime due to missing agents.
 
 Agent repos are git repositories containing YAML agent definitions in
 `.alcove/tasks/*.yml`. They allow teams to define reusable, version-controlled
-agents that appear in the dashboard.
+agents that appear in the dashboard. Schedules, security profiles, and tools
+are defined exclusively in these YAML files -- the API provides read-only
+access to synced data.
 
 Configure agent repos in the dashboard or via the API:
 
@@ -645,11 +648,13 @@ view the source YAML. Starter templates are also available via
 
 ---
 
-## YAML Security Profiles
+## Security Profiles
 
-Security profiles can also be defined in YAML files inside agent repos,
-alongside agent definitions. Profile files live in `.alcove/security-profiles/*.yml`
-(parallel to `.alcove/tasks/`) and are synced from the same registered agent repos.
+Security profiles are defined in YAML files inside agent repos. Profile files
+live in `.alcove/security-profiles/*.yml` (parallel to `.alcove/tasks/`) and
+are synced from the same registered agent repos. YAML is the single source of
+truth -- profiles cannot be created, updated, or deleted through the API or
+dashboard.
 
 ### Format
 
@@ -673,19 +678,17 @@ tools:
 | `description`  | string | no       | Profile description |
 | `tools`        | object | yes      | Map of tool name to rules (must contain at least one tool) |
 
-Each tool entry contains a `rules` array using the same format as API-created
-security profiles (see [API Reference](api-reference.md#security)).
+Each tool entry contains a `rules` array.
 
 ### Behavior
 
-- YAML security profiles are **read-only** in the dashboard and API. They
-  cannot be modified or deleted through the UI.
-- Profile names from YAML take precedence alongside user-created profiles.
-- Agent definitions can reference YAML-defined profiles in their `profiles`
-  field. If an agent definition references a profile name that does not exist
-  (as a user-created or YAML profile), a sync error is reported.
-- YAML profiles are synced on the same interval as agent definitions
-  (configurable via `TASK_REPO_SYNC_INTERVAL`, default 5 minutes).
+- Security profiles are **read-only** in the dashboard and API. They can only
+  be created and modified by editing the YAML files in agent repos.
+- Agent definitions can reference profiles by name in their `profiles` field.
+  If an agent definition references a profile name that does not exist, a sync
+  error is reported.
+- Profiles are synced on the same interval as agent definitions (configurable
+  via `TASK_REPO_SYNC_INTERVAL`, default 5 minutes).
 
 ---
 

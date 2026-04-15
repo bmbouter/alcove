@@ -50,11 +50,7 @@ cleanup() {
         podman rm -f "gate-${TASK_ID}" 2>/dev/null || true
     fi
 
-    # Delete the test profile.
-    if [[ -n "${TOKEN:-}" ]]; then
-        curl -s -X DELETE "${BRIDGE_URL}/api/v1/security-profiles/${PROFILE_NAME}" \
-            -H "Authorization: Bearer ${TOKEN}" > /dev/null 2>&1 || true
-    fi
+    # Note: Profile cleanup not needed — profiles are managed via YAML, not API.
 
     log "Cleanup complete."
 }
@@ -75,33 +71,23 @@ TOKEN=$(echo "$LOGIN_RESP" | python3 -c "import json,sys; print(json.load(sys.st
 log "Logged in successfully."
 
 # ---------------------------------------------------------------------------
-# Step 2: Create a read-only security profile
+# Step 2: Verify security profile exists (must be pre-provisioned via YAML)
 # ---------------------------------------------------------------------------
-log "Creating read-only security profile '${PROFILE_NAME}'..."
+# NOTE: Security profiles can no longer be created via API (YAML-only policy).
+# This test requires the profile to be pre-provisioned in an agent repo.
+# The profile name is set via PROFILE_NAME above.
+log "Checking for pre-provisioned security profile '${PROFILE_NAME}'..."
 
-PROFILE_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BRIDGE_URL}/api/v1/security-profiles" \
-    -H "Authorization: Bearer ${TOKEN}" \
-    -H "Content-Type: application/json" \
-    -d "{
-        \"name\": \"${PROFILE_NAME}\",
-        \"description\": \"Read-only access to ${TEST_REPO} for Gate integration tests\",
-        \"tools\": {
-            \"github\": {
-                \"rules\": [{
-                    \"repos\": [\"${TEST_REPO}\"],
-                    \"operations\": [\"clone\", \"read_prs\", \"read_contents\", \"read_issues\"]
-                }]
-            }
-        }
-    }")
+PROFILE_CHECK=$(curl -s -o /dev/null -w "%{http_code}" "${BRIDGE_URL}/api/v1/security-profiles/${PROFILE_NAME}" \
+    -H "Authorization: Bearer ${TOKEN}")
 
-PROFILE_CODE=$(echo "$PROFILE_RESP" | tail -1)
-if [[ "$PROFILE_CODE" != "201" ]]; then
-    echo "ERROR: Failed to create profile (HTTP ${PROFILE_CODE})"
-    echo "$PROFILE_RESP" | head -1
-    exit 1
+if [[ "$PROFILE_CHECK" != "200" ]]; then
+    echo "SKIP: Profile '${PROFILE_NAME}' not found (HTTP ${PROFILE_CHECK})."
+    echo "  Security profiles must be pre-provisioned via YAML in an agent repo."
+    echo "  Profile creation via API is no longer supported (YAML-only policy)."
+    exit 0
 fi
-log "Profile created."
+log "Profile found."
 
 # ---------------------------------------------------------------------------
 # Step 3: Dispatch a task with the profile to start Gate + Skiff

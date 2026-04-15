@@ -472,8 +472,9 @@ schedule: "0 2 * * *"
 ```
 
 All fields except `name` and `prompt` are optional. The `schedule` field uses
-standard 5-field cron syntax. When a schedule is present, Bridge creates a
-corresponding schedule entry automatically.
+standard 5-field cron syntax. Schedules, security profiles, and tools are
+YAML-only -- they cannot be created, updated, or deleted through the API.
+The API provides read-only access to synced data.
 
 ### Workflow Graph Architecture
 
