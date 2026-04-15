@@ -3,6 +3,13 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.15.6
+
+### Bug Fixes
+- Fix session list not showing completed sessions. The frontend sent
+  comma-separated status values (completed,error,cancelled,timeout) but
+  the backend did an exact match instead of IN (...), returning 0 results.
+
 ## v0.15.5
 
 ### Bug Fixes
