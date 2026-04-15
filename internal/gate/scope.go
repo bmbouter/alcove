@@ -72,7 +72,33 @@ func CheckAccess(method, rawURL string, scope internal.Scope) AccessResult {
 		return checkAtlassian(method, u.Path, scope)
 	}
 
+	// Splunk — check if "splunk" is in scope and URL path looks like a Splunk API
+	if _, ok := scope.Services["splunk"]; ok {
+		if strings.HasPrefix(u.Path, "/services/") || strings.HasPrefix(u.Path, "/servicesNS/") {
+			return checkSplunk(method, u.Path, scope)
+		}
+	}
+
 	return AccessResult{Allowed: false, Service: "unknown", Reason: fmt.Sprintf("host %q is not a recognized service", host)}
+}
+
+// CheckServiceAccess evaluates whether a request is permitted for a known
+// service name. This is used by proxy endpoints where the service identity is
+// already known from the URL prefix (e.g., /splunk/) rather than derived from
+// the target hostname.
+func CheckServiceAccess(method, path string, service string, scope internal.Scope) AccessResult {
+	switch service {
+	case "github":
+		return checkGitHub(method, path, scope)
+	case "gitlab":
+		return checkGitLab(method, path, scope)
+	case "jira":
+		return checkAtlassian(method, path, scope)
+	case "splunk":
+		return checkSplunk(method, path, scope)
+	default:
+		return AccessResult{Allowed: false, Service: service, Reason: fmt.Sprintf("service %q has no scope handler", service)}
+	}
 }
 
 // checkGitHub maps GitHub API URLs to operations and checks them against scope.
@@ -486,6 +512,81 @@ func mapJiraOperation(method, path string) string {
 		return "read"
 
 	// Write catch-all
+	default:
+		if method == "GET" || method == "HEAD" {
+			return "read"
+		}
+		return "write"
+	}
+}
+
+// checkSplunk maps Splunk API URLs to operations and checks them against scope.
+func checkSplunk(method, path string, scope internal.Scope) AccessResult {
+	svcScope, ok := scope.Services["splunk"]
+	if !ok {
+		return AccessResult{Allowed: false, Service: "splunk", Reason: "splunk not in scope"}
+	}
+
+	method = strings.ToUpper(method)
+	op := mapSplunkOperation(method, strings.TrimPrefix(path, "/"))
+
+	if !operationAllowed(op, svcScope.Operations) {
+		return AccessResult{
+			Allowed:   false,
+			Service:   "splunk",
+			Operation: op,
+			Reason:    fmt.Sprintf("operation %q not permitted", op),
+		}
+	}
+	return AccessResult{Allowed: true, Service: "splunk", Operation: op}
+}
+
+// mapSplunkOperation maps an HTTP method + API path to a Splunk operation name.
+func mapSplunkOperation(method, path string) string {
+	method = strings.ToUpper(method)
+	path = strings.TrimSuffix(path, "/")
+	normalized := normalizeNumericSegments(path)
+
+	// Strip servicesNS/{user}/{app}/ prefix to get the effective path.
+	if strings.HasPrefix(normalized, "servicesNS/") {
+		parts := strings.SplitN(normalized, "/", 4)
+		if len(parts) >= 4 {
+			normalized = parts[3]
+		}
+	}
+
+	// Strip services/ prefix for matching.
+	effective := strings.TrimPrefix(normalized, "services/")
+
+	switch {
+	// Search job results: GET search/jobs/*/results
+	case strings.HasPrefix(effective, "search/jobs/") && strings.HasSuffix(effective, "/results"):
+		return "read_results"
+
+	// Search jobs: POST search/jobs (create a search), GET search/jobs/* (read search status/details)
+	case effective == "search/jobs" && method == "POST":
+		return "search"
+	case strings.HasPrefix(effective, "search/jobs"):
+		if method == "GET" {
+			return "search"
+		}
+		return "write"
+
+	// Saved searches
+	case strings.HasPrefix(effective, "saved/searches"):
+		if method == "GET" {
+			return "read_saved_searches"
+		}
+		return "write"
+
+	// Alerts
+	case strings.HasPrefix(effective, "alerts"):
+		if method == "GET" {
+			return "read_alerts"
+		}
+		return "write"
+
+	// Default: read or write based on method
 	default:
 		if method == "GET" || method == "HEAD" {
 			return "read"

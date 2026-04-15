@@ -744,6 +744,9 @@ The credential is encrypted and stored in the `provider_credentials` table. The 
 - For maximum security, prefer HTTP-based APIs through Gate's proxy mechanism when possible
 - Direct injection is intended for custom services that don't use HTTP or have custom authentication
 
+For a complete guide to building compiled agents that use these credentials,
+see [Compiled Agents](compiled-agents.md).
+
 ---
 
 ## Workflow Graph
@@ -904,9 +907,13 @@ export ANTHROPIC_API_KEY=sk-ant-...
 # export ALCOVE_DEBUG=true
 
 # ── Service Credentials (for Gate proxy) ──────────────────────
-# GITHUB_TOKEN and GITLAB_TOKEN are stored via the credential API
-# and injected as dummy tokens into Skiff containers by Bridge.
-# Gate swaps them for real PATs at proxy time.
+# GITHUB_TOKEN, GITLAB_TOKEN, and JIRA_TOKEN are stored via the
+# credential API and injected as dummy tokens into Skiff containers
+# by Bridge. Gate swaps them for real credentials at proxy time.
+#
+# For services without Gate proxy support (e.g., Splunk), use the
+# credentials field in agent definitions to inject real tokens
+# directly. See docs/compiled-agents.md for details.
 
 # ── Dashboard ─────────────────────────────────────────────────
 # export ALCOVE_WEB_DIR=web

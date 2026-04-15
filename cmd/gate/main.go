@@ -34,6 +34,7 @@
 //	GATE_VERTEX_PROJECT    — Vertex AI project ID
 //	GATE_LEDGER_URL        — URL to send proxy logs to
 //	GATE_GITLAB_HOST       — self-hosted GitLab hostname (default: gitlab.com)
+//	GATE_SPLUNK_HOST       — Splunk API hostname for custom instances
 //	GATE_TOOL_CONFIGS      — JSON map of tool name → proxy config (api_host, auth_header, auth_format)
 package main
 
@@ -163,6 +164,7 @@ func loadConfig() (gate.Config, error) {
 	ledgerURL := os.Getenv("GATE_LEDGER_URL")
 
 	gitlabHost := os.Getenv("GATE_GITLAB_HOST")
+	splunkHost := os.Getenv("GATE_SPLUNK_HOST")
 
 	var toolConfigs map[string]gate.ToolConfig
 	if tcJSON := os.Getenv("GATE_TOOL_CONFIGS"); tcJSON != "" {
@@ -173,6 +175,20 @@ func loadConfig() (gate.Config, error) {
 	}
 	if toolConfigs == nil {
 		toolConfigs = make(map[string]gate.ToolConfig)
+	}
+
+	// Apply GATE_SPLUNK_HOST override for custom Splunk instances.
+	if splunkHost != "" {
+		if tc, ok := toolConfigs["splunk"]; ok {
+			tc.APIHost = splunkHost
+			toolConfigs["splunk"] = tc
+		} else {
+			toolConfigs["splunk"] = gate.ToolConfig{
+				APIHost:    splunkHost,
+				AuthHeader: "Authorization",
+				AuthFormat: "bearer",
+			}
+		}
 	}
 
 	return gate.Config{
