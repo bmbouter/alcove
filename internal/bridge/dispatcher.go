@@ -565,17 +565,38 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		skiffEnv["JIRA_API_URL"] = fmt.Sprintf("http://%s:8443/jira", gateName)
 	}
 
-	// Resolve skill repos for this task.
+	// Resolve skill repos for this task (catalog-based for team sessions).
 	var skillRepos []SkillRepo
 
-	// System-wide repos.
-	if systemRepos, err := d.settingsStore.GetSystemSkillRepos(ctx); err == nil {
-		skillRepos = append(skillRepos, systemRepos...)
-	}
-
-	// User-specific repos.
-	if userRepos, err := d.settingsStore.GetUserSkillRepos(ctx, submitter); err == nil {
-		skillRepos = append(skillRepos, userRepos...)
+	if activeTeamID != "" {
+		// Team-based: resolve from catalog + custom plugins.
+		catalog := LoadCatalog()
+		var enabledMapJSON json.RawMessage
+		if err := d.db.QueryRow(ctx,
+			`SELECT value FROM team_settings WHERE team_id = $1 AND key = 'catalog'`,
+			activeTeamID).Scan(&enabledMapJSON); err == nil {
+			var enabledMap map[string]bool
+			if json.Unmarshal(enabledMapJSON, &enabledMap) == nil {
+				skillRepos = append(skillRepos, ResolveCatalogSkillRepos(catalog, enabledMap)...)
+			}
+		}
+		var customJSON json.RawMessage
+		if err := d.db.QueryRow(ctx,
+			`SELECT value FROM team_settings WHERE team_id = $1 AND key = 'custom_plugins'`,
+			activeTeamID).Scan(&customJSON); err == nil {
+			var customPlugins []SkillRepo
+			if json.Unmarshal(customJSON, &customPlugins) == nil {
+				skillRepos = append(skillRepos, customPlugins...)
+			}
+		}
+	} else {
+		// Non-team sessions: use legacy system + user repos.
+		if systemRepos, err := d.settingsStore.GetSystemSkillRepos(ctx); err == nil {
+			skillRepos = append(skillRepos, systemRepos...)
+		}
+		if userRepos, err := d.settingsStore.GetUserSkillRepos(ctx, submitter); err == nil {
+			skillRepos = append(skillRepos, userRepos...)
+		}
 	}
 
 	if len(skillRepos) > 0 {

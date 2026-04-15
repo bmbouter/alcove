@@ -314,6 +314,56 @@ func (ts *TeamStore) SetTeamAgentRepos(ctx context.Context, teamID string, repos
 	return err
 }
 
+func (ts *TeamStore) GetTeamCatalog(ctx context.Context, teamID string) (map[string]bool, error) {
+	var value json.RawMessage
+	err := ts.db.QueryRow(ctx, `SELECT value FROM team_settings WHERE team_id = $1 AND key = 'catalog'`, teamID).Scan(&value)
+	if err != nil {
+		return nil, err
+	}
+	var catalog map[string]bool
+	if err := json.Unmarshal(value, &catalog); err != nil {
+		return nil, err
+	}
+	return catalog, nil
+}
+
+func (ts *TeamStore) SetTeamCatalog(ctx context.Context, teamID string, catalog map[string]bool) error {
+	value, err := json.Marshal(catalog)
+	if err != nil {
+		return err
+	}
+	_, err = ts.db.Exec(ctx, `
+		INSERT INTO team_settings (team_id, key, value, updated_at) VALUES ($1, 'catalog', $2, $3)
+		ON CONFLICT (team_id, key) DO UPDATE SET value = $2, updated_at = $3
+	`, teamID, value, time.Now().UTC())
+	return err
+}
+
+func (ts *TeamStore) GetTeamCustomPlugins(ctx context.Context, teamID string) ([]SkillRepo, error) {
+	var value json.RawMessage
+	err := ts.db.QueryRow(ctx, `SELECT value FROM team_settings WHERE team_id = $1 AND key = 'custom_plugins'`, teamID).Scan(&value)
+	if err != nil {
+		return nil, err
+	}
+	var plugins []SkillRepo
+	if err := json.Unmarshal(value, &plugins); err != nil {
+		return nil, err
+	}
+	return plugins, nil
+}
+
+func (ts *TeamStore) SetTeamCustomPlugins(ctx context.Context, teamID string, plugins []SkillRepo) error {
+	value, err := json.Marshal(plugins)
+	if err != nil {
+		return err
+	}
+	_, err = ts.db.Exec(ctx, `
+		INSERT INTO team_settings (team_id, key, value, updated_at) VALUES ($1, 'custom_plugins', $2, $3)
+		ON CONFLICT (team_id, key) DO UPDATE SET value = $2, updated_at = $3
+	`, teamID, value, time.Now().UTC())
+	return err
+}
+
 // --- HTTP Handlers ---
 
 func (a *API) handleTeams(w http.ResponseWriter, r *http.Request) {
@@ -384,6 +434,12 @@ func (a *API) handleTeam(w http.ResponseWriter, r *http.Request) {
 	}
 	if !isMember && !isAdmin {
 		respondError(w, http.StatusForbidden, "access denied")
+		return
+	}
+
+	// Handle /api/v1/teams/{id}/catalog/...
+	if len(parts) == 2 && strings.HasPrefix(parts[1], "catalog") {
+		a.handleTeamCatalogRoute(w, r, teamID, parts[1])
 		return
 	}
 
@@ -477,4 +533,125 @@ func (a *API) handleTeamMembersRoute(w http.ResponseWriter, r *http.Request, tea
 		}
 		respondJSON(w, http.StatusOK, map[string]bool{"removed": true})
 	}
+}
+
+func (a *API) handleTeamCatalogRoute(w http.ResponseWriter, r *http.Request, teamID, catalogPath string) {
+	subParts := strings.SplitN(catalogPath, "/", 3)
+	// subParts[0] = "catalog"
+	// subParts[1] = entryId or "custom" (optional)
+	// subParts[2] = index for custom delete (optional)
+
+	if len(subParts) == 1 {
+		// /teams/{id}/catalog
+		switch r.Method {
+		case http.MethodGet:
+			catalog := LoadCatalog()
+			enabledMap, _ := a.teamStore.GetTeamCatalog(r.Context(), teamID)
+			if enabledMap == nil {
+				enabledMap = make(map[string]bool)
+			}
+			customPlugins, _ := a.teamStore.GetTeamCustomPlugins(r.Context(), teamID)
+
+			type entryWithStatus struct {
+				CatalogEntry
+				Enabled bool `json:"enabled"`
+			}
+			entries := make([]entryWithStatus, len(catalog))
+			for i, e := range catalog {
+				entries[i] = entryWithStatus{CatalogEntry: e, Enabled: enabledMap[e.ID]}
+			}
+			respondJSON(w, http.StatusOK, map[string]any{
+				"entries":        entries,
+				"custom_plugins": customPlugins,
+			})
+		default:
+			respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+		return
+	}
+
+	action := subParts[1]
+
+	if action == "custom" {
+		switch r.Method {
+		case http.MethodPost:
+			var repo SkillRepo
+			if err := json.NewDecoder(r.Body).Decode(&repo); err != nil {
+				respondError(w, http.StatusBadRequest, "invalid request: "+err.Error())
+				return
+			}
+			if repo.URL == "" {
+				respondError(w, http.StatusBadRequest, "url is required")
+				return
+			}
+			existing, _ := a.teamStore.GetTeamCustomPlugins(r.Context(), teamID)
+			existing = append(existing, repo)
+			if err := a.teamStore.SetTeamCustomPlugins(r.Context(), teamID, existing); err != nil {
+				respondError(w, http.StatusInternalServerError, "failed to save")
+				return
+			}
+			respondJSON(w, http.StatusCreated, map[string]any{"added": true, "custom_plugins": existing})
+		case http.MethodDelete:
+			if len(subParts) < 3 {
+				respondError(w, http.StatusBadRequest, "index required")
+				return
+			}
+			idx := 0
+			fmt.Sscanf(subParts[2], "%d", &idx)
+			existing, _ := a.teamStore.GetTeamCustomPlugins(r.Context(), teamID)
+			if idx < 0 || idx >= len(existing) {
+				respondError(w, http.StatusBadRequest, "invalid index")
+				return
+			}
+			existing = append(existing[:idx], existing[idx+1:]...)
+			if err := a.teamStore.SetTeamCustomPlugins(r.Context(), teamID, existing); err != nil {
+				respondError(w, http.StatusInternalServerError, "failed to save")
+				return
+			}
+			respondJSON(w, http.StatusOK, map[string]any{"removed": true, "custom_plugins": existing})
+		default:
+			respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+		return
+	}
+
+	// PUT /teams/{id}/catalog/{entryId} — toggle
+	entryID := action
+	if r.Method != http.MethodPut {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	// Validate entry exists in catalog
+	catalog := LoadCatalog()
+	found := false
+	for _, e := range catalog {
+		if e.ID == entryID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		respondError(w, http.StatusNotFound, "catalog entry not found: "+entryID)
+		return
+	}
+
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request: "+err.Error())
+		return
+	}
+
+	enabledMap, _ := a.teamStore.GetTeamCatalog(r.Context(), teamID)
+	if enabledMap == nil {
+		enabledMap = make(map[string]bool)
+	}
+	enabledMap[entryID] = req.Enabled
+	if err := a.teamStore.SetTeamCatalog(r.Context(), teamID, enabledMap); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to save")
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"updated": true, "entry_id": entryID, "enabled": req.Enabled})
 }
