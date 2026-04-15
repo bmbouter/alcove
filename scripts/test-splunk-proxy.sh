@@ -146,11 +146,11 @@ else
 fi
 
 # =====================================================================
-# Test 3: Splunk in security profile
+# Test 3: Security profile creation blocked (YAML-only policy)
 # =====================================================================
-log "Test 3: Splunk in security profile"
+log "Test 3: Security profile creation returns 405 (YAML-only)"
 
-PROFILE_RESULT=$(curl -s -w "\n%{http_code}" -X POST "$BRIDGE_URL/api/v1/security-profiles" \
+PROFILE_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BRIDGE_URL/api/v1/security-profiles" \
   -H "Authorization: Bearer $USER_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -166,48 +166,10 @@ PROFILE_RESULT=$(curl -s -w "\n%{http_code}" -X POST "$BRIDGE_URL/api/v1/securit
     }
   }')
 
-PROFILE_CODE=$(echo "$PROFILE_RESULT" | tail -1)
-PROFILE_BODY=$(echo "$PROFILE_RESULT" | sed '$d')
-
-if [ "$PROFILE_CODE" = "201" ] || [ "$PROFILE_CODE" = "200" ]; then
-  pass "Security profile with Splunk created (HTTP $PROFILE_CODE)"
+if [ "$PROFILE_CODE" = "405" ]; then
+  pass "POST /api/v1/security-profiles returns 405 Method Not Allowed"
 else
-  fail "Security profile with Splunk returned HTTP $PROFILE_CODE (expected 201)"
-fi
-
-# Verify the profile is stored and retrievable
-PROFILE_GET=$(curl -s "$BRIDGE_URL/api/v1/security-profiles/test-splunk-profile" \
-  -H "Authorization: Bearer $USER_TOKEN")
-HAS_SPLUNK_OPS=$(echo "$PROFILE_GET" | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-tools=d.get('tools',{})
-splunk=tools.get('splunk',{})
-rules=splunk.get('rules',[])
-if rules:
-    ops=rules[0].get('operations',[])
-else:
-    ops=splunk.get('operations',[])
-expected={'search','read_results','read'}
-print('yes' if expected.issubset(set(ops)) else 'no')
-")
-if [ "$HAS_SPLUNK_OPS" = "yes" ]; then
-  pass "Security profile has Splunk operations (search, read_results, read)"
-else
-  fail "Security profile missing expected Splunk operations"
-fi
-
-# Verify splunk is in the tools map
-HAS_SPLUNK_KEY=$(echo "$PROFILE_GET" | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-tools=d.get('tools',{})
-print('yes' if 'splunk' in tools else 'no')
-")
-if [ "$HAS_SPLUNK_KEY" = "yes" ]; then
-  pass "Security profile tools map includes 'splunk' key"
-else
-  fail "Security profile tools map does not include 'splunk' key"
+  fail "POST /api/v1/security-profiles returned HTTP $PROFILE_CODE (expected 405)"
 fi
 
 # =====================================================================
@@ -322,8 +284,6 @@ curl -s -X DELETE "$BRIDGE_URL/api/v1/credentials/$GH_ID" \
 curl -s -X DELETE "$BRIDGE_URL/api/v1/credentials/$GL_ID" \
   -H "Authorization: Bearer $USER_TOKEN" > /dev/null 2>&1 || true
 curl -s -X DELETE "$BRIDGE_URL/api/v1/credentials/$JIRA_ID" \
-  -H "Authorization: Bearer $USER_TOKEN" > /dev/null 2>&1 || true
-curl -s -X DELETE "$BRIDGE_URL/api/v1/security-profiles/test-splunk-profile" \
   -H "Authorization: Bearer $USER_TOKEN" > /dev/null 2>&1 || true
 
 # --- Summary ---

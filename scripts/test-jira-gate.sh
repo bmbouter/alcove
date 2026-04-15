@@ -64,13 +64,7 @@ cleanup() {
         fi
     done
 
-    # Delete test profiles
-    if [[ -n "${TOKEN:-}" ]]; then
-        curl -s -X DELETE "${BRIDGE_URL}/api/v1/security-profiles/${PROFILE_BLOCKED}" \
-            -H "Authorization: Bearer ${TOKEN}" > /dev/null 2>&1 || true
-        curl -s -X DELETE "${BRIDGE_URL}/api/v1/security-profiles/${PROFILE_READONLY}" \
-            -H "Authorization: Bearer ${TOKEN}" > /dev/null 2>&1 || true
-    fi
+    # Note: Profile cleanup not needed — profiles are managed via YAML, not API.
 
     log "Cleanup complete."
 }
@@ -98,31 +92,20 @@ log "================================================================"
 log "PHASE 1: Total Blocking (no jira service in scope)"
 log "================================================================"
 
-# Create a profile with only github (no jira)
-log "Creating profile '${PROFILE_BLOCKED}' (github only, no jira)..."
-PROFILE_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BRIDGE_URL}/api/v1/security-profiles" \
-    -H "Authorization: Bearer ${TOKEN}" \
-    -H "Content-Type: application/json" \
-    -d "{
-        \"name\": \"${PROFILE_BLOCKED}\",
-        \"description\": \"No JIRA access — for Gate blocking tests\",
-        \"tools\": {
-            \"github\": {
-                \"rules\": [{
-                    \"repos\": [\"bmbouter/alcove-testing\"],
-                    \"operations\": [\"read_contents\"]
-                }]
-            }
-        }
-    }")
+# NOTE: Security profiles can no longer be created via API (YAML-only policy).
+# This test requires profiles to be pre-provisioned in an agent repo.
+log "Checking for pre-provisioned profile '${PROFILE_BLOCKED}'..."
 
-PROFILE_CODE=$(echo "$PROFILE_RESP" | tail -1)
-if [[ "$PROFILE_CODE" != "201" ]]; then
-    echo "ERROR: Failed to create blocked profile (HTTP ${PROFILE_CODE})"
-    echo "$PROFILE_RESP" | head -1
-    exit 1
+PROFILE_CHECK=$(curl -s -o /dev/null -w "%{http_code}" "${BRIDGE_URL}/api/v1/security-profiles/${PROFILE_BLOCKED}" \
+    -H "Authorization: Bearer ${TOKEN}")
+
+if [[ "$PROFILE_CHECK" != "200" ]]; then
+    echo "SKIP: Profile '${PROFILE_BLOCKED}' not found (HTTP ${PROFILE_CHECK})."
+    echo "  Security profiles must be pre-provisioned via YAML in an agent repo."
+    echo "  Profile creation via API is no longer supported (YAML-only policy)."
+    exit 0
 fi
-log "Blocked profile created."
+log "Blocked profile found."
 
 # Dispatch a task with the blocked profile
 log "Dispatching task for blocked scope..."
@@ -294,31 +277,18 @@ log "================================================================"
 log "PHASE 2: Read-Only Access (jira with read-only operations)"
 log "================================================================"
 
-# Create a read-only profile for JIRA
-log "Creating profile '${PROFILE_READONLY}' (jira read-only)..."
-PROFILE_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BRIDGE_URL}/api/v1/security-profiles" \
-    -H "Authorization: Bearer ${TOKEN}" \
-    -H "Content-Type: application/json" \
-    -d "{
-        \"name\": \"${PROFILE_READONLY}\",
-        \"description\": \"Read-only JIRA access for Gate integration tests\",
-        \"tools\": {
-            \"jira\": {
-                \"rules\": [{
-                    \"repos\": [\"*\"],
-                    \"operations\": [\"read_issues\", \"search_issues\", \"read_comments\", \"read_projects\", \"read_metadata\", \"read_boards\", \"read_sprints\", \"read_transitions\"]
-                }]
-            }
-        }
-    }")
+# NOTE: Security profiles can no longer be created via API (YAML-only policy).
+log "Checking for pre-provisioned profile '${PROFILE_READONLY}'..."
 
-PROFILE_CODE=$(echo "$PROFILE_RESP" | tail -1)
-if [[ "$PROFILE_CODE" != "201" ]]; then
-    echo "ERROR: Failed to create readonly profile (HTTP ${PROFILE_CODE})"
-    echo "$PROFILE_RESP" | head -1
-    exit 1
+PROFILE_CHECK=$(curl -s -o /dev/null -w "%{http_code}" "${BRIDGE_URL}/api/v1/security-profiles/${PROFILE_READONLY}" \
+    -H "Authorization: Bearer ${TOKEN}")
+
+if [[ "$PROFILE_CHECK" != "200" ]]; then
+    echo "SKIP: Profile '${PROFILE_READONLY}' not found (HTTP ${PROFILE_CHECK})."
+    echo "  Security profiles must be pre-provisioned via YAML in an agent repo."
+    exit 0
 fi
-log "Read-only profile created."
+log "Read-only profile found."
 
 # Dispatch a task with the readonly profile
 log "Dispatching task for read-only scope..."

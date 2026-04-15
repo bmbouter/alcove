@@ -274,12 +274,14 @@ Use `labels` and `users` fields for safety filtering.
 
 ### Schedule Triggers
 
+Schedules are defined via the `schedule:` field in `.alcove/tasks/*.yml` files.
+They cannot be created or modified through the API or dashboard.
+
 ```yaml
 schedule: "0 2 * * *"
 ```
 
-Cron syntax. See `docs/configuration.md` for the full trigger and schedule
-reference.
+Cron syntax. See `docs/configuration.md` for the full agent definition schema.
 
 ## Complete Example: Full SDLC Pipeline
 

@@ -133,9 +133,9 @@ make down
 
 ### System LLM
 
-The system LLM (used for AI-powered features like the security profile builder) is
-configured in `alcove.yaml` or via environment variables -- not through the
-dashboard. Add one of these to your `alcove.yaml`:
+The system LLM (used for AI-powered features) is configured in `alcove.yaml`
+or via environment variables -- not through the dashboard. Add one of these to
+your `alcove.yaml`:
 
 ```yaml
 # Anthropic API
@@ -259,11 +259,16 @@ alcove catalog disable <source>/<item>
 
 Agent definitions are YAML files stored in git repositories under
 `.alcove/tasks/*.yml`. They let you define reusable, version-controlled agents
-that appear in the dashboard for one-click execution.
+that appear in the dashboard for one-click execution. Schedules are defined
+via the `schedule:` field in these same YAML files. Security profiles are
+defined in `.alcove/security-profiles/*.yml`. Tools come from the catalog or
+builtin definitions. None of these can be created or modified through the API
+or dashboard -- YAML is the single source of truth.
 
 1. Create a git repo with a `.alcove/tasks/` directory
 2. Add YAML agent files (see `docs/configuration.md` for the schema)
-3. Register the repo in the dashboard under **Agent Repos** (user menu)
+3. Optionally add security profiles in `.alcove/security-profiles/`
+4. Register the repo in the dashboard under **Agent Repos** (user menu)
 
 Bridge syncs agent repos every 5 minutes. Once synced, agent definitions appear
 on the dashboard where you can run them or view the source YAML. Starter
