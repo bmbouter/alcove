@@ -3,6 +3,23 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.20.0
+
+### Features
+- Add generic secrets: arbitrary env vars for agent containers. New
+  "Generic Secret" credential type with unlimited per-team storage,
+  injected directly into Skiff. Includes CLI credential commands.
+- Allow workflow steps to declare credentials that merge with agent
+  defaults. Steps can override or augment credentials per-step.
+- Add direct outbound network mode. When direct_outbound: true, Skiff
+  gets direct internet access bypassing Gate proxy. For services Gate
+  can't proxy.
+- Add per-item catalog granularity with source introspection and
+  workflow validation.
+
+### Changes
+- Remove unused release-pipeline.yml workflow.
+
 ## v0.18.1
 
 ### Bug Fixes
