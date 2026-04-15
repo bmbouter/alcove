@@ -1170,7 +1170,7 @@
         stopSSE();
 
         const route = getRoute();
-        const pages = ['sessions', 'task-new', 'schedules', 'repos', 'credentials', 'security', 'tools', 'session-detail', 'users', 'account', 'workflows', 'workflow-detail', 'teams', 'team-detail'];
+        const pages = ['sessions', 'task-new', 'schedules', 'repos', 'catalog', 'credentials', 'security', 'tools', 'session-detail', 'users', 'account', 'workflows', 'workflow-detail', 'teams', 'team-detail'];
         pages.forEach((p) => hide($('#page-' + p)));
 
         // Update active nav tab
@@ -1203,6 +1203,9 @@
         } else if (route === 'repos') {
             show($('#page-repos'));
             loadTaskRepos();
+        } else if (route === 'catalog') {
+            show($('#page-catalog'));
+            loadCatalogPage();
         } else if (route === 'credentials') {
             show($('#page-credentials'));
             loadCredentials();
@@ -6825,6 +6828,226 @@
     // Back to teams
     $('#back-to-teams').addEventListener('click', function() {
         navigate('teams');
+    });
+
+    // ---------------------
+    // Catalog
+    // ---------------------
+
+    var catalogData = [];
+    var catalogTeamState = {};
+    var catalogCustomPlugins = [];
+    var catalogCategoryFilter = '';
+    var catalogSearchFilter = '';
+
+    async function loadCatalogPage() {
+        var grid = $('#catalog-grid');
+        var loading = $('#catalog-loading');
+        var empty = $('#catalog-empty');
+        grid.innerHTML = '';
+        show(loading);
+        hide(empty);
+
+        try {
+            var results = await Promise.allSettled([
+                api('GET', '/api/v1/catalog'),
+                activeTeamId ? api('GET', '/api/v1/teams/' + activeTeamId + '/catalog') : Promise.resolve(null)
+            ]);
+
+            if (results[0].status === 'fulfilled' && results[0].value && results[0].value.ok) {
+                var data = await results[0].value.json();
+                catalogData = data.entries || [];
+            }
+
+            if (results[1].status === 'fulfilled' && results[1].value && results[1].value.ok) {
+                var teamData = await results[1].value.json();
+                // Build enabled map from entries
+                catalogTeamState = {};
+                (teamData.entries || []).forEach(function(e) {
+                    catalogTeamState[e.id] = e.enabled;
+                });
+                catalogCustomPlugins = teamData.custom_plugins || [];
+            } else {
+                catalogTeamState = {};
+                catalogCustomPlugins = [];
+            }
+        } catch (err) {
+            if (err.message === 'unauthorized') { hide(loading); return; }
+        }
+
+        hide(loading);
+        renderCatalogCategoryPills();
+        renderCatalogGrid();
+        renderCatalogCustomPlugins();
+    }
+
+    function renderCatalogCategoryPills() {
+        var pillsEl = $('#catalog-category-pills');
+        var categories = [];
+        catalogData.forEach(function(e) {
+            if (e.category && categories.indexOf(e.category) === -1) categories.push(e.category);
+        });
+        categories.sort();
+
+        var html = '<button class="catalog-pill' + (!catalogCategoryFilter ? ' active' : '') + '" data-category="">All</button>';
+        var categoryLabels = {
+            'plugins': 'Plugins',
+            'language-servers': 'Language Servers',
+            'integrations': 'Integrations',
+            'agent-templates': 'Agent Templates',
+            'security': 'Security',
+            'testing': 'Testing',
+            'content': 'Content',
+            'documentation': 'Documentation'
+        };
+        categories.forEach(function(cat) {
+            var label = categoryLabels[cat] || cat;
+            var active = catalogCategoryFilter === cat ? ' active' : '';
+            html += '<button class="catalog-pill' + active + '" data-category="' + escapeHtml(cat) + '">' + escapeHtml(label) + '</button>';
+        });
+        pillsEl.innerHTML = html;
+
+        pillsEl.querySelectorAll('.catalog-pill').forEach(function(pill) {
+            pill.addEventListener('click', function() {
+                catalogCategoryFilter = pill.getAttribute('data-category');
+                renderCatalogCategoryPills();
+                renderCatalogGrid();
+            });
+        });
+    }
+
+    function renderCatalogGrid() {
+        var grid = $('#catalog-grid');
+        var empty = $('#catalog-empty');
+
+        var filtered = catalogData.filter(function(e) {
+            if (catalogCategoryFilter && e.category !== catalogCategoryFilter) return false;
+            if (catalogSearchFilter) {
+                var q = catalogSearchFilter.toLowerCase();
+                var searchable = (e.name + ' ' + e.description + ' ' + (e.tags || []).join(' ')).toLowerCase();
+                if (searchable.indexOf(q) === -1) return false;
+            }
+            return true;
+        });
+
+        if (filtered.length === 0) {
+            grid.innerHTML = '';
+            show(empty);
+            return;
+        }
+        hide(empty);
+
+        var iconColors = {
+            'plugins': '#3498db',
+            'language-servers': '#2ecc71',
+            'integrations': '#9b59b6',
+            'agent-templates': '#e67e22',
+            'security': '#e74c3c',
+            'testing': '#1abc9c',
+            'content': '#f39c12',
+            'documentation': '#34495e'
+        };
+
+        var html = '';
+        filtered.forEach(function(entry) {
+            var enabled = catalogTeamState[entry.id] || false;
+            var color = iconColors[entry.category] || '#607d8b';
+            var letter = entry.name.charAt(0).toUpperCase();
+
+            var tagsHtml = '';
+            (entry.tags || []).forEach(function(tag) {
+                tagsHtml += '<span class="catalog-card-tag">' + escapeHtml(tag) + '</span>';
+            });
+
+            html += '<div class="catalog-card">' +
+                '<div class="catalog-card-icon" style="background:' + color + '">' + letter + '</div>' +
+                '<div class="catalog-card-info">' +
+                    '<div class="catalog-card-name">' + escapeHtml(entry.name) + '</div>' +
+                    '<div class="catalog-card-desc">' + escapeHtml(entry.description) + '</div>' +
+                    '<div class="catalog-card-tags">' + tagsHtml + '</div>' +
+                '</div>' +
+                '<div class="catalog-card-toggle">' +
+                    '<label class="toggle-switch" title="' + (enabled ? 'Disable' : 'Enable') + '">' +
+                        '<input type="checkbox" class="catalog-toggle" data-entry-id="' + escapeHtml(entry.id) + '"' + (enabled ? ' checked' : '') + '>' +
+                        '<span class="toggle-slider"></span>' +
+                    '</label>' +
+                '</div>' +
+            '</div>';
+        });
+        grid.innerHTML = html;
+
+        // Wire toggle events
+        grid.querySelectorAll('.catalog-toggle').forEach(function(cb) {
+            cb.addEventListener('change', async function() {
+                var entryId = cb.getAttribute('data-entry-id');
+                var enabled = cb.checked;
+                catalogTeamState[entryId] = enabled;
+                try {
+                    var resp = await api('PUT', '/api/v1/teams/' + activeTeamId + '/catalog/' + entryId, { enabled: enabled });
+                    if (!resp.ok) {
+                        cb.checked = !enabled;
+                        catalogTeamState[entryId] = !enabled;
+                    }
+                } catch (e) {
+                    cb.checked = !enabled;
+                    catalogTeamState[entryId] = !enabled;
+                }
+            });
+        });
+    }
+
+    function renderCatalogCustomPlugins() {
+        var list = $('#catalog-custom-list');
+        if (!catalogCustomPlugins || catalogCustomPlugins.length === 0) {
+            list.innerHTML = '<p class="form-help" style="color:var(--text-muted);">No custom plugins configured.</p>';
+            return;
+        }
+        var html = '';
+        catalogCustomPlugins.forEach(function(plugin, idx) {
+            html += '<div class="catalog-custom-item">' +
+                '<span class="custom-url">' + escapeHtml(plugin.url || '') + '</span>' +
+                '<span class="custom-ref">@' + escapeHtml(plugin.ref || 'main') + '</span>' +
+                '<button class="btn btn-small btn-danger catalog-custom-remove" data-index="' + idx + '">Remove</button>' +
+            '</div>';
+        });
+        list.innerHTML = html;
+
+        list.querySelectorAll('.catalog-custom-remove').forEach(function(btn) {
+            btn.addEventListener('click', async function() {
+                var idx = parseInt(btn.getAttribute('data-index'));
+                try {
+                    var resp = await api('DELETE', '/api/v1/teams/' + activeTeamId + '/catalog/custom/' + idx);
+                    if (resp.ok) {
+                        var data = await resp.json();
+                        catalogCustomPlugins = data.custom_plugins || [];
+                        renderCatalogCustomPlugins();
+                    }
+                } catch (e) {}
+            });
+        });
+    }
+
+    // Search input handler
+    $('#catalog-search').addEventListener('input', debounce(function() {
+        catalogSearchFilter = $('#catalog-search').value;
+        renderCatalogGrid();
+    }, 300));
+
+    // Custom plugin add handler
+    $('#custom-plugin-add').addEventListener('click', async function() {
+        var url = $('#custom-plugin-url').value.trim();
+        var ref = $('#custom-plugin-ref').value.trim() || 'main';
+        if (!url) return;
+        try {
+            var resp = await api('POST', '/api/v1/teams/' + activeTeamId + '/catalog/custom', { url: url, ref: ref });
+            if (resp.ok) {
+                var data = await resp.json();
+                catalogCustomPlugins = data.custom_plugins || [];
+                renderCatalogCustomPlugins();
+                $('#custom-plugin-url').value = '';
+                $('#custom-plugin-ref').value = 'main';
+            }
+        } catch (e) {}
     });
 
     // ---------------------

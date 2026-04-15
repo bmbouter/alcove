@@ -114,6 +114,7 @@ mux.HandleFunc("/api/v1/user/settings/agent-repos", a.handleUserSettingsAgentRep
 	mux.HandleFunc("/api/v1/workflows", a.handleWorkflows)
 	mux.HandleFunc("/api/v1/workflow-runs", a.handleWorkflowRuns)
 	mux.HandleFunc("/api/v1/workflow-runs/", a.handleWorkflowRunByID)
+	mux.HandleFunc("/api/v1/catalog", a.handleCatalog)
 	mux.HandleFunc("/api/v1/teams", a.handleTeams)
 	mux.HandleFunc("/api/v1/teams/", a.handleTeam)
 }
@@ -2654,6 +2655,20 @@ func (a *API) handleWorkflowRunByID(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]any{
 		"workflow_run": run,
 		"steps":        steps,
+	})
+}
+
+// --- Catalog ---
+
+func (a *API) handleCatalog(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	entries := LoadCatalog()
+	respondJSON(w, http.StatusOK, map[string]any{
+		"entries": entries,
+		"count":   len(entries),
 	})
 }
 
