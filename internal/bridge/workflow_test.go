@@ -764,6 +764,52 @@ func TestIsValidIdentifier(t *testing.T) {
 	}
 }
 
+func TestParseWorkflowWithStepCredentials(t *testing.T) {
+	yamlData := `
+name: Test Workflow
+workflow:
+  - id: step1
+    agent: Test Agent
+    credentials:
+      API_KEY: my-secret
+      DB_PASSWORD: db-cred
+`
+	wd, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(wd.Workflow) != 1 {
+		t.Fatalf("expected 1 step, got %d", len(wd.Workflow))
+	}
+	step := wd.Workflow[0]
+	if len(step.Credentials) != 2 {
+		t.Errorf("expected 2 credentials, got %d", len(step.Credentials))
+	}
+	if step.Credentials["API_KEY"] != "my-secret" {
+		t.Errorf("API_KEY: got %q, want %q", step.Credentials["API_KEY"], "my-secret")
+	}
+	if step.Credentials["DB_PASSWORD"] != "db-cred" {
+		t.Errorf("DB_PASSWORD: got %q, want %q", step.Credentials["DB_PASSWORD"], "db-cred")
+	}
+}
+
+func TestParseWorkflowWithoutStepCredentials(t *testing.T) {
+	yamlData := `
+name: Test Workflow
+workflow:
+  - id: step1
+    agent: Test Agent
+`
+	wd, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	step := wd.Workflow[0]
+	if len(step.Credentials) != 0 {
+		t.Errorf("expected 0 credentials, got %d", len(step.Credentials))
+	}
+}
+
 func TestValidateConditionSyntax_Enhanced(t *testing.T) {
 	tests := []struct {
 		condition string

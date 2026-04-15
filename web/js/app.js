@@ -6326,8 +6326,18 @@
             var bridgeBadge = isBridge ? '<span class="bridge-badge">bridge</span>' : '';
             var stepTypeIcon = isBridge ? '<span class="step-type-icon-mini">&#9881;</span>' : '';
 
+            // Credential indicator with tooltip
+            var credBadge = '';
+            if (step.credentials && Object.keys(step.credentials).length > 0) {
+                var credParts = [];
+                for (var envVar in step.credentials) {
+                    credParts.push(escapeHtml(envVar) + '=' + escapeHtml(step.credentials[envVar]));
+                }
+                credBadge = '<span class="step-cred-icon" title="Credentials: ' + credParts.join(', ') + '">&#128273;</span>';
+            }
+
             dagHtml += '<span class="workflow-dag-step' + (hasApproval ? ' has-approval' : '') + (isBridge ? ' dag-step-bridge' : '') + '">' +
-                       stepTypeIcon + escapeHtml(stepName) + approvalIcon + bridgeBadge + '</span>';
+                       stepTypeIcon + escapeHtml(stepName) + approvalIcon + bridgeBadge + credBadge + '</span>';
 
             if (index < executionOrder.length - 1) {
                 dagHtml += '<span class="workflow-dag-arrow">→</span>';
@@ -6456,6 +6466,19 @@
                     dependsHtml = '<span class="workflow-step-depends">' + escapeHtml(step.depends) + '</span>';
                 }
 
+                // Step credentials
+                var credentialsHtml = '';
+                if (step.credentials && Object.keys(step.credentials).length > 0) {
+                    var credParts = [];
+                    for (var envVar in step.credentials) {
+                        credParts.push(escapeHtml(envVar) + '=' + escapeHtml(step.credentials[envVar]));
+                    }
+                    credentialsHtml = '<div class="step-credentials">' +
+                        '<span class="step-credentials-label">credentials:</span> ' +
+                        credParts.join(', ') +
+                        '</div>';
+                }
+
                 item.innerHTML =
                     '<div class="' + dotClass + '"></div>' +
                     typeIcon +
@@ -6466,6 +6489,7 @@
                             sessionLink +
                         '</div>' +
                         dependsHtml +
+                        credentialsHtml +
                     '</div>' +
                     actionsHtml;
 

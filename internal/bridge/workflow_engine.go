@@ -79,6 +79,13 @@ type WorkflowRunStep struct {
 	Iteration  int                    `json:"iteration"`
 	StartedAt  *time.Time             `json:"started_at,omitempty"`
 	FinishedAt *time.Time             `json:"finished_at,omitempty"`
+
+	// Fields enriched from the workflow definition (not stored in DB).
+	Type          string            `json:"type,omitempty"`
+	Action        string            `json:"action,omitempty"`
+	Depends       string            `json:"depends,omitempty"`
+	MaxIterations int               `json:"max_iterations,omitempty"`
+	Credentials   map[string]string `json:"credentials,omitempty"`
 }
 
 // StartWorkflowRun creates a new workflow run and dispatches initial steps.
@@ -230,6 +237,16 @@ func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, st
 	taskReq.TaskName = step.Agent
 	taskReq.TriggerType = run.TriggerType
 	taskReq.TriggerRef = run.TriggerRef
+
+	// Merge step-level credentials (override/augment agent credentials).
+	if len(step.Credentials) > 0 {
+		if taskReq.Credentials == nil {
+			taskReq.Credentials = make(map[string]string)
+		}
+		for envVar, credName := range step.Credentials {
+			taskReq.Credentials[envVar] = credName
+		}
+	}
 
 	// If step has a repo specified, override the agent's repo
 	if step.Repo != "" {
@@ -1085,7 +1102,8 @@ func (we *WorkflowEngine) ListWorkflowRuns(ctx context.Context, status, teamID s
 	return runs, nil
 }
 
-// GetWorkflowRunDetail retrieves a workflow run with all its steps.
+// GetWorkflowRunDetail retrieves a workflow run with all its steps, enriched
+// with definition data (type, action, depends, max_iterations, credentials).
 func (we *WorkflowEngine) GetWorkflowRunDetail(ctx context.Context, runID string) (*WorkflowRun, []WorkflowRunStep, error) {
 	run, err := we.GetWorkflowRun(ctx, runID)
 	if err != nil {
@@ -1095,6 +1113,24 @@ func (we *WorkflowEngine) GetWorkflowRunDetail(ctx context.Context, runID string
 	steps, err := we.getWorkflowRunSteps(ctx, runID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("getting workflow run steps: %w", err)
+	}
+
+	// Enrich run steps with fields from the workflow definition.
+	workflow, err := we.getWorkflowByID(ctx, run.WorkflowID)
+	if err == nil && workflow != nil {
+		defByID := make(map[string]*WorkflowStep, len(workflow.Workflow))
+		for i := range workflow.Workflow {
+			defByID[workflow.Workflow[i].ID] = &workflow.Workflow[i]
+		}
+		for i := range steps {
+			if def, ok := defByID[steps[i].StepID]; ok {
+				steps[i].Type = def.Type
+				steps[i].Action = def.Action
+				steps[i].Depends = def.Depends
+				steps[i].MaxIterations = def.MaxIterations
+				steps[i].Credentials = def.Credentials
+			}
+		}
 	}
 
 	return run, steps, nil

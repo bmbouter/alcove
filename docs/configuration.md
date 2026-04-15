@@ -768,6 +768,7 @@ review/revision patterns.
 | `max_iterations` | int | no | `1` | Maximum times this step can execute (1 = no revisiting) |
 | `max_retries` | int | no | `0` | Maximum retry count on failure |
 | `inputs` | map | no | — | Key-value inputs passed to the step |
+| `credentials` | map[string]string | no | — | Env var to credential provider mappings; merges with agent credentials (step overrides agent) |
 
 ### Bridge Actions
 

@@ -172,6 +172,38 @@ Other steps reference this as `{{steps.code-review.outputs.comments}}`.
 Bridge actions produce outputs automatically (see the reference above for
 each action's output fields).
 
+## Step Credentials
+
+Steps can declare credentials that override or augment the referenced agent's
+credentials. This is useful when different steps need different API keys or when
+a step needs additional secrets not defined in the agent.
+
+```yaml
+workflow:
+  steps:
+    - id: analyze
+      type: agent
+      agent: Log Analyzer
+      credentials:
+        SPLUNK_TOKEN: splunk-prod        # Override agent's default credential
+        CUSTOM_WEBHOOK: slack-webhook    # Additional credential for this step
+```
+
+**Merge behavior:** Step credentials merge with agent credentials. Step values
+override agent values for the same environment variable name. Agent credentials
+not overridden are preserved.
+
+```
+Agent credentials:  {GITHUB_TOKEN: github, SPLUNK_TOKEN: splunk-staging}
+Step credentials:   {SPLUNK_TOKEN: splunk-prod, CUSTOM_KEY: my-secret}
+Result:             {GITHUB_TOKEN: github, SPLUNK_TOKEN: splunk-prod, CUSTOM_KEY: my-secret}
+```
+
+The `credentials` field uses the same format as agent-level credentials: keys
+are environment variable names, values are credential provider names from the
+credential store. See [Configuration Reference](configuration.md#credentials)
+for details on creating and managing credentials.
+
 ## Triggers
 
 Workflows run in response to events or on a schedule.
