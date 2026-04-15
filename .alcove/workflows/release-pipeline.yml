@@ -1,14 +1,17 @@
 name: Release Pipeline
+trigger:
+  schedule:
+    cron: "0 6 * * *"
+    enabled: true
+  github:
+    events: [issues]
+    actions: [labeled]
+    labels: [immediate-release]
+    repos: [bmbouter/alcove]
+    delivery_mode: polling
+
 workflow:
-  - id: check-and-release
+  - id: release
+    type: agent
     agent: Automated Release Agent
-    trigger:
-      schedule:
-        cron: "0 6 * * *"
-        enabled: true
-      github:
-        events: [issues]
-        labels: [immediate-release]
-        repos: [bmbouter/alcove]
-        delivery_mode: polling
-    outputs: [version, release_url, has_commits]
+    outputs: [version, has_commits]

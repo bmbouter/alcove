@@ -1,43 +1,54 @@
-name: Full SDLC Pipeline
-trigger:
-  github:
-    events: [issues]
-    actions: [labeled]
-    labels: [ready-for-dev]
-    repos: [bmbouter/alcove]
-    delivery_mode: polling
+# Example: Full SDLC with review/revision cycle
+# Demonstrates bounded cycles using depends expressions, bridge actions,
+# and max_iterations to prevent infinite loops.
+#
+# Flow:
+#   implement -> create-pr -> await-ci <-> ci-fix (up to 3 CI fix attempts)
+#                                |
+#                                v
+#                     code-review + security-review <-> revision (up to 3 revisions)
+#                                |
+#                                v
+#                              merge
+
+name: SDLC with Review Loop
 
 workflow:
+  # Step 1: Agent implements the feature on a new branch
   - id: implement
     type: agent
-    agent: Autonomous Developer
+    agent: developer
     max_retries: 3
     inputs:
-      branch: "issue-{{trigger.issue_number}}-fix"
+      branch: "feature-{{trigger.issue_number}}"
     outputs: [summary]
 
+  # Step 2: Bridge creates a pull request from the branch
   - id: create-pr
     type: bridge
     action: create-pr
     depends: "implement.Succeeded"
     inputs:
-      repo: bmbouter/alcove
+      repo: my-org/my-repo
       branch: "{{steps.implement.inputs.branch}}"
-      title: "Fix #{{trigger.issue_number}}"
+      title: "Implement #{{trigger.issue_number}}"
       base: main
 
+  # Step 3: Bridge waits for CI. Re-enters after ci-fix pushes a fix.
+  # max_iterations bounds the await-ci -> ci-fix -> await-ci cycle.
   - id: await-ci
     type: bridge
     action: await-ci
     depends: "create-pr.Succeeded || ci-fix.Succeeded"
     max_iterations: 4
     inputs:
-      repo: bmbouter/alcove
+      repo: my-org/my-repo
       pr: "{{steps.create-pr.outputs.pr_number}}"
 
+  # Step 4: Agent fixes CI failures. Only runs when await-ci reports failure.
   - id: ci-fix
     type: agent
-    agent: Autonomous Developer
+    agent: developer
     depends: "await-ci.Failed"
     max_iterations: 3
     inputs:
@@ -45,27 +56,31 @@ workflow:
       ci_logs: "{{steps.await-ci.outputs.failure_logs}}"
     outputs: [summary]
 
+  # Step 5: Code review. Runs after CI passes or after a revision is pushed.
   - id: code-review
     type: agent
-    agent: PR Reviewer
+    agent: code-reviewer
     depends: "await-ci.Succeeded || revision.Succeeded"
     max_iterations: 3
     inputs:
       pr: "{{steps.create-pr.outputs.pr_number}}"
     outputs: [approved, comments]
 
+  # Step 6: Security review. Runs in parallel with code review.
   - id: security-review
     type: agent
-    agent: Security Reviewer
+    agent: security-reviewer
     depends: "await-ci.Succeeded || revision.Succeeded"
     max_iterations: 3
     inputs:
       pr: "{{steps.create-pr.outputs.pr_number}}"
     outputs: [approved, comments]
 
+  # Step 7: Revision. Runs when either review rejects, addresses feedback,
+  # then loops back to reviews via the depends expression.
   - id: revision
     type: agent
-    agent: Autonomous Developer
+    agent: developer
     depends: "code-review.Failed || security-review.Failed"
     max_iterations: 3
     inputs:
@@ -74,10 +89,11 @@ workflow:
       security_feedback: "{{steps.security-review.outputs.comments}}"
     outputs: [summary]
 
+  # Step 8: Merge. Only runs when both reviews approve.
   - id: merge
     type: bridge
     action: merge-pr
     depends: "code-review.Succeeded && security-review.Succeeded"
     inputs:
-      repo: bmbouter/alcove
+      repo: my-org/my-repo
       pr: "{{steps.create-pr.outputs.pr_number}}"

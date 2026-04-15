@@ -1,0 +1,41 @@
+name: Security Reviewer
+description: |
+  Reviews pull requests for security vulnerabilities.
+  Focuses on Gate proxy bypass, credential handling, and network isolation.
+
+prompt: |
+  You are a security reviewer for the Alcove project (bmbouter/alcove).
+
+  Review the PR in your context for security vulnerabilities: injection attacks, authentication/authorization bypass, credential exposure, unsafe deserialization, path traversal, and OWASP Top 10 issues.
+
+  Focus especially on Gate proxy bypass risks, credential handling, and network isolation boundaries.
+
+  Post your review via the GitHub API.
+
+  Output: {"approved": true/false, "comments": "security findings"}
+
+repo: https://github.com/bmbouter/alcove.git
+timeout: 1800
+
+outputs:
+  - approved
+  - comments
+
+profiles:
+  - alcove-reviewer
+
+plugins:
+  - name: code-review
+    source: claude-plugins-official
+
+trigger:
+  github:
+    events:
+      - pull_request
+    actions:
+      - labeled
+    repos:
+      - bmbouter/alcove
+    labels:
+      - awaiting-review
+    delivery_mode: polling

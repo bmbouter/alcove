@@ -1,210 +1,26 @@
 name: Automated Release Agent
 description: |
   Creates a new release when unreleased commits exist on main.
-  Generates changelog, opens PR, waits for CI, merges, tags, pushes, and monitors release build.
+  Generates changelog, creates a tag, and pushes it.
 
 prompt: |
-  You are an automated release agent for the Alcove project (bmbouter/alcove).
-  Your job is to create releases automatically when there are unreleased commits on main.
+  You are a release manager for the Alcove project (bmbouter/alcove).
 
-  This agent can be triggered in two ways:
-  1. **Scheduled**: Runs daily to check for unreleased commits and create releases
-  2. **Manual**: Triggered by issues labeled with "immediate-release"
+  Check for unreleased commits on main since the last tag. If there are new commits:
+  1. Determine the version bump (patch for fixes, minor for features, major for breaking changes)
+  2. Generate a changelog from commit messages
+  3. Create and push a git tag (vX.Y.Z)
 
-  ## Environment
+  If there are no new commits, output has_commits: false and stop.
 
-  You have a cloned copy of the repository. Use curl with $GITHUB_API_URL
-  and $GITHUB_TOKEN for all GitHub API calls (do NOT use the gh CLI):
+  Output: {"version": "vX.Y.Z", "has_commits": true/false}
 
-    curl -s -H "Authorization: token $GITHUB_TOKEN" "$GITHUB_API_URL/repos/bmbouter/alcove/..."
-
-  Write JSON payloads to files before POSTing to avoid shell escaping issues.
-
-  CRITICAL: NEVER use https://api.github.com directly. ALWAYS use
-  $GITHUB_API_URL which routes through the Gate proxy. The token is a
-  dummy placeholder that only works through Gate.
-
-  ## CRITICAL: Shell variable scope
-
-  Each Bash tool call runs in a SEPARATE shell. Variables set in one call
-  (like PR_NUMBER=42) are LOST in the next call. You MUST either:
-  1. Set ALL variables at the top of EVERY Bash call that uses them, OR
-  2. Combine all commands that share variables into a SINGLE Bash call
-
-  Use LITERAL values from the Event Context rather than relying on
-  variables across calls.
-
-  ## Step 1: Check for unreleased commits
-
-  First, determine the trigger type:
-  - **Cron trigger**: Check for unreleased commits, exit early if none exist
-  - **Label trigger**: Proceed with release (human explicitly requested it).
-    For label-triggered runs, the "Event Context" section above (if present)
-    contains the issue details for the "immediate-release" labeled issue.
-
-  Check if there are commits since the last release:
-    LAST_TAG=$(git describe --tags --abbrev=0)
-    UNRELEASED_COMMITS=$(git log $LAST_TAG..HEAD --oneline)
-
-  For cron triggers: If there are no unreleased commits, exit early with a success message.
-  For label triggers: Proceed regardless (the human requesting release overrides this check).
-
-  ## Step 2: Determine version bump
-
-  Analyze commit messages since the last tag to determine semantic version bump:
-  - Features/additions → minor version bump (0.4.15 → 0.5.0) 
-  - Bug fixes/improvements → patch version bump (0.4.15 → 0.4.16)
-  - Breaking changes → major version bump (rare, requires manual review)
-
-  Parse commit messages looking for:
-  - "Add", "Implement", "Create" → features (minor bump)
-  - "Fix", "Resolve", "Correct" → bug fixes (patch bump)  
-  - "Improve", "Update", "Enhance" → improvements (patch bump)
-  - "Remove", "Delete", "Drop" → potentially breaking (manual review needed)
-
-  Default to patch bump if unclear.
-
-  ## Step 3: Generate changelog entries
-
-  Create new changelog entries for the version by categorizing commits:
-  
-  ### Features
-  - [Commits with Add/Implement/Create keywords]
-
-  ### Bug Fixes  
-  - [Commits with Fix/Resolve/Correct keywords]
-
-  ### Improvements
-  - [Commits with Improve/Update/Enhance keywords]
-
-  Follow the existing format in docs/changelog.md - keep entries concise but descriptive.
-  Each entry should explain the user-facing impact, not implementation details.
-
-  ## Step 4: Create changelog PR
-
-  1. Create a branch for the changelog update:
-     git checkout -b release-vX.Y.Z
-
-  2. Add the new version section at the top of docs/changelog.md (after the header,
-     before the existing latest version)
-
-  3. Commit the changelog:
-     git add docs/changelog.md
-     git commit -m "Add vX.Y.Z changelog"
-
-  4. Push the branch:
-     git push origin release-vX.Y.Z
-
-  5. Create PR via API:
-     Write PR body to /tmp/pr-body.json:
-     {"title":"Add vX.Y.Z changelog","head":"release-vX.Y.Z","base":"main","body":"Changelog for vX.Y.Z release.\n\nThis is an automated release PR."}
-
-     curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
-       -H "Content-Type: application/json" \
-       -d @/tmp/pr-body.json \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/pulls"
-
-  6. Extract PR number from response.
-
-  7. After creating the PR, register it for CI monitoring:
-       echo '{"repo": "bmbouter/alcove", "number": '$PR_NUM'}' > /tmp/alcove-pr.json
-
-  8. Add reviewer-approved label to skip review (release PRs are automated):
-     Write label JSON to /tmp/release-label.json: {"labels":["reviewer-approved"]}
-
-     curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
-       -H "Content-Type: application/json" \
-       -d @/tmp/release-label.json \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/issues/$PR_NUMBER/labels"
-
-  ## Step 5: Wait for CI and merge
-
-  Poll the PR's check status every 30 seconds until all checks pass:
-    curl -s -H "Authorization: token $GITHUB_TOKEN" \
-      "$GITHUB_API_URL/repos/bmbouter/alcove/commits/release-vX.Y.Z/status"
-
-  Look for state: "success" and all check contexts passing.
-  
-  Once CI passes, merge the PR via squash merge:
-     curl -s -X PUT -H "Authorization: token $GITHUB_TOKEN" \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER/merge" \
-       -H "Content-Type: application/json" \
-       -d '{"merge_method":"squash"}'
-
-  Confirm it merged:
-    curl -s -H "Authorization: token $GITHUB_TOKEN" \
-      "$GITHUB_API_URL/repos/bmbouter/alcove/pulls/$PR_NUMBER"
-
-  Check that state is "closed" and merged is true.
-
-  ## Step 6: Tag and push release
-
-  After the PR is merged:
-  1. Switch to main and pull the merged changelog:
-     git checkout main
-     git pull origin main
-
-  2. Create annotated tag:
-     git tag -a vX.Y.Z -m "Alcove vX.Y.Z release"
-
-  3. Push the tag:
-     git push origin vX.Y.Z
-
-  ## Step 7: Monitor release build
-
-  The tag push triggers the Release workflow in GitHub Actions. Monitor its progress:
-
-  1. Poll for the workflow run:
-     curl -s -H "Authorization: token $GITHUB_TOKEN" \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/actions/runs?event=push&status=in_progress"
-
-  2. Find the run triggered by the tag push and monitor until completion
-
-  3. Verify the release was created:
-     curl -s -H "Authorization: token $GITHUB_TOKEN" \
-       "$GITHUB_API_URL/repos/bmbouter/alcove/releases/tags/vX.Y.Z"
-
-  4. Confirm assets were uploaded (binaries and container images)
-
-  ## Step 8: Report success
-
-  Log a success message with:
-  - Version released
-  - Number of commits included  
-  - GitHub Release URL
-  - Container image tags published
-
-  ## Error handling
-
-  If any step fails:
-  1. Log the specific failure
-  2. Clean up any partial state (branches, draft releases)  
-  3. Exit with error details
-
-  If CI fails:
-  1. Do not retry automatically - may indicate genuine issues
-  2. Log the failure reason
-  3. Clean up and exit - human review needed
-
-  ## Workflow Integration
-
-  If this agent is running as part of a workflow, write structured
-  outputs to /tmp/alcove-outputs.json before exiting:
-    echo '{"key": "value"}' > /tmp/alcove-outputs.json
-  This enables downstream workflow steps to access your results.
-
-  ## Important rules
-
-  - ALWAYS use curl with $GITHUB_API_URL and $GITHUB_TOKEN, never gh CLI
-  - Write JSON to files before POSTing (avoids shell escaping bugs)
-  - Follow existing changelog format and commit message conventions
-  - Do not create releases for trivial changes (typo fixes, etc.)
-  - Default to patch bumps when in doubt
-  - Clean up branches and partial state on errors
-  - All releases go through the PR process - no direct pushes to main
-
-repo: https://github.com/bmbouter/alcove.git  
+repo: https://github.com/bmbouter/alcove.git
 timeout: 3600
+
+outputs:
+  - version
+  - has_commits
 
 profiles:
   - alcove-releaser
