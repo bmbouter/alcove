@@ -449,46 +449,7 @@ To add a new runtime:
    shared networking and proxy configuration.
 3. Wire it into Bridge startup based on the `RUNTIME` environment variable.
 
-## Skill / Agent Repos and Agent Definitions
-
-### Skill / Agent Repos
-
-Skill repos are git repositories containing Claude Code plugins or lola
-modules. Skiff auto-detects the format based on the repo structure:
-
-**Claude Code plugin** (detected by `.claude-plugin/plugin.json`):
-
-```
-my-skills-repo/
-  .claude-plugin/
-    plugin.json       # Plugin manifest
-  skills/             # Skill definitions
-  agents/             # Agent definitions
-```
-
-**Lola module** (detected by `module/` directory):
-
-```
-my-lola-repo/
-  module/             # Lola module definitions
-```
-
-Users do not need to specify the format. Skiff checks for each structure
-and loads the repo accordingly.
-
-At dispatch time, Bridge reads system-wide and per-user skill repos from the
-settings store, merges them, and passes the JSON to Skiff as
-`ALCOVE_SKILL_REPOS`. Skiff clones each repo and passes the directories to
-`claude` via `--plugin-dir` flags.
-
-The relevant code paths:
-
-- `internal/bridge/settings.go` -- `SkillRepo` type, `GetSystemSkillRepos()`,
-  `SetSystemSkillRepos()`, `GetUserSkillRepos()`, `SetUserSkillRepos()`
-- `internal/bridge/dispatcher.go` -- merges skill repos and sets
-  `ALCOVE_SKILL_REPOS` env var
-- `cmd/skiff-init/main.go` -- `loadSkillRepos()` clones repos and builds
-  `--plugin-dir` flags
+## Agent Definitions
 
 ### Agent Definition YAML Format
 

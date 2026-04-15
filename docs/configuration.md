@@ -448,29 +448,6 @@ env:
 
 ---
 
-## Skill / Agent Repos
-
-Skill repos are git repositories containing Claude Code plugins or lola modules
-that extend what Claude Code can do inside Skiff containers. Repos are
-auto-detected at startup: if a repo contains a `.claude-plugin/plugin.json`
-file it is loaded as a Claude Code plugin; if it contains a `module/` directory
-it is loaded as a lola module. Users just add a repo URL and Skiff figures out
-the format automatically.
-
-Configure skill repos in the dashboard under **Settings** or via the API:
-
-- **System-wide (admin):** `GET/PUT /api/v1/admin/settings/skill-repos`
-- **Per-user:** `GET/PUT /api/v1/user/settings/skill-repos`
-
-At dispatch time, Bridge merges system-wide and per-user skill repos and passes
-them to Skiff via the `ALCOVE_SKILL_REPOS` environment variable. Skiff clones
-each repo and passes the directories to Claude Code as `--plugin-dir` flags.
-
-You can also set `ALCOVE_SKILL_REPOS` as a Bridge environment variable to
-provide a default list without using the database.
-
----
-
 ## Agent Repos and Agent Definitions
 
 Agent repos are git repositories containing YAML agent definitions in
