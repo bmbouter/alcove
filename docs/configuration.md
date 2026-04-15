@@ -566,6 +566,7 @@ schedule: "0 2 * * *"
 | `tools`     | string[] | no       | MCP tool names to enable |
 | `plugins`   | PluginSpec[] | no   | Claude Code plugins to install (see [Plugins](#plugins)) |
 | `credentials` | map[string]string | no | Environment variable names to credential provider mappings (see [Credentials](#credentials)) |
+| `direct_outbound` | bool | no | Allow direct outbound connections bypassing Gate proxy (default `false`) |
 | `schedule`  | string   | no       | Cron expression for automatic execution |
 | `labels`    | string[] | no       | GitHub issue/PR labels for event filtering (see below) |
 | `users`     | string[] | no       | GitHub usernames for event filtering (see below) |
@@ -835,6 +836,7 @@ review/revision patterns.
 | `max_retries` | int | no | `0` | Maximum retry count on failure |
 | `inputs` | map | no | — | Key-value inputs passed to the step |
 | `credentials` | map[string]string | no | — | Env var to credential provider mappings; merges with agent credentials (step overrides agent) |
+| `direct_outbound` | bool | no | `false` | Allow direct outbound connections bypassing Gate proxy |
 
 ### Bridge Actions
 

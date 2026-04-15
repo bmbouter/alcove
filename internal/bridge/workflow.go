@@ -57,8 +57,9 @@ type WorkflowStep struct {
 	RouteField    string                 `json:"route_field,omitempty" yaml:"route_field,omitempty"`       // Field name for routing decisions
 	RouteMap      map[string]string      `json:"route_map,omitempty" yaml:"route_map,omitempty"`           // Value -> next step mapping
 	MaxIterations int                    `json:"max_iterations,omitempty" yaml:"max_iterations,omitempty"` // Max times this step can execute (default 1)
-	MaxRetries    int                    `json:"max_retries,omitempty" yaml:"max_retries,omitempty"`       // Max retries on failure within one iteration
-	Credentials   map[string]string      `json:"credentials,omitempty" yaml:"credentials,omitempty"`
+	MaxRetries     int                    `json:"max_retries,omitempty" yaml:"max_retries,omitempty"`       // Max retries on failure within one iteration
+	Credentials    map[string]string      `json:"credentials,omitempty" yaml:"credentials,omitempty"`
+	DirectOutbound bool                   `json:"direct_outbound,omitempty" yaml:"direct_outbound,omitempty"`
 }
 
 // WorkflowTrigger defines when a workflow should be triggered.

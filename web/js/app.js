@@ -1704,6 +1704,11 @@
             profiles: selectedProfiles.length > 0 ? selectedProfiles : undefined
         };
 
+        var directOutbound = document.getElementById('direct-outbound-toggle');
+        if (directOutbound && directOutbound.checked) {
+            payload.direct_outbound = true;
+        }
+
         // Remove undefined keys
         Object.keys(payload).forEach((k) => {
             if (payload[k] === undefined) delete payload[k];
@@ -1738,6 +1743,9 @@
             $('#task-timeout').value = '60';
             $('#timeout-value').textContent = '60';
             $('#task-debug').checked = false;
+            if (document.getElementById('direct-outbound-toggle')) {
+                document.getElementById('direct-outbound-toggle').checked = false;
+            }
             selectedProfiles = [];
             renderProfileChips();
             updateEffectivePermissions();
@@ -2292,6 +2300,10 @@
             { label: 'Duration', value: formatDuration(s.started_at, s.finished_at, s.duration) },
             { label: 'Exit Code', value: s.exit_code !== undefined && s.exit_code !== null ? String(s.exit_code) : '-' }
         ];
+
+        if (s.direct_outbound) {
+            fields.push({ label: 'Network', value: 'Direct Outbound', badge: false });
+        }
 
         let html = fields.map((f) => {
             let valueHtml;
@@ -6349,8 +6361,13 @@
                 credBadge = '<span class="step-cred-icon" title="Credentials: ' + credParts.join(', ') + '">&#128273;</span>';
             }
 
+            var directOutboundBadge = '';
+            if (step.direct_outbound) {
+                directOutboundBadge = '<span class="step-direct-outbound-icon" title="Direct outbound network access">&#127760;</span>';
+            }
+
             dagHtml += '<span class="workflow-dag-step' + (hasApproval ? ' has-approval' : '') + (isBridge ? ' dag-step-bridge' : '') + '">' +
-                       stepTypeIcon + escapeHtml(stepName) + approvalIcon + bridgeBadge + credBadge + '</span>';
+                       stepTypeIcon + escapeHtml(stepName) + approvalIcon + bridgeBadge + credBadge + directOutboundBadge + '</span>';
 
             if (index < executionOrder.length - 1) {
                 dagHtml += '<span class="workflow-dag-arrow">→</span>';
@@ -6492,6 +6509,12 @@
                         '</div>';
                 }
 
+                // Direct outbound network indicator
+                var directOutboundHtml = '';
+                if (step.direct_outbound) {
+                    directOutboundHtml = '<div class="step-direct-outbound"><span title="Direct outbound network access">&#127760;</span> Direct outbound</div>';
+                }
+
                 item.innerHTML =
                     '<div class="' + dotClass + '"></div>' +
                     typeIcon +
@@ -6503,6 +6526,7 @@
                         '</div>' +
                         dependsHtml +
                         credentialsHtml +
+                        directOutboundHtml +
                     '</div>' +
                     actionsHtml;
 

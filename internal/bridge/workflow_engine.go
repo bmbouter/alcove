@@ -288,6 +288,11 @@ func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, st
 		}
 	}
 
+	// Override direct_outbound from step if set.
+	if step.DirectOutbound {
+		taskReq.DirectOutbound = true
+	}
+
 	// If step has a repo specified, override the agent's repo
 	if step.Repo != "" {
 		taskReq.Repo = step.Repo

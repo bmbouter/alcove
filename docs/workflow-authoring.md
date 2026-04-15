@@ -410,6 +410,33 @@ Post your review via the GitHub API.
 Output {"approved": true} or {"approved": false, "comments": "..."}.
 ```
 
+## Direct Outbound Mode
+
+By default, Skiff containers route all network traffic through the Gate proxy.
+For services that Gate cannot proxy, you can enable direct outbound connections:
+
+```yaml
+workflow:
+  steps:
+    - id: external-call
+      type: agent
+      agent: API Client
+      direct_outbound: true
+      credentials:
+        API_KEY: my-api-secret
+```
+
+When `direct_outbound: true`:
+- Skiff container gets direct internet access (attached to external network)
+- HTTP_PROXY/HTTPS_PROXY are NOT set
+- Gate sidecar still runs for LLM and SCM proxy if needed
+- Generic secrets are available as env vars in the container
+
+**Security warning:** Direct outbound mode bypasses Gate's token injection and
+operation-level scope enforcement. Credentials configured as generic secrets
+are exposed as plaintext env vars. Use only for trusted agents with services
+that Gate cannot proxy.
+
 ## Tips
 
 - **Start simple.** Begin with 2-3 steps (implement, create-pr, merge) and add
