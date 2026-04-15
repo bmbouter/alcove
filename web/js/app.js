@@ -1649,7 +1649,7 @@
             cachedCredentials = allCreds;
             // Only show LLM credentials in the provider dropdown
             const llmCreds = allCreds.filter(function (c) {
-                return c.provider !== 'github' && c.provider !== 'gitlab' && c.provider !== 'jira' && c.provider !== 'splunk';
+                return c.provider !== 'github' && c.provider !== 'gitlab' && c.provider !== 'jira' && c.provider !== 'splunk' && c.provider !== 'generic';
             });
             select.innerHTML = '<option value="">Select a provider</option>';
             llmCreds.forEach((c) => {
@@ -1687,7 +1687,7 @@
 
         // Block submission if no LLM credential
         var llmCreds = cachedCredentials.filter(function (c) {
-            return c.provider !== 'github' && c.provider !== 'gitlab' && c.provider !== 'jira' && c.provider !== 'splunk';
+            return c.provider !== 'github' && c.provider !== 'gitlab' && c.provider !== 'jira' && c.provider !== 'splunk' && c.provider !== 'generic';
         });
         if (llmCreds.length === 0) {
             errEl.textContent = 'No LLM provider configured. Add an LLM credential on the Credentials page before starting sessions.';
@@ -1758,15 +1758,19 @@
     async function loadCredentials() {
         const tbodyLlm = $('#credentials-tbody-llm');
         const tbodyScm = $('#credentials-tbody-scm');
+        const tbodyGeneric = $('#credentials-tbody-generic');
         const sectionLlm = $('#credentials-section-llm');
         const sectionScm = $('#credentials-section-scm');
+        const sectionGeneric = $('#credentials-section-generic');
         const loading = $('#credentials-loading');
         const empty = $('#credentials-empty');
 
         tbodyLlm.innerHTML = '';
         tbodyScm.innerHTML = '';
+        tbodyGeneric.innerHTML = '';
         hide(sectionLlm);
         hide(sectionScm);
+        hide(sectionGeneric);
         show(loading);
         hide(empty);
 
@@ -1781,11 +1785,14 @@
                 return;
             }
 
-            // Split credentials into LLM and SCM groups
+            // Split credentials into LLM, SCM, and generic groups
             var llmCreds = [];
             var scmCreds = [];
+            var genericCreds = [];
             credentials.forEach(function (c) {
-                if (c.provider === 'github' || c.provider === 'gitlab' || c.provider === 'jira' || c.provider === 'splunk') {
+                if (c.provider === 'generic') {
+                    genericCreds.push(c);
+                } else if (c.provider === 'github' || c.provider === 'gitlab' || c.provider === 'jira' || c.provider === 'splunk') {
                     scmCreds.push(c);
                 } else {
                     llmCreds.push(c);
@@ -1869,7 +1876,26 @@
                 tbodyScm.innerHTML = scmCreds.map(renderScmRow).join('');
             }
 
-            // Delete handlers for both sections
+            // Render generic secrets
+            if (genericCreds.length > 0) {
+                show(sectionGeneric);
+                tbodyGeneric.innerHTML = genericCreds.map(function(c) {
+                    var name = c.name || '-';
+                    var created = formatTime(c.created_at || c.created);
+                    var id = c.id || '';
+                    return '<tr>' +
+                        '<td>' + escapeHtml(name) + '</td>' +
+                        '<td><span class="badge">secret</span></td>' +
+                        '<td>' + escapeHtml(created) + '</td>' +
+                        '<td><button class="btn btn-small btn-outline delete-credential-btn" data-id="' + escapeHtml(id) + '" data-name="' + escapeHtml(name) + '" style="color:var(--status-error);border-color:var(--status-error);">Delete</button></td>' +
+                        '</tr>';
+                }).join('');
+            } else {
+                hide(sectionGeneric);
+                tbodyGeneric.innerHTML = '';
+            }
+
+            // Delete handlers for all sections
             var container = $('#credentials-grouped-container');
             container.querySelectorAll('.delete-credential-btn').forEach(function (btn) {
                 btn.addEventListener('click', async function () {
@@ -1931,6 +1957,7 @@
         var vertexFields = q('cred-vertex-fields');
         var scmFields = q('cred-scm-fields');
         var splunkFields = q('cred-splunk-fields');
+        var genericFields = q('cred-generic-fields');
         var gitlabHostGroup = q('cred-gitlab-host-group');
         var jiraHostGroup = q('jira-host-group');
         var jiraEmailGroup = q('jira-email-group');
@@ -1945,6 +1972,7 @@
             if (vertexFields) vertexFields.hidden = true;
             if (scmFields) scmFields.hidden = true;
             if (splunkFields) splunkFields.hidden = true;
+            if (genericFields) genericFields.hidden = true;
             if (jiraHostGroup) jiraHostGroup.hidden = true;
             if (jiraEmailGroup) jiraEmailGroup.hidden = true;
 
@@ -1956,6 +1984,8 @@
                 if (vertexFields) vertexFields.hidden = false;
             } else if (val === 'splunk') {
                 if (splunkFields) splunkFields.hidden = false;
+            } else if (val === 'generic') {
+                if (genericFields) genericFields.hidden = false;
             } else if (val === 'github' || val === 'gitlab' || val === 'jira') {
                 if (scmFields) scmFields.hidden = false;
                 // Show GitLab host field only for GitLab
@@ -2111,6 +2141,14 @@
                 if (splunkHost) {
                     payload.api_host = splunkHost;
                 }
+            } else if (provider === 'generic') {
+                var genericValue = (q('cred-generic-value') || {}).value;
+                if (!genericValue || !genericValue.trim()) {
+                    if (errorEl) { errorEl.textContent = 'Secret value is required.'; show(errorEl); }
+                    return;
+                }
+                payload.auth_type = 'secret';
+                payload.credential = genericValue.trim();
             }
 
             var btn = q('cred-submit');
@@ -5492,7 +5530,7 @@
         var warnings = [];
 
         var llmCreds = cachedCredentials.filter(function (c) {
-            return c.provider !== 'github' && c.provider !== 'gitlab' && c.provider !== 'jira' && c.provider !== 'splunk';
+            return c.provider !== 'github' && c.provider !== 'gitlab' && c.provider !== 'jira' && c.provider !== 'splunk' && c.provider !== 'generic';
         });
         var scmCreds = cachedCredentials.filter(function (c) {
             return c.provider === 'github' || c.provider === 'gitlab' || c.provider === 'jira' || c.provider === 'splunk';

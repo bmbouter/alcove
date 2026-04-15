@@ -65,6 +65,32 @@ func TestEncryptDecryptOAuthTokenRoundtrip(t *testing.T) {
 	}
 }
 
+func TestProviderCategory(t *testing.T) {
+	tests := []struct {
+		provider string
+		want     string
+	}{
+		{"anthropic", "llm"},
+		{"google-vertex", "llm"},
+		{"claude-oauth", "llm"},
+		{"github", "scm"},
+		{"gitlab", "scm"},
+		{"jira", "scm"},
+		{"splunk", "scm"},
+		{"generic", "generic"},
+		{"unknown-thing", "generic"},
+		{"", "generic"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.provider, func(t *testing.T) {
+			got := ProviderCategory(tt.provider)
+			if got != tt.want {
+				t.Errorf("ProviderCategory(%q) = %q, want %q", tt.provider, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDeriveKey(t *testing.T) {
 	key := deriveKey("my-master-password")
 	if len(key) != 32 {

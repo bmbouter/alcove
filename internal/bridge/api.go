@@ -1242,11 +1242,10 @@ func (a *API) handleCredentials(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Enforce one LLM credential per team.
-		scmProviders := map[string]bool{"github": true, "gitlab": true, "jira": true}
-		if !scmProviders[req.Provider] {
+		if ProviderCategory(req.Provider) == "llm" {
 			existing, _ := a.credStore.ListCredentials(r.Context(), teamID)
 			for _, c := range existing {
-				if !scmProviders[c.Provider] {
+				if ProviderCategory(c.Provider) == "llm" {
 					respondJSON(w, http.StatusConflict, map[string]any{
 						"error":               "you already have an LLM credential configured",
 						"existing_credential": c.Name,

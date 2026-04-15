@@ -45,6 +45,18 @@ type Credential struct {
 	TeamID    string    `json:"team_id,omitempty"`
 }
 
+// ProviderCategory returns the category for a given provider string.
+func ProviderCategory(provider string) string {
+	switch provider {
+	case "anthropic", "google-vertex", "claude-oauth":
+		return "llm"
+	case "github", "gitlab", "jira", "splunk":
+		return "scm"
+	default:
+		return "generic"
+	}
+}
+
 // CredentialStore manages encrypted credential storage in PostgreSQL.
 type CredentialStore struct {
 	db  *pgxpool.Pool
@@ -243,7 +255,7 @@ func (cs *CredentialStore) AcquireToken(ctx context.Context, providerName string
 	}
 
 	switch authType {
-	case "api_key", "oauth_token":
+	case "api_key", "oauth_token", "secret":
 		return &TokenResult{
 			Token:     string(raw),
 			TokenType: authType,
@@ -301,7 +313,7 @@ func (cs *CredentialStore) AcquireSystemToken(ctx context.Context, providerName 
 	}
 
 	switch authType {
-	case "api_key", "oauth_token":
+	case "api_key", "oauth_token", "secret":
 		return &TokenResult{
 			Token:     string(raw),
 			TokenType: authType,
@@ -423,7 +435,7 @@ func (cs *CredentialStore) FirstAvailableProvider(ctx context.Context) (*Credent
 		`SELECT id, name, provider, auth_type, project_id, region, api_host, created_at, updated_at, COALESCE(team_id::text, '')
 		FROM provider_credentials
 		WHERE team_id IS NOT NULL
-		AND provider NOT IN ('github', 'gitlab', 'jira')
+		AND provider NOT IN ('github', 'gitlab', 'jira', 'splunk', 'generic')
 		ORDER BY created_at ASC LIMIT 1`,
 	).Scan(&c.ID, &c.Name, &c.Provider, &c.AuthType,
 		&c.ProjectID, &c.Region, &c.APIHost, &c.CreatedAt, &c.UpdatedAt, &c.TeamID)
@@ -458,7 +470,7 @@ func (cs *CredentialStore) ListDistinctProviders(ctx context.Context) ([]Credent
 		`SELECT DISTINCT ON (provider) id, name, provider, auth_type, project_id, region, api_host, created_at, updated_at, COALESCE(team_id::text, '')
 		FROM provider_credentials
 		WHERE team_id IS NOT NULL
-		AND provider NOT IN ('github', 'gitlab', 'jira')
+		AND provider NOT IN ('github', 'gitlab', 'jira', 'splunk', 'generic')
 		ORDER BY provider, created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("querying distinct providers: %w", err)
