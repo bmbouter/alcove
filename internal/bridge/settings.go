@@ -75,19 +75,6 @@ func (s *SettingsStore) GetSystemSkillRepos(ctx context.Context) ([]SkillRepo, e
 	return repos, nil
 }
 
-// SetSystemSkillRepos saves the system-wide skill repos.
-func (s *SettingsStore) SetSystemSkillRepos(ctx context.Context, repos []SkillRepo) error {
-	value, err := json.Marshal(repos)
-	if err != nil {
-		return fmt.Errorf("marshaling system skill repos: %w", err)
-	}
-	_, err = s.db.Exec(ctx, `
-		INSERT INTO system_settings (key, value, updated_at) VALUES ('skill_repos', $1, $2)
-		ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = $2
-	`, value, time.Now().UTC())
-	return err
-}
-
 // GetUserSkillRepos returns a user's personal skill repos.
 func (s *SettingsStore) GetUserSkillRepos(ctx context.Context, username string) ([]SkillRepo, error) {
 	var value json.RawMessage
@@ -100,19 +87,6 @@ func (s *SettingsStore) GetUserSkillRepos(ctx context.Context, username string) 
 		return nil, fmt.Errorf("unmarshaling user skill repos: %w", err)
 	}
 	return repos, nil
-}
-
-// SetUserSkillRepos saves a user's personal skill repos.
-func (s *SettingsStore) SetUserSkillRepos(ctx context.Context, username string, repos []SkillRepo) error {
-	value, err := json.Marshal(repos)
-	if err != nil {
-		return fmt.Errorf("marshaling user skill repos: %w", err)
-	}
-	_, err = s.db.Exec(ctx, `
-		INSERT INTO user_settings (username, key, value, updated_at) VALUES ($1, 'skill_repos', $2, $3)
-		ON CONFLICT (username, key) DO UPDATE SET value = $2, updated_at = $3
-	`, username, value, time.Now().UTC())
-	return err
 }
 
 // GetUserAgentRepos returns a user's personal agent repos.

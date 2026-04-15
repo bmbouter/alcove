@@ -793,6 +793,27 @@ fi
 curl -s -X DELETE "$BRIDGE_URL/api/v1/teams/$VALIDATION_TEAM_ID" \
   -H "Authorization: Bearer $ALICE_TOKEN" > /dev/null 2>&1
 
+# =====================================================================
+# Test 14: Removed endpoints return 404
+# =====================================================================
+log "Test 14: Removed endpoints"
+
+SKILL_ADMIN_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BRIDGE_URL/api/v1/admin/settings/skill-repos" \
+  -H "Authorization: Bearer $ADMIN_TOKEN")
+if [ "$SKILL_ADMIN_CODE" = "404" ]; then
+  pass "admin/settings/skill-repos removed (HTTP 404)"
+else
+  fail "admin/settings/skill-repos still exists (HTTP $SKILL_ADMIN_CODE)"
+fi
+
+SKILL_USER_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BRIDGE_URL/api/v1/user/settings/skill-repos" \
+  -H "Authorization: Bearer $ALICE_TOKEN")
+if [ "$SKILL_USER_CODE" = "404" ]; then
+  pass "user/settings/skill-repos removed (HTTP 404)"
+else
+  fail "user/settings/skill-repos still exists (HTTP $SKILL_USER_CODE)"
+fi
+
 # --- Summary ---
 echo ""
 log "=== Test Summary ==="

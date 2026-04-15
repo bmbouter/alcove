@@ -61,7 +61,6 @@
                 <a href="#credentials" class="nav-tab" data-tab="credentials">Credentials</a>
                 <a href="#security" class="nav-tab" data-tab="security">Security</a>
                 <a href="#repos" class="nav-tab" data-tab="repos">Repos</a>
-                <a href="#teams" class="nav-tab" data-tab="teams">Teams</a>
                 <div style="flex:1;"></div>
                 <a href="#account" class="nav-tab" data-tab="account" id="account-tab" hidden>Account</a>
                 <a href="#users" class="nav-tab nav-admin-only" data-tab="users" hidden>Users</a>
@@ -493,27 +492,6 @@
                     </div>
                 </div>
 
-                <!-- Skill / Agent Repos section -->
-                <div>
-                    <h3>Skill / Agent Repos</h3>
-                    <p class="form-help" style="margin-bottom:12px;">Git repositories with Claude Code plugins or lola modules, loaded into session containers.</p>
-                    <div id="skill-repos-inline-list"></div>
-                    <div class="repo-add-form" style="margin-top:12px;">
-                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
-                            <div style="flex:2;min-width:200px;">
-                                <label class="input-label">Repository URL</label>
-                                <input type="text" id="skill-repo-url-inline" class="input" placeholder="https://github.com/org/repo.git">
-                            </div>
-                            <div style="flex:0.5;min-width:80px;">
-                                <label class="input-label">Branch</label>
-                                <input type="text" id="skill-repo-ref-inline" class="input" placeholder="main">
-                            </div>
-                            <div>
-                                <button id="skill-repo-add-inline" class="btn btn-small btn-primary">Add</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
             </div>
 
             <!-- Teams -->
@@ -586,28 +564,6 @@
                         </div>
                     </div>
 
-                    <!-- Agent Repos Section (team-scoped) -->
-                    <div class="form-card" style="margin-bottom:24px;">
-                        <h3>Agent Repos</h3>
-                        <p class="form-help" style="margin-bottom:12px;">Git repositories containing <code>.alcove/tasks/</code> with YAML agent definitions and <code>.alcove/security-profiles/</code> with security profiles.</p>
-                        <div id="team-task-repos-list"></div>
-                        <div class="repo-add-form" style="margin-top:12px;">
-                            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
-                                <div style="flex:2;min-width:200px;">
-                                    <label class="input-label">Repository URL</label>
-                                    <input type="text" id="team-task-repo-url" class="input" placeholder="https://github.com/org/repo.git">
-                                </div>
-                                <div style="flex:0.5;min-width:80px;">
-                                    <label class="input-label">Branch</label>
-                                    <input type="text" id="team-task-repo-ref" class="input" placeholder="main">
-                                </div>
-                                <div>
-                                    <button id="team-task-repo-add" class="btn btn-small btn-primary">Add</button>
-                                </div>
-                            </div>
-                            <div id="team-task-repo-status" class="form-help" style="margin-top:6px;" hidden></div>
-                        </div>
-                    </div>
                 </div>
             </div>
 

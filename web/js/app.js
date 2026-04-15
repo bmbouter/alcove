@@ -416,82 +416,6 @@
     });
 
     // ---------------------
-    // Skill / Agent Repos (inline on Repos page)
-    // ---------------------
-    var skillReposList = [];
-
-    async function loadSkillRepos() {
-        var listEl = $('#skill-repos-inline-list');
-        if (!listEl) return;
-        listEl.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Loading...</p></div>';
-        try {
-            var resp = await api('GET', '/api/v1/user/settings/skill-repos');
-            if (!resp.ok) {
-                listEl.innerHTML = '<p class="error-message">Failed to load skill repos.</p>';
-                return;
-            }
-            var data = await resp.json();
-            skillReposList = data.repos || [];
-            renderSkillRepos();
-        } catch (err) {
-            listEl.innerHTML = '<p class="error-message">Failed to load skill repos.</p>';
-        }
-    }
-
-    function renderSkillRepos() {
-        var listEl = $('#skill-repos-inline-list');
-        if (!listEl) return;
-        if (skillReposList.length === 0) {
-            listEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">No skill repos configured.</p>';
-            return;
-        }
-        var html = '';
-        for (var i = 0; i < skillReposList.length; i++) {
-            var r = skillReposList[i];
-            var displayUrl = (r.url || '').replace(/^https?:\/\//, '').replace(/\.git$/, '');
-            html += '<div class="repo-item">';
-            html += '<span class="repo-item-url">' + escapeHtml(displayUrl) + '</span>';
-            if (r.ref && r.ref !== 'main') html += ' <span class="repo-item-ref">' + escapeHtml(r.ref) + '</span>';
-            html += ' <button class="btn btn-small btn-outline repo-item-remove" data-index="' + i + '" style="color:var(--status-error);border-color:var(--status-error);padding:2px 8px;font-size:11px;">Remove</button>';
-            html += '</div>';
-        }
-        listEl.innerHTML = html;
-
-        listEl.querySelectorAll('.repo-item-remove').forEach(function(btn) {
-            btn.addEventListener('click', function() {
-                skillReposList.splice(parseInt(btn.getAttribute('data-index'), 10), 1);
-                saveSkillRepos();
-            });
-        });
-    }
-
-    async function saveSkillRepos() {
-        try {
-            var resp = await api('PUT', '/api/v1/user/settings/skill-repos', { repos: skillReposList });
-            if (!resp.ok) {
-                alert('Failed to save skill repos.');
-            }
-            renderSkillRepos();
-        } catch (err) {
-            alert('Failed to save skill repos.');
-        }
-    }
-
-    $('#skill-repo-add-inline').addEventListener('click', function() {
-        var url = $('#skill-repo-url-inline').value.trim();
-        if (!url) return;
-        var ref = $('#skill-repo-ref-inline').value.trim() || 'main';
-        var name = '';
-        // Derive name from URL: last path segment without .git
-        var parts = url.replace(/\.git$/, '').split('/');
-        name = parts[parts.length - 1] || 'repo';
-        skillReposList.push({ url: url, ref: ref, name: name });
-        $('#skill-repo-url-inline').value = '';
-        $('#skill-repo-ref-inline').value = '';
-        saveSkillRepos();
-    });
-
-    // ---------------------
     // Agent Repos (inline on Repos page)
     // ---------------------
     var taskReposList = [];
@@ -1279,7 +1203,6 @@
         } else if (route === 'repos') {
             show($('#page-repos'));
             loadTaskRepos();
-            loadSkillRepos();
         } else if (route === 'credentials') {
             show($('#page-credentials'));
             loadCredentials();
@@ -6726,9 +6649,6 @@
             hide($('#team-member-error'));
             hide($('#team-member-success'));
 
-            // Load agent repos for this team
-            loadTeamTaskRepos(teamId);
-
         } catch (err) {
             if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
                 $('#team-detail-content').innerHTML = '<p class="error-message">Failed to load team details.</p>';
@@ -6905,129 +6825,6 @@
     // Back to teams
     $('#back-to-teams').addEventListener('click', function() {
         navigate('teams');
-    });
-
-    // Team-scoped agent repos
-    var teamTaskReposList = [];
-
-    async function loadTeamTaskRepos(teamId) {
-        var listEl = $('#team-task-repos-list');
-        if (!listEl) return;
-        listEl.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Loading...</p></div>';
-        try {
-            var savedTeamId = activeTeamId;
-            activeTeamId = teamId;
-            var resp = await api('GET', '/api/v1/user/settings/agent-repos');
-            activeTeamId = savedTeamId;
-            if (!resp.ok) {
-                listEl.innerHTML = '<p class="error-message">Failed to load agent repos.</p>';
-                return;
-            }
-            var data = await resp.json();
-            teamTaskReposList = data.repos || [];
-            renderTeamTaskRepos(teamId);
-        } catch (err) {
-            listEl.innerHTML = '<p class="error-message">Failed to load agent repos.</p>';
-        }
-    }
-
-    function renderTeamTaskRepos(teamId) {
-        var listEl = $('#team-task-repos-list');
-        if (!listEl) return;
-        if (teamTaskReposList.length === 0) {
-            listEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">No agent repos configured for this team.</p>';
-            return;
-        }
-        var html = '';
-        for (var i = 0; i < teamTaskReposList.length; i++) {
-            var r = teamTaskReposList[i];
-            var isEnabled = r.enabled === undefined || r.enabled === null || r.enabled === true;
-            var displayUrl = (r.url || '').replace(/^https?:\/\//, '').replace(/\.git$/, '');
-            var toggleTitle = isEnabled ? 'Pause sessions from this repo' : 'Resume sessions from this repo';
-            html += '<div class="repo-item ' + (isEnabled ? 'repo-active' : 'repo-paused') + '">';
-            html += '<label class="toggle-switch" title="' + toggleTitle + '"><input type="checkbox" class="team-repo-enabled" data-index="' + i + '"' + (isEnabled ? ' checked' : '') + '><span class="toggle-slider"></span></label>';
-            html += '<span class="' + (isEnabled ? 'toggle-label-active' : 'toggle-label-paused') + '">' + (isEnabled ? 'Active' : 'Paused') + '</span>';
-            html += '<span class="repo-item-url">' + escapeHtml(displayUrl) + '</span>';
-            if (r.ref && r.ref !== 'main') html += ' <span class="repo-item-ref">' + escapeHtml(r.ref) + '</span>';
-            html += ' <button class="btn btn-small btn-outline team-repo-remove" data-index="' + i + '" style="color:var(--status-error);border-color:var(--status-error);padding:2px 8px;font-size:11px;">Remove</button>';
-            if (!isEnabled) html += '<div class="repo-paused-message">Sessions from this repo are paused.</div>';
-            html += '</div>';
-        }
-        listEl.innerHTML = html;
-
-        listEl.querySelectorAll('.team-repo-enabled').forEach(function(cb) {
-            cb.addEventListener('change', async function() {
-                var idx = parseInt(cb.getAttribute('data-index'), 10);
-                teamTaskReposList[idx].enabled = cb.checked;
-                await saveTeamTaskRepos(teamId);
-            });
-        });
-
-        listEl.querySelectorAll('.team-repo-remove').forEach(function(btn) {
-            btn.addEventListener('click', async function() {
-                var idx = parseInt(btn.getAttribute('data-index'), 10);
-                teamTaskReposList.splice(idx, 1);
-                await saveTeamTaskRepos(teamId);
-            });
-        });
-    }
-
-    async function saveTeamTaskRepos(teamId) {
-        try {
-            var savedTeamId = activeTeamId;
-            activeTeamId = teamId;
-            var resp = await api('PUT', '/api/v1/user/settings/agent-repos', { repos: teamTaskReposList });
-            activeTeamId = savedTeamId;
-            if (!resp.ok) {
-                alert('Failed to save agent repos.');
-            }
-            renderTeamTaskRepos(teamId);
-        } catch (err) {
-            alert('Failed to save agent repos.');
-        }
-    }
-
-    $('#team-task-repo-add').addEventListener('click', async function() {
-        var url = $('#team-task-repo-url').value.trim();
-        if (!url) return;
-        var ref = $('#team-task-repo-ref').value.trim() || 'main';
-        var name = '';
-        var parts = url.replace(/\.git$/, '').split('/');
-        name = parts[parts.length - 1] || 'repo';
-
-        var btn = $('#team-task-repo-add');
-        var statusEl = $('#team-task-repo-status');
-        btn.disabled = true;
-        btn.textContent = 'Validating...';
-        statusEl.removeAttribute('hidden');
-        statusEl.style.color = 'var(--text-muted)';
-        statusEl.textContent = 'Cloning and validating repository...';
-
-        try {
-            var savedTeamId = activeTeamId;
-            activeTeamId = viewingTeamId;
-            var resp = await api('POST', '/api/v1/agent-repos/validate', { url: url, ref: ref, name: name });
-            activeTeamId = savedTeamId;
-            var data = await resp.json();
-            if (!data.valid) {
-                statusEl.style.color = 'var(--status-error)';
-                statusEl.textContent = 'Validation failed: ' + (data.error || 'unknown error');
-                btn.disabled = false;
-                btn.textContent = 'Add';
-                return;
-            }
-            teamTaskReposList.push({ url: url, ref: ref, name: name });
-            $('#team-task-repo-url').value = '';
-            $('#team-task-repo-ref').value = '';
-            statusEl.style.color = 'var(--status-running)';
-            statusEl.textContent = 'Found ' + data.agent_definition_count + ' agent definition(s): ' + data.agent_definitions.join(', ');
-            await saveTeamTaskRepos(viewingTeamId);
-        } catch (err) {
-            statusEl.style.color = 'var(--status-error)';
-            statusEl.textContent = 'Validation error: ' + err.message;
-        }
-        btn.disabled = false;
-        btn.textContent = 'Add';
     });
 
     // ---------------------
