@@ -262,7 +262,7 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 func (s *AgentRepoSyncer) syncCatalogSources(ctx context.Context) {
 	catalog := LoadCatalog()
 	for _, entry := range catalog {
-		if entry.URL == "" {
+		if entry.SourceURL == "" {
 			continue
 		}
 
@@ -281,7 +281,7 @@ func (s *AgentRepoSyncer) syncCatalogSources(ctx context.Context) {
 				log.Printf("agent-repo-syncer: error creating catalog source dir for %s: %v", entry.ID, err)
 				continue
 			}
-			cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--branch", ref, entry.URL, cloneDir)
+			cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--branch", ref, entry.SourceURL, cloneDir)
 			cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 			if out, err := cmd.CombinedOutput(); err != nil {
 				log.Printf("agent-repo-syncer: error cloning catalog source %s: %s: %v", entry.ID, string(out), err)
@@ -315,16 +315,16 @@ func (s *AgentRepoSyncer) syncCatalogSources(ctx context.Context) {
 func (s *AgentRepoSyncer) introspectCatalogSource(ctx context.Context, entry CatalogEntry, repoDir string) error {
 	var items []CatalogItem
 
-	// If the source has a path field (e.g., claude-plugins-official entries),
+	// If the source has a source_path field (e.g., claude-plugins-official entries),
 	// treat the catalog entry itself as a single item.
-	if entry.Path != "" {
+	if entry.SourcePath != "" {
 		items = append(items, CatalogItem{
 			SourceID:    entry.ID,
 			Slug:        entry.ID,
 			Name:        entry.Name,
 			Description: entry.Description,
 			ItemType:    categoryToItemType(entry.Category),
-			SourceFile:  entry.Path,
+			SourceFile:  entry.SourcePath,
 		})
 	} else {
 		// Scan for .alcove/tasks/*.yml and .alcove/tasks/*.yaml → agent items

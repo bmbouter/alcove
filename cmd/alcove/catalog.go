@@ -26,18 +26,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// catalogSourceEntry represents a source with item counts from GET /api/v1/teams/{team}/catalog.
-type catalogSourceEntry struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Category     string `json:"category"`
-	ItemCount    int    `json:"item_count"`
-	EnabledCount int    `json:"enabled_count"`
+// catalogEntry represents a catalog entry from GET /api/v1/teams/{team}/catalog.
+type catalogEntry struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Category    string   `json:"category"`
+	SourceType  string   `json:"source_type"`
+	Enabled     bool     `json:"enabled"`
+	Tags        []string `json:"tags"`
 }
 
-// catalogSourcesResponse is the response from GET /api/v1/teams/{team}/catalog.
-type catalogSourcesResponse struct {
-	Sources []catalogSourceEntry `json:"sources"`
+// catalogEntriesResponse is the response from GET /api/v1/teams/{team}/catalog.
+type catalogEntriesResponse struct {
+	Entries []catalogEntry `json:"entries"`
 }
 
 // catalogItem represents a single item within a source from GET /api/v1/teams/{team}/catalog/{source}.
@@ -51,6 +53,22 @@ type catalogItem struct {
 // catalogItemsResponse is the response from GET /api/v1/teams/{team}/catalog/{source}.
 type catalogItemsResponse struct {
 	Items []catalogItem `json:"items"`
+}
+
+// sourceTypeLabel maps source_type to a short display label.
+func sourceTypeLabel(sourceType string) string {
+	switch sourceType {
+	case "claude-plugins-official":
+		return "plugin"
+	case "agency-agents":
+		return "agent"
+	case "mcp-server":
+		return "mcp"
+	case "plugin-bundle":
+		return "bundle"
+	default:
+		return sourceType
+	}
 }
 
 // catalogAgent represents an enabled agent from GET /api/v1/teams/{team}/agents.
@@ -72,6 +90,7 @@ func newCatalogCmd() *cobra.Command {
 	}
 	cmd.AddCommand(
 		newCatalogListCmd(),
+		newCatalogSearchCmd(),
 		newCatalogItemsCmd(),
 		newCatalogEnableCmd(),
 		newCatalogDisableCmd(),
@@ -85,7 +104,7 @@ func newCatalogCmd() *cobra.Command {
 func newCatalogListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List catalog sources with item counts",
+		Short: "List catalog entries",
 		RunE:  runCatalogList,
 	}
 	cmd.Flags().String("category", "", "Filter by category")
@@ -93,58 +112,118 @@ func newCatalogListCmd() *cobra.Command {
 }
 
 func runCatalogList(cmd *cobra.Command, _ []string) error {
+	entries, err := fetchCatalogEntries(cmd)
+	if err != nil {
+		return err
+	}
+
+	categoryFilter, _ := cmd.Flags().GetString("category")
+	var filtered []catalogEntry
+	for _, e := range entries {
+		if categoryFilter != "" && !strings.EqualFold(e.Category, categoryFilter) {
+			continue
+		}
+		filtered = append(filtered, e)
+	}
+
+	return printCatalogEntries(cmd, filtered)
+}
+
+// fetchCatalogEntries retrieves all catalog entries from the API.
+func fetchCatalogEntries(cmd *cobra.Command) ([]catalogEntry, error) {
 	teamName := resolveTeamName(cmd)
 	if teamName == "" {
-		return fmt.Errorf("no active team; use 'alcove teams use <name>' or --team to set one")
+		return nil, fmt.Errorf("no active team; use 'alcove teams use <name>' or --team to set one")
 	}
 
 	teamID, err := resolveTeamID(cmd, teamName)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	path := fmt.Sprintf("/api/v1/teams/%s/catalog", teamID)
 	resp, err := apiRequestRaw(cmd, http.MethodGet, path, nil, teamID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
 	}
 
-	var result catalogSourcesResponse
+	var result catalogEntriesResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return fmt.Errorf("decoding catalog response: %w", err)
+		return nil, fmt.Errorf("decoding catalog response: %w", err)
 	}
 
-	categoryFilter, _ := cmd.Flags().GetString("category")
-	var filtered []catalogSourceEntry
-	for _, s := range result.Sources {
-		if categoryFilter != "" && s.Category != categoryFilter {
-			continue
-		}
-		filtered = append(filtered, s)
-	}
+	return result.Entries, nil
+}
 
+// printCatalogEntries renders catalog entries as a table or JSON.
+func printCatalogEntries(cmd *cobra.Command, entries []catalogEntry) error {
 	if isJSONOutput(cmd) {
-		return outputJSON(filtered)
+		return outputJSON(entries)
 	}
 
-	if len(filtered) == 0 {
-		fmt.Fprintln(os.Stderr, "No catalog sources found.")
+	if len(entries) == 0 {
+		fmt.Fprintln(os.Stderr, "No catalog entries found.")
 		return nil
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "SOURCE\tCATEGORY\tITEMS\tENABLED")
-	for _, s := range filtered {
-		enabled := fmt.Sprintf("%d/%d", s.EnabledCount, s.ItemCount)
-		fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", s.Name, s.Category, s.ItemCount, enabled)
+	fmt.Fprintln(w, "ID\tCATEGORY\tTYPE\tNAME\tENABLED\tDESCRIPTION")
+	for _, e := range entries {
+		enabled := "no"
+		if e.Enabled {
+			enabled = "yes"
+		}
+		desc := e.Description
+		if len(desc) > 50 {
+			desc = desc[:47] + "..."
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			e.ID, e.Category, sourceTypeLabel(e.SourceType), e.Name, enabled, desc)
 	}
 	return w.Flush()
+}
+
+// ---------- catalog search ----------
+
+func newCatalogSearchCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "search <query>",
+		Short: "Search catalog entries by name, description, or tags",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runCatalogSearch,
+	}
+}
+
+func runCatalogSearch(cmd *cobra.Command, args []string) error {
+	query := strings.ToLower(args[0])
+
+	entries, err := fetchCatalogEntries(cmd)
+	if err != nil {
+		return err
+	}
+
+	var matched []catalogEntry
+	for _, e := range entries {
+		if strings.Contains(strings.ToLower(e.Name), query) ||
+			strings.Contains(strings.ToLower(e.Description), query) {
+			matched = append(matched, e)
+			continue
+		}
+		for _, tag := range e.Tags {
+			if strings.Contains(strings.ToLower(tag), query) {
+				matched = append(matched, e)
+				break
+			}
+		}
+	}
+
+	return printCatalogEntries(cmd, matched)
 }
 
 // ---------- catalog items ----------

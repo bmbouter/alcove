@@ -1,11 +1,2413 @@
 [
-  {"id":"code-review","name":"Code Review","description":"Multi-agent PR review with confidence-based scoring and false-positive filtering","url":"https://github.com/anthropics/claude-plugins-official","ref":"main","path":"plugins/code-review","category":"plugins","tags":["github","pull-requests","code-quality"],"source":"claude-plugins-official"},
-  {"id":"feature-dev","name":"Feature Development","description":"Guided feature development workflow with codebase exploration and architecture design","url":"https://github.com/anthropics/claude-plugins-official","ref":"main","path":"plugins/feature-dev","category":"plugins","tags":["workflow","development"],"source":"claude-plugins-official"},
-  {"id":"security-guidance","name":"Security Guidance","description":"Security reminder hooks that warn about command injection, XSS, and unsafe patterns","url":"https://github.com/anthropics/claude-plugins-official","ref":"main","path":"plugins/security-guidance","category":"security","tags":["sast","hooks","vulnerabilities"],"source":"claude-plugins-official"},
-  {"id":"frontend-design","name":"Frontend Design","description":"Production-grade frontend interface generation for rapid UI development","url":"https://github.com/anthropics/claude-plugins-official","ref":"main","path":"plugins/frontend-design","category":"plugins","tags":["ui","frontend","design"],"source":"claude-plugins-official"},
-  {"id":"commit-commands","name":"Commit Commands","description":"Git commit workflow automation with custom slash commands","url":"https://github.com/anthropics/claude-plugins-official","ref":"main","path":"plugins/commit-commands","category":"plugins","tags":["git","workflow"],"source":"claude-plugins-official"},
-  {"id":"hookify","name":"Hookify","description":"Create custom Claude Code hooks from plain English rules","url":"https://github.com/anthropics/claude-plugins-official","ref":"main","path":"plugins/hookify","category":"plugins","tags":["hooks","automation"],"source":"claude-plugins-official"},
-  {"id":"typescript-lsp","name":"TypeScript Language Server","description":"Go-to-definition, find-references, and real-time error checking for TypeScript and JavaScript","url":"https://github.com/anthropics/claude-plugins-official","ref":"main","path":"plugins/typescript-lsp","category":"language-servers","tags":["typescript","javascript","lsp"],"source":"claude-plugins-official"},
-  {"id":"context7","name":"Context7","description":"Fetches up-to-date, version-specific library documentation to prevent API hallucinations","url":"https://github.com/upstash/context7","ref":"main","category":"integrations","tags":["documentation","libraries","mcp"]},
-  {"id":"agency-agents","name":"Agency Agents","description":"130+ pre-built agent personas for engineering, marketing, testing, design, and more","url":"https://github.com/msitarzewski/agency-agents","ref":"main","category":"agent-templates","tags":["personas","templates","multi-domain"]}
+  {
+    "id": "code-review",
+    "name": "Code Review",
+    "description": "Multi-agent PR review with confidence-based scoring and false-positive filtering.",
+    "category": "code-quality",
+    "source_type": "claude-plugins-official",
+    "source_url": "https://github.com/anthropics/claude-plugins-official",
+    "source_path": "plugins/code-review",
+    "docs_url": "https://github.com/anthropics/claude-plugins-official/blob/main/plugins/code-review",
+    "tags": [
+      "github",
+      "pull-requests",
+      "code-quality"
+    ]
+  },
+  {
+    "id": "feature-dev",
+    "name": "Feature Development",
+    "description": "Guided feature development workflow with codebase exploration and architecture design.",
+    "category": "developer-tools",
+    "source_type": "claude-plugins-official",
+    "source_url": "https://github.com/anthropics/claude-plugins-official",
+    "source_path": "plugins/feature-dev",
+    "docs_url": "https://github.com/anthropics/claude-plugins-official/blob/main/plugins/feature-dev",
+    "tags": [
+      "workflow",
+      "development"
+    ]
+  },
+  {
+    "id": "security-guidance",
+    "name": "Security Guidance",
+    "description": "Security reminder hooks that warn about command injection, XSS, and unsafe patterns.",
+    "category": "security",
+    "source_type": "claude-plugins-official",
+    "source_url": "https://github.com/anthropics/claude-plugins-official",
+    "source_path": "plugins/security-guidance",
+    "docs_url": "https://github.com/anthropics/claude-plugins-official/blob/main/plugins/security-guidance",
+    "tags": [
+      "sast",
+      "hooks",
+      "vulnerabilities"
+    ]
+  },
+  {
+    "id": "frontend-design",
+    "name": "Frontend Design",
+    "description": "Production-grade frontend interface generation for rapid UI development.",
+    "category": "frontend",
+    "source_type": "claude-plugins-official",
+    "source_url": "https://github.com/anthropics/claude-plugins-official",
+    "source_path": "plugins/frontend-design",
+    "docs_url": "https://github.com/anthropics/claude-plugins-official/blob/main/plugins/frontend-design",
+    "tags": [
+      "ui",
+      "frontend",
+      "design"
+    ]
+  },
+  {
+    "id": "commit-commands",
+    "name": "Commit Commands",
+    "description": "Git commit workflow automation with custom slash commands.",
+    "category": "developer-tools",
+    "source_type": "claude-plugins-official",
+    "source_url": "https://github.com/anthropics/claude-plugins-official",
+    "source_path": "plugins/commit-commands",
+    "docs_url": "https://github.com/anthropics/claude-plugins-official/blob/main/plugins/commit-commands",
+    "tags": [
+      "git",
+      "workflow"
+    ]
+  },
+  {
+    "id": "hookify",
+    "name": "Hookify",
+    "description": "Create custom Claude Code hooks from plain English rules.",
+    "category": "developer-tools",
+    "source_type": "claude-plugins-official",
+    "source_url": "https://github.com/anthropics/claude-plugins-official",
+    "source_path": "plugins/hookify",
+    "docs_url": "https://github.com/anthropics/claude-plugins-official/blob/main/plugins/hookify",
+    "tags": [
+      "hooks",
+      "automation"
+    ]
+  },
+  {
+    "id": "typescript-lsp",
+    "name": "TypeScript Language Server",
+    "description": "Go-to-definition, find-references, and real-time error checking for TypeScript and JavaScript.",
+    "category": "developer-tools",
+    "source_type": "claude-plugins-official",
+    "source_url": "https://github.com/anthropics/claude-plugins-official",
+    "source_path": "plugins/typescript-lsp",
+    "docs_url": "https://github.com/anthropics/claude-plugins-official/blob/main/plugins/typescript-lsp",
+    "tags": [
+      "typescript",
+      "javascript",
+      "lsp"
+    ]
+  },
+  {
+    "id": "sdlc-go",
+    "name": "SDLC Go",
+    "description": "Full software development lifecycle plugin bundle for Go projects.",
+    "category": "developer-tools",
+    "source_type": "plugin-bundle",
+    "source_url": "https://github.com/anthropics/claude-plugins-official",
+    "source_path": "bundles/sdlc-go",
+    "docs_url": "https://github.com/anthropics/claude-plugins-official/blob/main/bundles/sdlc-go",
+    "tags": [
+      "go",
+      "sdlc",
+      "bundle"
+    ]
+  },
+  {
+    "id": "sdlc-python",
+    "name": "SDLC Python",
+    "description": "Full software development lifecycle plugin bundle for Python projects.",
+    "category": "developer-tools",
+    "source_type": "plugin-bundle",
+    "source_url": "https://github.com/anthropics/claude-plugins-official",
+    "source_path": "bundles/sdlc-python",
+    "docs_url": "https://github.com/anthropics/claude-plugins-official/blob/main/bundles/sdlc-python",
+    "tags": [
+      "python",
+      "sdlc",
+      "bundle"
+    ]
+  },
+  {
+    "id": "sdlc-typescript",
+    "name": "SDLC TypeScript",
+    "description": "Full software development lifecycle plugin bundle for TypeScript projects.",
+    "category": "developer-tools",
+    "source_type": "plugin-bundle",
+    "source_url": "https://github.com/anthropics/claude-plugins-official",
+    "source_path": "bundles/sdlc-typescript",
+    "docs_url": "https://github.com/anthropics/claude-plugins-official/blob/main/bundles/sdlc-typescript",
+    "tags": [
+      "typescript",
+      "sdlc",
+      "bundle"
+    ]
+  },
+  {
+    "id": "content",
+    "name": "Content",
+    "description": "Content creation and marketing plugin bundle for writing and publishing workflows.",
+    "category": "marketing",
+    "source_type": "plugin-bundle",
+    "source_url": "https://github.com/anthropics/claude-plugins-official",
+    "source_path": "bundles/content",
+    "docs_url": "https://github.com/anthropics/claude-plugins-official/blob/main/bundles/content",
+    "tags": [
+      "content",
+      "marketing",
+      "bundle"
+    ]
+  },
+  {
+    "id": "context7",
+    "name": "Context7",
+    "description": "Fetches up-to-date, version-specific library documentation to prevent API hallucinations.",
+    "category": "developer-tools",
+    "source_type": "mcp-server",
+    "source_url": "https://github.com/upstash/context7",
+    "source_path": "",
+    "docs_url": "https://github.com/upstash/context7/blob/main/README.md",
+    "tags": [
+      "documentation",
+      "libraries",
+      "mcp"
+    ]
+  },
+  {
+    "id": "agency-anthropologist",
+    "name": "Anthropologist",
+    "description": "Expert in cultural systems, rituals, kinship, belief systems, and ethnographic method.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "academic/academic-anthropologist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/academic/academic-anthropologist.md",
+    "tags": [
+      "persona",
+      "academic",
+      "research"
+    ]
+  },
+  {
+    "id": "agency-geographer",
+    "name": "Geographer",
+    "description": "Expert in physical and human geography, climate systems, cartography, and spatial analysis.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "academic/academic-geographer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/academic/academic-geographer.md",
+    "tags": [
+      "persona",
+      "academic",
+      "research"
+    ]
+  },
+  {
+    "id": "agency-historian",
+    "name": "Historian",
+    "description": "Expert in historical analysis, periodization, material culture, and historiography.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "academic/academic-historian.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/academic/academic-historian.md",
+    "tags": [
+      "persona",
+      "academic",
+      "research"
+    ]
+  },
+  {
+    "id": "agency-narratologist",
+    "name": "Narratologist",
+    "description": "Expert in narrative theory, story structure, character arcs, and literary analysis.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "academic/academic-narratologist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/academic/academic-narratologist.md",
+    "tags": [
+      "persona",
+      "academic",
+      "research"
+    ]
+  },
+  {
+    "id": "agency-psychologist",
+    "name": "Psychologist",
+    "description": "Expert in human behavior, personality theory, motivation, and cognitive patterns.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "academic/academic-psychologist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/academic/academic-psychologist.md",
+    "tags": [
+      "persona",
+      "academic",
+      "research"
+    ]
+  },
+  {
+    "id": "agency-brand-guardian",
+    "name": "Brand Guardian",
+    "description": "Expert brand strategist and guardian specializing in brand identity development and consistency.",
+    "category": "frontend",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "design/design-brand-guardian.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/design/design-brand-guardian.md",
+    "tags": [
+      "persona",
+      "design",
+      "ui-ux"
+    ]
+  },
+  {
+    "id": "agency-image-prompt-engineer",
+    "name": "Image Prompt Engineer",
+    "description": "Expert photography prompt engineer specializing in crafting prompts for AI image generation.",
+    "category": "frontend",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "design/design-image-prompt-engineer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/design/design-image-prompt-engineer.md",
+    "tags": [
+      "persona",
+      "design",
+      "ui-ux"
+    ]
+  },
+  {
+    "id": "agency-inclusive-visuals-specialist",
+    "name": "Inclusive Visuals Specialist",
+    "description": "Representation expert who defeats systemic AI biases to generate culturally accurate imagery.",
+    "category": "frontend",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "design/design-inclusive-visuals-specialist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/design/design-inclusive-visuals-specialist.md",
+    "tags": [
+      "persona",
+      "design",
+      "ui-ux"
+    ]
+  },
+  {
+    "id": "agency-ui-designer",
+    "name": "UI Designer",
+    "description": "Expert UI designer specializing in visual design systems, component libraries, and interfaces.",
+    "category": "frontend",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "design/design-ui-designer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/design/design-ui-designer.md",
+    "tags": [
+      "persona",
+      "design",
+      "ui-ux"
+    ]
+  },
+  {
+    "id": "agency-ux-architect",
+    "name": "UX Architect",
+    "description": "Technical architecture and UX specialist providing solid foundations and CSS systems.",
+    "category": "frontend",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "design/design-ux-architect.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/design/design-ux-architect.md",
+    "tags": [
+      "persona",
+      "design",
+      "ui-ux"
+    ]
+  },
+  {
+    "id": "agency-ux-researcher",
+    "name": "UX Researcher",
+    "description": "Expert user experience researcher specializing in user behavior analysis and usability testing.",
+    "category": "frontend",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "design/design-ux-researcher.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/design/design-ux-researcher.md",
+    "tags": [
+      "persona",
+      "design",
+      "ui-ux"
+    ]
+  },
+  {
+    "id": "agency-visual-storyteller",
+    "name": "Visual Storyteller",
+    "description": "Expert visual communication specialist focused on creating compelling visual narratives.",
+    "category": "frontend",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "design/design-visual-storyteller.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/design/design-visual-storyteller.md",
+    "tags": [
+      "persona",
+      "design",
+      "ui-ux"
+    ]
+  },
+  {
+    "id": "agency-whimsy-injector",
+    "name": "Whimsy Injector",
+    "description": "Expert creative specialist focused on adding personality, delight, and playful elements.",
+    "category": "frontend",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "design/design-whimsy-injector.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/design/design-whimsy-injector.md",
+    "tags": [
+      "persona",
+      "design",
+      "ui-ux"
+    ]
+  },
+  {
+    "id": "agency-ai-data-remediation-engineer",
+    "name": "AI Data Remediation Engineer",
+    "description": "Specialist in self-healing data pipelines using local SLMs to detect and fix data anomalies.",
+    "category": "engineering",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-ai-data-remediation-engineer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-ai-data-remediation-engineer.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-ai-engineer",
+    "name": "AI Engineer",
+    "description": "Expert AI/ML engineer specializing in machine learning model development and deployment.",
+    "category": "engineering",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-ai-engineer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-ai-engineer.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-autonomous-optimization-architect",
+    "name": "Autonomous Optimization Architect",
+    "description": "Intelligent system governor that shadow-tests APIs for performance with financial guardrails.",
+    "category": "engineering",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-autonomous-optimization-architect.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-autonomous-optimization-architect.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-backend-architect",
+    "name": "Backend Architect",
+    "description": "Senior backend architect specializing in scalable system design and database architecture.",
+    "category": "engineering",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-backend-architect.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-backend-architect.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-code-reviewer",
+    "name": "Code Reviewer",
+    "description": "Expert code reviewer providing constructive feedback on correctness, maintainability, and security.",
+    "category": "code-quality",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-code-reviewer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-code-reviewer.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-database-optimizer",
+    "name": "Database Optimizer",
+    "description": "Expert database specialist focusing on schema design, query optimization, and indexing.",
+    "category": "engineering",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-database-optimizer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-database-optimizer.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-data-engineer",
+    "name": "Data Engineer",
+    "description": "Expert data engineer specializing in building reliable data pipelines and lakehouse architectures.",
+    "category": "engineering",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-data-engineer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-data-engineer.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-devops-automator",
+    "name": "DevOps Automator",
+    "description": "Expert DevOps engineer specializing in infrastructure automation and CI/CD pipeline development.",
+    "category": "devops",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-devops-automator.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-devops-automator.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-embedded-firmware-engineer",
+    "name": "Embedded Firmware Engineer",
+    "description": "Specialist in bare-metal and RTOS firmware for ESP32, ARM Cortex-M, STM32, and Nordic nRF.",
+    "category": "engineering",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-embedded-firmware-engineer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-embedded-firmware-engineer.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-feishu-integration-developer",
+    "name": "Feishu Integration Developer",
+    "description": "Full-stack integration expert specializing in the Feishu (Lark) Open Platform.",
+    "category": "engineering",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-feishu-integration-developer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-feishu-integration-developer.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-frontend-developer",
+    "name": "Frontend Developer",
+    "description": "Expert frontend developer specializing in modern web technologies and React/Vue/Angular.",
+    "category": "frontend",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-frontend-developer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-frontend-developer.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-git-workflow-master",
+    "name": "Git Workflow Master",
+    "description": "Expert in Git workflows, branching strategies, and version control best practices.",
+    "category": "developer-tools",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-git-workflow-master.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-git-workflow-master.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-incident-response-commander",
+    "name": "Incident Response Commander",
+    "description": "Expert incident commander specializing in production incident management and coordination.",
+    "category": "devops",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-incident-response-commander.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-incident-response-commander.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-mobile-app-builder",
+    "name": "Mobile App Builder",
+    "description": "Specialized mobile application developer with expertise in native iOS/Android and cross-platform.",
+    "category": "engineering",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-mobile-app-builder.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-mobile-app-builder.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-rapid-prototyper",
+    "name": "Rapid Prototyper",
+    "description": "Specialized in ultra-fast proof-of-concept development and MVP creation.",
+    "category": "engineering",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-rapid-prototyper.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-rapid-prototyper.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-security-engineer",
+    "name": "Security Engineer",
+    "description": "Expert application security engineer specializing in threat modeling and vulnerability assessment.",
+    "category": "security",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-security-engineer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-security-engineer.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-senior-developer",
+    "name": "Senior Developer",
+    "description": "Premium implementation specialist mastering Laravel/Livewire/FluxUI and advanced CSS.",
+    "category": "engineering",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-senior-developer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-senior-developer.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-software-architect",
+    "name": "Software Architect",
+    "description": "Expert software architect specializing in system design and domain-driven design.",
+    "category": "engineering",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-software-architect.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-software-architect.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-solidity-smart-contract-engineer",
+    "name": "Solidity Smart Contract Engineer",
+    "description": "Expert Solidity developer specializing in EVM smart contract architecture and gas optimization.",
+    "category": "engineering",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-solidity-smart-contract-engineer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-solidity-smart-contract-engineer.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-sre",
+    "name": "SRE (Site Reliability Engineer)",
+    "description": "Expert site reliability engineer specializing in SLOs, error budgets, and observability.",
+    "category": "devops",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-sre.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-sre.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-technical-writer",
+    "name": "Technical Writer",
+    "description": "Expert technical writer specializing in developer documentation, API references, and tutorials.",
+    "category": "documentation",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-technical-writer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-technical-writer.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-threat-detection-engineer",
+    "name": "Threat Detection Engineer",
+    "description": "Expert detection engineer specializing in SIEM rule development and MITRE ATT&CK coverage.",
+    "category": "security",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-threat-detection-engineer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-threat-detection-engineer.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-wechat-mini-program-developer",
+    "name": "WeChat Mini Program Developer",
+    "description": "Expert WeChat Mini Program developer specializing in WXML/WXSS/WXS and WeChat API integration.",
+    "category": "engineering",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "engineering/engineering-wechat-mini-program-developer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/engineering/engineering-wechat-mini-program-developer.md",
+    "tags": [
+      "persona",
+      "engineering"
+    ]
+  },
+  {
+    "id": "agency-blender-addon-engineer",
+    "name": "Blender Add-on Engineer",
+    "description": "Blender tooling specialist building Python add-ons, asset validators, and pipeline automations.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "game-development/blender/blender-addon-engineer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/game-development/blender/blender-addon-engineer.md",
+    "tags": [
+      "persona",
+      "game-dev",
+      "blender",
+      "3d"
+    ]
+  },
+  {
+    "id": "agency-audio-engineer",
+    "name": "Game Audio Engineer",
+    "description": "Interactive audio specialist mastering FMOD/Wwise integration and adaptive music systems.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "game-development/game-audio-engineer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/game-development/game-audio-engineer.md",
+    "tags": [
+      "persona",
+      "game-dev"
+    ]
+  },
+  {
+    "id": "agency-designer",
+    "name": "Game Designer",
+    "description": "Systems and mechanics architect mastering GDD authorship and gameplay loop design.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "game-development/game-designer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/game-development/game-designer.md",
+    "tags": [
+      "persona",
+      "game-dev"
+    ]
+  },
+  {
+    "id": "agency-godot-gameplay-scripter",
+    "name": "Godot Gameplay Scripter",
+    "description": "Composition and signal integrity specialist mastering GDScript 2.0 and C# for Godot 4.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "game-development/godot/godot-gameplay-scripter.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/game-development/godot/godot-gameplay-scripter.md",
+    "tags": [
+      "persona",
+      "game-dev",
+      "godot"
+    ]
+  },
+  {
+    "id": "agency-godot-multiplayer-engineer",
+    "name": "Godot Multiplayer Engineer",
+    "description": "Godot 4 networking specialist mastering the MultiplayerAPI and ENet/WebRTC transport.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "game-development/godot/godot-multiplayer-engineer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/game-development/godot/godot-multiplayer-engineer.md",
+    "tags": [
+      "persona",
+      "game-dev",
+      "godot"
+    ]
+  },
+  {
+    "id": "agency-godot-shader-developer",
+    "name": "Godot Shader Developer",
+    "description": "Godot 4 visual effects specialist mastering the Godot Shading Language and VisualShader.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "game-development/godot/godot-shader-developer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/game-development/godot/godot-shader-developer.md",
+    "tags": [
+      "persona",
+      "game-dev",
+      "godot"
+    ]
+  },
+  {
+    "id": "agency-level-designer",
+    "name": "Level Designer",
+    "description": "Spatial storytelling and flow specialist mastering layout theory and pacing architecture.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "game-development/level-designer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/game-development/level-designer.md",
+    "tags": [
+      "persona",
+      "game-dev"
+    ]
+  },
+  {
+    "id": "agency-narrative-designer",
+    "name": "Narrative Designer",
+    "description": "Story systems and dialogue architect mastering branching dialogue and lore architecture.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "game-development/narrative-designer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/game-development/narrative-designer.md",
+    "tags": [
+      "persona",
+      "game-dev"
+    ]
+  },
+  {
+    "id": "agency-roblox-avatar-creator",
+    "name": "Roblox Avatar Creator",
+    "description": "Roblox UGC and avatar pipeline specialist mastering avatar systems and Creator Marketplace.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "game-development/roblox-studio/roblox-avatar-creator.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/game-development/roblox-studio/roblox-avatar-creator.md",
+    "tags": [
+      "persona",
+      "game-dev",
+      "roblox"
+    ]
+  },
+  {
+    "id": "agency-roblox-experience-designer",
+    "name": "Roblox Experience Designer",
+    "description": "Roblox platform UX and monetization specialist mastering engagement loop design.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "game-development/roblox-studio/roblox-experience-designer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/game-development/roblox-studio/roblox-experience-designer.md",
+    "tags": [
+      "persona",
+      "game-dev",
+      "roblox"
+    ]
+  },
+  {
+    "id": "agency-roblox-systems-scripter",
+    "name": "Roblox Systems Scripter",
+    "description": "Roblox platform engineering specialist mastering Luau and client-server security.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "game-development/roblox-studio/roblox-systems-scripter.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/game-development/roblox-studio/roblox-systems-scripter.md",
+    "tags": [
+      "persona",
+      "game-dev",
+      "roblox"
+    ]
+  },
+  {
+    "id": "agency-technical-artist",
+    "name": "Technical Artist",
+    "description": "Art-to-engine pipeline specialist mastering shaders, VFX systems, and LOD pipelines.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "game-development/technical-artist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/game-development/technical-artist.md",
+    "tags": [
+      "persona",
+      "game-dev"
+    ]
+  },
+  {
+    "id": "agency-unity-architect",
+    "name": "Unity Architect",
+    "description": "Data-driven modularity specialist mastering ScriptableObjects and decoupled Unity systems.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "game-development/unity/unity-architect.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/game-development/unity/unity-architect.md",
+    "tags": [
+      "persona",
+      "game-dev",
+      "unity"
+    ]
+  },
+  {
+    "id": "agency-unity-editor-tool-developer",
+    "name": "Unity Editor Tool Developer",
+    "description": "Unity editor automation specialist mastering custom EditorWindows and PropertyDrawers.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "game-development/unity/unity-editor-tool-developer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/game-development/unity/unity-editor-tool-developer.md",
+    "tags": [
+      "persona",
+      "game-dev",
+      "unity"
+    ]
+  },
+  {
+    "id": "agency-unity-multiplayer-engineer",
+    "name": "Unity Multiplayer Engineer",
+    "description": "Networked gameplay specialist mastering Netcode for GameObjects and Unity Gaming Services.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "game-development/unity/unity-multiplayer-engineer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/game-development/unity/unity-multiplayer-engineer.md",
+    "tags": [
+      "persona",
+      "game-dev",
+      "unity"
+    ]
+  },
+  {
+    "id": "agency-unity-shader-graph-artist",
+    "name": "Unity Shader Graph Artist",
+    "description": "Visual effects and material specialist mastering Unity Shader Graph and HLSL.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "game-development/unity/unity-shader-graph-artist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/game-development/unity/unity-shader-graph-artist.md",
+    "tags": [
+      "persona",
+      "game-dev",
+      "unity"
+    ]
+  },
+  {
+    "id": "agency-unreal-multiplayer-architect",
+    "name": "Unreal Multiplayer Architect",
+    "description": "Unreal Engine networking specialist mastering Actor replication and server-authoritative gameplay.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "game-development/unreal-engine/unreal-multiplayer-architect.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/game-development/unreal-engine/unreal-multiplayer-architect.md",
+    "tags": [
+      "persona",
+      "game-dev",
+      "unreal"
+    ]
+  },
+  {
+    "id": "agency-unreal-systems-engineer",
+    "name": "Unreal Systems Engineer",
+    "description": "Performance and hybrid architecture specialist mastering C++/Blueprint for Unreal Engine.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "game-development/unreal-engine/unreal-systems-engineer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/game-development/unreal-engine/unreal-systems-engineer.md",
+    "tags": [
+      "persona",
+      "game-dev",
+      "unreal"
+    ]
+  },
+  {
+    "id": "agency-unreal-technical-artist",
+    "name": "Unreal Technical Artist",
+    "description": "Unreal Engine visual pipeline specialist mastering Material Editor and Niagara VFX.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "game-development/unreal-engine/unreal-technical-artist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/game-development/unreal-engine/unreal-technical-artist.md",
+    "tags": [
+      "persona",
+      "game-dev",
+      "unreal"
+    ]
+  },
+  {
+    "id": "agency-unreal-world-builder",
+    "name": "Unreal World Builder",
+    "description": "Open-world and environment specialist mastering UE5 World Partition and Landscape.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "game-development/unreal-engine/unreal-world-builder.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/game-development/unreal-engine/unreal-world-builder.md",
+    "tags": [
+      "persona",
+      "game-dev",
+      "unreal"
+    ]
+  },
+  {
+    "id": "agency-ai-citation-strategist",
+    "name": "AI Citation Strategist",
+    "description": "Expert in AI recommendation engine optimization for ChatGPT, Claude, Gemini, and Perplexity.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-ai-citation-strategist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-ai-citation-strategist.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-app-store-optimizer",
+    "name": "App Store Optimizer",
+    "description": "Expert app store marketing specialist focused on ASO and conversion rate optimization.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-app-store-optimizer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-app-store-optimizer.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-baidu-seo-specialist",
+    "name": "Baidu SEO Specialist",
+    "description": "Expert Baidu search optimization specialist focused on Chinese search engine ranking.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-baidu-seo-specialist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-baidu-seo-specialist.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-bilibili-content-strategist",
+    "name": "Bilibili Content Strategist",
+    "description": "Expert Bilibili marketing specialist focused on UP master growth and danmaku culture.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-bilibili-content-strategist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-bilibili-content-strategist.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-book-co-author",
+    "name": "Book Co-Author",
+    "description": "Strategic thought-leadership book collaborator for founders and experts.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-book-co-author.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-book-co-author.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-carousel-growth-engine",
+    "name": "Carousel Growth Engine",
+    "description": "Autonomous TikTok and Instagram carousel generation specialist.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-carousel-growth-engine.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-carousel-growth-engine.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-china-ecommerce-operator",
+    "name": "China E-Commerce Operator",
+    "description": "Expert China e-commerce operations specialist covering Taobao, Tmall, Pinduoduo, and JD.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-china-ecommerce-operator.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-china-ecommerce-operator.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-content-creator",
+    "name": "Content Creator",
+    "description": "Expert content strategist and creator for multi-platform campaigns.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-content-creator.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-content-creator.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-cross-border-ecommerce",
+    "name": "Cross-Border E-Commerce Specialist",
+    "description": "Full-funnel cross-border e-commerce strategist covering Amazon, Shopee, Lazada, and more.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-cross-border-ecommerce.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-cross-border-ecommerce.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-douyin-strategist",
+    "name": "Douyin Strategist",
+    "description": "Short-video marketing expert specializing in the Douyin platform and algorithm mechanics.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-douyin-strategist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-douyin-strategist.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-growth-hacker",
+    "name": "Growth Hacker",
+    "description": "Expert growth strategist specializing in rapid user acquisition through data-driven experimentation.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-growth-hacker.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-growth-hacker.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-instagram-curator",
+    "name": "Instagram Curator",
+    "description": "Expert Instagram marketing specialist focused on visual storytelling and community building.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-instagram-curator.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-instagram-curator.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-kuaishou-strategist",
+    "name": "Kuaishou Strategist",
+    "description": "Expert Kuaishou marketing strategist specializing in short-video content for China.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-kuaishou-strategist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-kuaishou-strategist.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-linkedin-content-creator",
+    "name": "LinkedIn Content Creator",
+    "description": "Expert LinkedIn content strategist focused on thought leadership and personal brand building.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-linkedin-content-creator.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-linkedin-content-creator.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-livestream-commerce-coach",
+    "name": "Livestream Commerce Coach",
+    "description": "Veteran livestream e-commerce coach specializing in host training and live room operations.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-livestream-commerce-coach.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-livestream-commerce-coach.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-podcast-strategist",
+    "name": "Podcast Strategist",
+    "description": "Content strategy and operations expert for the Chinese podcast market.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-podcast-strategist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-podcast-strategist.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-private-domain-operator",
+    "name": "Private Domain Operator",
+    "description": "Expert in building enterprise WeChat private domain ecosystems with SCRM systems.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-private-domain-operator.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-private-domain-operator.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-reddit-community-builder",
+    "name": "Reddit Community Builder",
+    "description": "Expert Reddit marketing specialist focused on authentic community engagement.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-reddit-community-builder.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-reddit-community-builder.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-seo-specialist",
+    "name": "SEO Specialist",
+    "description": "Expert search engine optimization strategist specializing in technical SEO and content.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-seo-specialist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-seo-specialist.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-short-video-editing-coach",
+    "name": "Short-Video Editing Coach",
+    "description": "Hands-on short-video editing coach covering the full post-production pipeline.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-short-video-editing-coach.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-short-video-editing-coach.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-social-media-strategist",
+    "name": "Social Media Strategist",
+    "description": "Expert social media strategist for LinkedIn, Twitter, and professional platforms.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-social-media-strategist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-social-media-strategist.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-tiktok-strategist",
+    "name": "TikTok Strategist",
+    "description": "Expert TikTok marketing specialist focused on viral content creation and algorithm optimization.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-tiktok-strategist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-tiktok-strategist.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-twitter-engager",
+    "name": "Twitter Engager",
+    "description": "Expert Twitter marketing specialist focused on real-time engagement and thought leadership.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-twitter-engager.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-twitter-engager.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-wechat-official-account",
+    "name": "WeChat Official Account Manager",
+    "description": "Expert WeChat Official Account strategist specializing in content marketing.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-wechat-official-account.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-wechat-official-account.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-weibo-strategist",
+    "name": "Weibo Strategist",
+    "description": "Full-spectrum operations expert for Sina Weibo with trending topic expertise.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-weibo-strategist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-weibo-strategist.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-xiaohongshu-specialist",
+    "name": "Xiaohongshu Specialist",
+    "description": "Expert Xiaohongshu marketing specialist focused on lifestyle content and trends.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-xiaohongshu-specialist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-xiaohongshu-specialist.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-zhihu-strategist",
+    "name": "Zhihu Strategist",
+    "description": "Expert Zhihu marketing specialist focused on thought leadership and knowledge engagement.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "marketing/marketing-zhihu-strategist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/marketing/marketing-zhihu-strategist.md",
+    "tags": [
+      "persona",
+      "marketing"
+    ]
+  },
+  {
+    "id": "agency-auditor",
+    "name": "Paid Media Auditor",
+    "description": "Comprehensive paid media auditor evaluating Google Ads, Microsoft Ads, and Meta accounts.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "paid-media/paid-media-auditor.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/paid-media/paid-media-auditor.md",
+    "tags": [
+      "persona",
+      "paid-media",
+      "advertising"
+    ]
+  },
+  {
+    "id": "agency-creative-strategist",
+    "name": "Ad Creative Strategist",
+    "description": "Paid media creative specialist focused on ad copywriting and RSA optimization.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "paid-media/paid-media-creative-strategist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/paid-media/paid-media-creative-strategist.md",
+    "tags": [
+      "persona",
+      "paid-media",
+      "advertising"
+    ]
+  },
+  {
+    "id": "agency-paid-social-strategist",
+    "name": "Paid Social Strategist",
+    "description": "Cross-platform paid social advertising specialist covering Meta, LinkedIn, and TikTok.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "paid-media/paid-media-paid-social-strategist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/paid-media/paid-media-paid-social-strategist.md",
+    "tags": [
+      "persona",
+      "paid-media",
+      "advertising"
+    ]
+  },
+  {
+    "id": "agency-ppc-strategist",
+    "name": "PPC Campaign Strategist",
+    "description": "Senior paid media strategist specializing in large-scale search and shopping campaigns.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "paid-media/paid-media-ppc-strategist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/paid-media/paid-media-ppc-strategist.md",
+    "tags": [
+      "persona",
+      "paid-media",
+      "advertising"
+    ]
+  },
+  {
+    "id": "agency-programmatic-buyer",
+    "name": "Programmatic & Display Buyer",
+    "description": "Display advertising and programmatic media buying specialist covering managed placements.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "paid-media/paid-media-programmatic-buyer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/paid-media/paid-media-programmatic-buyer.md",
+    "tags": [
+      "persona",
+      "paid-media",
+      "advertising"
+    ]
+  },
+  {
+    "id": "agency-search-query-analyst",
+    "name": "Search Query Analyst",
+    "description": "Specialist in search term analysis, negative keyword architecture, and query-to-intent mapping.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "paid-media/paid-media-search-query-analyst.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/paid-media/paid-media-search-query-analyst.md",
+    "tags": [
+      "persona",
+      "paid-media",
+      "advertising"
+    ]
+  },
+  {
+    "id": "agency-tracking-specialist",
+    "name": "Tracking & Measurement Specialist",
+    "description": "Expert in conversion tracking architecture, tag management, and attribution modeling.",
+    "category": "marketing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "paid-media/paid-media-tracking-specialist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/paid-media/paid-media-tracking-specialist.md",
+    "tags": [
+      "persona",
+      "paid-media",
+      "advertising"
+    ]
+  },
+  {
+    "id": "agency-behavioral-nudge-engine",
+    "name": "Behavioral Nudge Engine",
+    "description": "Behavioral psychology specialist that adapts software interaction cadences and styles.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "product/product-behavioral-nudge-engine.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/product/product-behavioral-nudge-engine.md",
+    "tags": [
+      "persona",
+      "product"
+    ]
+  },
+  {
+    "id": "agency-feedback-synthesizer",
+    "name": "Feedback Synthesizer",
+    "description": "Expert in collecting, analyzing, and synthesizing user feedback from multiple channels.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "product/product-feedback-synthesizer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/product/product-feedback-synthesizer.md",
+    "tags": [
+      "persona",
+      "product"
+    ]
+  },
+  {
+    "id": "agency-manager",
+    "name": "Product Manager",
+    "description": "Holistic product leader who owns the full product lifecycle from discovery to measurement.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "product/product-manager.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/product/product-manager.md",
+    "tags": [
+      "persona",
+      "product"
+    ]
+  },
+  {
+    "id": "agency-sprint-prioritizer",
+    "name": "Sprint Prioritizer",
+    "description": "Expert product manager specializing in agile sprint planning and feature prioritization.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "product/product-sprint-prioritizer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/product/product-sprint-prioritizer.md",
+    "tags": [
+      "persona",
+      "product"
+    ]
+  },
+  {
+    "id": "agency-trend-researcher",
+    "name": "Trend Researcher",
+    "description": "Expert market intelligence analyst specializing in identifying emerging trends.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "product/product-trend-researcher.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/product/product-trend-researcher.md",
+    "tags": [
+      "persona",
+      "product"
+    ]
+  },
+  {
+    "id": "agency-experiment-tracker",
+    "name": "Experiment Tracker",
+    "description": "Expert project manager specializing in experiment design and data-driven decision making.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "project-management/project-management-experiment-tracker.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/project-management/project-management-experiment-tracker.md",
+    "tags": [
+      "persona",
+      "project-management"
+    ]
+  },
+  {
+    "id": "agency-jira-workflow-steward",
+    "name": "Jira Workflow Steward",
+    "description": "Expert delivery operations specialist enforcing Jira-linked Git workflows.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "project-management/project-management-jira-workflow-steward.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/project-management/project-management-jira-workflow-steward.md",
+    "tags": [
+      "persona",
+      "project-management"
+    ]
+  },
+  {
+    "id": "agency-project-shepherd",
+    "name": "Project Shepherd",
+    "description": "Expert project manager specializing in cross-functional project coordination.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "project-management/project-management-project-shepherd.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/project-management/project-management-project-shepherd.md",
+    "tags": [
+      "persona",
+      "project-management"
+    ]
+  },
+  {
+    "id": "agency-studio-operations",
+    "name": "Studio Operations",
+    "description": "Expert operations manager specializing in day-to-day studio efficiency.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "project-management/project-management-studio-operations.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/project-management/project-management-studio-operations.md",
+    "tags": [
+      "persona",
+      "project-management"
+    ]
+  },
+  {
+    "id": "agency-studio-producer",
+    "name": "Studio Producer",
+    "description": "Senior strategic leader specializing in creative and technical project orchestration.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "project-management/project-management-studio-producer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/project-management/project-management-studio-producer.md",
+    "tags": [
+      "persona",
+      "project-management"
+    ]
+  },
+  {
+    "id": "agency-senior",
+    "name": "Senior Project Manager",
+    "description": "Converts specs to tasks and remembers previous projects with realistic scope.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "project-management/project-manager-senior.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/project-management/project-manager-senior.md",
+    "tags": [
+      "persona",
+      "project-management"
+    ]
+  },
+  {
+    "id": "agency-account-strategist",
+    "name": "Account Strategist",
+    "description": "Expert post-sale account strategist specializing in land-and-expand execution.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "sales/sales-account-strategist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/sales/sales-account-strategist.md",
+    "tags": [
+      "persona",
+      "sales"
+    ]
+  },
+  {
+    "id": "agency-coach",
+    "name": "Sales Coach",
+    "description": "Expert sales coaching specialist focused on rep development and pipeline review.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "sales/sales-coach.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/sales/sales-coach.md",
+    "tags": [
+      "persona",
+      "sales"
+    ]
+  },
+  {
+    "id": "agency-deal-strategist",
+    "name": "Deal Strategist",
+    "description": "Senior deal strategist specializing in MEDDPICC qualification and competitive positioning.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "sales/sales-deal-strategist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/sales/sales-deal-strategist.md",
+    "tags": [
+      "persona",
+      "sales"
+    ]
+  },
+  {
+    "id": "agency-discovery-coach",
+    "name": "Discovery Coach",
+    "description": "Coaches sales teams on elite discovery methodology and question design.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "sales/sales-discovery-coach.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/sales/sales-discovery-coach.md",
+    "tags": [
+      "persona",
+      "sales"
+    ]
+  },
+  {
+    "id": "agency-engineer",
+    "name": "Sales Engineer",
+    "description": "Senior pre-sales engineer specializing in technical discovery and demo engineering.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "sales/sales-engineer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/sales/sales-engineer.md",
+    "tags": [
+      "persona",
+      "sales"
+    ]
+  },
+  {
+    "id": "agency-outbound-strategist",
+    "name": "Outbound Strategist",
+    "description": "Signal-based outbound specialist designing multi-channel prospecting sequences.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "sales/sales-outbound-strategist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/sales/sales-outbound-strategist.md",
+    "tags": [
+      "persona",
+      "sales"
+    ]
+  },
+  {
+    "id": "agency-pipeline-analyst",
+    "name": "Pipeline Analyst",
+    "description": "Revenue operations analyst specializing in pipeline health diagnostics and deal velocity.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "sales/sales-pipeline-analyst.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/sales/sales-pipeline-analyst.md",
+    "tags": [
+      "persona",
+      "sales"
+    ]
+  },
+  {
+    "id": "agency-proposal-strategist",
+    "name": "Proposal Strategist",
+    "description": "Strategic proposal architect who transforms RFPs into compelling win narratives.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "sales/sales-proposal-strategist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/sales/sales-proposal-strategist.md",
+    "tags": [
+      "persona",
+      "sales"
+    ]
+  },
+  {
+    "id": "agency-macos-spatial-metal-engineer",
+    "name": "macOS Spatial/Metal Engineer",
+    "description": "Native Swift and Metal specialist building high-performance 3D rendering systems.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "spatial-computing/macos-spatial-metal-engineer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/spatial-computing/macos-spatial-metal-engineer.md",
+    "tags": [
+      "persona",
+      "spatial",
+      "xr"
+    ]
+  },
+  {
+    "id": "agency-terminal-integration-specialist",
+    "name": "Terminal Integration Specialist",
+    "description": "Terminal emulation, text rendering optimization, and SwiftTerm integration specialist.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "spatial-computing/terminal-integration-specialist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/spatial-computing/terminal-integration-specialist.md",
+    "tags": [
+      "persona",
+      "spatial",
+      "xr"
+    ]
+  },
+  {
+    "id": "agency-visionos-spatial-engineer",
+    "name": "visionOS Spatial Engineer",
+    "description": "Native visionOS spatial computing and SwiftUI volumetric interface specialist.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "spatial-computing/visionos-spatial-engineer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/spatial-computing/visionos-spatial-engineer.md",
+    "tags": [
+      "persona",
+      "spatial",
+      "xr"
+    ]
+  },
+  {
+    "id": "agency-xr-cockpit-interaction-specialist",
+    "name": "XR Cockpit Interaction Specialist",
+    "description": "Specialist in designing immersive cockpit-based control systems for XR environments.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "spatial-computing/xr-cockpit-interaction-specialist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/spatial-computing/xr-cockpit-interaction-specialist.md",
+    "tags": [
+      "persona",
+      "spatial",
+      "xr"
+    ]
+  },
+  {
+    "id": "agency-xr-immersive-developer",
+    "name": "XR Immersive Developer",
+    "description": "Expert WebXR and immersive technology developer for browser-based AR/VR/XR applications.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "spatial-computing/xr-immersive-developer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/spatial-computing/xr-immersive-developer.md",
+    "tags": [
+      "persona",
+      "spatial",
+      "xr"
+    ]
+  },
+  {
+    "id": "agency-xr-interface-architect",
+    "name": "XR Interface Architect",
+    "description": "Spatial interaction designer and interface strategist for immersive AR/VR/XR environments.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "spatial-computing/xr-interface-architect.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/spatial-computing/xr-interface-architect.md",
+    "tags": [
+      "persona",
+      "spatial",
+      "xr"
+    ]
+  },
+  {
+    "id": "agency-accounts-payable-agent",
+    "name": "Accounts Payable Agent",
+    "description": "Autonomous payment processing specialist that executes vendor payments across any rail.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/accounts-payable-agent.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/accounts-payable-agent.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-agentic-identity-trust",
+    "name": "Agentic Identity & Trust Architect",
+    "description": "Designs identity, authentication, and trust verification systems for autonomous AI agents.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/agentic-identity-trust.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/agentic-identity-trust.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-agents-orchestrator",
+    "name": "Agents Orchestrator",
+    "description": "Autonomous pipeline manager that orchestrates the entire development workflow.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/agents-orchestrator.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/agents-orchestrator.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-automation-governance-architect",
+    "name": "Automation Governance Architect",
+    "description": "Governance-first architect for business automations who audits value, risk, and maintainability.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/automation-governance-architect.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/automation-governance-architect.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-blockchain-security-auditor",
+    "name": "Blockchain Security Auditor",
+    "description": "Expert smart contract security auditor specializing in vulnerability detection and formal verification.",
+    "category": "security",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/blockchain-security-auditor.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/blockchain-security-auditor.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-compliance-auditor",
+    "name": "Compliance Auditor",
+    "description": "Expert technical compliance auditor specializing in SOC 2, ISO 27001, HIPAA, and PCI-DSS.",
+    "category": "security",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/compliance-auditor.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/compliance-auditor.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-corporate-training-designer",
+    "name": "Corporate Training Designer",
+    "description": "Expert in enterprise training system design and curriculum development.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/corporate-training-designer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/corporate-training-designer.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-data-consolidation-agent",
+    "name": "Data Consolidation Agent",
+    "description": "AI agent that consolidates extracted sales data into live reporting dashboards.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/data-consolidation-agent.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/data-consolidation-agent.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-government-digital-presales-consultant",
+    "name": "Government Digital Presales Consultant",
+    "description": "Presales expert for China's government digital transformation market.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/government-digital-presales-consultant.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/government-digital-presales-consultant.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-healthcare-marketing-compliance",
+    "name": "Healthcare Marketing Compliance Specialist",
+    "description": "Expert in healthcare marketing compliance in China covering pharmaceuticals and devices.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/healthcare-marketing-compliance.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/healthcare-marketing-compliance.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-identity-graph-operator",
+    "name": "Identity Graph Operator",
+    "description": "Operates a shared identity graph that multiple AI agents resolve against.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/identity-graph-operator.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/identity-graph-operator.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-lsp-index-engineer",
+    "name": "LSP/Index Engineer",
+    "description": "Language Server Protocol specialist building unified code intelligence systems.",
+    "category": "developer-tools",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/lsp-index-engineer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/lsp-index-engineer.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-recruitment-specialist",
+    "name": "Recruitment Specialist",
+    "description": "Expert recruitment operations and talent acquisition specialist for China's hiring platforms.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/recruitment-specialist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/recruitment-specialist.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-report-distribution-agent",
+    "name": "Report Distribution Agent",
+    "description": "AI agent that automates distribution of consolidated sales reports to representatives.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/report-distribution-agent.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/report-distribution-agent.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-data-extraction-agent",
+    "name": "Sales Data Extraction Agent",
+    "description": "AI agent specialized in monitoring Excel files and extracting key sales metrics.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/sales-data-extraction-agent.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/sales-data-extraction-agent.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-cultural-intelligence-strategist",
+    "name": "Cultural Intelligence Strategist",
+    "description": "CQ specialist that detects invisible exclusion and ensures software resonates across cultures.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/specialized-cultural-intelligence-strategist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/specialized-cultural-intelligence-strategist.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-developer-advocate",
+    "name": "Developer Advocate",
+    "description": "Expert developer advocate specializing in building developer communities and technical content.",
+    "category": "documentation",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/specialized-developer-advocate.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/specialized-developer-advocate.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-document-generator",
+    "name": "Document Generator",
+    "description": "Expert document creation specialist generating professional PDF, PPTX, DOCX, and XLSX files.",
+    "category": "documentation",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/specialized-document-generator.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/specialized-document-generator.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-french-consulting-market",
+    "name": "French Consulting Market Navigator",
+    "description": "Navigate the French ESN/SI freelance ecosystem with margin models and platform mechanics.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/specialized-french-consulting-market.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/specialized-french-consulting-market.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-korean-business-navigator",
+    "name": "Korean Business Navigator",
+    "description": "Korean business culture specialist for foreign professionals navigating hierarchy and etiquette.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/specialized-korean-business-navigator.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/specialized-korean-business-navigator.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-mcp-builder",
+    "name": "MCP Builder",
+    "description": "Expert Model Context Protocol developer who designs, builds, and tests MCP servers.",
+    "category": "developer-tools",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/specialized-mcp-builder.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/specialized-mcp-builder.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-model-qa",
+    "name": "Model QA Specialist",
+    "description": "Independent model QA expert who audits ML and statistical models end-to-end.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/specialized-model-qa.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/specialized-model-qa.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-salesforce-architect",
+    "name": "Salesforce Architect",
+    "description": "Solution architecture for Salesforce platform covering multi-cloud design and integration.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/specialized-salesforce-architect.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/specialized-salesforce-architect.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-workflow-architect",
+    "name": "Workflow Architect",
+    "description": "Workflow design specialist who maps complete workflow trees for every system interaction.",
+    "category": "devops",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/specialized-workflow-architect.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/specialized-workflow-architect.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-study-abroad-advisor",
+    "name": "Study Abroad Advisor",
+    "description": "Full-spectrum study abroad planning expert covering the US, UK, Canada, Australia, and Europe.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/study-abroad-advisor.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/study-abroad-advisor.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-supply-chain-strategist",
+    "name": "Supply Chain Strategist",
+    "description": "Expert supply chain management and procurement strategy specialist.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/supply-chain-strategist.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/supply-chain-strategist.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-zk-steward",
+    "name": "ZK Steward",
+    "description": "Knowledge-base steward in the spirit of Niklas Luhmann's Zettelkasten.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "specialized/zk-steward.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/specialized/zk-steward.md",
+    "tags": [
+      "persona",
+      "specialist"
+    ]
+  },
+  {
+    "id": "agency-analytics-reporter",
+    "name": "Analytics Reporter",
+    "description": "Expert data analyst transforming raw data into actionable business insights and dashboards.",
+    "category": "engineering",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "support/support-analytics-reporter.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/support/support-analytics-reporter.md",
+    "tags": [
+      "persona",
+      "support"
+    ]
+  },
+  {
+    "id": "agency-executive-summary-generator",
+    "name": "Executive Summary Generator",
+    "description": "Consultant-grade AI specialist transforming complex inputs into executive summaries.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "support/support-executive-summary-generator.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/support/support-executive-summary-generator.md",
+    "tags": [
+      "persona",
+      "support"
+    ]
+  },
+  {
+    "id": "agency-finance-tracker",
+    "name": "Finance Tracker",
+    "description": "Expert financial analyst specializing in financial planning and budget management.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "support/support-finance-tracker.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/support/support-finance-tracker.md",
+    "tags": [
+      "persona",
+      "support"
+    ]
+  },
+  {
+    "id": "agency-infrastructure-maintainer",
+    "name": "Infrastructure Maintainer",
+    "description": "Expert infrastructure specialist focused on system reliability and performance optimization.",
+    "category": "devops",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "support/support-infrastructure-maintainer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/support/support-infrastructure-maintainer.md",
+    "tags": [
+      "persona",
+      "support"
+    ]
+  },
+  {
+    "id": "agency-legal-compliance-checker",
+    "name": "Legal Compliance Checker",
+    "description": "Expert legal and compliance specialist ensuring operations comply with laws and regulations.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "support/support-legal-compliance-checker.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/support/support-legal-compliance-checker.md",
+    "tags": [
+      "persona",
+      "support"
+    ]
+  },
+  {
+    "id": "agency-support-responder",
+    "name": "Support Responder",
+    "description": "Expert customer support specialist delivering exceptional service and issue resolution.",
+    "category": "specialized",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "support/support-support-responder.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/support/support-support-responder.md",
+    "tags": [
+      "persona",
+      "support"
+    ]
+  },
+  {
+    "id": "agency-accessibility-auditor",
+    "name": "Accessibility Auditor",
+    "description": "Expert accessibility specialist who audits interfaces against WCAG standards.",
+    "category": "testing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "testing/testing-accessibility-auditor.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/testing/testing-accessibility-auditor.md",
+    "tags": [
+      "persona",
+      "testing",
+      "qa"
+    ]
+  },
+  {
+    "id": "agency-api-tester",
+    "name": "API Tester",
+    "description": "Expert API testing specialist focused on comprehensive API validation and performance testing.",
+    "category": "testing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "testing/testing-api-tester.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/testing/testing-api-tester.md",
+    "tags": [
+      "persona",
+      "testing",
+      "qa"
+    ]
+  },
+  {
+    "id": "agency-evidence-collector",
+    "name": "Evidence Collector",
+    "description": "Screenshot-obsessed QA specialist that requires visual proof for everything.",
+    "category": "testing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "testing/testing-evidence-collector.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/testing/testing-evidence-collector.md",
+    "tags": [
+      "persona",
+      "testing",
+      "qa"
+    ]
+  },
+  {
+    "id": "agency-performance-benchmarker",
+    "name": "Performance Benchmarker",
+    "description": "Expert performance testing specialist focused on measuring and improving system performance.",
+    "category": "testing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "testing/testing-performance-benchmarker.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/testing/testing-performance-benchmarker.md",
+    "tags": [
+      "persona",
+      "testing",
+      "qa"
+    ]
+  },
+  {
+    "id": "agency-reality-checker",
+    "name": "Reality Checker",
+    "description": "Evidence-based certification specialist that defaults to NEEDS WORK.",
+    "category": "testing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "testing/testing-reality-checker.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/testing/testing-reality-checker.md",
+    "tags": [
+      "persona",
+      "testing",
+      "qa"
+    ]
+  },
+  {
+    "id": "agency-test-results-analyzer",
+    "name": "Test Results Analyzer",
+    "description": "Expert test analysis specialist focused on comprehensive test result evaluation.",
+    "category": "testing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "testing/testing-test-results-analyzer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/testing/testing-test-results-analyzer.md",
+    "tags": [
+      "persona",
+      "testing",
+      "qa"
+    ]
+  },
+  {
+    "id": "agency-tool-evaluator",
+    "name": "Tool Evaluator",
+    "description": "Expert technology assessment specialist focused on evaluating tools and platforms.",
+    "category": "testing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "testing/testing-tool-evaluator.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/testing/testing-tool-evaluator.md",
+    "tags": [
+      "persona",
+      "testing",
+      "qa"
+    ]
+  },
+  {
+    "id": "agency-workflow-optimizer",
+    "name": "Workflow Optimizer",
+    "description": "Expert process improvement specialist focused on analyzing and optimizing workflows.",
+    "category": "testing",
+    "source_type": "agency-agents",
+    "source_url": "https://github.com/msitarzewski/agency-agents",
+    "source_path": "testing/testing-workflow-optimizer.md",
+    "docs_url": "https://github.com/msitarzewski/agency-agents/blob/main/testing/testing-workflow-optimizer.md",
+    "tags": [
+      "persona",
+      "testing",
+      "qa"
+    ]
+  }
 ]

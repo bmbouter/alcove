@@ -2683,9 +2683,25 @@ func (a *API) handleCatalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	entries := LoadCatalog()
+
+	// Build category counts
+	categoryCounts := make(map[string]int)
+	for _, e := range entries {
+		categoryCounts[e.Category]++
+	}
+	type categoryInfo struct {
+		ID    string `json:"id"`
+		Count int    `json:"count"`
+	}
+	var categories []categoryInfo
+	for cat, count := range categoryCounts {
+		categories = append(categories, categoryInfo{ID: cat, Count: count})
+	}
+
 	respondJSON(w, http.StatusOK, map[string]any{
-		"entries": entries,
-		"count":   len(entries),
+		"entries":    entries,
+		"count":      len(entries),
+		"categories": categories,
 	})
 }
 
