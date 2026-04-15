@@ -239,6 +239,12 @@ Bridge syncs agent repos every 5 minutes. Once synced, agent definitions appear
 on the dashboard where you can run them or view the source YAML. Starter
 templates are available to help you get started.
 
+## Compiled Agents
+
+If you need to run a pre-built binary instead of Claude Code, see the
+[Compiled Agents Guide](compiled-agents.md) for the environment variable
+contract, Gate proxy integration, and task definition format.
+
 ## Workflow Graph
 
 Alcove supports multi-step workflows where steps can be either **agent steps**

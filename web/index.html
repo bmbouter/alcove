@@ -1114,6 +1114,7 @@ alcove list</pre>
                         <option value="github">GitHub</option>
                         <option value="gitlab">GitLab</option>
                         <option value="jira">Jira</option>
+                        <option value="splunk">Splunk</option>
                     </select>
                 </div>
             </div>
@@ -1245,6 +1246,18 @@ cat ~/.config/gcloud/application_default_credentials.json   # or just cat and co
                     <label>Email <span class="required">*</span></label>
                     <input type="text" data-role="cred-jira-email" class="input" placeholder="user@example.com">
                     <small class="form-help">Your Atlassian account email (for API token auth).</small>
+                </div>
+            </div>
+            <div data-role="cred-splunk-fields" hidden>
+                <div class="form-group">
+                    <label>API Token <span class="required">*</span></label>
+                    <input type="password" data-role="cred-splunk-token" class="input mono" placeholder="Splunk bearer token">
+                    <small class="form-help">Your Splunk API token (bearer token). It will be stored securely and never shown again.</small>
+                </div>
+                <div class="form-group">
+                    <label>API Host</label>
+                    <input type="text" data-role="cred-splunk-host" class="input" placeholder="splunk.company.com:8089 (optional, for self-hosted instances)">
+                    <small class="form-help">Leave empty for Splunk Cloud. For self-hosted Splunk, enter the hostname and port.</small>
                 </div>
             </div>
             <div data-role="credential-form-error" class="error-message" role="alert" hidden></div>

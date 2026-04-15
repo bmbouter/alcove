@@ -360,7 +360,7 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 	scmDummyTokens := make(map[string]string)
 	scmAPIHosts := make(map[string]string) // service -> custom api_host from credential
 	for service := range scope.Services {
-		if service == "github" || service == "gitlab" || service == "jira" {
+		if service == "github" || service == "gitlab" || service == "jira" || service == "splunk" {
 			realToken, apiHost, err := d.credStore.AcquireSCMTokenWithHost(ctx, service)
 			if err != nil {
 				log.Printf("warning: no credential for %s: %v", service, err)
@@ -523,6 +523,12 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 						"auth_header": "Authorization",
 						"auth_format": "basic",
 					}
+				case "splunk":
+					gateToolConfigs[service] = map[string]string{
+						"api_host":    apiHost,
+						"auth_header": "Authorization",
+						"auth_format": "bearer",
+					}
 				}
 			}
 		}
@@ -563,6 +569,10 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 	if token, ok := scmDummyTokens["jira"]; ok {
 		skiffEnv["JIRA_TOKEN"] = token
 		skiffEnv["JIRA_API_URL"] = fmt.Sprintf("http://%s:8443/jira", gateName)
+	}
+	if token, ok := scmDummyTokens["splunk"]; ok {
+		skiffEnv["SPLUNK_TOKEN"] = token
+		skiffEnv["SPLUNK_URL"] = fmt.Sprintf("http://%s:8443/splunk", gateName)
 	}
 
 	// Resolve skill repos for this task (catalog-based for team sessions).

@@ -452,7 +452,20 @@ func (p *Proxy) handleSCMProxy(w http.ResponseWriter, r *http.Request, service s
 		fakeURL += "?" + r.URL.RawQuery
 	}
 
-	result := CheckAccess(r.Method, fakeURL, p.config.Scope)
+	// Use service-aware access check for services that may not be
+	// recognized by hostname in CheckAccess (e.g., Splunk on custom hosts).
+	var result AccessResult
+	switch service {
+	case "github", "gitlab", "jira":
+		result = CheckAccess(r.Method, fakeURL, p.config.Scope)
+	default:
+		parsedURL, parseErr := url.Parse(fakeURL)
+		if parseErr != nil {
+			result = AccessResult{Allowed: false, Reason: "invalid URL"}
+		} else {
+			result = CheckServiceAccess(r.Method, parsedURL.Path, service, p.config.Scope)
+		}
+	}
 	if !result.Allowed {
 		http.Error(w, "Forbidden: "+result.Reason, http.StatusForbidden)
 		p.logEntry(r.Method, fakeURL, result.Service, result.Operation, "deny", http.StatusForbidden)

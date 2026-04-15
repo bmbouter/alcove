@@ -1649,7 +1649,7 @@
             cachedCredentials = allCreds;
             // Only show LLM credentials in the provider dropdown
             const llmCreds = allCreds.filter(function (c) {
-                return c.provider !== 'github' && c.provider !== 'gitlab' && c.provider !== 'jira';
+                return c.provider !== 'github' && c.provider !== 'gitlab' && c.provider !== 'jira' && c.provider !== 'splunk';
             });
             select.innerHTML = '<option value="">Select a provider</option>';
             llmCreds.forEach((c) => {
@@ -1687,7 +1687,7 @@
 
         // Block submission if no LLM credential
         var llmCreds = cachedCredentials.filter(function (c) {
-            return c.provider !== 'github' && c.provider !== 'gitlab' && c.provider !== 'jira';
+            return c.provider !== 'github' && c.provider !== 'gitlab' && c.provider !== 'jira' && c.provider !== 'splunk';
         });
         if (llmCreds.length === 0) {
             errEl.textContent = 'No LLM provider configured. Add an LLM credential on the Credentials page before starting sessions.';
@@ -1785,7 +1785,7 @@
             var llmCreds = [];
             var scmCreds = [];
             credentials.forEach(function (c) {
-                if (c.provider === 'github' || c.provider === 'gitlab' || c.provider === 'jira') {
+                if (c.provider === 'github' || c.provider === 'gitlab' || c.provider === 'jira' || c.provider === 'splunk') {
                     scmCreds.push(c);
                 } else {
                     llmCreds.push(c);
@@ -1827,12 +1827,14 @@
 
             function renderScmRow(c) {
                 const name = c.name || '-';
-                const provider = c.provider === 'github' ? 'GitHub' : (c.provider === 'gitlab' ? 'GitLab' : (c.provider === 'jira' ? 'Jira' : escapeHtml(c.provider || '-')));
-                var authBadge = '<span class="badge">PAT</span>';
+                const provider = c.provider === 'github' ? 'GitHub' : (c.provider === 'gitlab' ? 'GitLab' : (c.provider === 'jira' ? 'Jira' : (c.provider === 'splunk' ? 'Splunk' : escapeHtml(c.provider || '-'))));
+                var authBadge = c.provider === 'splunk' ? '<span class="badge">API Key</span>' : '<span class="badge">PAT</span>';
                 var host = '-';
                 if (c.provider === 'gitlab' && c.gitlab_host) {
                     host = escapeHtml(c.gitlab_host);
                 } else if (c.provider === 'jira' && c.api_host) {
+                    host = escapeHtml(c.api_host);
+                } else if (c.provider === 'splunk' && c.api_host) {
                     host = escapeHtml(c.api_host);
                 } else if (c.provider === 'github') {
                     host = 'github.com';
@@ -1840,6 +1842,8 @@
                     host = 'gitlab.com';
                 } else if (c.provider === 'jira') {
                     host = 'atlassian.net';
+                } else if (c.provider === 'splunk') {
+                    host = 'Splunk Cloud';
                 }
                 const created = formatTime(c.created_at || c.created);
                 const id = c.id || '';
@@ -1926,6 +1930,7 @@
         var claudeOauthFields = q('cred-claude-oauth-fields');
         var vertexFields = q('cred-vertex-fields');
         var scmFields = q('cred-scm-fields');
+        var splunkFields = q('cred-splunk-fields');
         var gitlabHostGroup = q('cred-gitlab-host-group');
         var jiraHostGroup = q('jira-host-group');
         var jiraEmailGroup = q('jira-email-group');
@@ -1939,6 +1944,7 @@
             if (claudeOauthFields) claudeOauthFields.hidden = true;
             if (vertexFields) vertexFields.hidden = true;
             if (scmFields) scmFields.hidden = true;
+            if (splunkFields) splunkFields.hidden = true;
             if (jiraHostGroup) jiraHostGroup.hidden = true;
             if (jiraEmailGroup) jiraEmailGroup.hidden = true;
 
@@ -1948,6 +1954,8 @@
                 if (claudeOauthFields) claudeOauthFields.hidden = false;
             } else if (val === 'google-vertex') {
                 if (vertexFields) vertexFields.hidden = false;
+            } else if (val === 'splunk') {
+                if (splunkFields) splunkFields.hidden = false;
             } else if (val === 'github' || val === 'gitlab' || val === 'jira') {
                 if (scmFields) scmFields.hidden = false;
                 // Show GitLab host field only for GitLab
@@ -2091,6 +2099,18 @@
                 payload.auth_type = 'pat';
                 payload.credential = jiraEmail + ':' + pat;
                 payload.api_host = jiraHost;
+            } else if (provider === 'splunk') {
+                var splunkToken = (q('cred-splunk-token') || {}).value?.trim();
+                if (!splunkToken) {
+                    if (errorEl) { errorEl.textContent = 'Splunk API token is required.'; show(errorEl); }
+                    return;
+                }
+                payload.auth_type = 'api_key';
+                payload.credential = splunkToken;
+                var splunkHost = (q('cred-splunk-host') || {}).value?.trim();
+                if (splunkHost) {
+                    payload.api_host = splunkHost;
+                }
             }
 
             var btn = q('cred-submit');
@@ -5472,14 +5492,15 @@
         var warnings = [];
 
         var llmCreds = cachedCredentials.filter(function (c) {
-            return c.provider !== 'github' && c.provider !== 'gitlab' && c.provider !== 'jira';
+            return c.provider !== 'github' && c.provider !== 'gitlab' && c.provider !== 'jira' && c.provider !== 'splunk';
         });
         var scmCreds = cachedCredentials.filter(function (c) {
-            return c.provider === 'github' || c.provider === 'gitlab' || c.provider === 'jira';
+            return c.provider === 'github' || c.provider === 'gitlab' || c.provider === 'jira' || c.provider === 'splunk';
         });
         var hasGithubCred = scmCreds.some(function (c) { return c.provider === 'github'; });
         var hasGitlabCred = scmCreds.some(function (c) { return c.provider === 'gitlab'; });
         var hasJiraCred = scmCreds.some(function (c) { return c.provider === 'jira'; });
+        var hasSplunkCred = scmCreds.some(function (c) { return c.provider === 'splunk'; });
 
         // Warning: no LLM credential
         if (llmCreds.length === 0) {
@@ -5489,7 +5510,7 @@
             });
         }
 
-        // Warning: selected profile uses GitHub/GitLab/Jira but no matching credential
+        // Warning: selected profile uses GitHub/GitLab/Jira/Splunk but no matching credential
         selectedProfiles.forEach(function (profileName) {
             var profile = allProfiles.find(function (p) { return p.name === profileName; });
             if (!profile || !profile.tools) return;
@@ -5497,6 +5518,7 @@
             var usesGithub = toolNames.some(function (t) { return t.toLowerCase().indexOf('github') !== -1; });
             var usesGitlab = toolNames.some(function (t) { return t.toLowerCase().indexOf('gitlab') !== -1; });
             var usesJira = toolNames.some(function (t) { return t.toLowerCase().indexOf('jira') !== -1; });
+            var usesSplunk = toolNames.some(function (t) { return t.toLowerCase().indexOf('splunk') !== -1; });
 
             if (usesGithub && !hasGithubCred) {
                 warnings.push({
@@ -5514,6 +5536,12 @@
                 warnings.push({
                     type: 'caution',
                     text: 'Profile "' + escapeHtml(profileName) + '" uses Jira, but no Jira credential is configured. <a href="#credentials">Add a Jira credential on the Credentials page.</a>'
+                });
+            }
+            if (usesSplunk && !hasSplunkCred) {
+                warnings.push({
+                    type: 'caution',
+                    text: 'Profile "' + escapeHtml(profileName) + '" uses Splunk, but no Splunk credential is configured. <a href="#credentials">Add a Splunk credential on the Credentials page.</a>'
                 });
             }
         });
@@ -5577,11 +5605,12 @@
             });
 
             var scmCreds = cachedCredentials.filter(function (c) {
-                return c.provider === 'github' || c.provider === 'gitlab' || c.provider === 'jira';
+                return c.provider === 'github' || c.provider === 'gitlab' || c.provider === 'jira' || c.provider === 'splunk';
             });
             var hasGithubCred = scmCreds.some(function (c) { return c.provider === 'github'; });
             var hasGitlabCred = scmCreds.some(function (c) { return c.provider === 'gitlab'; });
             var hasJiraCred = scmCreds.some(function (c) { return c.provider === 'jira'; });
+            var hasSplunkCred = scmCreds.some(function (c) { return c.provider === 'splunk'; });
             var hasGithubProfile = selectedProfiles.some(function (pName) {
                 var p = allProfiles.find(function (pp) { return pp.name === pName; });
                 if (!p || !p.tools) return false;
@@ -5596,6 +5625,11 @@
                 var p = allProfiles.find(function (pp) { return pp.name === pName; });
                 if (!p || !p.tools) return false;
                 return Object.keys(p.tools).some(function (t) { return t.toLowerCase().indexOf('jira') !== -1; });
+            });
+            var hasSplunkProfile = selectedProfiles.some(function (pName) {
+                var p = allProfiles.find(function (pp) { return pp.name === pName; });
+                if (!p || !p.tools) return false;
+                return Object.keys(p.tools).some(function (t) { return t.toLowerCase().indexOf('splunk') !== -1; });
             });
 
             var suggestions = [];
@@ -5634,6 +5668,18 @@
                 }
                 jiraMsg += ' selecting a profile with Jira access.';
                 suggestions.push(jiraMsg);
+            }
+
+            // Splunk-related keywords
+            if (/\b(splunk|spl|search\s*head)\b/.test(text) && !hasSplunkProfile) {
+                var splunkMsg = 'Your prompt mentions Splunk.';
+                if (!hasSplunkCred) {
+                    splunkMsg += ' Consider <a href="#credentials">adding a Splunk credential</a> and';
+                } else {
+                    splunkMsg += ' Consider';
+                }
+                splunkMsg += ' selecting a profile with Splunk access.';
+                suggestions.push(splunkMsg);
             }
 
             // Clone/repo keywords without any SCM
