@@ -3,6 +3,17 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.17.0
+
+### Features
+- Add browsable Catalog for plugins, integrations, and agent templates.
+  Teams browse a filterable card grid and toggle entries on/off. Replaces
+  the removed Skill/Agent Repos system. Starter catalog includes 9
+  entries from Anthropic official plugins, LSPs, and community repos.
+- Add CLI commands: `alcove catalog list`, `enable`, `disable`.
+- Dispatcher resolves enabled catalog entries into ALCOVE_SKILL_REPOS
+  for Skiff sessions.
+
 ## v0.16.0
 
 ### Changes
