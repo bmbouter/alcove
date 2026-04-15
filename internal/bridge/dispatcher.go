@@ -313,7 +313,17 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		"CLAUDE_MODEL":       model,
 		"TASK_TIMEOUT":       fmt.Sprintf("%d", timeout),
 		"ANTHROPIC_BASE_URL": fmt.Sprintf("http://%s:8443", gateName),
-		"ANTHROPIC_API_KEY":  "sk-placeholder-routed-through-gate",
+	}
+
+	// For claude-oauth (Pro/Max), pass the real OAuth token as
+	// ANTHROPIC_AUTH_TOKEN which Claude Code sends as Authorization: Bearer.
+	// This works in --bare mode (unlike CLAUDE_CODE_OAUTH_TOKEN) and the
+	// Anthropic API accepts OAuth tokens via Bearer auth.
+	// For all other providers, use a placeholder API key that Gate replaces.
+	if llmTokenType == "oauth_token" {
+		skiffEnv["ANTHROPIC_AUTH_TOKEN"] = llmToken
+	} else {
+		skiffEnv["ANTHROPIC_API_KEY"] = "sk-placeholder-routed-through-gate"
 	}
 
 	// Pass executable configuration to Skiff via environment variable
