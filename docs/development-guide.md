@@ -165,7 +165,7 @@ are applied automatically on Bridge startup.
 
    ```bash
    ls internal/bridge/migrations/
-   # 001_initial_schema.sql  ...  026_teams.sql
+   # 001_initial_schema.sql  ...  028_workflow_graph_v2.sql
    ```
 
 2. Create a new file with the next numeric prefix and a descriptive name:
@@ -513,6 +513,36 @@ schedule: "0 2 * * *"
 All fields except `name` and `prompt` are optional. The `schedule` field uses
 standard 5-field cron syntax. When a schedule is present, Bridge creates a
 corresponding schedule entry automatically.
+
+### Workflow Graph Architecture
+
+The workflow engine supports a workflow graph with bounded cycles and two step
+types: **agent** steps (Skiff pods) and **bridge** steps (deterministic Bridge
+actions). This moves infrastructure concerns like PR creation, CI polling, and
+merging out of LLM prompts and into reliable Bridge code.
+
+#### Key Source Files
+
+| File | Purpose |
+|------|---------|
+| `internal/bridge/bridge_actions.go` | Bridge action implementations (`create-pr`, `await-ci`, `merge-pr`). Each action is a function that takes step inputs and returns outputs. |
+| `internal/bridge/depends.go` | Depends expression parser and evaluator. Parses boolean expressions with `&&`, `\|\|`, parentheses, and `.Succeeded`/`.Failed` conditions. |
+| `internal/bridge/dispatcher.go` | Workflow step dispatch logic, iteration tracking, cycle detection |
+| `internal/bridge/migrations/028_workflow_graph_v2.sql` | Schema for `workflow_run_steps` iteration tracking and step type/action columns |
+
+#### How It Works
+
+1. When a workflow runs, the dispatcher evaluates each step's `depends`
+   expression against the current state of all steps.
+2. For `type: agent` steps, the dispatcher creates a Skiff pod (existing
+   behavior).
+3. For `type: bridge` steps, the dispatcher calls the corresponding bridge
+   action function inline -- no container is created.
+4. After each step completes, the dispatcher re-evaluates all pending steps.
+   Steps in cycles can become eligible again if their `max_iterations` has not
+   been exhausted.
+5. The `workflow_run_steps` table tracks `iteration_count` per step to enforce
+   `max_iterations` limits.
 
 ### Testing with Agent Repos
 

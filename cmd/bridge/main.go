@@ -202,7 +202,7 @@ func main() {
 	workflowStore := bridge.NewWorkflowStore(dbpool)
 
 	// Create workflow engine.
-	workflowEngine := bridge.NewWorkflowEngine(dbpool, dispatcher, workflowStore, defStore)
+	workflowEngine := bridge.NewWorkflowEngine(dbpool, dispatcher, workflowStore, defStore, credStore)
 	dispatcher.SetWorkflowEngine(workflowEngine)
 
 	// Recover running workflows after Bridge restart.

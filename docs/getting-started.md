@@ -253,6 +253,99 @@ Bridge syncs agent repos every 5 minutes. Once synced, agent definitions appear
 on the dashboard where you can run them or view the source YAML. Starter
 templates are available to help you get started.
 
+## Workflow Graph
+
+Alcove supports multi-step workflows where steps can be either **agent steps**
+(dispatching a Skiff pod running Claude Code) or **bridge steps** (deterministic
+actions performed by Bridge inline, no LLM involved). Workflows can contain
+bounded cycles, enabling patterns like review/revision loops.
+
+### Step Types
+
+- **`type: agent`** (default) — dispatches a Skiff pod running Claude Code
+- **`type: bridge`** — Bridge performs a deterministic action (e.g., create a PR,
+  poll CI, merge a PR)
+
+### Bridge Actions
+
+| Action | Description |
+|--------|-------------|
+| `create-pr` | Creates a GitHub PR from a branch |
+| `await-ci` | Polls CI status on a PR until completion |
+| `merge-pr` | Merges a PR |
+
+### Depends Expressions
+
+Steps declare dependencies using boolean expressions instead of simple lists:
+
+```yaml
+depends: "implement.Succeeded"
+depends: "code-review.Succeeded && security-review.Succeeded"
+depends: "await-ci.Succeeded || revision.Succeeded"
+```
+
+### Bounded Cycles
+
+Steps can reference each other in cycles (e.g., review fails, revision runs,
+review runs again). The `max_iterations` field prevents infinite loops -- when
+exhausted, the step status becomes `max_iterations_exceeded`.
+
+### Minimal Example
+
+```yaml
+workflow:
+  steps:
+    - id: implement
+      type: agent
+      agent: dev
+
+    - id: create-pr
+      type: bridge
+      action: create-pr
+      depends: "implement.Succeeded"
+      inputs:
+        branch: "{{steps.implement.inputs.branch}}"
+        title: "Fix #{{trigger.issue_number}}"
+        base: main
+
+    - id: await-ci
+      type: bridge
+      action: await-ci
+      depends: "create-pr.Succeeded || ci-fix.Succeeded"
+      max_iterations: 4
+      inputs:
+        pr: "{{steps.create-pr.outputs.pr_number}}"
+
+    - id: ci-fix
+      type: agent
+      agent: dev
+      depends: "await-ci.Failed"
+      max_iterations: 3
+
+    - id: code-review
+      type: agent
+      agent: reviewer
+      depends: "await-ci.Succeeded || revision.Succeeded"
+      max_iterations: 3
+
+    - id: revision
+      type: agent
+      agent: dev
+      depends: "code-review.Failed"
+      max_iterations: 3
+
+    - id: merge
+      type: bridge
+      action: merge-pr
+      depends: "code-review.Succeeded"
+```
+
+This workflow implements a full develop-review-merge cycle: implement the change,
+create a PR, wait for CI (retrying up to 4 times with an agent fixing failures),
+run code review (with up to 3 revision rounds), then merge.
+
+See `docs/configuration.md` for the full workflow step field reference.
+
 ## Architecture Overview
 
 ```

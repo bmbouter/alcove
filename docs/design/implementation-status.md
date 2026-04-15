@@ -323,6 +323,19 @@ alcove/
     `POST /api/v1/teams/{id}/members`,
     `DELETE /api/v1/teams/{id}/members/{username}`.
 
+28. **Workflow Graph v2** — The workflow engine supports a workflow graph with
+    bounded cycles and two step types. **Agent steps** (`type: agent`) dispatch
+    Skiff pods running Claude Code (existing behavior). **Bridge steps**
+    (`type: bridge`) perform deterministic actions inline: `create-pr`,
+    `await-ci`, and `merge-pr`. Steps declare dependencies via boolean
+    expressions (`depends: "A.Succeeded && B.Succeeded"`) supporting `&&`,
+    `||`, parentheses, and `.Succeeded`/`.Failed` conditions. Bounded cycles
+    enable review/revision loops with `max_iterations` per step to prevent
+    infinite loops (status becomes `max_iterations_exceeded` when exhausted).
+    Iteration tracking is stored in `workflow_run_steps` (migration
+    `028_workflow_graph_v2.sql`). The old `needs` list syntax remains supported
+    for backward compatibility.
+
 ## What's NOT Working Yet
 
 ### 1. NATS Dead Code
