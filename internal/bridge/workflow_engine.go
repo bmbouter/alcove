@@ -33,23 +33,25 @@ var templateRegex = regexp.MustCompile(`\{\{[^}]+\}\}`)
 
 // WorkflowEngine manages workflow execution: DAG evaluation, step dispatch, and completion tracking.
 type WorkflowEngine struct {
-	db            *pgxpool.Pool
-	dispatcher    *Dispatcher
-	workflowStore *WorkflowStore
-	defStore      *AgentDefStore
-	credStore     *CredentialStore
-	bridgeActions map[string]BridgeActionHandler
+	db               *pgxpool.Pool
+	dispatcher       *Dispatcher
+	workflowStore    *WorkflowStore
+	defStore         *AgentDefStore
+	credStore        *CredentialStore
+	catalogItemStore *CatalogItemStore
+	bridgeActions    map[string]BridgeActionHandler
 }
 
 // NewWorkflowEngine creates a new workflow engine with the given dependencies.
 func NewWorkflowEngine(db *pgxpool.Pool, dispatcher *Dispatcher, workflowStore *WorkflowStore, defStore *AgentDefStore, credStore *CredentialStore) *WorkflowEngine {
 	return &WorkflowEngine{
-		db:            db,
-		dispatcher:    dispatcher,
-		workflowStore: workflowStore,
-		defStore:      defStore,
-		credStore:     credStore,
-		bridgeActions: RegisterBridgeActions(),
+		db:               db,
+		dispatcher:       dispatcher,
+		workflowStore:    workflowStore,
+		defStore:         defStore,
+		credStore:        credStore,
+		catalogItemStore: NewCatalogItemStore(db),
+		bridgeActions:    RegisterBridgeActions(),
 	}
 }
 
@@ -219,10 +221,48 @@ func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, st
 	}
 
 	// Agent step: dispatch via Dispatcher.
-	// Get the agent definition
+	// Get the agent definition — try agent_definitions first, then catalog_items for "source/slug" format.
 	agentDef, err := we.defStore.GetAgentDefinition(ctx, step.Agent, run.TeamID)
+	if err != nil && strings.Contains(step.Agent, "/") {
+		// Try catalog_items lookup for "source/slug" format.
+		parts := strings.SplitN(step.Agent, "/", 2)
+		sourceID, slug := parts[0], parts[1]
+
+		// Check if the catalog item exists.
+		item, itemErr := we.catalogItemStore.GetCatalogItem(ctx, sourceID, slug)
+		if itemErr != nil {
+			return fmt.Errorf("unknown agent '%s': not found in agent definitions or catalog", step.Agent)
+		}
+
+		// Check if the item is enabled for this team.
+		var enabled bool
+		enabledErr := we.db.QueryRow(ctx, `
+			SELECT enabled FROM team_catalog_items
+			WHERE team_id = $1 AND source_id = $2 AND item_slug = $3
+		`, run.TeamID, sourceID, slug).Scan(&enabled)
+		if enabledErr != nil || !enabled {
+			return fmt.Errorf("agent '%s' is disabled — enable it in the catalog", step.Agent)
+		}
+
+		// Build a TaskDefinition from the catalog item.
+		agentDef = &TaskDefinition{
+			ID:          item.ID,
+			Name:        item.Name,
+			Description: item.Description,
+		}
+		// Apply definition fields from the catalog item if available.
+		if item.Definition != nil {
+			if prompt, ok := item.Definition["prompt"].(string); ok {
+				agentDef.Prompt = prompt
+			}
+			if repo, ok := item.Definition["repo"].(string); ok {
+				agentDef.Repo = repo
+			}
+		}
+		err = nil
+	}
 	if err != nil {
-		return fmt.Errorf("getting agent definition %s: %w", step.Agent, err)
+		return fmt.Errorf("unknown agent '%s': %w", step.Agent, err)
 	}
 
 	// Build TaskRequest from step and agent definition

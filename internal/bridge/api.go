@@ -44,39 +44,41 @@ var templateFS embed.FS
 
 // API holds the HTTP handlers for the Bridge REST API.
 type API struct {
-	dispatcher     *Dispatcher
-	db             *pgxpool.Pool
-	cfg            *Config
-	scheduler      *Scheduler
-	credStore      *CredentialStore
-	toolStore      *ToolStore
-	profileStore   *ProfileStore
-	settingsStore  *SettingsStore
-	llm            *BridgeLLM
-	defStore       *AgentDefStore
-	syncer         *AgentRepoSyncer
-	authStore      auth.Authenticator // for TBR associations (rh-identity backend)
-	workflowEngine *WorkflowEngine
-	teamStore      *TeamStore
+	dispatcher       *Dispatcher
+	db               *pgxpool.Pool
+	cfg              *Config
+	scheduler        *Scheduler
+	credStore        *CredentialStore
+	toolStore        *ToolStore
+	profileStore     *ProfileStore
+	settingsStore    *SettingsStore
+	llm              *BridgeLLM
+	defStore         *AgentDefStore
+	syncer           *AgentRepoSyncer
+	authStore        auth.Authenticator // for TBR associations (rh-identity backend)
+	workflowEngine   *WorkflowEngine
+	teamStore        *TeamStore
+	catalogItemStore *CatalogItemStore
 }
 
 // NewAPI creates the API handler set.
 func NewAPI(dispatcher *Dispatcher, db *pgxpool.Pool, cfg *Config, scheduler *Scheduler, credStore *CredentialStore, toolStore *ToolStore, profileStore *ProfileStore, settingsStore *SettingsStore, llm *BridgeLLM, defStore *AgentDefStore, syncer *AgentRepoSyncer, authStore auth.Authenticator, workflowEngine *WorkflowEngine, teamStore *TeamStore) *API {
 	return &API{
-		dispatcher:     dispatcher,
-		db:             db,
-		cfg:            cfg,
-		scheduler:      scheduler,
-		credStore:      credStore,
-		toolStore:      toolStore,
-		profileStore:   profileStore,
-		settingsStore:  settingsStore,
-		llm:            llm,
-		defStore:       defStore,
-		syncer:         syncer,
-		authStore:      authStore,
-		workflowEngine: workflowEngine,
-		teamStore:      teamStore,
+		dispatcher:       dispatcher,
+		db:               db,
+		cfg:              cfg,
+		scheduler:        scheduler,
+		credStore:        credStore,
+		toolStore:        toolStore,
+		profileStore:     profileStore,
+		settingsStore:    settingsStore,
+		llm:              llm,
+		defStore:         defStore,
+		syncer:           syncer,
+		authStore:        authStore,
+		workflowEngine:   workflowEngine,
+		teamStore:        teamStore,
+		catalogItemStore: NewCatalogItemStore(db),
 	}
 }
 

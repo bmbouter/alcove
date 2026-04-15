@@ -33,17 +33,18 @@ import (
 // AgentRepoSyncer periodically clones/pulls agent repos and syncs YAML agent
 // definitions, workflow definitions, and security profiles into the database, reconciling schedules as needed.
 type AgentRepoSyncer struct {
-	db            *pgxpool.Pool
-	settingsStore *SettingsStore
-	scheduler     *Scheduler
-	defStore      *AgentDefStore
-	dispatcher    *Dispatcher
-	profileStore  *ProfileStore
-	workflowStore *WorkflowStore
-	interval      time.Duration
-	stopCh        chan struct{}
-	wg            sync.WaitGroup
-	syncMu        sync.Mutex // prevents concurrent SyncAll calls
+	db               *pgxpool.Pool
+	settingsStore    *SettingsStore
+	scheduler        *Scheduler
+	defStore         *AgentDefStore
+	dispatcher       *Dispatcher
+	profileStore     *ProfileStore
+	workflowStore    *WorkflowStore
+	catalogItemStore *CatalogItemStore
+	interval         time.Duration
+	stopCh           chan struct{}
+	wg               sync.WaitGroup
+	syncMu           sync.Mutex // prevents concurrent SyncAll calls
 }
 
 // NewAgentRepoSyncer creates a AgentRepoSyncer with the given dependencies.
@@ -56,15 +57,16 @@ func NewAgentRepoSyncer(db *pgxpool.Pool, settingsStore *SettingsStore, schedule
 	}
 
 	return &AgentRepoSyncer{
-		db:            db,
-		settingsStore: settingsStore,
-		scheduler:     scheduler,
-		defStore:      defStore,
-		dispatcher:    dispatcher,
-		profileStore:  profileStore,
-		workflowStore: workflowStore,
-		interval:      interval,
-		stopCh:        make(chan struct{}),
+		db:               db,
+		settingsStore:    settingsStore,
+		scheduler:        scheduler,
+		defStore:         defStore,
+		dispatcher:       dispatcher,
+		profileStore:     profileStore,
+		workflowStore:    workflowStore,
+		catalogItemStore: NewCatalogItemStore(db),
+		interval:         interval,
+		stopCh:           make(chan struct{}),
 	}
 }
 
@@ -217,6 +219,12 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 		}
 	}
 
+	// Sync catalog sources: clone/pull each catalog source and introspect items.
+	s.syncCatalogSources(ctx)
+
+	// Migrate source-level enablement to item-level for all teams.
+	s.migrateTeamCatalogEnablement(ctx)
+
 	if totalRepos == 0 {
 		return nil
 	}
@@ -248,6 +256,219 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 		return fmt.Errorf("sync errors: %s", strings.Join(errs, "; "))
 	}
 	return nil
+}
+
+// syncCatalogSources clones/pulls each catalog source repo and introspects items within it.
+func (s *AgentRepoSyncer) syncCatalogSources(ctx context.Context) {
+	catalog := LoadCatalog()
+	for _, entry := range catalog {
+		if entry.URL == "" {
+			continue
+		}
+
+		// Determine local clone directory for the catalog source.
+		name := entry.ID
+		cloneDir := filepath.Join(os.TempDir(), "alcove-catalog-sources", name)
+
+		ref := entry.Ref
+		if ref == "" {
+			ref = "main"
+		}
+
+		// Clone or pull the catalog source repo.
+		if _, err := os.Stat(filepath.Join(cloneDir, ".git")); os.IsNotExist(err) {
+			if err := os.MkdirAll(filepath.Dir(cloneDir), 0755); err != nil {
+				log.Printf("agent-repo-syncer: error creating catalog source dir for %s: %v", entry.ID, err)
+				continue
+			}
+			cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--branch", ref, entry.URL, cloneDir)
+			cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+			if out, err := cmd.CombinedOutput(); err != nil {
+				log.Printf("agent-repo-syncer: error cloning catalog source %s: %s: %v", entry.ID, string(out), err)
+				continue
+			}
+		} else {
+			for _, lockFile := range []string{"shallow.lock", "index.lock"} {
+				os.Remove(filepath.Join(cloneDir, ".git", lockFile))
+			}
+			cmd := exec.CommandContext(ctx, "git", "-C", cloneDir, "fetch", "--depth=1", "origin", ref)
+			cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+			if out, err := cmd.CombinedOutput(); err != nil {
+				log.Printf("agent-repo-syncer: error fetching catalog source %s: %s: %v", entry.ID, string(out), err)
+				continue
+			}
+			cmd = exec.CommandContext(ctx, "git", "-C", cloneDir, "reset", "--hard", "FETCH_HEAD")
+			if out, err := cmd.CombinedOutput(); err != nil {
+				log.Printf("agent-repo-syncer: error resetting catalog source %s: %s: %v", entry.ID, string(out), err)
+				continue
+			}
+		}
+
+		// Introspect the catalog source to discover items.
+		if err := s.introspectCatalogSource(ctx, entry, cloneDir); err != nil {
+			log.Printf("agent-repo-syncer: error introspecting catalog source %s: %v", entry.ID, err)
+		}
+	}
+}
+
+// introspectCatalogSource scans a cloned catalog source repo to discover items.
+func (s *AgentRepoSyncer) introspectCatalogSource(ctx context.Context, entry CatalogEntry, repoDir string) error {
+	var items []CatalogItem
+
+	// If the source has a path field (e.g., claude-plugins-official entries),
+	// treat the catalog entry itself as a single item.
+	if entry.Path != "" {
+		items = append(items, CatalogItem{
+			SourceID:    entry.ID,
+			Slug:        entry.ID,
+			Name:        entry.Name,
+			Description: entry.Description,
+			ItemType:    categoryToItemType(entry.Category),
+			SourceFile:  entry.Path,
+		})
+	} else {
+		// Scan for .alcove/tasks/*.yml and .alcove/tasks/*.yaml → agent items
+		tasksDir := filepath.Join(repoDir, ".alcove", "tasks")
+		if taskEntries, err := os.ReadDir(tasksDir); err == nil {
+			for _, te := range taskEntries {
+				if te.IsDir() || (!strings.HasSuffix(te.Name(), ".yml") && !strings.HasSuffix(te.Name(), ".yaml")) {
+					continue
+				}
+				filePath := filepath.Join(tasksDir, te.Name())
+				data, err := os.ReadFile(filePath)
+				if err != nil {
+					continue
+				}
+				td, err := ParseTaskDefinition(data)
+				if err != nil {
+					// Still register the item with the filename as slug.
+					slug := strings.TrimSuffix(strings.TrimSuffix(te.Name(), ".yml"), ".yaml")
+					items = append(items, CatalogItem{
+						SourceID:    entry.ID,
+						Slug:        slug,
+						Name:        slug,
+						Description: "",
+						ItemType:    "agent",
+						SourceFile:  ".alcove/tasks/" + te.Name(),
+					})
+					continue
+				}
+				slug := strings.TrimSuffix(strings.TrimSuffix(te.Name(), ".yml"), ".yaml")
+				items = append(items, CatalogItem{
+					SourceID:    entry.ID,
+					Slug:        slug,
+					Name:        td.Name,
+					Description: td.Description,
+					ItemType:    "agent",
+					SourceFile:  ".alcove/tasks/" + te.Name(),
+				})
+			}
+		}
+
+		// Scan for directories containing SKILL.md → plugin/skill items
+		entries, err := os.ReadDir(repoDir)
+		if err == nil {
+			for _, de := range entries {
+				if !de.IsDir() {
+					continue
+				}
+				skillPath := filepath.Join(repoDir, de.Name(), "SKILL.md")
+				if _, err := os.Stat(skillPath); err == nil {
+					items = append(items, CatalogItem{
+						SourceID:    entry.ID,
+						Slug:        de.Name(),
+						Name:        de.Name(),
+						Description: "",
+						ItemType:    "plugin",
+						SourceFile:  de.Name() + "/SKILL.md",
+					})
+				}
+			}
+		}
+
+		// Also check subdirectories (e.g., plugins/ directory).
+		for _, subdir := range []string{"plugins", "agents", "skills"} {
+			subdirPath := filepath.Join(repoDir, subdir)
+			subEntries, err := os.ReadDir(subdirPath)
+			if err != nil {
+				continue
+			}
+			for _, de := range subEntries {
+				if !de.IsDir() {
+					continue
+				}
+				skillPath := filepath.Join(subdirPath, de.Name(), "SKILL.md")
+				slug := de.Name()
+				// Check if already discovered (avoid duplicates).
+				alreadySeen := false
+				for _, existing := range items {
+					if existing.Slug == slug {
+						alreadySeen = true
+						break
+					}
+				}
+				if alreadySeen {
+					continue
+				}
+				if _, err := os.Stat(skillPath); err == nil {
+					items = append(items, CatalogItem{
+						SourceID:    entry.ID,
+						Slug:        slug,
+						Name:        slug,
+						Description: "",
+						ItemType:    "plugin",
+						SourceFile:  subdir + "/" + de.Name() + "/SKILL.md",
+					})
+				}
+			}
+		}
+	}
+
+	if len(items) == 0 {
+		return nil
+	}
+
+	log.Printf("agent-repo-syncer: discovered %d item(s) in catalog source %s", len(items), entry.ID)
+	return s.catalogItemStore.UpsertCatalogItems(ctx, entry.ID, items)
+}
+
+// categoryToItemType maps a catalog category to an item type.
+func categoryToItemType(category string) string {
+	switch category {
+	case "agent-templates":
+		return "agent"
+	case "plugins", "language-servers", "integrations", "security":
+		return "plugin"
+	default:
+		return "plugin"
+	}
+}
+
+// migrateTeamCatalogEnablement migrates source-level catalog enablement to item-level
+// for all teams that have the old team_settings catalog key.
+func (s *AgentRepoSyncer) migrateTeamCatalogEnablement(ctx context.Context) {
+	rows, err := s.db.Query(ctx, `
+		SELECT team_id, value FROM team_settings WHERE key = 'catalog'
+	`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var teamID string
+		var value json.RawMessage
+		if err := rows.Scan(&teamID, &value); err != nil {
+			continue
+		}
+		var enabledMap map[string]bool
+		if json.Unmarshal(value, &enabledMap) != nil {
+			continue
+		}
+		if err := s.catalogItemStore.MigrateSourceEnablementToItems(ctx, teamID, enabledMap); err != nil {
+			log.Printf("agent-repo-syncer: error migrating catalog enablement for team %s: %v", teamID, err)
+		}
+	}
 }
 
 // syncRepo clones or pulls a single repo and syncs its agent definitions for the given user and team.
@@ -710,8 +931,8 @@ func (s *AgentRepoSyncer) syncWorkflowDefinitions(ctx context.Context, cloneDir 
 }
 
 // validateWorkflowAgentReferences checks that all agents referenced in workflows
-// from the given repo resolve to known agent definitions. Sets sync_error on workflows
-// with unknown agent references.
+// from the given repo resolve to known agent definitions or catalog items.
+// Sets sync_error on workflows with unknown agent references.
 func (s *AgentRepoSyncer) validateWorkflowAgentReferences(ctx context.Context, repoURL string, teamID string) {
 	workflows, err := s.workflowStore.ListWorkflowsByRepo(ctx, repoURL, teamID)
 	if err != nil {
@@ -727,16 +948,16 @@ func (s *AgentRepoSyncer) validateWorkflowAgentReferences(ctx context.Context, r
 	}
 
 	for _, wf := range workflows {
-		if wf.SyncError != "" && !strings.HasPrefix(wf.SyncError, "unknown agent:") {
+		if wf.SyncError != "" && !strings.HasPrefix(wf.SyncError, "unknown agent:") && !strings.HasPrefix(wf.SyncError, "Step '") {
 			// Workflow has a parse error (not an agent error) — skip validation.
 			continue
 		}
 
-		// Check each referenced agent.
-		missing := s.workflowStore.ValidateWorkflowAgentReferences(ctx, &wf.WorkflowDefinition, agentDefs)
+		// Check each referenced agent, including catalog item lookups.
+		missing := s.validateWorkflowAgentsWithCatalog(ctx, &wf.WorkflowDefinition, agentDefs, teamID)
 
 		if len(missing) > 0 {
-			syncErr := fmt.Sprintf("unknown agent: %s", strings.Join(missing, ", "))
+			syncErr := strings.Join(missing, "; ")
 			if wf.SyncError != syncErr {
 				// Update the workflow with the agent validation error.
 				if err := s.workflowStore.UpsertWorkflow(ctx, &wf.WorkflowDefinition, wf.SourceKey, wf.RawYAML, syncErr); err != nil {
@@ -744,13 +965,67 @@ func (s *AgentRepoSyncer) validateWorkflowAgentReferences(ctx context.Context, r
 				}
 				log.Printf("agent-repo-syncer: %s in %s/%s", syncErr, repoURL, wf.SourceFile)
 			}
-		} else if strings.HasPrefix(wf.SyncError, "unknown agent:") {
+		} else if strings.HasPrefix(wf.SyncError, "unknown agent:") || strings.HasPrefix(wf.SyncError, "Step '") {
 			// All agents now exist — clear the error.
 			if err := s.workflowStore.UpsertWorkflow(ctx, &wf.WorkflowDefinition, wf.SourceKey, wf.RawYAML, ""); err != nil {
 				log.Printf("agent-repo-syncer: error clearing workflow sync error for %s: %v", wf.SourceKey, err)
 			}
 		}
 	}
+}
+
+// validateWorkflowAgentsWithCatalog checks all agent references in a workflow,
+// looking in both agent_definitions and catalog_items. Returns error messages for
+// each unresolved reference.
+func (s *AgentRepoSyncer) validateWorkflowAgentsWithCatalog(ctx context.Context, wd *WorkflowDefinition, agentDefs []TaskDefinition, teamID string) []string {
+	agentNames := make(map[string]bool)
+	for _, def := range agentDefs {
+		agentNames[def.Name] = true
+	}
+
+	var errors []string
+	for _, step := range wd.Workflow {
+		if step.Type == "bridge" || step.Agent == "" {
+			continue
+		}
+
+		// Try existing agent definitions lookup by name.
+		if agentNames[step.Agent] {
+			continue
+		}
+
+		// If agent reference contains "/", try catalog_items lookup.
+		if strings.Contains(step.Agent, "/") {
+			parts := strings.SplitN(step.Agent, "/", 2)
+			sourceID, slug := parts[0], parts[1]
+			item, err := s.catalogItemStore.GetCatalogItem(ctx, sourceID, slug)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("Step '%s' references unknown agent '%s'", step.ID, step.Agent))
+				continue
+			}
+
+			// Check if the item is enabled for this team.
+			var enabled bool
+			err = s.db.QueryRow(ctx, `
+				SELECT enabled FROM team_catalog_items
+				WHERE team_id = $1 AND source_id = $2 AND item_slug = $3
+			`, teamID, sourceID, slug).Scan(&enabled)
+			if err != nil || !enabled {
+				errors = append(errors, fmt.Sprintf("Step '%s' references disabled agent '%s' -- enable it in the catalog", step.ID, step.Agent))
+				continue
+			}
+
+			// Item exists and is enabled — verify it's an agent type.
+			if item.ItemType != "agent" {
+				errors = append(errors, fmt.Sprintf("Step '%s' references '%s' which is a %s, not an agent", step.ID, step.Agent, item.ItemType))
+			}
+			continue
+		}
+
+		errors = append(errors, fmt.Sprintf("Step '%s' references unknown agent '%s'", step.ID, step.Agent))
+	}
+
+	return errors
 }
 
 // reconcileWorkflowTrigger creates, updates, or removes a schedule for a workflow trigger.

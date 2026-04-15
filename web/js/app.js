@@ -6194,6 +6194,18 @@
             syncError = '<div class="workflow-def-error">⚠️ Sync Error: ' + escapeHtml(workflow.sync_error) + '</div>';
         }
 
+        // Check for disabled/unknown agent references in sync_error
+        var agentWarning = '';
+        if (workflow.sync_error && /unknown|disabled|not found|not enabled/i.test(workflow.sync_error)) {
+            // Extract step name from sync_error if possible (patterns like "step 'foo'" or "agent 'foo'")
+            var stepMatch = workflow.sync_error.match(/(?:step|agent)\s+['"]([^'"]+)['"]/i);
+            var stepRef = stepMatch ? stepMatch[1] : '';
+            agentWarning = '<div class="workflow-agent-warning">' +
+                '⚠ ' + (stepRef ? 'Step \'' + escapeHtml(stepRef) + '\' references a disabled agent' : 'A step references an unknown or disabled agent') +
+                ' — <a href="#catalog" style="color:inherit;text-decoration:underline;">enable it in the catalog</a>' +
+            '</div>';
+        }
+
         card.innerHTML =
             '<div class="workflow-def-header">' +
                 '<div>' +
@@ -6210,7 +6222,8 @@
                 '<span>🔄 Last synced: ' + escapeHtml(lastSynced) + '</span>' +
                 (triggerInfo ? '<span class="workflow-def-trigger-info">' + triggerInfo + '</span>' : '') +
             '</div>' +
-            syncError;
+            syncError +
+            agentWarning;
 
         container.appendChild(card);
     }
@@ -6981,166 +6994,319 @@
     // Catalog
     // ---------------------
 
-    var catalogData = [];
-    var catalogTeamState = {};
+    var catalogSources = [];
     var catalogCustomPlugins = [];
-    var catalogCategoryFilter = '';
-    var catalogSearchFilter = '';
+    var catalogSourceItems = {};   // sourceId -> {items: [...], loaded: bool}
+    var catalogExpandedSources = {};
+    var catalogShowAllSources = {};
+    var catalogItemSearchFilters = {};
+
+    var categoryLabels = {
+        'plugins': 'Plugins',
+        'language-servers': 'Language Servers',
+        'integrations': 'Integrations',
+        'agent-templates': 'Agent Templates',
+        'security': 'Security',
+        'testing': 'Testing',
+        'content': 'Content',
+        'documentation': 'Documentation'
+    };
 
     async function loadCatalogPage() {
-        var grid = $('#catalog-grid');
+        var listEl = $('#catalog-sources-list');
         var loading = $('#catalog-loading');
         var empty = $('#catalog-empty');
-        grid.innerHTML = '';
+        listEl.innerHTML = '';
         show(loading);
         hide(empty);
 
         try {
-            var results = await Promise.allSettled([
-                api('GET', '/api/v1/catalog'),
-                activeTeamId ? api('GET', '/api/v1/teams/' + activeTeamId + '/catalog') : Promise.resolve(null)
-            ]);
-
-            if (results[0].status === 'fulfilled' && results[0].value && results[0].value.ok) {
-                var data = await results[0].value.json();
-                catalogData = data.entries || [];
+            if (!activeTeamId) {
+                hide(loading);
+                show(empty);
+                return;
             }
-
-            if (results[1].status === 'fulfilled' && results[1].value && results[1].value.ok) {
-                var teamData = await results[1].value.json();
-                // Build enabled map from entries
-                catalogTeamState = {};
-                (teamData.entries || []).forEach(function(e) {
-                    catalogTeamState[e.id] = e.enabled;
-                });
-                catalogCustomPlugins = teamData.custom_plugins || [];
+            var resp = await api('GET', '/api/v1/teams/' + activeTeamId + '/catalog');
+            if (resp && resp.ok) {
+                var data = await resp.json();
+                catalogSources = data.sources || [];
+                catalogCustomPlugins = data.custom_plugins || [];
             } else {
-                catalogTeamState = {};
+                catalogSources = [];
                 catalogCustomPlugins = [];
             }
         } catch (err) {
             if (err.message === 'unauthorized') { hide(loading); return; }
+            catalogSources = [];
+            catalogCustomPlugins = [];
         }
 
         hide(loading);
-        renderCatalogCategoryPills();
-        renderCatalogGrid();
+        catalogSourceItems = {};
+        renderCatalogSources();
         renderCatalogCustomPlugins();
     }
 
-    function renderCatalogCategoryPills() {
-        var pillsEl = $('#catalog-category-pills');
-        var categories = [];
-        catalogData.forEach(function(e) {
-            if (e.category && categories.indexOf(e.category) === -1) categories.push(e.category);
-        });
-        categories.sort();
-
-        var html = '<button class="catalog-pill' + (!catalogCategoryFilter ? ' active' : '') + '" data-category="">All</button>';
-        var categoryLabels = {
-            'plugins': 'Plugins',
-            'language-servers': 'Language Servers',
-            'integrations': 'Integrations',
-            'agent-templates': 'Agent Templates',
-            'security': 'Security',
-            'testing': 'Testing',
-            'content': 'Content',
-            'documentation': 'Documentation'
-        };
-        categories.forEach(function(cat) {
-            var label = categoryLabels[cat] || cat;
-            var active = catalogCategoryFilter === cat ? ' active' : '';
-            html += '<button class="catalog-pill' + active + '" data-category="' + escapeHtml(cat) + '">' + escapeHtml(label) + '</button>';
-        });
-        pillsEl.innerHTML = html;
-
-        pillsEl.querySelectorAll('.catalog-pill').forEach(function(pill) {
-            pill.addEventListener('click', function() {
-                catalogCategoryFilter = pill.getAttribute('data-category');
-                renderCatalogCategoryPills();
-                renderCatalogGrid();
-            });
-        });
-    }
-
-    function renderCatalogGrid() {
-        var grid = $('#catalog-grid');
+    function renderCatalogSources() {
+        var listEl = $('#catalog-sources-list');
         var empty = $('#catalog-empty');
 
-        var filtered = catalogData.filter(function(e) {
-            if (catalogCategoryFilter && e.category !== catalogCategoryFilter) return false;
-            if (catalogSearchFilter) {
-                var q = catalogSearchFilter.toLowerCase();
-                var searchable = (e.name + ' ' + e.description + ' ' + (e.tags || []).join(' ')).toLowerCase();
-                if (searchable.indexOf(q) === -1) return false;
-            }
-            return true;
-        });
-
-        if (filtered.length === 0) {
-            grid.innerHTML = '';
+        if (catalogSources.length === 0) {
+            listEl.innerHTML = '';
             show(empty);
             return;
         }
         hide(empty);
+        listEl.innerHTML = '';
 
-        var iconColors = {
-            'plugins': '#3498db',
-            'language-servers': '#2ecc71',
-            'integrations': '#9b59b6',
-            'agent-templates': '#e67e22',
-            'security': '#e74c3c',
-            'testing': '#1abc9c',
-            'content': '#f39c12',
-            'documentation': '#34495e'
-        };
+        catalogSources.forEach(function(source) {
+            var sourceEl = renderCatalogSourceRow(source);
+            listEl.appendChild(sourceEl);
+        });
+    }
 
-        var html = '';
-        filtered.forEach(function(entry) {
-            var enabled = catalogTeamState[entry.id] || false;
-            var color = iconColors[entry.category] || '#607d8b';
-            var letter = entry.name.charAt(0).toUpperCase();
+    function renderCatalogSourceRow(source) {
+        var sourceId = source.source_id;
+        var isExpanded = catalogExpandedSources[sourceId] || false;
+        var isSingleItem = source.total_items === 1;
+        var badgeClass = 'catalog-badge-' + (source.category || '').replace(/\s+/g, '-');
+        var categoryLabel = categoryLabels[source.category] || source.category || '';
 
-            var tagsHtml = '';
-            (entry.tags || []).forEach(function(tag) {
-                tagsHtml += '<span class="catalog-card-tag">' + escapeHtml(tag) + '</span>';
-            });
+        var div = document.createElement('div');
+        div.className = 'catalog-source' + (isExpanded ? ' catalog-source-expanded' : '');
+        div.setAttribute('data-source-id', sourceId);
 
-            html += '<div class="catalog-card">' +
-                '<div class="catalog-card-icon" style="background:' + color + '">' + letter + '</div>' +
-                '<div class="catalog-card-info">' +
-                    '<div class="catalog-card-name">' + escapeHtml(entry.name) + '</div>' +
-                    '<div class="catalog-card-desc">' + escapeHtml(entry.description) + '</div>' +
-                    '<div class="catalog-card-tags">' + tagsHtml + '</div>' +
-                '</div>' +
-                '<div class="catalog-card-toggle">' +
-                    '<label class="toggle-switch" title="' + (enabled ? 'Disable' : 'Enable') + '">' +
-                        '<input type="checkbox" class="catalog-toggle" data-entry-id="' + escapeHtml(entry.id) + '"' + (enabled ? ' checked' : '') + '>' +
+        // Build header
+        var headerHtml =
+            '<div class="catalog-source-header">' +
+                (isSingleItem ? '<span class="catalog-source-arrow" style="visibility:hidden;">&#9654;</span>' :
+                    '<span class="catalog-source-arrow">&#9654;</span>') +
+                '<span class="catalog-source-name">' + escapeHtml(source.name) + '</span>' +
+                '<span class="catalog-source-badge ' + badgeClass + '">' + escapeHtml(categoryLabel) + '</span>' +
+                '<span class="catalog-source-stats">' + source.total_items + ' item' + (source.total_items === 1 ? '' : 's') + '</span>' +
+                '<span class="catalog-source-counts">' + (source.enabled_items || 0) + '/' + source.total_items + '</span>';
+
+        // For single-item sources, show inline toggle
+        if (isSingleItem) {
+            var singleEnabled = (source.enabled_items || 0) > 0;
+            headerHtml +=
+                '<span class="catalog-source-inline-toggle">' +
+                    '<label class="toggle-switch" title="' + (singleEnabled ? 'Disable' : 'Enable') + '">' +
+                        '<input type="checkbox" class="catalog-single-toggle" data-source-id="' + escapeHtml(sourceId) + '"' + (singleEnabled ? ' checked' : '') + '>' +
                         '<span class="toggle-slider"></span>' +
                     '</label>' +
+                '</span>';
+        }
+
+        headerHtml += '</div>';
+
+        // Build items container (for multi-item sources)
+        var itemsHtml = '';
+        if (!isSingleItem) {
+            itemsHtml = '<div class="catalog-items-container">' +
+                '<div class="catalog-items-inner" data-source-id="' + escapeHtml(sourceId) + '">' +
+                    '<div class="loading-state" style="padding:8px 0;"><div class="spinner"></div></div>' +
                 '</div>' +
             '</div>';
-        });
-        grid.innerHTML = html;
+        }
 
-        // Wire toggle events
-        grid.querySelectorAll('.catalog-toggle').forEach(function(cb) {
-            cb.addEventListener('change', async function() {
-                var entryId = cb.getAttribute('data-entry-id');
-                var enabled = cb.checked;
-                catalogTeamState[entryId] = enabled;
+        div.innerHTML = headerHtml + itemsHtml;
+
+        // Wire header click to expand/collapse (only for multi-item)
+        var header = div.querySelector('.catalog-source-header');
+        if (!isSingleItem) {
+            header.addEventListener('click', function(e) {
+                // Don't toggle when clicking a toggle switch
+                if (e.target.closest('.catalog-source-inline-toggle') || e.target.closest('.toggle-switch')) return;
+                catalogExpandedSources[sourceId] = !catalogExpandedSources[sourceId];
+                div.classList.toggle('catalog-source-expanded');
+                if (catalogExpandedSources[sourceId] && !catalogSourceItems[sourceId]) {
+                    loadCatalogSourceItems(sourceId);
+                }
+            });
+        }
+
+        // Wire single-item toggle
+        var singleToggle = div.querySelector('.catalog-single-toggle');
+        if (singleToggle) {
+            singleToggle.addEventListener('click', function(e) {
+                e.stopPropagation();
+            });
+            singleToggle.addEventListener('change', async function() {
+                var enabled = singleToggle.checked;
                 try {
-                    var resp = await api('PUT', '/api/v1/teams/' + activeTeamId + '/catalog/' + entryId, { enabled: enabled });
-                    if (!resp.ok) {
+                    // For single-item sources, we need to fetch the item slug first, then toggle
+                    if (!catalogSourceItems[sourceId]) {
+                        await loadCatalogSourceItems(sourceId);
+                    }
+                    var items = (catalogSourceItems[sourceId] || {}).items || [];
+                    if (items.length > 0) {
+                        var item = items[0];
+                        var resp = await api('PUT', '/api/v1/teams/' + activeTeamId + '/catalog/' + encodeURIComponent(sourceId) + '/' + encodeURIComponent(item.slug), { enabled: enabled });
+                        if (resp.ok) {
+                            item.enabled = enabled;
+                            source.enabled_items = enabled ? 1 : 0;
+                            updateSourceCounts(sourceId, source);
+                        } else {
+                            singleToggle.checked = !enabled;
+                        }
+                    }
+                } catch (e) {
+                    singleToggle.checked = !enabled;
+                }
+            });
+        }
+
+        // If already expanded, load items
+        if (isExpanded && !isSingleItem && !catalogSourceItems[sourceId]) {
+            loadCatalogSourceItems(sourceId);
+        } else if (isExpanded && !isSingleItem && catalogSourceItems[sourceId]) {
+            renderCatalogItems(sourceId);
+        }
+
+        return div;
+    }
+
+    async function loadCatalogSourceItems(sourceId) {
+        var searchQuery = catalogItemSearchFilters[sourceId] || '';
+        try {
+            var url = '/api/v1/teams/' + activeTeamId + '/catalog/' + encodeURIComponent(sourceId);
+            if (searchQuery) url += '?search=' + encodeURIComponent(searchQuery);
+            var resp = await api('GET', url);
+            if (resp.ok) {
+                var data = await resp.json();
+                catalogSourceItems[sourceId] = { items: data.items || [], loaded: true };
+                renderCatalogItems(sourceId);
+            }
+        } catch (e) {
+            var innerEl = document.querySelector('.catalog-items-inner[data-source-id="' + sourceId + '"]');
+            if (innerEl) innerEl.innerHTML = '<p style="color:var(--status-error);font-size:13px;">Failed to load items.</p>';
+        }
+    }
+
+    function renderCatalogItems(sourceId) {
+        var innerEl = document.querySelector('.catalog-items-inner[data-source-id="' + sourceId + '"]');
+        if (!innerEl) return;
+
+        var cached = catalogSourceItems[sourceId];
+        if (!cached || !cached.items) {
+            innerEl.innerHTML = '<div class="loading-state" style="padding:8px 0;"><div class="spinner"></div></div>';
+            return;
+        }
+
+        var items = cached.items.slice();
+        var showAll = catalogShowAllSources[sourceId] || false;
+        var searchFilter = catalogItemSearchFilters[sourceId] || '';
+
+        // Sort: enabled items first
+        items.sort(function(a, b) {
+            if (a.enabled && !b.enabled) return -1;
+            if (!a.enabled && b.enabled) return 1;
+            return (a.name || '').localeCompare(b.name || '');
+        });
+
+        // Filter by local search
+        if (searchFilter) {
+            var q = searchFilter.toLowerCase();
+            items = items.filter(function(item) {
+                return (item.name + ' ' + (item.description || '') + ' ' + (item.slug || '')).toLowerCase().indexOf(q) !== -1;
+            });
+        }
+
+        var totalCount = items.length;
+        var displayLimit = 10;
+        var displayItems = showAll ? items : items.slice(0, displayLimit);
+        var hasMore = !showAll && totalCount > displayLimit;
+
+        var html = '';
+
+        // Search box (show for sources with >10 items)
+        if (totalCount > displayLimit || searchFilter) {
+            html += '<input type="text" class="catalog-item-search" placeholder="Filter items..." value="' + escapeHtml(searchFilter) + '" data-source-id="' + escapeHtml(sourceId) + '">';
+        }
+
+        html += '<div class="catalog-items-list">';
+        displayItems.forEach(function(item) {
+            html += '<div class="catalog-item">' +
+                '<input type="checkbox" class="catalog-item-toggle" data-source-id="' + escapeHtml(sourceId) + '" data-item-slug="' + escapeHtml(item.slug) + '"' + (item.enabled ? ' checked' : '') + '>' +
+                '<div class="catalog-item-info">' +
+                    '<div class="catalog-item-name">' + escapeHtml(item.name) + '</div>' +
+                    (item.description ? '<div class="catalog-item-desc">' + escapeHtml(item.description) + '</div>' : '') +
+                '</div>' +
+                (item.item_type ? '<span class="catalog-item-type">' + escapeHtml(item.item_type) + '</span>' : '') +
+            '</div>';
+        });
+        html += '</div>';
+
+        if (hasMore) {
+            var remaining = totalCount - displayLimit;
+            html += '<button class="catalog-show-all" data-source-id="' + escapeHtml(sourceId) + '">Show all (' + remaining + ' more)</button>';
+        }
+
+        innerEl.innerHTML = html;
+
+        // Wire search
+        var searchInput = innerEl.querySelector('.catalog-item-search');
+        if (searchInput) {
+            searchInput.addEventListener('input', debounce(function() {
+                catalogItemSearchFilters[sourceId] = searchInput.value;
+                renderCatalogItems(sourceId);
+            }, 200));
+            // Prevent header click when clicking in search
+            searchInput.addEventListener('click', function(e) { e.stopPropagation(); });
+        }
+
+        // Wire show-all
+        var showAllBtn = innerEl.querySelector('.catalog-show-all');
+        if (showAllBtn) {
+            showAllBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                catalogShowAllSources[sourceId] = true;
+                renderCatalogItems(sourceId);
+            });
+        }
+
+        // Wire item toggles
+        innerEl.querySelectorAll('.catalog-item-toggle').forEach(function(cb) {
+            cb.addEventListener('click', function(e) { e.stopPropagation(); });
+            cb.addEventListener('change', async function() {
+                var itemSlug = cb.getAttribute('data-item-slug');
+                var sid = cb.getAttribute('data-source-id');
+                var enabled = cb.checked;
+                try {
+                    var resp = await api('PUT', '/api/v1/teams/' + activeTeamId + '/catalog/' + encodeURIComponent(sid) + '/' + encodeURIComponent(itemSlug), { enabled: enabled });
+                    if (resp.ok) {
+                        // Update local cache
+                        var cached = catalogSourceItems[sid];
+                        if (cached) {
+                            cached.items.forEach(function(it) {
+                                if (it.slug === itemSlug) it.enabled = enabled;
+                            });
+                        }
+                        // Update source counts
+                        var src = catalogSources.find(function(s) { return s.source_id === sid; });
+                        if (src) {
+                            src.enabled_items = (src.enabled_items || 0) + (enabled ? 1 : -1);
+                            if (src.enabled_items < 0) src.enabled_items = 0;
+                            updateSourceCounts(sid, src);
+                        }
+                    } else {
                         cb.checked = !enabled;
-                        catalogTeamState[entryId] = !enabled;
                     }
                 } catch (e) {
                     cb.checked = !enabled;
-                    catalogTeamState[entryId] = !enabled;
                 }
             });
         });
+    }
+
+    function updateSourceCounts(sourceId, source) {
+        var sourceEl = document.querySelector('.catalog-source[data-source-id="' + sourceId + '"]');
+        if (!sourceEl) return;
+        var countsEl = sourceEl.querySelector('.catalog-source-counts');
+        if (countsEl) {
+            countsEl.textContent = (source.enabled_items || 0) + '/' + source.total_items;
+        }
     }
 
     function renderCatalogCustomPlugins() {
@@ -7173,12 +7339,6 @@
             });
         });
     }
-
-    // Search input handler
-    $('#catalog-search').addEventListener('input', debounce(function() {
-        catalogSearchFilter = $('#catalog-search').value;
-        renderCatalogGrid();
-    }, 300));
 
     // Custom plugin add handler
     $('#custom-plugin-add').addEventListener('click', async function() {

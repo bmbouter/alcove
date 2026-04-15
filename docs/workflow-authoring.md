@@ -30,6 +30,54 @@ workflow:
 Bridge actions are faster, cheaper, and more reliable than asking an agent to
 run shell commands for the same task.
 
+## Using Catalog Agents in Workflows
+
+Agent steps reference agents by name using the `agent` field. When agents come
+from the catalog, use the `source/item` slug format:
+
+```yaml
+workflow:
+  steps:
+    - id: implement
+      type: agent
+      agent: "my-agents/dev"
+
+    - id: code-review
+      type: agent
+      agent: "my-agents/reviewer"
+      depends: "implement.Succeeded"
+```
+
+The `source/item` slug corresponds to a catalog source and an item within it.
+Only agents that are enabled for the team can be referenced in workflows.
+
+### Checking Available Agents
+
+Before authoring a workflow, check which agents your team has enabled:
+
+```bash
+# CLI
+alcove catalog agents
+
+# API
+curl -H "Authorization: Bearer $TOKEN" \
+     -H "X-Alcove-Team: $TEAM_ID" \
+     http://localhost:8080/api/v1/teams/$TEAM_ID/agents
+```
+
+### Workflow Validation
+
+Bridge validates agent references at sync time. If a workflow step references
+an agent that is unknown (not in any catalog source) or disabled (not enabled
+for the team), Bridge reports the error during sync rather than allowing the
+workflow to fail silently at runtime.
+
+| Condition | Result |
+|-----------|--------|
+| Agent slug exists and is enabled | Sync succeeds |
+| Agent slug exists but is disabled | Sync warning |
+| Agent slug not found in any source | Sync error |
+
 ## Bridge Actions Reference
 
 ### create-pr

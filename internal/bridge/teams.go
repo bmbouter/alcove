@@ -443,6 +443,12 @@ func (a *API) handleTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Handle /api/v1/teams/{id}/agents
+	if len(parts) == 2 && parts[1] == "agents" {
+		a.handleTeamAgents(w, r, teamID)
+		return
+	}
+
 	// Handle /api/v1/teams/{id}/members or /api/v1/teams/{id}/members/{username}
 	if len(parts) == 2 && strings.HasPrefix(parts[1], "members") {
 		a.handleTeamMembersRoute(w, r, teamID, parts[1])
@@ -536,33 +542,24 @@ func (a *API) handleTeamMembersRoute(w http.ResponseWriter, r *http.Request, tea
 }
 
 func (a *API) handleTeamCatalogRoute(w http.ResponseWriter, r *http.Request, teamID, catalogPath string) {
-	subParts := strings.SplitN(catalogPath, "/", 3)
+	subParts := strings.SplitN(catalogPath, "/", 4)
 	// subParts[0] = "catalog"
-	// subParts[1] = entryId or "custom" (optional)
-	// subParts[2] = index for custom delete (optional)
+	// subParts[1] = sourceId or "custom" (optional)
+	// subParts[2] = itemSlug (optional)
+	// subParts[3] = extra path (custom delete index)
 
 	if len(subParts) == 1 {
-		// /teams/{id}/catalog
+		// GET /teams/{id}/catalog — list sources with item counts
 		switch r.Method {
 		case http.MethodGet:
-			catalog := LoadCatalog()
-			enabledMap, _ := a.teamStore.GetTeamCatalog(r.Context(), teamID)
-			if enabledMap == nil {
-				enabledMap = make(map[string]bool)
-			}
-			customPlugins, _ := a.teamStore.GetTeamCustomPlugins(r.Context(), teamID)
-
-			type entryWithStatus struct {
-				CatalogEntry
-				Enabled bool `json:"enabled"`
-			}
-			entries := make([]entryWithStatus, len(catalog))
-			for i, e := range catalog {
-				entries[i] = entryWithStatus{CatalogEntry: e, Enabled: enabledMap[e.ID]}
+			sources, err := a.catalogItemStore.ListSourcesWithCounts(r.Context(), teamID)
+			if err != nil {
+				log.Printf("error: listing sources with counts: %v", err)
+				respondError(w, http.StatusInternalServerError, "failed to list catalog sources")
+				return
 			}
 			respondJSON(w, http.StatusOK, map[string]any{
-				"entries":        entries,
-				"custom_plugins": customPlugins,
+				"sources": sources,
 			})
 		default:
 			respondError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -615,27 +612,72 @@ func (a *API) handleTeamCatalogRoute(w http.ResponseWriter, r *http.Request, tea
 		return
 	}
 
-	// PUT /teams/{id}/catalog/{entryId} — toggle
-	entryID := action
-	if r.Method != http.MethodPut {
-		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
+	sourceID := action
 
-	// Validate entry exists in catalog
+	// Validate source exists in catalog.
 	catalog := LoadCatalog()
 	found := false
 	for _, e := range catalog {
-		if e.ID == entryID {
+		if e.ID == sourceID {
 			found = true
 			break
 		}
 	}
 	if !found {
-		respondError(w, http.StatusNotFound, "catalog entry not found: "+entryID)
+		respondError(w, http.StatusNotFound, "catalog source not found: "+sourceID)
 		return
 	}
 
+	if len(subParts) == 2 {
+		// /teams/{id}/catalog/{source}
+		switch r.Method {
+		case http.MethodGet:
+			// GET /teams/{id}/catalog/{source} — list items with team enablement
+			search := r.URL.Query().Get("search")
+			items, err := a.catalogItemStore.ListItemsForTeam(r.Context(), sourceID, teamID, search)
+			if err != nil {
+				log.Printf("error: listing items for team: %v", err)
+				respondError(w, http.StatusInternalServerError, "failed to list items")
+				return
+			}
+			respondJSON(w, http.StatusOK, map[string]any{
+				"source_id": sourceID,
+				"items":     items,
+			})
+		case http.MethodPut:
+			// PUT /teams/{id}/catalog/{source} — bulk toggle items
+			var req struct {
+				Items []ItemToggle `json:"items"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				respondError(w, http.StatusBadRequest, "invalid request: "+err.Error())
+				return
+			}
+			if len(req.Items) == 0 {
+				respondError(w, http.StatusBadRequest, "items array is required")
+				return
+			}
+			if err := a.catalogItemStore.BulkSetItemsEnabled(r.Context(), teamID, sourceID, req.Items); err != nil {
+				log.Printf("error: bulk toggling items: %v", err)
+				respondError(w, http.StatusInternalServerError, "failed to update items")
+				return
+			}
+			respondJSON(w, http.StatusOK, map[string]any{"updated": true, "source_id": sourceID, "count": len(req.Items)})
+		default:
+			respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+		return
+	}
+
+	// /teams/{id}/catalog/{source}/{item}
+	itemSlug := subParts[2]
+
+	if r.Method != http.MethodPut {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	// PUT /teams/{id}/catalog/{source}/{item} — toggle individual item
 	var req struct {
 		Enabled bool `json:"enabled"`
 	}
@@ -644,14 +686,29 @@ func (a *API) handleTeamCatalogRoute(w http.ResponseWriter, r *http.Request, tea
 		return
 	}
 
-	enabledMap, _ := a.teamStore.GetTeamCatalog(r.Context(), teamID)
-	if enabledMap == nil {
-		enabledMap = make(map[string]bool)
-	}
-	enabledMap[entryID] = req.Enabled
-	if err := a.teamStore.SetTeamCatalog(r.Context(), teamID, enabledMap); err != nil {
-		respondError(w, http.StatusInternalServerError, "failed to save")
+	if err := a.catalogItemStore.SetItemEnabled(r.Context(), teamID, sourceID, itemSlug, req.Enabled); err != nil {
+		log.Printf("error: setting item enabled: %v", err)
+		respondError(w, http.StatusInternalServerError, "failed to update item")
 		return
 	}
-	respondJSON(w, http.StatusOK, map[string]any{"updated": true, "entry_id": entryID, "enabled": req.Enabled})
+	respondJSON(w, http.StatusOK, map[string]any{"updated": true, "source_id": sourceID, "item_slug": itemSlug, "enabled": req.Enabled})
+}
+
+// handleTeamAgents handles GET /api/v1/teams/{id}/agents — list all enabled agents for workflow authoring.
+func (a *API) handleTeamAgents(w http.ResponseWriter, r *http.Request, teamID string) {
+	if r.Method != http.MethodGet {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	agents, err := a.catalogItemStore.ListEnabledAgents(r.Context(), teamID)
+	if err != nil {
+		log.Printf("error: listing enabled agents: %v", err)
+		respondError(w, http.StatusInternalServerError, "failed to list agents")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"agents": agents,
+	})
 }

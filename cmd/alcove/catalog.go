@@ -20,33 +20,49 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 )
 
-// catalogEntry represents a single entry from the global catalog.
-type catalogEntry struct {
-	ID          string `json:"id"`
-	Category    string `json:"category"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
+// catalogSourceEntry represents a source with item counts from GET /api/v1/teams/{team}/catalog.
+type catalogSourceEntry struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Category     string `json:"category"`
+	ItemCount    int    `json:"item_count"`
+	EnabledCount int    `json:"enabled_count"`
 }
 
-// catalogListResponse is the response from GET /api/v1/catalog.
-type catalogListResponse struct {
-	Entries []catalogEntry `json:"entries"`
+// catalogSourcesResponse is the response from GET /api/v1/teams/{team}/catalog.
+type catalogSourcesResponse struct {
+	Sources []catalogSourceEntry `json:"sources"`
 }
 
-// teamCatalogEntry represents a catalog entry enabled for a team.
-type teamCatalogEntry struct {
-	ID      string `json:"id"`
+// catalogItem represents a single item within a source from GET /api/v1/teams/{team}/catalog/{source}.
+type catalogItem struct {
+	Slug    string `json:"slug"`
+	Name    string `json:"name"`
+	Type    string `json:"type"`
 	Enabled bool   `json:"enabled"`
 }
 
-// teamCatalogResponse is the response from GET /api/v1/teams/{teamId}/catalog.
-type teamCatalogResponse struct {
-	Entries []teamCatalogEntry `json:"entries"`
+// catalogItemsResponse is the response from GET /api/v1/teams/{team}/catalog/{source}.
+type catalogItemsResponse struct {
+	Items []catalogItem `json:"items"`
+}
+
+// catalogAgent represents an enabled agent from GET /api/v1/teams/{team}/agents.
+type catalogAgent struct {
+	Source string `json:"source"`
+	Slug   string `json:"slug"`
+	Name   string `json:"name"`
+}
+
+// catalogAgentsResponse is the response from GET /api/v1/teams/{team}/agents.
+type catalogAgentsResponse struct {
+	Agents []catalogAgent `json:"agents"`
 }
 
 func newCatalogCmd() *cobra.Command {
@@ -56,8 +72,10 @@ func newCatalogCmd() *cobra.Command {
 	}
 	cmd.AddCommand(
 		newCatalogListCmd(),
+		newCatalogItemsCmd(),
 		newCatalogEnableCmd(),
 		newCatalogDisableCmd(),
+		newCatalogAgentsCmd(),
 	)
 	return cmd
 }
@@ -67,25 +85,26 @@ func newCatalogCmd() *cobra.Command {
 func newCatalogListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List catalog entries",
+		Short: "List catalog sources with item counts",
 		RunE:  runCatalogList,
 	}
 	cmd.Flags().String("category", "", "Filter by category")
 	return cmd
 }
 
-// catalogDisplayEntry combines catalog metadata with team-specific enabled state.
-type catalogDisplayEntry struct {
-	ID          string `json:"id"`
-	Category    string `json:"category"`
-	Name        string `json:"name"`
-	Enabled     bool   `json:"enabled"`
-	Description string `json:"description"`
-}
-
 func runCatalogList(cmd *cobra.Command, _ []string) error {
-	// Fetch the global catalog
-	resp, err := apiRequestRaw(cmd, http.MethodGet, "/api/v1/catalog", nil, "")
+	teamName := resolveTeamName(cmd)
+	if teamName == "" {
+		return fmt.Errorf("no active team; use 'alcove teams use <name>' or --team to set one")
+	}
+
+	teamID, err := resolveTeamID(cmd, teamName)
+	if err != nil {
+		return err
+	}
+
+	path := fmt.Sprintf("/api/v1/teams/%s/catalog", teamID)
+	resp, err := apiRequestRaw(cmd, http.MethodGet, path, nil, teamID)
 	if err != nil {
 		return err
 	}
@@ -96,70 +115,112 @@ func runCatalogList(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
 	}
 
-	var catalog catalogListResponse
-	if err := json.NewDecoder(resp.Body).Decode(&catalog); err != nil {
+	var result catalogSourcesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return fmt.Errorf("decoding catalog response: %w", err)
 	}
 
-	// Build a map of enabled states from the team catalog (if a team is active)
-	enabledMap := make(map[string]bool)
-	teamName := resolveTeamName(cmd)
-	if teamName != "" {
-		teamID, err := resolveTeamID(cmd, teamName)
-		if err == nil {
-			path := fmt.Sprintf("/api/v1/teams/%s/catalog", teamID)
-			teamResp, err := apiRequestRaw(cmd, http.MethodGet, path, nil, teamID)
-			if err == nil {
-				defer teamResp.Body.Close()
-				if teamResp.StatusCode == http.StatusOK {
-					var teamCatalog teamCatalogResponse
-					if err := json.NewDecoder(teamResp.Body).Decode(&teamCatalog); err == nil {
-						for _, entry := range teamCatalog.Entries {
-							enabledMap[entry.ID] = entry.Enabled
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// Merge catalog entries with enabled state
 	categoryFilter, _ := cmd.Flags().GetString("category")
-	var display []catalogDisplayEntry
-	for _, entry := range catalog.Entries {
-		if categoryFilter != "" && entry.Category != categoryFilter {
+	var filtered []catalogSourceEntry
+	for _, s := range result.Sources {
+		if categoryFilter != "" && s.Category != categoryFilter {
 			continue
 		}
-		display = append(display, catalogDisplayEntry{
-			ID:          entry.ID,
-			Category:    entry.Category,
-			Name:        entry.Name,
-			Enabled:     enabledMap[entry.ID],
-			Description: entry.Description,
-		})
+		filtered = append(filtered, s)
 	}
 
 	if isJSONOutput(cmd) {
-		return outputJSON(display)
+		return outputJSON(filtered)
 	}
 
-	if len(display) == 0 {
-		fmt.Fprintln(os.Stderr, "No catalog entries found.")
+	if len(filtered) == 0 {
+		fmt.Fprintln(os.Stderr, "No catalog sources found.")
 		return nil
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tCATEGORY\tNAME\tENABLED\tDESCRIPTION")
-	for _, d := range display {
+	fmt.Fprintln(w, "SOURCE\tCATEGORY\tITEMS\tENABLED")
+	for _, s := range filtered {
+		enabled := fmt.Sprintf("%d/%d", s.EnabledCount, s.ItemCount)
+		fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", s.Name, s.Category, s.ItemCount, enabled)
+	}
+	return w.Flush()
+}
+
+// ---------- catalog items ----------
+
+func newCatalogItemsCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "items <source>",
+		Short: "List items within a catalog source",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runCatalogItems,
+	}
+	cmd.Flags().String("search", "", "Filter items by name or slug")
+	return cmd
+}
+
+func runCatalogItems(cmd *cobra.Command, args []string) error {
+	source := args[0]
+
+	teamName := resolveTeamName(cmd)
+	if teamName == "" {
+		return fmt.Errorf("no active team; use 'alcove teams use <name>' or --team to set one")
+	}
+
+	teamID, err := resolveTeamID(cmd, teamName)
+	if err != nil {
+		return err
+	}
+
+	path := fmt.Sprintf("/api/v1/teams/%s/catalog/%s", teamID, source)
+	resp, err := apiRequestRaw(cmd, http.MethodGet, path, nil, teamID)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result catalogItemsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("decoding items response: %w", err)
+	}
+
+	// Apply search filter if provided
+	search, _ := cmd.Flags().GetString("search")
+	var filtered []catalogItem
+	for _, item := range result.Items {
+		if search != "" {
+			lowerSearch := strings.ToLower(search)
+			if !strings.Contains(strings.ToLower(item.Slug), lowerSearch) &&
+				!strings.Contains(strings.ToLower(item.Name), lowerSearch) {
+				continue
+			}
+		}
+		filtered = append(filtered, item)
+	}
+
+	if isJSONOutput(cmd) {
+		return outputJSON(filtered)
+	}
+
+	if len(filtered) == 0 {
+		fmt.Fprintln(os.Stderr, "No items found.")
+		return nil
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(w, "SLUG\tNAME\tTYPE\tENABLED")
+	for _, item := range filtered {
 		enabled := "no"
-		if d.Enabled {
+		if item.Enabled {
 			enabled = "yes"
 		}
-		desc := d.Description
-		if len(desc) > 50 {
-			desc = desc[:47] + "..."
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", d.ID, d.Category, d.Name, enabled, desc)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", item.Slug, item.Name, item.Type, enabled)
 	}
 	return w.Flush()
 }
@@ -168,10 +229,18 @@ func runCatalogList(cmd *cobra.Command, _ []string) error {
 
 func newCatalogEnableCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "enable <id>",
-		Short: "Enable a catalog entry for the active team",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runCatalogEnable,
+		Use:   "enable <source>[/<item>]",
+		Short: "Enable a catalog source or individual item for the active team",
+		Long: `Enable a catalog source or individual item.
+
+When the argument contains "/", it enables a single item within a source.
+When no "/", it enables ALL items in the source (bulk enable).
+
+Examples:
+  alcove catalog enable agency-agents/marketing-writer   # enable single item
+  alcove catalog enable agency-agents                     # enable all items in source`,
+		Args: cobra.ExactArgs(1),
+		RunE: runCatalogEnable,
 	}
 }
 
@@ -183,10 +252,18 @@ func runCatalogEnable(cmd *cobra.Command, args []string) error {
 
 func newCatalogDisableCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "disable <id>",
-		Short: "Disable a catalog entry for the active team",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runCatalogDisable,
+		Use:   "disable <source>[/<item>]",
+		Short: "Disable a catalog source or individual item for the active team",
+		Long: `Disable a catalog source or individual item.
+
+When the argument contains "/", it disables a single item within a source.
+When no "/", it disables ALL items in the source (bulk disable).
+
+Examples:
+  alcove catalog disable agency-agents/marketing-writer   # disable single item
+  alcove catalog disable agency-agents                     # disable all items in source`,
+		Args: cobra.ExactArgs(1),
+		RunE: runCatalogDisable,
 	}
 }
 
@@ -195,7 +272,9 @@ func runCatalogDisable(cmd *cobra.Command, args []string) error {
 }
 
 // setCatalogEnabled enables or disables a catalog entry for the active team.
-func setCatalogEnabled(cmd *cobra.Command, entryID string, enabled bool) error {
+// If the argument contains "/", it toggles a single item (PUT /api/v1/teams/{team}/catalog/{source}/{item}).
+// Otherwise, it toggles all items in the source (PUT /api/v1/teams/{team}/catalog/{source}).
+func setCatalogEnabled(cmd *cobra.Command, arg string, enabled bool) error {
 	teamName := resolveTeamName(cmd)
 	if teamName == "" {
 		return fmt.Errorf("no active team; use 'alcove teams use <name>' or --team to set one")
@@ -207,7 +286,18 @@ func setCatalogEnabled(cmd *cobra.Command, entryID string, enabled bool) error {
 	}
 
 	reqBody := map[string]bool{"enabled": enabled}
-	path := fmt.Sprintf("/api/v1/teams/%s/catalog/%s", teamID, entryID)
+
+	var path string
+	var displayName string
+	if source, item, ok := strings.Cut(arg, "/"); ok {
+		// Single item: PUT /api/v1/teams/{team}/catalog/{source}/{item}
+		path = fmt.Sprintf("/api/v1/teams/%s/catalog/%s/%s", teamID, source, item)
+		displayName = arg
+	} else {
+		// Bulk source: PUT /api/v1/teams/{team}/catalog/{source}
+		path = fmt.Sprintf("/api/v1/teams/%s/catalog/%s", teamID, arg)
+		displayName = arg
+	}
 
 	resp, err := apiRequestRaw(cmd, http.MethodPut, path, reqBody, teamID)
 	if err != nil {
@@ -226,9 +316,65 @@ func setCatalogEnabled(cmd *cobra.Command, entryID string, enabled bool) error {
 	}
 
 	if isJSONOutput(cmd) {
-		return outputJSON(map[string]string{"id": entryID, "team": teamName, "status": action})
+		return outputJSON(map[string]string{"id": displayName, "team": teamName, "status": action})
 	}
 
-	fmt.Fprintf(os.Stderr, "Catalog entry %s %s for team %s\n", entryID, action, teamName)
+	fmt.Fprintf(os.Stderr, "Catalog entry %s %s for team %s\n", displayName, action, teamName)
 	return nil
+}
+
+// ---------- catalog agents ----------
+
+func newCatalogAgentsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "agents",
+		Short: "List all enabled agents across all sources",
+		RunE:  runCatalogAgents,
+	}
+}
+
+func runCatalogAgents(cmd *cobra.Command, _ []string) error {
+	teamName := resolveTeamName(cmd)
+	if teamName == "" {
+		return fmt.Errorf("no active team; use 'alcove teams use <name>' or --team to set one")
+	}
+
+	teamID, err := resolveTeamID(cmd, teamName)
+	if err != nil {
+		return err
+	}
+
+	path := fmt.Sprintf("/api/v1/teams/%s/agents", teamID)
+	resp, err := apiRequestRaw(cmd, http.MethodGet, path, nil, teamID)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result catalogAgentsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("decoding agents response: %w", err)
+	}
+
+	if isJSONOutput(cmd) {
+		return outputJSON(result.Agents)
+	}
+
+	if len(result.Agents) == 0 {
+		fmt.Fprintln(os.Stderr, "No enabled agents found.")
+		return nil
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(w, "SOURCE/SLUG\tNAME")
+	for _, a := range result.Agents {
+		sourceSlug := fmt.Sprintf("%s/%s", a.Source, a.Slug)
+		fmt.Fprintf(w, "%s\t%s\n", sourceSlug, a.Name)
+	}
+	return w.Flush()
 }
