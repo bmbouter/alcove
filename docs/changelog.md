@@ -3,6 +3,19 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.18.0
+
+### Features
+- Add workflow graph v2: bridge actions, bounded cycles, depends
+  expressions, minimal prompts, workflow migration, and authoring guide.
+
+### Bug Fixes
+- Fix Docker network syntax: use separate --network flags instead of
+  comma-separated, fixing compatibility with QNAP Docker.
+- Fix default Gate and Skiff image refs to use GHCR instead of
+  localhost/dev, fixing standalone Docker deployments.
+- Remove stale skill-repo references from docs and CSS.
+
 ## v0.17.0
 
 ### Features
