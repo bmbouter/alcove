@@ -64,7 +64,8 @@ type TaskDefinition struct {
 	Credentials map[string]string     `json:"credentials,omitempty" yaml:"credentials"`
 	Schedule    *TaskDefSchedule      `json:"schedule,omitempty" yaml:"schedule"`
 	Trigger     *EventTrigger         `json:"trigger,omitempty" yaml:"trigger"`
-	CIGate      *CIGate               `json:"ci_gate,omitempty" yaml:"ci_gate"`
+	CIGate         *CIGate               `json:"ci_gate,omitempty" yaml:"ci_gate"`
+	DirectOutbound bool                  `json:"direct_outbound,omitempty" yaml:"direct_outbound"`
 
 	// Metadata (not from YAML).
 	TeamID       string     `json:"team_id,omitempty"`
@@ -130,18 +131,19 @@ func ParseTaskDefinition(data []byte) (*TaskDefinition, error) {
 // dispatching via the Dispatcher.
 func (td *TaskDefinition) ToTaskRequest() TaskRequest {
 	return TaskRequest{
-		Prompt:      td.Prompt,
-		Executable:  td.Executable,
-		Repo:        td.Repo,
-		Provider:    td.Provider,
-		Timeout:     td.Timeout,
-		Tools:       td.Tools,
-		Profiles:    td.Profiles,
-		Model:       td.Model,
-		Budget:      td.BudgetUSD,
-		Debug:       td.Debug,
-		Plugins:     td.Plugins,
-		Credentials: td.Credentials,
+		Prompt:         td.Prompt,
+		Executable:     td.Executable,
+		Repo:           td.Repo,
+		Provider:       td.Provider,
+		Timeout:        td.Timeout,
+		Tools:          td.Tools,
+		Profiles:       td.Profiles,
+		Model:          td.Model,
+		Budget:         td.BudgetUSD,
+		Debug:          td.Debug,
+		Plugins:        td.Plugins,
+		Credentials:    td.Credentials,
+		DirectOutbound: td.DirectOutbound,
 	}
 }
 

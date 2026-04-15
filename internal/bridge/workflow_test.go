@@ -810,6 +810,39 @@ workflow:
 	}
 }
 
+func TestParseWorkflowWithDirectOutbound(t *testing.T) {
+	yamlData := `
+name: Test
+workflow:
+  - id: step1
+    agent: Test Agent
+    direct_outbound: true
+`
+	wd, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !wd.Workflow[0].DirectOutbound {
+		t.Error("expected DirectOutbound=true")
+	}
+}
+
+func TestParseWorkflowWithDirectOutboundFalse(t *testing.T) {
+	yamlData := `
+name: Test
+workflow:
+  - id: step1
+    agent: Test Agent
+`
+	wd, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if wd.Workflow[0].DirectOutbound {
+		t.Error("expected DirectOutbound=false by default")
+	}
+}
+
 func TestValidateConditionSyntax_Enhanced(t *testing.T) {
 	tests := []struct {
 		condition string

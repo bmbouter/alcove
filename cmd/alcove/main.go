@@ -574,17 +574,19 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().Duration("timeout", 0, "Session timeout (e.g., 30m, 1h)")
 	cmd.Flags().Bool("watch", false, "Stream transcript via SSE after dispatch")
 	cmd.Flags().Bool("debug", false, "Keep containers after exit for log inspection")
+	cmd.Flags().Bool("direct-outbound", false, "Allow direct outbound network connections (bypasses Gate proxy)")
 	return cmd
 }
 
 type runRequest struct {
-	Prompt   string  `json:"prompt"`
-	Repo     string  `json:"repo,omitempty"`
-	Provider string  `json:"provider,omitempty"`
-	Timeout  int     `json:"timeout,omitempty"`
-	Model    string  `json:"model,omitempty"`
-	Budget   float64 `json:"budget_usd,omitempty"`
-	Debug    bool    `json:"debug,omitempty"`
+	Prompt         string  `json:"prompt"`
+	Repo           string  `json:"repo,omitempty"`
+	Provider       string  `json:"provider,omitempty"`
+	Timeout        int     `json:"timeout,omitempty"`
+	Model          string  `json:"model,omitempty"`
+	Budget         float64 `json:"budget_usd,omitempty"`
+	Debug          bool    `json:"debug,omitempty"`
+	DirectOutbound bool    `json:"direct_outbound,omitempty"`
 }
 
 type runResponse struct {
@@ -604,6 +606,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		reqBody.Timeout = int(t.Seconds())
 	}
 	reqBody.Debug, _ = cmd.Flags().GetBool("debug")
+	reqBody.DirectOutbound, _ = cmd.Flags().GetBool("direct-outbound")
 
 	// Fall back to active profile defaults
 	if profile, err := resolveProfile(cmd); err == nil {
@@ -806,17 +809,18 @@ func newStatusCmd() *cobra.Command {
 }
 
 type statusResponse struct {
-	ID         string `json:"id"`
-	TaskID     string `json:"task_id"`
-	Prompt     string `json:"prompt"`
-	Repo       string `json:"repo,omitempty"`
-	Provider   string `json:"provider"`
-	Status     string `json:"status"`
-	StartedAt  string `json:"started_at"`
-	FinishedAt string `json:"finished_at,omitempty"`
-	Duration   string `json:"duration,omitempty"`
-	ExitCode   *int   `json:"exit_code,omitempty"`
-	Artifacts  []struct {
+	ID             string `json:"id"`
+	TaskID         string `json:"task_id"`
+	Prompt         string `json:"prompt"`
+	Repo           string `json:"repo,omitempty"`
+	Provider       string `json:"provider"`
+	Status         string `json:"status"`
+	StartedAt      string `json:"started_at"`
+	FinishedAt     string `json:"finished_at,omitempty"`
+	Duration       string `json:"duration,omitempty"`
+	ExitCode       *int   `json:"exit_code,omitempty"`
+	DirectOutbound bool   `json:"direct_outbound,omitempty"`
+	Artifacts      []struct {
 		Type string `json:"type"`
 		URL  string `json:"url,omitempty"`
 		Ref  string `json:"ref,omitempty"`
@@ -860,6 +864,9 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 	if result.ExitCode != nil {
 		fmt.Fprintf(os.Stdout, "Exit Code:  %d\n", *result.ExitCode)
+	}
+	if result.DirectOutbound {
+		fmt.Fprintf(os.Stdout, "Network:    direct outbound\n")
 	}
 	fmt.Fprintf(os.Stdout, "Prompt:     %s\n", result.Prompt)
 

@@ -34,8 +34,9 @@ type TaskSpec struct {
 	GateEnv      map[string]string // env vars for gate sidecar
 	Timeout      int64             // seconds
 	Network      string            // podman network name (podman only); used as the internal network
-	ExternalNet  string            // podman external network for gate egress (podman only)
-	Debug        bool              // if true, containers are not auto-removed on exit
+	ExternalNet    string            // podman external network for gate egress (podman only)
+	Debug          bool              // if true, containers are not auto-removed on exit
+	DirectOutbound bool              // if true, skiff gets both networks and no HTTP(S)_PROXY
 }
 
 // ServiceSpec describes a long-lived infrastructure service (Hail, Ledger).

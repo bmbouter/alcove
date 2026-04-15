@@ -87,8 +87,9 @@ type TaskRequest struct {
 	Model      string                `json:"model,omitempty"`
 	Budget     float64               `json:"budget_usd,omitempty"`
 	Debug      bool                  `json:"debug,omitempty"`
-	Plugins    []PluginSpec          `json:"-"` // Set internally from agent definition
-	Credentials map[string]string    `json:"-"` // ENV_VAR_NAME: credential_provider_name
+	Plugins        []PluginSpec          `json:"-"` // Set internally from agent definition
+	Credentials    map[string]string     `json:"-"` // ENV_VAR_NAME: credential_provider_name
+	DirectOutbound bool                  `json:"direct_outbound,omitempty"`
 	// Task metadata — set by dispatch code paths, stored in sessions table.
 	TaskName    string `json:"-"` // Schedule/agent definition name
 	TriggerType string `json:"-"` // "event", "cron", "manual", "webhook"
@@ -642,15 +643,16 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 
 	// Start Skiff pod via Runtime.
 	spec := runtime.TaskSpec{
-		TaskID:      taskID,
-		Image:       envOrDefault("SKIFF_IMAGE", "ghcr.io/bmbouter/alcove-skiff-base:latest"),
-		GateImage:   envOrDefault("GATE_IMAGE", "ghcr.io/bmbouter/alcove-gate:latest"),
-		Env:         skiffEnv,
-		GateEnv:     gateEnv,
-		Timeout:     int64(timeout),
-		Network:     envOrDefault("ALCOVE_NETWORK", runtime.DefaultInternalNetwork),
-		ExternalNet: envOrDefault("ALCOVE_EXTERNAL_NETWORK", runtime.DefaultExternalNetwork),
-		Debug:       req.Debug || d.cfg.DebugMode,
+		TaskID:         taskID,
+		Image:          envOrDefault("SKIFF_IMAGE", "ghcr.io/bmbouter/alcove-skiff-base:latest"),
+		GateImage:      envOrDefault("GATE_IMAGE", "ghcr.io/bmbouter/alcove-gate:latest"),
+		Env:            skiffEnv,
+		GateEnv:        gateEnv,
+		Timeout:        int64(timeout),
+		Network:        envOrDefault("ALCOVE_NETWORK", runtime.DefaultInternalNetwork),
+		ExternalNet:    envOrDefault("ALCOVE_EXTERNAL_NETWORK", runtime.DefaultExternalNetwork),
+		Debug:          req.Debug || d.cfg.DebugMode,
+		DirectOutbound: req.DirectOutbound,
 	}
 
 	handle, err := d.rt.RunTask(ctx, spec)

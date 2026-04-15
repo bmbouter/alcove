@@ -139,6 +139,48 @@ credentials:
 	}
 }
 
+func TestParseTaskDefinitionWithDirectOutbound(t *testing.T) {
+	yamlData := `
+name: Test Agent
+prompt: "test"
+direct_outbound: true
+`
+	td, err := ParseTaskDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !td.DirectOutbound {
+		t.Error("expected DirectOutbound=true")
+	}
+}
+
+func TestParseTaskDefinitionWithDirectOutboundFalse(t *testing.T) {
+	yamlData := `
+name: Test Agent
+prompt: "test"
+`
+	td, err := ParseTaskDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if td.DirectOutbound {
+		t.Error("expected DirectOutbound=false by default")
+	}
+}
+
+func TestToTaskRequestIncludesDirectOutbound(t *testing.T) {
+	def := &TaskDefinition{
+		Name:           "Test Agent",
+		Prompt:         "Do something",
+		DirectOutbound: true,
+	}
+
+	req := def.ToTaskRequest()
+	if !req.DirectOutbound {
+		t.Error("expected DirectOutbound=true in task request")
+	}
+}
+
 func TestToTaskRequestIncludesCredentials(t *testing.T) {
 	def := &TaskDefinition{
 		Name:   "Test Agent",

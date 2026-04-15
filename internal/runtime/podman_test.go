@@ -544,6 +544,91 @@ func TestEnsureNetworks_DefaultNames(t *testing.T) {
 	}
 }
 
+func TestRunTask_DirectOutbound(t *testing.T) {
+	execFn, calls := fakeExecCommand(t, "container-id-123\n", 0)
+	p := &PodmanRuntime{
+		PodmanBin:   "podman",
+		execCommand: execFn,
+	}
+
+	spec := TaskSpec{
+		TaskID:         "task-do",
+		Image:          "quay.io/alcove/skiff:latest",
+		GateImage:      "quay.io/alcove/gate:latest",
+		Env:            map[string]string{"TASK_ID": "task-do"},
+		GateEnv:        map[string]string{"GATE_SCOPE": "read"},
+		Network:        "test-internal",
+		ExternalNet:    "test-external",
+		DirectOutbound: true,
+	}
+
+	_, err := p.RunTask(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("RunTask() error: %v", err)
+	}
+
+	if len(*calls) < 2 {
+		t.Fatalf("expected at least 2 podman calls, got %d", len(*calls))
+	}
+
+	// Skiff (second call) should be on BOTH internal and external networks.
+	skiffArgs := strings.Join((*calls)[1], " ")
+	if !strings.Contains(skiffArgs, "--network test-internal,test-external") {
+		t.Errorf("skiff call should include both networks when DirectOutbound=true: %s", skiffArgs)
+	}
+	// HTTP_PROXY and HTTPS_PROXY must NOT be set.
+	if strings.Contains(skiffArgs, "HTTP_PROXY=") {
+		t.Errorf("skiff call must NOT include HTTP_PROXY when DirectOutbound=true: %s", skiffArgs)
+	}
+	if strings.Contains(skiffArgs, "HTTPS_PROXY=") {
+		t.Errorf("skiff call must NOT include HTTPS_PROXY when DirectOutbound=true: %s", skiffArgs)
+	}
+}
+
+func TestRunTask_NoDirectOutbound(t *testing.T) {
+	execFn, calls := fakeExecCommand(t, "container-id-123\n", 0)
+	p := &PodmanRuntime{
+		PodmanBin:   "podman",
+		execCommand: execFn,
+	}
+
+	spec := TaskSpec{
+		TaskID:         "task-ndo",
+		Image:          "quay.io/alcove/skiff:latest",
+		GateImage:      "quay.io/alcove/gate:latest",
+		Env:            map[string]string{"TASK_ID": "task-ndo"},
+		GateEnv:        map[string]string{"GATE_SCOPE": "read"},
+		Network:        "test-internal",
+		ExternalNet:    "test-external",
+		DirectOutbound: false,
+	}
+
+	_, err := p.RunTask(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("RunTask() error: %v", err)
+	}
+
+	if len(*calls) < 2 {
+		t.Fatalf("expected at least 2 podman calls, got %d", len(*calls))
+	}
+
+	// Skiff (second call) should be on internal network ONLY.
+	skiffArgs := strings.Join((*calls)[1], " ")
+	if !strings.Contains(skiffArgs, "--network test-internal") {
+		t.Errorf("skiff call should include internal network: %s", skiffArgs)
+	}
+	if strings.Contains(skiffArgs, "test-external") {
+		t.Errorf("skiff call must NOT include external network when DirectOutbound=false: %s", skiffArgs)
+	}
+	// HTTP_PROXY and HTTPS_PROXY must be set.
+	if !strings.Contains(skiffArgs, "HTTP_PROXY=http://gate-task-ndo:8443") {
+		t.Errorf("skiff call missing HTTP_PROXY when DirectOutbound=false: %s", skiffArgs)
+	}
+	if !strings.Contains(skiffArgs, "HTTPS_PROXY=http://gate-task-ndo:8443") {
+		t.Errorf("skiff call missing HTTPS_PROXY when DirectOutbound=false: %s", skiffArgs)
+	}
+}
+
 func mustMarshal(t *testing.T, v any) []byte {
 	t.Helper()
 	b, err := json.Marshal(v)

@@ -151,25 +151,33 @@ func (d *DockerRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHandle,
 	}
 	skiffArgs = append(skiffArgs,
 		"--name", skiffName,
-		"--network", internalNet,
 	)
+
+	// Attach Skiff to internal network only, unless DirectOutbound is enabled.
+	if spec.DirectOutbound {
+		skiffArgs = append(skiffArgs, "--network", internalNet, "--network", externalNet)
+	} else {
+		skiffArgs = append(skiffArgs, "--network", internalNet)
+	}
 
 	// Merge spec env with the proxy configuration.
 	skiffEnv := make(map[string]string)
 	for k, v := range spec.Env {
 		skiffEnv[k] = v
 	}
-	// Point HTTP(S)_PROXY to the gate sidecar.
-	if _, ok := skiffEnv["HTTP_PROXY"]; !ok {
-		skiffEnv["HTTP_PROXY"] = fmt.Sprintf("http://%s:8443", gateName)
-	}
-	if _, ok := skiffEnv["HTTPS_PROXY"]; !ok {
-		skiffEnv["HTTPS_PROXY"] = fmt.Sprintf("http://%s:8443", gateName)
-	}
-	// Exempt internal services and Gate from proxy. Gate must be reached directly
-	// (not through itself) for ANTHROPIC_BASE_URL to work.
-	if _, ok := skiffEnv["NO_PROXY"]; !ok {
-		skiffEnv["NO_PROXY"] = fmt.Sprintf("localhost,127.0.0.1,alcove-hail,alcove-bridge,alcove-ledger,host.docker.internal,%s", gateName)
+	// Point HTTP(S)_PROXY to the gate sidecar, unless DirectOutbound is enabled.
+	if !spec.DirectOutbound {
+		if _, ok := skiffEnv["HTTP_PROXY"]; !ok {
+			skiffEnv["HTTP_PROXY"] = fmt.Sprintf("http://%s:8443", gateName)
+		}
+		if _, ok := skiffEnv["HTTPS_PROXY"]; !ok {
+			skiffEnv["HTTPS_PROXY"] = fmt.Sprintf("http://%s:8443", gateName)
+		}
+		// Exempt internal services and Gate from proxy. Gate must be reached directly
+		// (not through itself) for ANTHROPIC_BASE_URL to work.
+		if _, ok := skiffEnv["NO_PROXY"]; !ok {
+			skiffEnv["NO_PROXY"] = fmt.Sprintf("localhost,127.0.0.1,alcove-hail,alcove-bridge,alcove-ledger,host.docker.internal,%s", gateName)
+		}
 	}
 
 	for k, v := range skiffEnv {

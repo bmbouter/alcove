@@ -135,6 +135,24 @@ For Gate-proxied services (GitHub, GitLab, Jira), prefer using the `profiles`
 field and the service environment variables instead. Gate provides
 operation-level scope enforcement that direct injection does not.
 
+### Direct Outbound Network Access
+
+If your compiled agent needs to make direct API calls to services not proxied
+by Gate, add `direct_outbound: true` to the agent definition:
+
+```yaml
+name: My Direct Agent
+executable:
+  url: https://example.com/agent-binary
+direct_outbound: true
+credentials:
+  API_KEY: my-api-secret
+```
+
+This gives the Skiff container direct internet access. The agent can make
+HTTP/HTTPS calls without routing through Gate. The Gate sidecar still runs
+for LLM and SCM proxy if needed.
+
 ## Building a Compiled Agent
 
 Follow these steps when writing a compiled agent:
