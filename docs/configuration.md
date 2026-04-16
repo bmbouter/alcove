@@ -98,7 +98,7 @@ can also be set in `alcove.yaml` (see [alcove.yaml](#alcoveyaml) above).
 | `BRIDGE_URL` | string | `http://alcove-bridge:<port>` | URL where Bridge can be reached by Skiff/Gate containers. |
 | `SKIFF_HAIL_URL` | string | `nats://alcove-hail:4222` | NATS URL injected into Skiff containers (may differ from Bridge's own `HAIL_URL`). |
 | `ALCOVE_SKILL_REPOS` | string (JSON) | _(unset)_ | JSON array of skill repo objects. Overrides database-configured skill repos. Each object has `url` (required), `ref` (optional, default `main`), and `name` (optional). |
-| `TASK_REPO_SYNC_INTERVAL` | string (duration) | `5m` | How often Bridge syncs YAML agent definitions from registered agent repos. Accepts Go duration syntax. |
+| `AGENT_REPO_SYNC_INTERVAL` | string (duration) | `15m` | How often Bridge syncs YAML agent definitions from registered agent repos. Accepts Go duration syntax. Manual sync available via API or dashboard "Sync Now" button. |
 | `BRIDGE_LLM_PROVIDER` | string | _(unset)_ | System LLM provider: `anthropic` or `google-vertex`. Overrides `llm_provider` in alcove.yaml. |
 | `BRIDGE_LLM_API_KEY` | string | _(unset)_ | Anthropic API key for the system LLM. Overrides `llm_api_key` in alcove.yaml. |
 | `BRIDGE_LLM_MODEL` | string | _(unset)_ | Model name for the system LLM. Overrides `llm_model` in alcove.yaml. |
@@ -456,6 +456,9 @@ integrations into a two-level hierarchy of **sources** and **items**.
 
 - **Sources** are git repositories (the unit of distribution).
 - **Items** are individual entries within a source (plugins, agents, LSPs, MCPs).
+  Catalog items are seeded from data embedded at compile time, so they are
+  available immediately on Bridge startup without runtime cloning of catalog
+  source repos.
 - Teams enable or disable individual items, not whole sources.
 - Enabled agents are referenced in workflow steps using `source/item` slugs.
 
@@ -528,8 +531,10 @@ Configure agent repos in the dashboard or via the API:
 - **System-wide (admin):** `GET/PUT /api/v1/admin/settings/task-repos`
 - **Per-user:** `GET/PUT /api/v1/user/settings/task-repos`
 
-Bridge syncs agent repos automatically every 5 minutes (configurable via
-`TASK_REPO_SYNC_INTERVAL`). Each YAML file defines an agent:
+Bridge syncs agent repos automatically every 15 minutes (configurable via
+`AGENT_REPO_SYNC_INTERVAL`). A manual sync can be triggered via
+`POST /api/v1/task-definitions/sync` or the "Sync Now" button in the dashboard.
+Repos that haven't changed since the last sync are skipped. Each YAML file defines an agent:
 
 ```yaml
 name: run-tests
@@ -706,7 +711,7 @@ Each tool entry contains a `rules` array.
   If an agent definition references a profile name that does not exist, a sync
   error is reported.
 - Profiles are synced on the same interval as agent definitions (configurable
-  via `TASK_REPO_SYNC_INTERVAL`, default 5 minutes).
+  via `AGENT_REPO_SYNC_INTERVAL`, default 15 minutes).
 
 ---
 

@@ -28,6 +28,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/semaphore"
 )
 
 // AgentRepoSyncer periodically clones/pulls agent repos and syncs YAML agent
@@ -45,11 +46,13 @@ type AgentRepoSyncer struct {
 	stopCh           chan struct{}
 	wg               sync.WaitGroup
 	syncMu           sync.Mutex // prevents concurrent SyncAll calls
+	gitSem           *semaphore.Weighted // limits concurrent git operations
+	lastSyncedHash   map[string]string   // repo URL -> last synced remote HEAD hash
 }
 
 // NewAgentRepoSyncer creates a AgentRepoSyncer with the given dependencies.
 func NewAgentRepoSyncer(db *pgxpool.Pool, settingsStore *SettingsStore, scheduler *Scheduler, defStore *AgentDefStore, dispatcher *Dispatcher, profileStore *ProfileStore, workflowStore *WorkflowStore) *AgentRepoSyncer {
-	interval := 5 * time.Minute
+	interval := 15 * time.Minute
 	if v := os.Getenv("AGENT_REPO_SYNC_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
 			interval = d
@@ -67,6 +70,8 @@ func NewAgentRepoSyncer(db *pgxpool.Pool, settingsStore *SettingsStore, schedule
 		catalogItemStore: NewCatalogItemStore(db),
 		interval:         interval,
 		stopCh:           make(chan struct{}),
+		gitSem:           semaphore.NewWeighted(3),
+		lastSyncedHash:   make(map[string]string),
 	}
 }
 
@@ -219,8 +224,8 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 		}
 	}
 
-	// Sync catalog sources: clone/pull each catalog source and introspect items.
-	s.syncCatalogSources(ctx)
+	// Seed catalog items from embedded catalog data (no git cloning needed).
+	s.seedCatalogItemsFromEmbedded(ctx)
 
 	// Migrate source-level enablement to item-level for all teams.
 	s.migrateTeamCatalogEnablement(ctx)
@@ -246,9 +251,15 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 				log.Printf("agent-repo-syncer: repo %s disabled for user %s, schedules paused", repo.URL, urs.username)
 				continue
 			}
+			// Throttle concurrent git operations.
+			if err := s.gitSem.Acquire(ctx, 1); err != nil {
+				errs = append(errs, fmt.Sprintf("%s (user %s): semaphore acquire: %v", repo.URL, urs.username, err))
+				continue
+			}
 			if err := s.syncRepo(ctx, repo, urs.username, urs.teamID); err != nil {
 				errs = append(errs, fmt.Sprintf("%s (user %s): %v", repo.URL, urs.username, err))
 			}
+			s.gitSem.Release(1)
 		}
 	}
 
@@ -258,178 +269,27 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 	return nil
 }
 
-// syncCatalogSources clones/pulls each catalog source repo and introspects items within it.
-func (s *AgentRepoSyncer) syncCatalogSources(ctx context.Context) {
+// seedCatalogItemsFromEmbedded builds catalog items directly from the embedded
+// catalog.json data, avoiding any git clone/fetch operations. Each catalog entry
+// becomes a single CatalogItem keyed by its ID.
+func (s *AgentRepoSyncer) seedCatalogItemsFromEmbedded(ctx context.Context) {
 	catalog := LoadCatalog()
+
+	// Group items by source ID (each catalog entry is its own source).
 	for _, entry := range catalog {
-		if entry.SourceURL == "" {
-			continue
-		}
-
-		// Determine local clone directory for the catalog source.
-		name := entry.ID
-		cloneDir := filepath.Join(os.TempDir(), "alcove-catalog-sources", name)
-
-		ref := entry.Ref
-		if ref == "" {
-			ref = "main"
-		}
-
-		// Clone or pull the catalog source repo.
-		if _, err := os.Stat(filepath.Join(cloneDir, ".git")); os.IsNotExist(err) {
-			if err := os.MkdirAll(filepath.Dir(cloneDir), 0755); err != nil {
-				log.Printf("agent-repo-syncer: error creating catalog source dir for %s: %v", entry.ID, err)
-				continue
-			}
-			cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--branch", ref, entry.SourceURL, cloneDir)
-			cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-			if out, err := cmd.CombinedOutput(); err != nil {
-				log.Printf("agent-repo-syncer: error cloning catalog source %s: %s: %v", entry.ID, string(out), err)
-				continue
-			}
-		} else {
-			for _, lockFile := range []string{"shallow.lock", "index.lock"} {
-				os.Remove(filepath.Join(cloneDir, ".git", lockFile))
-			}
-			cmd := exec.CommandContext(ctx, "git", "-C", cloneDir, "fetch", "--depth=1", "origin", ref)
-			cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-			if out, err := cmd.CombinedOutput(); err != nil {
-				log.Printf("agent-repo-syncer: error fetching catalog source %s: %s: %v", entry.ID, string(out), err)
-				continue
-			}
-			cmd = exec.CommandContext(ctx, "git", "-C", cloneDir, "reset", "--hard", "FETCH_HEAD")
-			if out, err := cmd.CombinedOutput(); err != nil {
-				log.Printf("agent-repo-syncer: error resetting catalog source %s: %s: %v", entry.ID, string(out), err)
-				continue
-			}
-		}
-
-		// Introspect the catalog source to discover items.
-		if err := s.introspectCatalogSource(ctx, entry, cloneDir); err != nil {
-			log.Printf("agent-repo-syncer: error introspecting catalog source %s: %v", entry.ID, err)
-		}
-	}
-}
-
-// introspectCatalogSource scans a cloned catalog source repo to discover items.
-func (s *AgentRepoSyncer) introspectCatalogSource(ctx context.Context, entry CatalogEntry, repoDir string) error {
-	var items []CatalogItem
-
-	// If the source has a source_path field (e.g., claude-plugins-official entries),
-	// treat the catalog entry itself as a single item.
-	if entry.SourcePath != "" {
-		items = append(items, CatalogItem{
+		item := CatalogItem{
 			SourceID:    entry.ID,
 			Slug:        entry.ID,
 			Name:        entry.Name,
 			Description: entry.Description,
 			ItemType:    categoryToItemType(entry.Category),
 			SourceFile:  entry.SourcePath,
-		})
-	} else {
-		// Scan for .alcove/tasks/*.yml and .alcove/tasks/*.yaml → agent items
-		tasksDir := filepath.Join(repoDir, ".alcove", "tasks")
-		if taskEntries, err := os.ReadDir(tasksDir); err == nil {
-			for _, te := range taskEntries {
-				if te.IsDir() || (!strings.HasSuffix(te.Name(), ".yml") && !strings.HasSuffix(te.Name(), ".yaml")) {
-					continue
-				}
-				filePath := filepath.Join(tasksDir, te.Name())
-				data, err := os.ReadFile(filePath)
-				if err != nil {
-					continue
-				}
-				td, err := ParseTaskDefinition(data)
-				if err != nil {
-					// Still register the item with the filename as slug.
-					slug := strings.TrimSuffix(strings.TrimSuffix(te.Name(), ".yml"), ".yaml")
-					items = append(items, CatalogItem{
-						SourceID:    entry.ID,
-						Slug:        slug,
-						Name:        slug,
-						Description: "",
-						ItemType:    "agent",
-						SourceFile:  ".alcove/tasks/" + te.Name(),
-					})
-					continue
-				}
-				slug := strings.TrimSuffix(strings.TrimSuffix(te.Name(), ".yml"), ".yaml")
-				items = append(items, CatalogItem{
-					SourceID:    entry.ID,
-					Slug:        slug,
-					Name:        td.Name,
-					Description: td.Description,
-					ItemType:    "agent",
-					SourceFile:  ".alcove/tasks/" + te.Name(),
-				})
-			}
 		}
 
-		// Scan for directories containing SKILL.md → plugin/skill items
-		entries, err := os.ReadDir(repoDir)
-		if err == nil {
-			for _, de := range entries {
-				if !de.IsDir() {
-					continue
-				}
-				skillPath := filepath.Join(repoDir, de.Name(), "SKILL.md")
-				if _, err := os.Stat(skillPath); err == nil {
-					items = append(items, CatalogItem{
-						SourceID:    entry.ID,
-						Slug:        de.Name(),
-						Name:        de.Name(),
-						Description: "",
-						ItemType:    "plugin",
-						SourceFile:  de.Name() + "/SKILL.md",
-					})
-				}
-			}
-		}
-
-		// Also check subdirectories (e.g., plugins/ directory).
-		for _, subdir := range []string{"plugins", "agents", "skills"} {
-			subdirPath := filepath.Join(repoDir, subdir)
-			subEntries, err := os.ReadDir(subdirPath)
-			if err != nil {
-				continue
-			}
-			for _, de := range subEntries {
-				if !de.IsDir() {
-					continue
-				}
-				skillPath := filepath.Join(subdirPath, de.Name(), "SKILL.md")
-				slug := de.Name()
-				// Check if already discovered (avoid duplicates).
-				alreadySeen := false
-				for _, existing := range items {
-					if existing.Slug == slug {
-						alreadySeen = true
-						break
-					}
-				}
-				if alreadySeen {
-					continue
-				}
-				if _, err := os.Stat(skillPath); err == nil {
-					items = append(items, CatalogItem{
-						SourceID:    entry.ID,
-						Slug:        slug,
-						Name:        slug,
-						Description: "",
-						ItemType:    "plugin",
-						SourceFile:  subdir + "/" + de.Name() + "/SKILL.md",
-					})
-				}
-			}
+		if err := s.catalogItemStore.UpsertCatalogItems(ctx, entry.ID, []CatalogItem{item}); err != nil {
+			log.Printf("agent-repo-syncer: error seeding catalog item for %s: %v", entry.ID, err)
 		}
 	}
-
-	if len(items) == 0 {
-		return nil
-	}
-
-	log.Printf("agent-repo-syncer: discovered %d item(s) in catalog source %s", len(items), entry.ID)
-	return s.catalogItemStore.UpsertCatalogItems(ctx, entry.ID, items)
 }
 
 // categoryToItemType maps a catalog category to an item type.
@@ -497,20 +357,45 @@ func (s *AgentRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo, username
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("cloning %s: %s: %w", repo.URL, string(out), err)
 		}
+		// Record the HEAD hash after clone.
+		if headOut, err := exec.CommandContext(ctx, "git", "-C", cloneDir, "rev-parse", "HEAD").Output(); err == nil {
+			s.lastSyncedHash[repo.URL] = strings.TrimSpace(string(headOut))
+		}
 	} else {
 		// Remove stale lock files that can be left behind by interrupted git operations.
 		for _, lockFile := range []string{"shallow.lock", "index.lock"} {
 			os.Remove(filepath.Join(cloneDir, ".git", lockFile))
 		}
-		// Pull latest.
-		cmd := exec.CommandContext(ctx, "git", "-C", cloneDir, "fetch", "--depth=1", "origin", ref)
-		cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("fetching %s: %s: %w", repo.URL, string(out), err)
+
+		// Skip fetch if the remote HEAD hasn't changed since last sync.
+		skipFetch := false
+		if lastHash, ok := s.lastSyncedHash[repo.URL]; ok && lastHash != "" {
+			cmd := exec.CommandContext(ctx, "git", "ls-remote", "--heads", repo.URL, ref)
+			cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+			if out, err := cmd.Output(); err == nil {
+				fields := strings.Fields(strings.TrimSpace(string(out)))
+				if len(fields) >= 1 && fields[0] == lastHash {
+					log.Printf("agent-repo-syncer: repo %s unchanged (HEAD %s), skipping fetch", repo.URL, lastHash[:12])
+					skipFetch = true
+				}
+			}
 		}
-		cmd = exec.CommandContext(ctx, "git", "-C", cloneDir, "reset", "--hard", "FETCH_HEAD")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("resetting %s: %s: %w", repo.URL, string(out), err)
+
+		if !skipFetch {
+			// Pull latest.
+			cmd := exec.CommandContext(ctx, "git", "-C", cloneDir, "fetch", "--depth=1", "origin", ref)
+			cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+			if out, err := cmd.CombinedOutput(); err != nil {
+				return fmt.Errorf("fetching %s: %s: %w", repo.URL, string(out), err)
+			}
+			cmd = exec.CommandContext(ctx, "git", "-C", cloneDir, "reset", "--hard", "FETCH_HEAD")
+			if out, err := cmd.CombinedOutput(); err != nil {
+				return fmt.Errorf("resetting %s: %s: %w", repo.URL, string(out), err)
+			}
+			// Record the new HEAD hash after fetch.
+			if headOut, err := exec.CommandContext(ctx, "git", "-C", cloneDir, "rev-parse", "HEAD").Output(); err == nil {
+				s.lastSyncedHash[repo.URL] = strings.TrimSpace(string(headOut))
+			}
 		}
 	}
 
