@@ -63,6 +63,52 @@ This shows up on the Schedules page with a "Run Now" button. Runs in
 - `sk-placeholder-routed-through-gate` — dummy LLM API key
 - `http://gate-*:8443/*` — Gate proxy URLs
 
+## Installation Status
+
+When running inside a Skiff container (detected via `TASK_ID`), debug-env
+reports what plugins, skill repos, MCP servers, and credentials were
+requested versus what is actually installed on disk.
+
+### Sections
+
+| Section | Source | Checks |
+|---------|--------|--------|
+| Plugins | `ALCOVE_PLUGINS` env var (JSON) | `/tmp/alcove-plugins/{name}` exists |
+| Skill Repos | `ALCOVE_SKILL_REPOS` env var (JSON) | `/tmp/alcove-skills/{name}` exists and is a directory |
+| MCP Servers | `ALCOVE_MCP_CONFIG` env var + `~/.claude.json` | Listed as configured |
+| Credentials | All env vars | Classified as dummy (gate-proxied) or real |
+
+### Status Values
+
+- `[OK]` / `installed` — found on disk at expected path
+- `[MISS]` / `missing` — requested but not found on disk
+- `requested` — marketplace/official plugin, cannot verify filesystem install
+- `configured` — MCP server declared in config
+- `[DUMMY]` / `dummy` — credential is a placeholder swapped by Gate at proxy time
+- `[REAL]` / `sensitive` — credential has a real value
+
+### Example Output
+
+```
+=== Installation Status ===
+
+  Plugins (requested: 2):
+    [OK]   code-review               (claude-plugins-official)
+    [MISS] custom-lint                (https://github.com/org/lint)
+
+  Skill Repos (requested: 1):
+    [OK]   my-skills                  (lola module)
+
+  MCP Servers (configured: 1):
+    [OK]   github
+
+  Credentials (2):
+    ANTHROPIC_API_KEY              [DUMMY] gate-proxied
+    GITHUB_TOKEN                   [DUMMY] gate-proxied
+```
+
+In JSON mode (`--json`), the report appears under the `"installation"` key.
+
 ## Rebuilding
 
 If you modify `cmd/debug-env/main.go`, rebuild the Skiff image:

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"testing"
 )
 
@@ -119,5 +120,41 @@ func TestMask(t *testing.T) {
 				t.Errorf("mask(%q) = %q, want %q", tt.value, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestCheckInstallationOutsideSkiff(t *testing.T) {
+	// Ensure TASK_ID is unset
+	t.Setenv("TASK_ID", "")
+	os.Unsetenv("TASK_ID")
+	report := checkInstallation()
+	if report != nil {
+		t.Error("expected nil report outside Skiff")
+	}
+}
+
+func TestCheckInstallationInsideSkiff(t *testing.T) {
+	t.Setenv("TASK_ID", "test-123")
+	t.Setenv("ALCOVE_PLUGINS", `[{"name":"code-review","source":"claude-plugins-official"}]`)
+	t.Setenv("ALCOVE_SKILL_REPOS", `[{"url":"https://github.com/org/skills","name":"my-skills"}]`)
+	t.Setenv("ALCOVE_MCP_CONFIG", `{"github":{"command":"npx"}}`)
+	// Use a temp dir as HOME so we don't pick up the real ~/.claude.json
+	t.Setenv("HOME", t.TempDir())
+
+	report := checkInstallation()
+	if report == nil {
+		t.Fatal("expected non-nil report inside Skiff")
+	}
+	if len(report.Plugins) != 1 {
+		t.Errorf("expected 1 plugin, got %d", len(report.Plugins))
+	}
+	if report.Plugins[0].Name != "code-review" {
+		t.Errorf("expected plugin name 'code-review', got %q", report.Plugins[0].Name)
+	}
+	if len(report.SkillRepos) != 1 {
+		t.Errorf("expected 1 skill repo, got %d", len(report.SkillRepos))
+	}
+	if len(report.MCPServers) != 1 {
+		t.Errorf("expected 1 MCP server, got %d", len(report.MCPServers))
 	}
 }

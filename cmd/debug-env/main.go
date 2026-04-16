@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -144,6 +145,218 @@ func mask(value string) string {
 	return value[:8] + "..."
 }
 
+// PluginSpec describes a plugin requested via ALCOVE_PLUGINS.
+type PluginSpec struct {
+	Name   string `json:"name"`
+	Source string `json:"source,omitempty"`
+	Ref    string `json:"ref,omitempty"`
+}
+
+// SkillRepo describes a skill repo requested via ALCOVE_SKILL_REPOS.
+type SkillRepo struct {
+	URL     string `json:"url"`
+	Ref     string `json:"ref,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Enabled *bool  `json:"enabled,omitempty"`
+}
+
+// InstallationReport summarizes what was requested and what is actually installed.
+type InstallationReport struct {
+	Plugins     []InstallEntry `json:"plugins,omitempty"`
+	SkillRepos  []InstallEntry `json:"skill_repos,omitempty"`
+	MCPServers  []InstallEntry `json:"mcp_servers,omitempty"`
+	Credentials []InstallEntry `json:"credentials,omitempty"`
+}
+
+// InstallEntry is a single item in the installation report.
+type InstallEntry struct {
+	Name   string `json:"name"`
+	Type   string `json:"type"`
+	Source string `json:"source,omitempty"`
+	Status string `json:"status"` // installed, missing, configured, requested, dummy, sensitive
+	Detail string `json:"detail,omitempty"`
+}
+
+func checkInstallation() *InstallationReport {
+	// Skip if not inside a Skiff container
+	if os.Getenv("TASK_ID") == "" {
+		return nil
+	}
+
+	report := &InstallationReport{}
+
+	// Parse and check plugins
+	if raw := os.Getenv("ALCOVE_PLUGINS"); raw != "" {
+		var plugins []PluginSpec
+		json.Unmarshal([]byte(raw), &plugins)
+		for _, p := range plugins {
+			entry := InstallEntry{Name: p.Name, Source: p.Source, Type: "plugin"}
+			// Check /tmp/alcove-plugins/{name}
+			dir := "/tmp/alcove-plugins/" + p.Name
+			if _, err := os.Stat(dir); err == nil {
+				entry.Status = "installed"
+			} else if p.Source == "claude-plugins-official" || p.Source == "" {
+				// Marketplace/official plugins installed differently
+				entry.Status = "requested" // Can't easily verify marketplace installs
+			} else {
+				entry.Status = "missing"
+			}
+			report.Plugins = append(report.Plugins, entry)
+		}
+	}
+
+	// Parse and check skill repos
+	if raw := os.Getenv("ALCOVE_SKILL_REPOS"); raw != "" {
+		var repos []SkillRepo
+		json.Unmarshal([]byte(raw), &repos)
+		for _, r := range repos {
+			name := r.Name
+			if name == "" {
+				name = filepath.Base(strings.TrimSuffix(r.URL, ".git"))
+			}
+			entry := InstallEntry{Name: name, Source: r.URL, Type: "skill_repo"}
+			dir := "/tmp/alcove-skills/" + name
+			if info, err := os.Stat(dir); err == nil && info.IsDir() {
+				// Check if it's a lola module or plugin dir
+				for _, sub := range []string{"module", "skills", "agents"} {
+					if _, err := os.Stat(filepath.Join(dir, sub)); err == nil {
+						entry.Detail = "lola module"
+						break
+					}
+				}
+				if entry.Detail == "" {
+					entry.Detail = "plugin dir"
+				}
+				entry.Status = "installed"
+			} else {
+				entry.Status = "missing"
+			}
+			report.SkillRepos = append(report.SkillRepos, entry)
+		}
+	}
+
+	// Parse MCP config
+	if raw := os.Getenv("ALCOVE_MCP_CONFIG"); raw != "" {
+		var mcpConfig map[string]json.RawMessage
+		json.Unmarshal([]byte(raw), &mcpConfig)
+		for name := range mcpConfig {
+			entry := InstallEntry{Name: name, Type: "mcp_server", Status: "configured"}
+			report.MCPServers = append(report.MCPServers, entry)
+		}
+	}
+
+	// Also check ~/.claude.json for MCP servers
+	if data, err := os.ReadFile(filepath.Join(os.Getenv("HOME"), ".claude.json")); err == nil {
+		var claudeConfig map[string]json.RawMessage
+		json.Unmarshal(data, &claudeConfig)
+		if servers, ok := claudeConfig["mcpServers"]; ok {
+			var serverMap map[string]json.RawMessage
+			json.Unmarshal(servers, &serverMap)
+			for name := range serverMap {
+				// Only add if not already in MCP list
+				found := false
+				for _, s := range report.MCPServers {
+					if s.Name == name {
+						found = true
+						break
+					}
+				}
+				if !found {
+					report.MCPServers = append(report.MCPServers, InstallEntry{Name: name, Type: "mcp_server", Status: "configured", Detail: "from claude.json"})
+				}
+			}
+		}
+	}
+
+	// Credential summary
+	for _, env := range os.Environ() {
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key, value := parts[0], parts[1]
+		cls := classify(key, value)
+		if cls == "dummy" || cls == "sensitive" {
+			detail := "real value"
+			if isDummy(value) {
+				detail = "gate-proxied"
+			}
+			report.Credentials = append(report.Credentials, InstallEntry{
+				Name:   key,
+				Status: cls,
+				Type:   "credential",
+				Detail: detail,
+			})
+		}
+	}
+
+	sort.Slice(report.Credentials, func(i, j int) bool { return report.Credentials[i].Name < report.Credentials[j].Name })
+
+	return report
+}
+
+func printInstallationReport(r *InstallationReport) {
+	fmt.Println("\n=== Installation Status ===")
+
+	if len(r.Plugins) > 0 {
+		fmt.Printf("\n  Plugins (requested: %d):\n", len(r.Plugins))
+		for _, p := range r.Plugins {
+			icon := "[OK]  "
+			if p.Status == "missing" {
+				icon = "[MISS]"
+			}
+			source := p.Source
+			if source == "" {
+				source = "marketplace"
+			}
+			fmt.Printf("    %s %-25s (%s)\n", icon, p.Name, source)
+		}
+	}
+
+	if len(r.SkillRepos) > 0 {
+		fmt.Printf("\n  Skill Repos (requested: %d):\n", len(r.SkillRepos))
+		for _, s := range r.SkillRepos {
+			icon := "[OK]  "
+			if s.Status == "missing" {
+				icon = "[MISS]"
+			}
+			detail := ""
+			if s.Detail != "" {
+				detail = " (" + s.Detail + ")"
+			}
+			fmt.Printf("    %s %-25s%s\n", icon, s.Name, detail)
+		}
+	}
+
+	if len(r.MCPServers) > 0 {
+		fmt.Printf("\n  MCP Servers (configured: %d):\n", len(r.MCPServers))
+		for _, m := range r.MCPServers {
+			detail := ""
+			if m.Detail != "" {
+				detail = " — " + m.Detail
+			}
+			fmt.Printf("    [OK]   %-25s%s\n", m.Name, detail)
+		}
+	}
+
+	if len(r.Credentials) > 0 {
+		fmt.Printf("\n  Credentials (%d):\n", len(r.Credentials))
+		for _, c := range r.Credentials {
+			badge := "[REAL] "
+			if c.Status == "dummy" {
+				badge = "[DUMMY]"
+			}
+			detail := ""
+			if c.Detail != "" {
+				detail = " " + c.Detail
+			}
+			fmt.Printf("    %-30s %s%s\n", c.Name, badge, detail)
+		}
+	}
+
+	fmt.Println()
+}
+
 func main() {
 	showSecrets := flag.Bool("show-secrets", false, "Show full values of sensitive environment variables")
 	jsonOutput := flag.Bool("json", false, "Output as JSON")
@@ -189,6 +402,9 @@ func main() {
 		})
 	}
 
+	// Installation status (only inside Skiff)
+	report := checkInstallation()
+
 	if *jsonOutput {
 		type CategoryGroup struct {
 			Name    string     `json:"name"`
@@ -203,6 +419,9 @@ func main() {
 		out := map[string]any{
 			"version":    Version,
 			"categories": groups,
+		}
+		if report != nil {
+			out["installation"] = report
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -241,5 +460,10 @@ func main() {
 			fmt.Printf("  %-30s = %s%s\n", e.Key, display, annotation)
 		}
 	}
-	fmt.Println()
+
+	if report != nil {
+		printInstallationReport(report)
+	} else {
+		fmt.Println()
+	}
 }
