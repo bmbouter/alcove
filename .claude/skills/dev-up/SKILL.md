@@ -20,6 +20,8 @@ Run `make up`. This builds Go binaries locally, starts PostgreSQL + NATS contain
 
 For the old container-based approach (builds all 3 images, ~8 min), use `make up-full` instead.
 
+To rebuild only the Skiff image (e.g., after changing debug-env): `make build-skiff`
+
 ### 3. Ensure Bridge is running
 Check health within 10 seconds. The fast `make up` runs Bridge locally so it starts immediately.
 

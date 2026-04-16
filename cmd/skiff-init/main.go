@@ -30,6 +30,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -216,20 +217,29 @@ func runExecutable(
 		return 1, "error", nil, nil
 	}
 
-	log.Printf("downloading executable from %s", execSpec.URL)
-
-	// Download the executable
+	// Resolve the executable path: local file or remote download
 	agentPath := "/tmp/agent"
-	downloadCmd := exec.CommandContext(ctx, "curl", "-sL", execSpec.URL, "-o", agentPath)
-	if err := downloadCmd.Run(); err != nil {
-		log.Printf("error downloading executable: %v", err)
-		return 1, "error", nil, nil
-	}
+	if strings.HasPrefix(execSpec.URL, "file://") {
+		agentPath = strings.TrimPrefix(execSpec.URL, "file://")
+		log.Printf("using local executable at %s", agentPath)
+	} else if strings.HasPrefix(execSpec.URL, "/") {
+		agentPath = execSpec.URL
+		log.Printf("using local executable at %s", agentPath)
+	} else {
+		log.Printf("downloading executable from %s", execSpec.URL)
 
-	// Make it executable
-	if err := os.Chmod(agentPath, 0755); err != nil {
-		log.Printf("error making executable: %v", err)
-		return 1, "error", nil, nil
+		// Download the executable
+		downloadCmd := exec.CommandContext(ctx, "curl", "-sL", execSpec.URL, "-o", agentPath)
+		if err := downloadCmd.Run(); err != nil {
+			log.Printf("error downloading executable: %v", err)
+			return 1, "error", nil, nil
+		}
+
+		// Make it executable (only needed for downloaded files)
+		if err := os.Chmod(agentPath, 0755); err != nil {
+			log.Printf("error making executable: %v", err)
+			return 1, "error", nil, nil
+		}
 	}
 
 	log.Printf("running executable: %s %v", agentPath, execSpec.Args)

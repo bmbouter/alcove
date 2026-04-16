@@ -15,9 +15,9 @@ IMAGES       := bridge gate skiff-base
 GO       := go
 PODMAN   := podman
 
-CMDS     := bridge gate skiff-init alcove
+CMDS     := bridge gate skiff-init alcove debug-env
 
-.PHONY: all build build-cli-all build-images build-image-bridge build-image-gate build-image-skiff-base \
+.PHONY: all build build-cli-all build-images build-image-bridge build-image-gate build-image-skiff-base build-skiff \
         test test-network test-ledger test-isolation test-schedules test-credentials test-security-profiles test-yaml-security-profiles test-gate-real lint clean \
         up down logs watch dev-config dev-up dev-down dev-logs dev-reset dev-infra help \
         login-registry push pull up-pull build-tooling push-tooling
@@ -56,6 +56,9 @@ build-image-gate:
 	$(PODMAN) build --build-arg VERSION=$(VERSION) -f build/Containerfile.gate -t localhost/alcove-gate:$(VERSION) .
 
 build-image-skiff-base:
+	$(PODMAN) build --build-arg VERSION=$(VERSION) -f build/Containerfile.skiff-base -t localhost/alcove-skiff-base:$(VERSION) .
+
+build-skiff: build ## Rebuild only the Skiff base image (after changing debug-env or skiff-init)
 	$(PODMAN) build --build-arg VERSION=$(VERSION) -f build/Containerfile.skiff-base -t localhost/alcove-skiff-base:$(VERSION) .
 
 ##@ Easy Targets
