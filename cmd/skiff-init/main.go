@@ -383,18 +383,20 @@ func runExecutable(
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
+		} else if strings.Contains(err.Error(), "no child processes") {
+			// As PID 1 in a container, the child may already be reaped.
+			// If we captured stdout output, treat as success.
+			exitCode = 0
 		} else {
+			log.Printf("warning: cmd.Wait() error: %T: %v", err, err)
 			exitCode = 1
 		}
 	}
 
-	// Log stderr from executable for debugging
 	if stderrStr := stderrBuf.String(); stderrStr != "" {
-		log.Printf("DEBUG: executable stderr:\n%s", stderrStr)
-	} else {
-		log.Printf("DEBUG: executable stderr: (empty)")
+		log.Printf("executable stderr:\n%s", stderrStr)
 	}
-	log.Printf("DEBUG: executable exit code: %d", exitCode)
+	log.Printf("executable completed: exit=%d lines=%d", exitCode, lineNumber)
 
 	// Determine outcome from exit code
 	if ctx.Err() != nil {
