@@ -2159,6 +2159,13 @@
             loadTranscript(id, session.status);
             loadProxyLog(id);
 
+            // Render runtime config tab
+            if (session.runtime_config) {
+                renderRuntimeConfig(session.runtime_config);
+            } else {
+                $('#runtime-config-content').innerHTML = '<p class="form-help" style="text-align:center;padding:24px;">Runtime configuration not available for this session.</p>';
+            }
+
             // Auto-refresh while running
             if (session.status === 'running') {
                 stopRefresh();
@@ -2320,6 +2327,89 @@
         }
     }
 
+    function renderRuntimeConfig(config) {
+        var el = $('#runtime-config-content');
+        if (!config || typeof config !== 'object') {
+            el.innerHTML = '<p class="form-help" style="text-align:center;padding:24px;">No runtime configuration data.</p>';
+            return;
+        }
+
+        var html = '<div class="runtime-config-grid">';
+
+        // Model & Network
+        html += '<div class="rc-section"><h4>General</h4><table class="data-table"><tbody>';
+        if (config.model) html += '<tr><td>Model</td><td>' + escapeHtml(config.model) + '</td></tr>';
+        html += '<tr><td>Network</td><td>' + (config.direct_outbound ? '<span class="badge" style="background:rgba(231,76,60,0.2);color:#e74c3c;">Direct Outbound</span>' : '<span class="badge">Gate Proxied</span>') + '</td></tr>';
+        html += '</tbody></table></div>';
+
+        // Security Profiles
+        if (config.profiles && config.profiles.length > 0) {
+            html += '<div class="rc-section"><h4>Security Profiles</h4><div class="rc-badges">';
+            config.profiles.forEach(function(p) { html += '<span class="badge">' + escapeHtml(p) + '</span> '; });
+            html += '</div></div>';
+        }
+
+        // Scope
+        if (config.scope && config.scope.services) {
+            var services = Object.keys(config.scope.services);
+            if (services.length > 0) {
+                html += '<div class="rc-section"><h4>Scope</h4><table class="data-table"><thead><tr><th>Service</th><th>Operations</th></tr></thead><tbody>';
+                services.forEach(function(svc) {
+                    var ops = (config.scope.services[svc].operations || []).join(', ') || 'all';
+                    html += '<tr><td>' + escapeHtml(svc) + '</td><td>' + escapeHtml(ops) + '</td></tr>';
+                });
+                html += '</tbody></table></div>';
+            }
+        }
+
+        // Plugins
+        if (config.plugins && config.plugins.length > 0) {
+            html += '<div class="rc-section"><h4>Plugins (' + config.plugins.length + ')</h4><table class="data-table"><thead><tr><th>Name</th><th>Source</th></tr></thead><tbody>';
+            config.plugins.forEach(function(p) {
+                var source = p.source || p.Source || 'marketplace';
+                html += '<tr><td>' + escapeHtml(p.name || p.Name || '') + '</td><td>' + escapeHtml(source) + '</td></tr>';
+            });
+            html += '</tbody></table></div>';
+        }
+
+        // Skill Repos
+        if (config.skill_repos && config.skill_repos.length > 0) {
+            html += '<div class="rc-section"><h4>Skill Repos (' + config.skill_repos.length + ')</h4><table class="data-table"><thead><tr><th>Name</th><th>URL</th><th>Ref</th></tr></thead><tbody>';
+            config.skill_repos.forEach(function(r) {
+                html += '<tr><td>' + escapeHtml(r.name || r.Name || '') + '</td><td>' + escapeHtml(r.url || r.URL || '') + '</td><td>' + escapeHtml(r.ref || r.Ref || 'main') + '</td></tr>';
+            });
+            html += '</tbody></table></div>';
+        }
+
+        // MCP Servers
+        if (config.mcp_servers && Object.keys(config.mcp_servers).length > 0) {
+            var servers = Object.keys(config.mcp_servers);
+            html += '<div class="rc-section"><h4>MCP Servers (' + servers.length + ')</h4><table class="data-table"><thead><tr><th>Name</th><th>Command</th></tr></thead><tbody>';
+            servers.forEach(function(name) {
+                var srv = config.mcp_servers[name];
+                var cmd = (srv.command || '') + ' ' + ((srv.args || []).join(' '));
+                html += '<tr><td>' + escapeHtml(name) + '</td><td><code>' + escapeHtml(cmd.trim()) + '</code></td></tr>';
+            });
+            html += '</tbody></table></div>';
+        }
+
+        // Credentials
+        if (config.credentials && config.credentials.length > 0) {
+            html += '<div class="rc-section"><h4>Credentials (' + config.credentials.length + ')</h4><table class="data-table"><thead><tr><th>Env Var</th><th>Provider</th><th>Type</th></tr></thead><tbody>';
+            config.credentials.forEach(function(c) {
+                var cls = c.classification || 'unknown';
+                var badge = cls === 'dummy' ? '<span class="badge" style="background:rgba(241,196,15,0.2);color:#f1c40f;">DUMMY</span>' :
+                            cls === 'real' ? '<span class="badge" style="background:rgba(46,204,113,0.2);color:#2ecc71;">REAL</span>' :
+                            '<span class="badge">' + escapeHtml(cls) + '</span>';
+                html += '<tr><td><code>' + escapeHtml(c.env_var || '') + '</code></td><td>' + escapeHtml(c.provider || '') + '</td><td>' + badge + '</td></tr>';
+            });
+            html += '</tbody></table></div>';
+        }
+
+        html += '</div>';
+        el.innerHTML = html;
+    }
+
     // Detail tabs
     $$('.detail-tab').forEach((tab) => {
         tab.addEventListener('click', () => {
@@ -2331,17 +2421,20 @@
             tab.setAttribute('aria-selected', 'true');
 
             const target = tab.dataset.detailTab;
+            hide($('#detail-transcript'));
+            hide($('#detail-proxy-log'));
+            hide($('#detail-runtime-config'));
             if (target === 'transcript') {
                 show($('#detail-transcript'));
-                hide($('#detail-proxy-log'));
-            } else {
-                hide($('#detail-transcript'));
+            } else if (target === 'proxy-log') {
                 show($('#detail-proxy-log'));
                 // Re-load proxy log if content is missing or empty
                 const proxyTbody = $('#proxy-log-tbody');
                 if (!proxyTbody.innerHTML.trim() || proxyTbody.querySelector('td[colspan]')) {
                     loadProxyLog(currentSessionId);
                 }
+            } else if (target === 'runtime-config') {
+                show($('#detail-runtime-config'));
             }
         });
     });

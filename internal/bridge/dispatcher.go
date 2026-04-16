@@ -652,6 +652,48 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		skiffEnv[envVar] = token
 	}
 
+	// Build runtime config for session visibility.
+	runtimeConfig := map[string]any{
+		"model":           model,
+		"direct_outbound": req.DirectOutbound,
+	}
+	if len(req.Profiles) > 0 {
+		runtimeConfig["profiles"] = req.Profiles
+	}
+	if len(scope.Services) > 0 {
+		runtimeConfig["scope"] = scope
+	}
+	if len(plugins) > 0 {
+		runtimeConfig["plugins"] = plugins
+	}
+	if len(skillRepos) > 0 {
+		runtimeConfig["skill_repos"] = skillRepos
+	}
+
+	// Credential mapping (env var -> provider + classification, NO values).
+	var credEntries []map[string]string
+	for envVar, credName := range req.Credentials {
+		cls := "real"
+		if v, ok := skiffEnv[envVar]; ok && (strings.HasPrefix(v, "alcove-session-") || v == "sk-placeholder-routed-through-gate") {
+			cls = "dummy"
+		}
+		credEntries = append(credEntries, map[string]string{
+			"env_var": envVar, "provider": credName, "classification": cls,
+		})
+	}
+	// Add SCM credentials from scope.
+	for service := range scmDummyTokens {
+		credEntries = append(credEntries, map[string]string{
+			"env_var": strings.ToUpper(service) + "_TOKEN", "provider": service, "classification": "dummy",
+		})
+	}
+	if len(credEntries) > 0 {
+		runtimeConfig["credentials"] = credEntries
+	}
+
+	runtimeConfigJSON, _ := json.Marshal(runtimeConfig)
+	_, _ = d.db.Exec(ctx, `UPDATE sessions SET runtime_config = $1 WHERE id = $2`, runtimeConfigJSON, sessionID)
+
 	// Start Skiff pod via Runtime.
 	spec := runtime.TaskSpec{
 		TaskID:         taskID,
