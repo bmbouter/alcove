@@ -1,19 +1,22 @@
-# Containerfile.skiff-base — Base image for Skiff workers.
-# Contains Claude Code CLI, git, and basic dev tooling.
+# Containerfile.skiff-base — Thin overlay on pre-built tooling base.
+# Contains skiff-init binary, credential helper, and git configuration.
+# Requires the tooling base image (build with Containerfile.skiff-tooling first).
 
 # Stage 1: Build skiff-init
 FROM docker.io/library/golang:1.25 AS builder
 
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 COPY . .
 ARG VERSION=dev
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.Version=${VERSION}" -o /out/skiff-init ./cmd/skiff-init
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.Version=${VERSION}" -o /out/skiff-init ./cmd/skiff-init
 
-# Stage 2: Runtime
-FROM registry.access.redhat.com/ubi9/ubi:latest
+# Stage 2: Thin overlay on pre-built tooling base
+FROM localhost/alcove-skiff-tooling:latest
 
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="alcove-skiff-base" \
@@ -23,65 +26,6 @@ LABEL org.opencontainers.image.title="alcove-skiff-base" \
       org.opencontainers.image.vendor="Alcove" \
       org.opencontainers.image.licenses="Apache-2.0"
 
-# Install system packages: git, python3, and basic dev tools
-RUN dnf install -y \
-        git \
-        python3 \
-        python3-pip \
-        make \
-        jq \
-        findutils \
-        diffutils \
-        patch \
-        which \
-        tar \
-        gzip \
-    && dnf clean all
-
-# Install Go for local build/test validation
-RUN curl -sL https://go.dev/dl/go1.25.2.linux-amd64.tar.gz | tar -C /usr/local -xzf -
-ENV PATH="/usr/local/go/bin:${PATH}" \
-    GOPATH="/home/skiff/go" \
-    GOBIN="/home/skiff/go/bin"
-
-# Install Go language server (gopls) for LSP-powered code intelligence
-RUN GOBIN=/usr/local/bin go install golang.org/x/tools/gopls@latest
-
-# Install Node.js (LTS) for Claude Code CLI
-RUN dnf module enable -y nodejs:20 && \
-    dnf install -y nodejs npm && \
-    dnf clean all
-
-# Install GitHub CLI (gh)
-RUN dnf install -y 'dnf-command(config-manager)' && \
-    dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo && \
-    dnf install -y gh --repo gh-cli && \
-    dnf clean all
-
-# Install GitLab CLI (glab)
-RUN curl -sL "https://gitlab.com/gitlab-org/cli/-/releases/permalink/latest/downloads/glab_linux_amd64" \
-    -o /usr/local/bin/glab && \
-    chmod +x /usr/local/bin/glab
-
-# Install Claude Code CLI via npm
-RUN npm install -g @anthropic-ai/claude-code
-
-# Install Puppeteer for wireframe screenshot generation
-# Let Puppeteer install its own Chromium copy for compatibility
-RUN npm install -g puppeteer && \
-    npm cache clean --force
-
-# Install uv and lola as root, then make accessible to all users.
-# Lola requires Python >= 3.13; uv manages its own Python runtime.
-ENV UV_INSTALL_DIR=/usr/local/bin
-ENV UV_TOOL_DIR=/opt/uv-tools
-ENV UV_TOOL_BIN_DIR=/usr/local/bin
-ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
-    uv tool install git+https://github.com/RedHatProductSecurity/lola.git && \
-    chmod -R a+rX /opt/uv-tools /opt/uv-python
-
-# Copy the skiff-init binary from the build stage
 COPY --from=builder /out/skiff-init /usr/local/bin/skiff-init
 
 # Install the git credential helper for Gate integration
@@ -96,11 +40,6 @@ RUN git config --system credential.helper '/usr/local/bin/alcove-credential-help
     git config --system url."https://gitlab.com/".insteadOf "git@gitlab.com:" && \
     git config --system url."https://gitlab.com/".insteadOf "ssh://git@gitlab.com/"
 
-# Create a non-root user for running tasks
-RUN useradd -m -u 1001 -s /bin/bash skiff && \
-    chmod 777 /home/skiff
-ENV PATH="/home/skiff/go/bin:/usr/local/go/bin:${PATH}"
 USER 1001
 WORKDIR /home/skiff
-
 ENTRYPOINT ["/usr/local/bin/skiff-init"]

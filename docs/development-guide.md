@@ -61,6 +61,25 @@ Builds three container images with podman:
 - `localhost/alcove-gate:<version>`
 - `localhost/alcove-skiff-base:<version>`
 
+A `.containerignore` file ensures only the necessary files are sent to the
+build context (~2 MB instead of the full repo), dramatically speeding up
+container builds.
+
+**Pre-built tooling base image:** The Skiff image includes heavy tooling
+(language servers, CLIs). To avoid rebuilding this layer every time, build
+the tooling base image separately:
+
+```bash
+make build-tooling    # Heavy base image (~minutes, only when tools change)
+make build-images     # Fast overlay builds (~30s with pre-built tooling)
+```
+
+**Parallel builds:** Build all three images concurrently:
+
+```bash
+make -j3 build-images
+```
+
 ### Running tests
 
 ```bash
@@ -94,32 +113,54 @@ go install honnef.co/go/tools/cmd/staticcheck@latest
 
 There are two ways to run Alcove locally. Both require podman.
 
-### Mode 1: Fully containerized
+### Quick iteration (recommended)
 
-Build images and start everything in containers:
+For day-to-day Go code changes, use hot-reload:
 
 ```bash
-make up        # build-images + dev-up
-make logs      # tail logs from all containers
-make down      # stop everything
-make dev-reset # stop + remove volumes
+make up        # First-time: build binaries + start PostgreSQL/NATS + run Bridge (~12s)
+make watch     # Hot-reload: auto-rebuilds Bridge on .go file changes
 ```
 
-This starts PostgreSQL (Ledger), NATS (Hail), and Bridge as containers on a
+`make watch` uses Air to watch for Go file changes and automatically rebuilds
+and restarts Bridge. This is the fastest feedback loop for Bridge development.
+
+The database uses a named PostgreSQL volume that persists across restarts, so
+you do not need to re-seed credentials every time you restart.
+
+### Full environment commands
+
+```bash
+make up        # Build binaries + start PostgreSQL/NATS + run Bridge
+make down      # Stop everything
+make logs      # Tail logs from all containers
+make dev-reset # Stop + remove database volumes (clean slate)
+```
+
+`make up` starts PostgreSQL (Ledger), NATS (Hail), and Bridge on a
 dual-network pattern: `alcove-internal` (an `--internal` network with no
 external access) and `alcove-external` (for Gate egress). Skiff containers are
 attached only to the internal network; Gate bridges both networks. The Bridge
-container gets access to the host's podman socket so it can create Skiff+Gate
+process gets access to the host's podman socket so it can create Skiff+Gate
 containers.
 
 The dashboard is available at `http://localhost:8080`. Log in with `admin` /
 `admin` and change the password after first login.
 
+### After infrastructure changes
+
+If you need a completely fresh database (new migrations, corrupted state):
+
+```bash
+make dev-reset  # Nuke database + volumes
+make up         # Fresh start
+```
+
 ### Mode 2: Infrastructure in containers, Bridge locally
 
 Start only NATS and PostgreSQL in containers, then run Bridge as a local
-process. This is faster for iterating on Bridge code since you skip the image
-build step.
+process. This is an alternative to `make up` if you want more control over
+Bridge startup flags.
 
 ```bash
 make dev-infra    # start PostgreSQL + NATS only

@@ -1,0 +1,16 @@
+.git
+.claude
+.gomodcache
+.serena
+bin
+dist
+node_modules
+docs
+scripts
+deploy
+*.md
+LICENSE
+alcove.yaml
+alcove.yaml.example
+.air.toml
+.containerignore
