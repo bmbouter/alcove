@@ -363,3 +363,22 @@ objects:
     - Egress
     egress:
     - {}
+
+# Allow direct-outbound pods unrestricted egress. These pods have the
+# alcove.dev/direct-outbound label set by Bridge when DirectOutbound is true,
+# bypassing the Gate proxy for outbound traffic.
+- apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    name: alcove-allow-direct-outbound
+    namespace: ${NAMESPACE}
+    labels:
+      app.kubernetes.io/part-of: alcove
+  spec:
+    podSelector:
+      matchLabels:
+        alcove.dev/direct-outbound: "true"
+    policyTypes:
+    - Egress
+    egress:
+    - {}

@@ -932,6 +932,148 @@ func TestJobName_OneOverLimit(t *testing.T) {
 	}
 }
 
+func TestRunTask_DirectOutboundFalse_SetsProxy(t *testing.T) {
+	rt, clientset := newTestKubernetesRuntime()
+	ctx := context.Background()
+
+	spec := TaskSpec{
+		TaskID:         "do-false-proxy",
+		Image:          "skiff:latest",
+		GateImage:      "gate:latest",
+		Env:            map[string]string{},
+		GateEnv:        map[string]string{},
+		DirectOutbound: false,
+	}
+
+	handle, err := rt.RunTask(ctx, spec)
+	if err != nil {
+		t.Fatalf("RunTask() error: %v", err)
+	}
+
+	job, err := clientset.BatchV1().Jobs("test-ns").Get(ctx, jobName(handle.ID), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to get job: %v", err)
+	}
+
+	skiffEnvMap := envVarsToMap(job.Spec.Template.Spec.Containers[0].Env)
+
+	if v, ok := skiffEnvMap["HTTP_PROXY"]; !ok {
+		t.Error("HTTP_PROXY not set when DirectOutbound=false")
+	} else if v != "http://localhost:8443" {
+		t.Errorf("HTTP_PROXY = %q, want %q", v, "http://localhost:8443")
+	}
+
+	if v, ok := skiffEnvMap["HTTPS_PROXY"]; !ok {
+		t.Error("HTTPS_PROXY not set when DirectOutbound=false")
+	} else if v != "http://localhost:8443" {
+		t.Errorf("HTTPS_PROXY = %q, want %q", v, "http://localhost:8443")
+	}
+}
+
+func TestRunTask_DirectOutboundTrue_SkipsProxy(t *testing.T) {
+	rt, clientset := newTestKubernetesRuntime()
+	ctx := context.Background()
+
+	spec := TaskSpec{
+		TaskID:         "do-true-proxy",
+		Image:          "skiff:latest",
+		GateImage:      "gate:latest",
+		Env:            map[string]string{},
+		GateEnv:        map[string]string{},
+		DirectOutbound: true,
+	}
+
+	handle, err := rt.RunTask(ctx, spec)
+	if err != nil {
+		t.Fatalf("RunTask() error: %v", err)
+	}
+
+	job, err := clientset.BatchV1().Jobs("test-ns").Get(ctx, jobName(handle.ID), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to get job: %v", err)
+	}
+
+	skiffEnvMap := envVarsToMap(job.Spec.Template.Spec.Containers[0].Env)
+
+	if _, ok := skiffEnvMap["HTTP_PROXY"]; ok {
+		t.Error("HTTP_PROXY should NOT be set when DirectOutbound=true")
+	}
+	if _, ok := skiffEnvMap["HTTPS_PROXY"]; ok {
+		t.Error("HTTPS_PROXY should NOT be set when DirectOutbound=true")
+	}
+	if _, ok := skiffEnvMap["NO_PROXY"]; ok {
+		t.Error("NO_PROXY should NOT be set when DirectOutbound=true")
+	}
+}
+
+func TestRunTask_DirectOutboundTrue_SetsPodLabel(t *testing.T) {
+	rt, clientset := newTestKubernetesRuntime()
+	ctx := context.Background()
+
+	spec := TaskSpec{
+		TaskID:         "do-true-label",
+		Image:          "skiff:latest",
+		GateImage:      "gate:latest",
+		Env:            map[string]string{},
+		GateEnv:        map[string]string{},
+		DirectOutbound: true,
+	}
+
+	handle, err := rt.RunTask(ctx, spec)
+	if err != nil {
+		t.Fatalf("RunTask() error: %v", err)
+	}
+
+	job, err := clientset.BatchV1().Jobs("test-ns").Get(ctx, jobName(handle.ID), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to get job: %v", err)
+	}
+
+	// Check both the Job labels and the Pod template labels.
+	for _, labels := range []map[string]string{
+		job.Labels,
+		job.Spec.Template.Labels,
+	} {
+		v, ok := labels["alcove.dev/direct-outbound"]
+		if !ok {
+			t.Error("alcove.dev/direct-outbound label not set when DirectOutbound=true")
+		} else if v != "true" {
+			t.Errorf("alcove.dev/direct-outbound = %q, want %q", v, "true")
+		}
+	}
+}
+
+func TestRunTask_DirectOutboundFalse_NoPodLabel(t *testing.T) {
+	rt, clientset := newTestKubernetesRuntime()
+	ctx := context.Background()
+
+	spec := TaskSpec{
+		TaskID:         "do-false-label",
+		Image:          "skiff:latest",
+		GateImage:      "gate:latest",
+		Env:            map[string]string{},
+		GateEnv:        map[string]string{},
+		DirectOutbound: false,
+	}
+
+	handle, err := rt.RunTask(ctx, spec)
+	if err != nil {
+		t.Fatalf("RunTask() error: %v", err)
+	}
+
+	job, err := clientset.BatchV1().Jobs("test-ns").Get(ctx, jobName(handle.ID), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to get job: %v", err)
+	}
+
+	if _, ok := job.Labels["alcove.dev/direct-outbound"]; ok {
+		t.Error("alcove.dev/direct-outbound label should NOT be set when DirectOutbound=false")
+	}
+	if _, ok := job.Spec.Template.Labels["alcove.dev/direct-outbound"]; ok {
+		t.Error("alcove.dev/direct-outbound pod label should NOT be set when DirectOutbound=false")
+	}
+}
+
 // envVarsToMap converts a slice of Kubernetes EnvVar to a map for easy assertion.
 func envVarsToMap(vars []corev1.EnvVar) map[string]string {
 	m := make(map[string]string, len(vars))

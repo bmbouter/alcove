@@ -149,9 +149,13 @@ credentials:
   API_KEY: my-api-secret
 ```
 
-This gives the Skiff container direct internet access. The agent can make
-HTTP/HTTPS calls without routing through Gate. The Gate sidecar still runs
-for LLM and SCM proxy if needed.
+This gives the Skiff container direct internet access on all runtimes (Podman,
+Docker, and Kubernetes). The agent can make HTTP/HTTPS calls without routing
+through Gate. The Gate sidecar still runs for LLM and SCM proxy if needed.
+
+On Kubernetes, direct outbound adds an `alcove.dev/direct-outbound: "true"` pod
+label and skips `HTTP_PROXY`/`HTTPS_PROXY` injection. The cluster must have the
+`alcove-allow-direct-outbound` NetworkPolicy deployed to permit egress.
 
 ## Building a Compiled Agent
 

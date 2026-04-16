@@ -122,6 +122,11 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 	name := jobName(spec.TaskID)
 	labels := taskLabels(spec.TaskID)
 
+	// Mark pods that should bypass the proxy and get unrestricted egress.
+	if spec.DirectOutbound {
+		labels["alcove.dev/direct-outbound"] = "true"
+	}
+
 	if spec.Debug {
 		log.Printf("debug mode: job %s will not have ttlSecondsAfterFinished set", name)
 	}
@@ -138,14 +143,17 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 	if _, ok := skiffEnv["HOME"]; !ok {
 		skiffEnv["HOME"] = "/home/skiff"
 	}
-	if _, ok := skiffEnv["HTTP_PROXY"]; !ok {
-		skiffEnv["HTTP_PROXY"] = "http://localhost:8443"
-	}
-	if _, ok := skiffEnv["HTTPS_PROXY"]; !ok {
-		skiffEnv["HTTPS_PROXY"] = "http://localhost:8443"
-	}
-	if _, ok := skiffEnv["NO_PROXY"]; !ok {
-		skiffEnv["NO_PROXY"] = "localhost,127.0.0.1,alcove-hail,alcove-bridge,alcove-ledger,.svc,.svc.cluster.local"
+	// Point HTTP(S)_PROXY to the Gate sidecar, unless DirectOutbound is enabled.
+	if !spec.DirectOutbound {
+		if _, ok := skiffEnv["HTTP_PROXY"]; !ok {
+			skiffEnv["HTTP_PROXY"] = "http://localhost:8443"
+		}
+		if _, ok := skiffEnv["HTTPS_PROXY"]; !ok {
+			skiffEnv["HTTPS_PROXY"] = "http://localhost:8443"
+		}
+		if _, ok := skiffEnv["NO_PROXY"]; !ok {
+			skiffEnv["NO_PROXY"] = "localhost,127.0.0.1,alcove-hail,alcove-bridge,alcove-ledger,.svc,.svc.cluster.local"
+		}
 	}
 	// Override Gate-referenced URLs to use localhost since Gate is a sidecar
 	// sharing the pod network namespace (not a separate container with its own hostname).
