@@ -4,6 +4,9 @@
 # Tests: source listing with item counts, item listing, individual toggle,
 # bulk toggle, search, enabled agents endpoint, backward compatibility.
 #
+# Catalog items are seeded from embedded data on Bridge startup, so they
+# are available immediately without triggering a manual sync first.
+#
 # Prerequisites: Bridge running at BRIDGE_URL with AUTH_BACKEND=postgres
 # Usage: ADMIN_PASSWORD=<pw> bash scripts/test-catalog-items.sh
 
@@ -48,6 +51,28 @@ SHARED=$(curl -s -X POST "$BRIDGE_URL/api/v1/teams" \
   -d '{"name":"catalog-item-test-team"}')
 SHARED_ID=$(echo "$SHARED" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))")
 pass "Setup complete (personal=$PERSONAL_ID shared=$SHARED_ID)"
+
+# =====================================================================
+# Test 0: Catalog items available immediately (seeded from embedded data)
+# =====================================================================
+log "Test 0: Catalog items available immediately (no sync needed)"
+
+# Catalog items should be available right away — they are seeded from
+# embedded data on Bridge startup, not from git cloning.
+SEED_RESP=$(curl -s "$BRIDGE_URL/api/v1/teams/$SHARED_ID/catalog" \
+  -H "Authorization: Bearer $USER_TOKEN")
+SEED_COUNT=$(echo "$SEED_RESP" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+sources=d.get('sources',[])
+total=sum(s.get('total_items',0) for s in sources)
+print(total)
+")
+if [ "$SEED_COUNT" -gt "0" ]; then
+  pass "Catalog items available immediately without sync (count=$SEED_COUNT)"
+else
+  fail "No catalog items available on startup (expected seeded items)"
+fi
 
 # =====================================================================
 # Test 1: Sources list with item counts

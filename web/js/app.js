@@ -895,6 +895,29 @@
         loadUnifiedSchedules();
     });
 
+    // Sync Now button on Repos page
+    $('#sync-now-btn').addEventListener('click', async function() {
+        var btn = this;
+        btn.disabled = true;
+        btn.textContent = 'Syncing...';
+        try {
+            var resp = await api('POST', '/api/v1/agent-definitions/sync');
+            var data = await resp.json().catch(function() { return {}; });
+            if (!resp.ok || data.error) {
+                btn.textContent = 'Sync Failed';
+                setTimeout(function() { btn.textContent = 'Sync Now'; btn.disabled = false; }, 3000);
+            } else {
+                btn.textContent = 'Synced!';
+                setTimeout(function() { btn.textContent = 'Sync Now'; btn.disabled = false; }, 2000);
+                // Reload the current view to show updated data
+                handleRoute();
+            }
+        } catch (err) {
+            btn.textContent = 'Sync Failed';
+            setTimeout(function() { btn.textContent = 'Sync Now'; btn.disabled = false; }, 3000);
+        }
+    });
+
     // ---------------------
     // View YAML modal
     // ---------------------

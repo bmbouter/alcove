@@ -192,6 +192,7 @@ Bridge reads these environment variables:
 | `ALCOVE_DEBUG` | Keep worker containers after exit for debugging | `true` or `false` |
 | `BRIDGE_URL` | URL where Bridge is reachable by Skiff/Gate | `http://host.containers.internal:8080` |
 | `SKIFF_HAIL_URL` | NATS URL as seen from inside Skiff containers | `nats://host.containers.internal:4222` |
+| `AGENT_REPO_SYNC_INTERVAL` | How often Bridge syncs agent definitions from repos | `15m` (default) |
 
 Set these as environment variables before running Bridge.
 
@@ -561,10 +562,17 @@ To test agent repo syncing locally:
    agent files.
 2. Push it to a Git host or use a local bare repo.
 3. Register the repo via the API or dashboard.
-4. Wait for the sync interval (default 5 minutes) or trigger a manual sync
-   via `POST /api/v1/task-definitions/sync`.
+4. Wait for the sync interval (default 15 minutes, configurable via
+   `AGENT_REPO_SYNC_INTERVAL`) or trigger a manual sync via
+   `POST /api/v1/task-definitions/sync` or the "Sync Now" button in the
+   dashboard.
 5. Check the dashboard or `GET /api/v1/task-definitions` to verify the agents
    appear.
+
+**Note:** Catalog items (plugins, agents, LSPs, MCPs) are seeded from data
+embedded at compile time, so they are available immediately on Bridge startup
+without cloning catalog source repos. Only custom agent repo definitions
+require the sync interval.
 
 ## Gate SCM Proxy Endpoints
 

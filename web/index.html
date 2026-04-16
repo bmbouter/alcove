@@ -327,7 +327,10 @@
 
                 <!-- Agent Repos section -->
                 <div style="margin-bottom:32px;">
-                    <h3>Agent Repos</h3>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                        <h3>Agent Repos</h3>
+                        <button id="sync-now-btn" class="btn btn-small btn-outline">Sync Now</button>
+                    </div>
                     <p class="form-help" style="margin-bottom:12px;">Git repositories containing <code>.alcove/tasks/</code> with YAML agent definitions and <code>.alcove/security-profiles/</code> with security profiles.</p>
                     <div id="task-repos-inline-list"></div>
                     <div class="repo-add-form" style="margin-top:12px;">
