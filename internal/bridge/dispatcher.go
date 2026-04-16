@@ -121,8 +121,9 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 	taskID := uuid.New().String()
 
 	// Resolve provider: use explicit name or first available credential.
+	// "workflow" is a placeholder used by workflow schedule entries, not a real provider.
 	provider := req.Provider
-	if provider == "" {
+	if provider == "" || provider == "workflow" {
 		if firstCred, err := d.credStore.FirstAvailableProvider(ctx); err == nil {
 			provider = firstCred.Name
 		} else {
