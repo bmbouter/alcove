@@ -53,11 +53,35 @@ build-images: ## Build all container images with podman
 
 ##@ Easy Targets
 
-up: build-images dev-up ## Build images and start everything
+up: dev-config dev-infra build ## Build locally and start Bridge + infra (~20s)
+	@echo "Starting Bridge locally..."
+	@LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
+	HAIL_URL="nats://localhost:4222" \
+	RUNTIME=podman \
+	ALCOVE_NETWORK=$(INTERNAL_NET) \
+	ALCOVE_EXTERNAL_NETWORK=$(EXTERNAL_NET) \
+	nohup $(BINDIR)/bridge > /tmp/alcove-bridge.log 2>&1 &
+	@sleep 2
+	@echo ""
+	@echo "Dashboard:   http://localhost:8080"
+	@echo "NATS:        nats://localhost:4222 (monitoring: http://localhost:8222)"
+	@echo "PostgreSQL:  postgres://alcove:alcove@localhost:5432/alcove"
+	@echo "Bridge logs: /tmp/alcove-bridge.log"
 
-down: dev-down ## Stop everything
+up-full: build-images dev-up ## Build container images and start everything in containers (~8min)
 
-logs: dev-logs ## Show logs from all containers
+down: ## Stop everything
+	-@pkill -f '$(BINDIR)/bridge' 2>/dev/null || true
+	-@$(PODMAN) stop alcove-bridge 2>/dev/null || true
+	-@$(PODMAN) stop alcove-hail 2>/dev/null || true
+	-@$(PODMAN) stop alcove-ledger 2>/dev/null || true
+	-@$(PODMAN) network rm $(INTERNAL_NET) 2>/dev/null || true
+	-@$(PODMAN) network rm $(EXTERNAL_NET) 2>/dev/null || true
+	@echo "Dev environment stopped."
+
+logs: ## Show Bridge logs
+	@if [ -f /tmp/alcove-bridge.log ]; then tail -50 /tmp/alcove-bridge.log; \
+	else $(PODMAN) logs --tail 50 alcove-bridge 2>/dev/null || echo "No logs found"; fi
 
 ##@ Development
 
