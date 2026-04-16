@@ -140,6 +140,12 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		timeout = 3600
 	}
 
+	// Extract team ID from variadic parameter (needed early for profile resolution).
+	var activeTeamID string
+	if len(teamID) > 0 {
+		activeTeamID = teamID[0]
+	}
+
 	// Default scope: empty (no external access).
 	scope := internal.Scope{Services: map[string]internal.ServiceScope{}}
 	if req.Scope != nil {
@@ -148,7 +154,7 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 
 	// Resolve security profiles into scope and tools.
 	if len(req.Profiles) > 0 {
-		profileScope, profileTools, err := d.profileStore.MergeProfiles(ctx, req.Profiles, submitter)
+		profileScope, profileTools, err := d.profileStore.MergeProfiles(ctx, req.Profiles, activeTeamID)
 		if err != nil {
 			return nil, fmt.Errorf("resolving profiles: %w", err)
 		}
@@ -204,12 +210,6 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 				}
 			}
 		}
-	}
-
-	// Extract team ID from variadic parameter.
-	var activeTeamID string
-	if len(teamID) > 0 {
-		activeTeamID = teamID[0]
 	}
 
 	now := time.Now().UTC()
