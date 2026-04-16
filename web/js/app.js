@@ -5480,9 +5480,9 @@
         var html = '';
         for (var i = 0; i < teamsList.length; i++) {
             var t = teamsList[i];
+            if (t.id === activeTeamId) continue; // skip active team — already shown in toggle button
             var displayName = t.is_personal ? 'My Workspace' : escapeHtml(t.name);
-            var isActive = t.id === activeTeamId;
-            html += '<button class="team-switcher-item' + (isActive ? ' active' : '') + '" data-team-id="' + escapeHtml(t.id) + '">' + displayName + '</button>';
+            html += '<button class="team-switcher-item" data-team-id="' + escapeHtml(t.id) + '">' + displayName + '</button>';
         }
         html += '<button class="team-switcher-manage" id="team-switcher-manage-btn">Manage Teams</button>';
         listEl.innerHTML = html;
