@@ -16,7 +16,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.Version=${VERSION}" -o /out/skiff-init ./cmd/skiff-init
 
 # Stage 2: Thin overlay on pre-built tooling base
-FROM ghcr.io/bmbouter/alcove-skiff-tooling:latest
+FROM localhost/alcove-skiff-tooling:latest
 
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="alcove-skiff-base" \
