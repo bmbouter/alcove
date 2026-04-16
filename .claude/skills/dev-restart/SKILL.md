@@ -19,6 +19,8 @@ Do NOT stop `alcove-ledger` (PostgreSQL).
 make build-images
 ```
 
+To rebuild only the Skiff image (e.g., after changing debug-env): `make build-skiff`
+
 ### 3. Ensure networks exist
 ```bash
 podman network create --internal alcove-internal 2>/dev/null || true
