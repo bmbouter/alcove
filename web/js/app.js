@@ -5496,8 +5496,8 @@
                     localStorage.setItem('alcove_active_team', teamId);
                     renderTeamSwitcher();
                     hide($('#team-switcher-menu'));
-                    // Reload the current view with new team context
-                    handleRoute();
+                    // Navigate to sessions list — don't stay on a detail page from the old team
+                    navigate('sessions');
                 } else {
                     hide($('#team-switcher-menu'));
                 }
