@@ -15,6 +15,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25'
+          cache: true
 
       - run: go test ./...
         env:
@@ -32,6 +33,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25'
+          cache: true
 
       - run: make build
         env:
@@ -58,6 +60,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25'
+          cache: true
 
       - name: Build CLI for ${{ matrix.os }}/${{ matrix.arch }}
         env:
@@ -85,18 +88,16 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25'
+          cache: true
 
       - name: Detect version
         id: version
         run: echo "tag=$(git describe --tags --always --dirty 2>/dev/null || echo dev)" >> "$GITHUB_OUTPUT"
 
-      - name: Build binaries and container images
-        run: make build && make build-images
+      - name: Build binaries
+        run: make build
         env:
           VERSION: ${{ steps.version.outputs.tag }}
-
-      - name: Start podman socket
-        run: systemctl --user start podman.socket
 
       - name: Create networks
         run: |
@@ -107,7 +108,6 @@ jobs:
         run: |
           podman run -d --rm \
             --name alcove-ledger \
-            --network alcove-internal \
             -e POSTGRES_USER=alcove \
             -e POSTGRES_PASSWORD=alcove \
             -e POSTGRES_DB=alcove \
@@ -118,7 +118,6 @@ jobs:
         run: |
           podman run -d --rm \
             --name alcove-hail \
-            --network alcove-internal \
             -p 4222:4222 \
             -p 8222:8222 \
             docker.io/library/nats:latest
@@ -139,26 +138,15 @@ jobs:
           echo "PostgreSQL did not become ready in time"
           exit 1
 
-      - name: Start Bridge container
+      - name: Start Bridge locally
         run: |
-          podman run -d --rm \
-            --name alcove-bridge \
-            --network alcove-internal,alcove-external \
-            -p 8080:8080 \
-            -v ${XDG_RUNTIME_DIR}/podman/podman.sock:/run/podman/podman.sock \
-            -v ${{ github.workspace }}/web:/web:ro \
-            -v ${{ github.workspace }}/alcove.yaml:/etc/alcove/alcove.yaml:ro \
-            -e CONTAINER_HOST=unix:///run/podman/podman.sock \
-            -e LEDGER_DATABASE_URL=postgres://alcove:alcove@alcove-ledger:5432/alcove?sslmode=disable \
-            -e HAIL_URL=nats://alcove-hail:4222 \
-            -e RUNTIME=podman \
-            -e VERSION=${{ steps.version.outputs.tag }} \
-            -e ALCOVE_WEB_DIR=/web \
-            -e ALCOVE_NETWORK=alcove-internal \
-            -e ALCOVE_EXTERNAL_NETWORK=alcove-external \
-            -e SKIFF_IMAGE=localhost/alcove-skiff-base:${{ steps.version.outputs.tag }} \
-            -e GATE_IMAGE=localhost/alcove-gate:${{ steps.version.outputs.tag }} \
-            localhost/alcove-bridge:${{ steps.version.outputs.tag }}
+          LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
+          HAIL_URL="nats://localhost:4222" \
+          RUNTIME=podman \
+          ALCOVE_NETWORK=alcove-internal \
+          ALCOVE_EXTERNAL_NETWORK=alcove-external \
+          VERSION=${{ steps.version.outputs.tag }} \
+          nohup ./bin/bridge > /tmp/alcove-bridge.log 2>&1 &
 
       - name: Wait for Bridge health
         run: |
@@ -172,29 +160,26 @@ jobs:
             sleep 2
           done
           echo "Bridge did not become healthy in time"
-          podman logs alcove-bridge
+          cat /tmp/alcove-bridge.log || true
           exit 1
 
-      - name: Test credentials
-        run: ADMIN_PASSWORD=admin ./scripts/test-credentials.sh
+      - name: Run functional tests (parallel)
+        run: |
+          ADMIN_PASSWORD=admin ./scripts/test-credentials.sh &
+          ADMIN_PASSWORD=admin ./scripts/test-schedules.sh &
+          ADMIN_PASSWORD=admin ./scripts/test-user-isolation.sh &
+          ADMIN_PASSWORD=admin ./scripts/test-ledger-access.sh &
+          ADMIN_PASSWORD=admin ./scripts/test-yaml-only.sh &
+          wait
 
-      - name: Test schedules
-        run: ADMIN_PASSWORD=admin ./scripts/test-schedules.sh
-
-      - name: Test agent repos
+      - name: Run agent repo tests
         run: ADMIN_PASSWORD=admin ./scripts/test-agent-repos.sh
 
-      - name: Test user isolation
-        run: ADMIN_PASSWORD=admin ./scripts/test-user-isolation.sh
-
-      - name: Test ledger access
-        run: ADMIN_PASSWORD=admin ./scripts/test-ledger-access.sh
-
-      - name: Collect container logs
+      - name: Show logs on failure
         if: failure()
         run: |
-          echo "=== Bridge ==="
-          podman logs alcove-bridge 2>&1 || true
+          echo "=== Bridge logs ==="
+          cat /tmp/alcove-bridge.log || true
           echo "=== Ledger ==="
           podman logs alcove-ledger 2>&1 || true
           echo "=== Hail ==="
@@ -203,7 +188,7 @@ jobs:
       - name: Teardown
         if: always()
         run: |
-          podman stop alcove-bridge 2>/dev/null || true
+          kill $(cat /tmp/alcove-bridge.pid 2>/dev/null) 2>/dev/null || pkill -f './bin/bridge' || true
           podman stop alcove-hail 2>/dev/null || true
           podman stop alcove-ledger 2>/dev/null || true
           podman network rm alcove-internal 2>/dev/null || true

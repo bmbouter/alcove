@@ -17,9 +17,10 @@ PODMAN   := podman
 
 CMDS     := bridge gate skiff-init alcove
 
-.PHONY: all build build-cli-all build-images test test-network test-ledger test-isolation test-schedules test-credentials test-security-profiles test-yaml-security-profiles test-gate-real lint clean \
-        up down logs dev-config dev-up dev-down dev-logs dev-reset dev-infra help \
-        login-registry push pull up-pull
+.PHONY: all build build-cli-all build-images build-image-bridge build-image-gate build-image-skiff-base \
+        test test-network test-ledger test-isolation test-schedules test-credentials test-security-profiles test-yaml-security-profiles test-gate-real lint clean \
+        up down logs watch dev-config dev-up dev-down dev-logs dev-reset dev-infra help \
+        login-registry push pull up-pull build-tooling push-tooling
 
 all: build
 
@@ -46,9 +47,15 @@ build-cli-all: ## Build CLI for all platforms (Linux, macOS, Windows, AMD64/ARM6
 	@cd dist && sha256sum alcove-* > checksums-sha256.txt
 	@echo "Cross-platform CLI binaries written to dist/"
 
-build-images: ## Build all container images with podman
+build-images: build-image-bridge build-image-gate build-image-skiff-base ## Build all container images with podman
+
+build-image-bridge:
 	$(PODMAN) build --build-arg VERSION=$(VERSION) -f build/Containerfile.bridge -t localhost/alcove-bridge:$(VERSION) .
+
+build-image-gate:
 	$(PODMAN) build --build-arg VERSION=$(VERSION) -f build/Containerfile.gate -t localhost/alcove-gate:$(VERSION) .
+
+build-image-skiff-base:
 	$(PODMAN) build --build-arg VERSION=$(VERSION) -f build/Containerfile.skiff-base -t localhost/alcove-skiff-base:$(VERSION) .
 
 ##@ Easy Targets
@@ -82,6 +89,14 @@ down: ## Stop everything
 logs: ## Show Bridge logs
 	@if [ -f /tmp/alcove-bridge.log ]; then tail -50 /tmp/alcove-bridge.log; \
 	else $(PODMAN) logs --tail 50 alcove-bridge 2>/dev/null || echo "No logs found"; fi
+
+watch: dev-config dev-infra  ## Run Bridge with hot-reload (auto-restart on code changes)
+	LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
+	HAIL_URL="nats://localhost:4222" \
+	RUNTIME=podman \
+	ALCOVE_NETWORK=$(INTERNAL_NET) \
+	ALCOVE_EXTERNAL_NETWORK=$(EXTERNAL_NET) \
+	air
 
 ##@ Development
 
@@ -150,9 +165,10 @@ dev-infra: ## Start only NATS + PostgreSQL (run Bridge locally with ./bin/bridge
 	-$(PODMAN) network create --internal $(INTERNAL_NET) 2>/dev/null || true
 	-$(PODMAN) network create $(EXTERNAL_NET) 2>/dev/null || true
 	@echo "Starting ledger (PostgreSQL) on internal network..."
-	$(PODMAN) run -d --rm --replace \
+	$(PODMAN) run -d --replace \
 		--name alcove-ledger \
 		--network $(INTERNAL_NET) \
+		-v alcove-ledger-data:/var/lib/postgresql/data \
 		-e POSTGRES_USER=alcove \
 		-e POSTGRES_PASSWORD=alcove \
 		-e POSTGRES_DB=alcove \
@@ -259,6 +275,15 @@ pull: ## Pull pre-built images from ghcr.io
 	@echo "All images pulled and tagged locally."
 
 up-pull: pull dev-up ## Pull pre-built images and start everything (no local build)
+
+##@ Tooling Images
+
+build-tooling:  ## Build the skiff tooling base image (heavy, rarely needed)
+	$(PODMAN) build -f build/Containerfile.skiff-tooling -t localhost/alcove-skiff-tooling:latest .
+
+push-tooling: build-tooling  ## Push skiff tooling base to ghcr.io
+	$(PODMAN) tag localhost/alcove-skiff-tooling:latest $(REGISTRY)/alcove-skiff-tooling:latest
+	$(PODMAN) push $(REGISTRY)/alcove-skiff-tooling:latest
 
 ##@ Help
 

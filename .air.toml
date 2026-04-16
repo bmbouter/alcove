@@ -1,0 +1,13 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -ldflags='-s -w' -o ./bin/bridge ./cmd/bridge"
+  bin = "./bin/bridge"
+  exclude_dir = ["bin", "dist", "node_modules", ".claude", ".git", "docs", "web", "scripts", "tmp", "deploy", ".gomodcache"]
+  exclude_regex = ["_test\\.go$"]
+  include_ext = ["go"]
+  delay = 500
+
+[misc]
+  clean_on_exit = true
