@@ -48,10 +48,13 @@ Read these for full context:
 # Build
 make build                    # Build all Go binaries to bin/
 make build-images             # Build container images with podman
+make build-tooling            # Build heavy skiff-tooling base image (only when tools change)
+make -j3 build-images         # Parallel container image builds (~30s with pre-built tooling)
 make test                     # Run tests
 
 # Full environment (build + start everything)
-make up                       # Build images and start Bridge + NATS + PostgreSQL
+make up                       # Build binaries + start Bridge + NATS + PostgreSQL (~12s)
+make watch                    # Hot-reload: auto-rebuilds Bridge on .go file changes
 make down                     # Stop everything
 make logs                     # Show logs from all containers
 
@@ -59,7 +62,7 @@ make logs                     # Show logs from all containers
 make dev-infra                # Start only NATS + PostgreSQL on podman
 make dev-up                   # Start full environment (Bridge + NATS + PostgreSQL)
 make dev-down                 # Stop everything
-make dev-reset                # Stop + remove volumes
+make dev-reset                # Stop + remove volumes (clean slate, re-seed credentials)
 
 # Run Bridge locally with Podman (after make dev-infra)
 LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \

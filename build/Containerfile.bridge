@@ -5,11 +5,13 @@ FROM docker.io/library/golang:1.25 AS builder
 
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 COPY . .
 ARG VERSION=dev
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.Version=${VERSION}" -o /out/bridge ./cmd/bridge
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.Version=${VERSION}" -o /out/bridge ./cmd/bridge
 
 # Stage 2: Runtime
 # Use ubi9 (not ubi9-minimal) because we need container CLIs for management.
