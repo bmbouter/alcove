@@ -94,6 +94,7 @@ up: dev-config dev-infra build build-images ## Build locally and start Bridge + 
 	@echo "Starting Bridge locally..."
 	@LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
 	HAIL_URL="nats://localhost:4222" \
+	BRIDGE_URL="http://host.containers.internal:8080" \
 	RUNTIME=podman \
 	ALCOVE_NETWORK=$(INTERNAL_NET) \
 	ALCOVE_EXTERNAL_NETWORK=$(EXTERNAL_NET) \
@@ -125,6 +126,7 @@ logs: ## Show Bridge logs
 watch: dev-config dev-infra  ## Run Bridge with hot-reload (auto-restart on code changes)
 	LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
 	HAIL_URL="nats://localhost:4222" \
+	BRIDGE_URL="http://host.containers.internal:8080" \
 	RUNTIME=podman \
 	ALCOVE_NETWORK=$(INTERNAL_NET) \
 	ALCOVE_EXTERNAL_NETWORK=$(EXTERNAL_NET) \
