@@ -4,39 +4,37 @@ description: Tear down and bring up a fresh local dev environment with credentia
 user-invocable: true
 ---
 
-Tear down ALL containers (including database), rebuild images, start fresh, and configure default credentials.
+Tear down everything, build locally, start fresh (~12 seconds), and configure default credentials.
 
 ## Steps
 
 ### 1. Tear down everything
 ```bash
+pkill -f 'bin/bridge' 2>/dev/null
 for c in $(podman ps -a --format "{{.Names}}" | grep -E "alcove|gate-|skiff-"); do podman rm -f "$c" 2>/dev/null; done
 podman network rm alcove-internal alcove-external 2>/dev/null
 ```
 
 ### 2. Build and start
-Run `make up`. This builds all images and starts PostgreSQL, NATS, and Bridge.
+Run `make up`. This builds Go binaries locally, starts PostgreSQL + NATS containers, and runs Bridge as a local process (~12 seconds total).
+
+For the old container-based approach (builds all 3 images, ~8 min), use `make up-full` instead.
 
 ### 3. Ensure Bridge is running
-Bridge often fails to start due to a race with PostgreSQL. Check health within 10 seconds. If not healthy, restart Bridge manually:
+Check health within 10 seconds. The fast `make up` runs Bridge locally so it starts immediately.
+
+If using postgres auth backend, restart Bridge manually with the backend flag:
 ```bash
-VER=$(git describe --tags --always --dirty)
-podman run -d --replace --name alcove-bridge \
-  --network alcove-internal,alcove-external \
-  -p 8080:8080 --user 0 --security-opt label=disable \
-  -v ${XDG_RUNTIME_DIR}/podman/podman.sock:/run/podman/podman.sock \
-  -v $(pwd)/web:/web:ro,z \
-  -v $(pwd)/alcove.yaml:/etc/alcove/alcove.yaml:ro,z \
-  -e CONTAINER_HOST=unix:///run/podman/podman.sock \
-  -e LEDGER_DATABASE_URL=postgres://alcove:alcove@alcove-ledger:5432/alcove?sslmode=disable \
-  -e HAIL_URL=nats://alcove-hail:4222 \
-  -e RUNTIME=podman -e ALCOVE_WEB_DIR=/web \
-  -e ALCOVE_NETWORK=alcove-internal -e ALCOVE_EXTERNAL_NETWORK=alcove-external \
-  -e SKIFF_IMAGE=localhost/alcove-skiff-base:$VER \
-  -e GATE_IMAGE=localhost/alcove-gate:$VER \
-  localhost/alcove-bridge:$VER
+make down
+LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
+HAIL_URL="nats://localhost:4222" \
+RUNTIME=podman \
+ALCOVE_NETWORK=alcove-internal \
+ALCOVE_EXTERNAL_NETWORK=alcove-external \
+AUTH_BACKEND=postgres \
+ADMIN_RESET_PASSWORD=admin \
+./bin/bridge
 ```
-Wait for health check to pass.
 
 ### 4. Configure admin Vertex AI credential
 Since the database is fresh, configure the Vertex AI user credential for admin:
@@ -65,9 +63,9 @@ curl -s -X POST http://localhost:8080/api/v1/credentials \
 ```
 
 ### 5. Configure admin GitHub credential
-Read the GitHub PAT from `~/.config/alcove-github-token` and POST it:
+Read the GitHub PAT from `~/.config/alcove-github-token` or fall back to `gh auth token`:
 ```bash
-GH_PAT=$(cat ~/.config/alcove-github-token)
+GH_PAT=$(cat ~/.config/alcove-github-token 2>/dev/null || gh auth token 2>/dev/null)
 curl -s -X POST http://localhost:8080/api/v1/credentials \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
