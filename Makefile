@@ -90,23 +90,33 @@ build-skiff: build ## Rebuild only the Skiff base image (after changing debug-en
 
 ##@ Easy Targets
 
-up: dev-config dev-infra build build-images ## Build locally and start Bridge + infra (~20s)
-	@echo "Starting Bridge locally..."
-	@LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
-	HAIL_URL="nats://localhost:4222" \
-	BRIDGE_URL="http://host.containers.internal:8080" \
-	RUNTIME=podman \
-	ALCOVE_NETWORK=$(INTERNAL_NET) \
-	ALCOVE_EXTERNAL_NETWORK=$(EXTERNAL_NET) \
-	SKIFF_IMAGE=localhost/alcove-skiff-base:$(VERSION) \
-	GATE_IMAGE=localhost/alcove-gate:$(VERSION) \
-	nohup $(BINDIR)/bridge > /tmp/alcove-bridge.log 2>&1 &
+up: dev-config dev-infra build build-images ## Build locally and start Bridge + infra
+	@echo "Starting Bridge (containerized with local binary)..."
+	@$(PODMAN) run -d --rm --replace \
+		--name alcove-bridge \
+		--network $(INTERNAL_NET)$(comma)$(EXTERNAL_NET) \
+		-p 8080:8080 \
+		--user 0 --security-opt label=disable \
+		-v $${XDG_RUNTIME_DIR}/podman/podman.sock:/run/podman/podman.sock \
+		-v $(CURDIR)/$(BINDIR)/bridge:/usr/local/bin/bridge:ro,z \
+		-v $(CURDIR)/web:/web:ro,z \
+		$(if $(wildcard alcove.yaml),-v $(CURDIR)/alcove.yaml:/etc/alcove/alcove.yaml:ro$(comma)z,) \
+		-e CONTAINER_HOST=unix:///run/podman/podman.sock \
+		-e LEDGER_DATABASE_URL=postgres://alcove:alcove@alcove-ledger:5432/alcove?sslmode=disable \
+		-e HAIL_URL=nats://alcove-hail:4222 \
+		-e RUNTIME=podman \
+		-e ALCOVE_WEB_DIR=/web \
+		-e ALCOVE_NETWORK=$(INTERNAL_NET) \
+		-e ALCOVE_EXTERNAL_NETWORK=$(EXTERNAL_NET) \
+		-e SKIFF_IMAGE=localhost/alcove-skiff-base:$(VERSION) \
+		-e GATE_IMAGE=localhost/alcove-gate:$(VERSION) \
+		localhost/alcove-bridge:$(VERSION) > /dev/null
 	@sleep 2
 	@echo ""
 	@echo "Dashboard:   http://localhost:8080"
 	@echo "NATS:        nats://localhost:4222 (monitoring: http://localhost:8222)"
 	@echo "PostgreSQL:  postgres://alcove:alcove@localhost:5432/alcove"
-	@echo "Bridge logs: /tmp/alcove-bridge.log"
+	@echo "Bridge logs: podman logs alcove-bridge"
 
 up-full: build-images dev-up ## Build container images and start everything in containers (~8min)
 
@@ -120,13 +130,11 @@ down: ## Stop everything
 	@echo "Dev environment stopped."
 
 logs: ## Show Bridge logs
-	@if [ -f /tmp/alcove-bridge.log ]; then tail -50 /tmp/alcove-bridge.log; \
-	else $(PODMAN) logs --tail 50 alcove-bridge 2>/dev/null || echo "No logs found"; fi
+	@$(PODMAN) logs --tail 50 alcove-bridge 2>/dev/null || echo "No logs found"
 
-watch: dev-config dev-infra  ## Run Bridge with hot-reload (auto-restart on code changes)
+watch: dev-config dev-infra  ## Run Bridge with hot-reload (no session dispatch — use 'make up' for full sessions)
 	LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
 	HAIL_URL="nats://localhost:4222" \
-	BRIDGE_URL="http://host.containers.internal:8080" \
 	RUNTIME=podman \
 	ALCOVE_NETWORK=$(INTERNAL_NET) \
 	ALCOVE_EXTERNAL_NETWORK=$(EXTERNAL_NET) \
