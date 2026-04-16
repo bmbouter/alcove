@@ -399,6 +399,10 @@ the internal and external (`alcove-external`) networks, proxying all external
 traffic and injecting LLM credentials. When the session finishes, both containers
 are destroyed.
 
+Agents that need direct internet access (bypassing Gate's proxy) can opt in
+with `direct_outbound: true` in the agent definition. See
+`docs/configuration.md` for runtime-specific details.
+
 ## GitHub/GitLab/JIRA Integration
 
 Alcove can interact with GitHub, GitLab, and JIRA on behalf of your coding agent.

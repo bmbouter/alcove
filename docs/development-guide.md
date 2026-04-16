@@ -462,6 +462,12 @@ Key design points:
   NetworkPolicies in its namespace.
 - **Namespace detection:** uses `ALCOVE_NAMESPACE` env var, then in-cluster
   service account namespace, then defaults to `alcove`.
+- **Direct outbound support:** When `direct_outbound: true` is set, the pod
+  gets an `alcove.dev/direct-outbound: "true"` label and `HTTP_PROXY`/`HTTPS_PROXY`
+  env vars are omitted. A static NetworkPolicy named `alcove-allow-direct-outbound`
+  must be deployed in the namespace to grant full egress to pods with that label.
+  This NetworkPolicy is not created by Bridge -- it must be provisioned by the
+  cluster administrator.
 
 To test with Kubernetes locally, use `kind` or `minikube`:
 

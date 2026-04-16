@@ -574,6 +574,24 @@ schedule: "0 2 * * *"
 | `labels`    | string[] | no       | GitHub issue/PR labels for event filtering (see below) |
 | `users`     | string[] | no       | GitHub usernames for event filtering (see below) |
 
+### Direct Outbound Network Access
+
+The `direct_outbound` field (on agent definitions and workflow steps) gives the
+Skiff container direct internet access, bypassing Gate's HTTP proxy. Gate still
+runs as a sidecar for LLM and SCM proxy if needed. The behavior varies by
+runtime:
+
+| Runtime | Behavior |
+|---------|----------|
+| **Podman** | Skiff is attached to the external network in addition to the internal network. `HTTP_PROXY` and `HTTPS_PROXY` are not set. |
+| **Docker** | Same as Podman. Skiff is attached to the external network. `HTTP_PROXY` and `HTTPS_PROXY` are not set. |
+| **Kubernetes** | `HTTP_PROXY` and `HTTPS_PROXY` env vars are not set on the Skiff container. The pod receives an `alcove.dev/direct-outbound: "true"` label. A static NetworkPolicy named `alcove-allow-direct-outbound` must be deployed in the namespace to grant full egress to pods with that label. |
+
+On Kubernetes, the cluster administrator must deploy the
+`alcove-allow-direct-outbound` NetworkPolicy before using this feature. Without
+it, pods with `direct_outbound: true` will still be subject to the default
+per-task NetworkPolicy that restricts egress.
+
 ### Event Delivery Mode
 
 Agent definitions with event triggers support two delivery modes:
