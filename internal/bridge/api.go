@@ -325,25 +325,29 @@ func (a *API) handleGetSession(w http.ResponseWriter, r *http.Request, sessionID
 		return
 	}
 
-	// Also fetch transcript and proxy log.
+	// Also fetch transcript, proxy log, and runtime config.
 	type sessionDetail struct {
 		internal.Session
-		Transcript json.RawMessage `json:"transcript,omitempty"`
-		ProxyLog   json.RawMessage `json:"proxy_log,omitempty"`
+		Transcript    json.RawMessage `json:"transcript,omitempty"`
+		ProxyLog      json.RawMessage `json:"proxy_log,omitempty"`
+		RuntimeConfig json.RawMessage `json:"runtime_config,omitempty"`
 	}
 
 	detail := sessionDetail{Session: *session}
 
-	var transcript, proxyLog []byte
+	var transcript, proxyLog, runtimeConfig []byte
 	_ = a.db.QueryRow(r.Context(),
-		`SELECT transcript, proxy_log FROM sessions WHERE id = $1`, sessionID,
-	).Scan(&transcript, &proxyLog)
+		`SELECT transcript, proxy_log, runtime_config FROM sessions WHERE id = $1`, sessionID,
+	).Scan(&transcript, &proxyLog, &runtimeConfig)
 
 	if transcript != nil {
 		detail.Transcript = transcript
 	}
 	if proxyLog != nil {
 		detail.ProxyLog = proxyLog
+	}
+	if runtimeConfig != nil {
+		detail.RuntimeConfig = runtimeConfig
 	}
 
 	respondJSON(w, http.StatusOK, detail)

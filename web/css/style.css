@@ -3100,6 +3100,25 @@ details[open] > .tx-tool-expand-toggle::before {
     text-decoration: none;
 }
 
+/* === Runtime Config tab === */
+.runtime-config-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding: 16px 0;
+}
+.rc-section h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 8px;
+}
+.rc-badges {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
 /* === Footer === */
 .alcove-footer {
     text-align: center;
