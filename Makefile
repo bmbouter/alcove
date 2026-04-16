@@ -17,8 +17,19 @@ PODMAN   := podman
 
 CMDS     := bridge gate skiff-init alcove debug-env
 
+# Stamp directory for image build tracking
+STAMP_DIR := .stamps
+$(shell mkdir -p $(STAMP_DIR))
+
+# Source files that affect each image
+SHARED_GO := $(shell find internal/ -name '*.go' -type f 2>/dev/null)
+GO_MOD_FILES := go.mod go.sum
+BRIDGE_SOURCES := $(shell find cmd/bridge/ -name '*.go' -type f 2>/dev/null) $(shell find web/ -type f 2>/dev/null) build/Containerfile.bridge
+GATE_SOURCES := $(shell find cmd/gate/ -name '*.go' -type f 2>/dev/null) build/Containerfile.gate
+SKIFF_SOURCES := $(shell find cmd/skiff-init/ -name '*.go' -type f 2>/dev/null) build/Containerfile.skiff-base build/alcove-credential-helper
+
 .PHONY: all build build-cli-all build-images build-image-bridge build-image-gate build-image-skiff-base build-skiff \
-        test test-network test-ledger test-isolation test-schedules test-credentials test-security-profiles test-yaml-security-profiles test-gate-real lint clean \
+        test test-network test-ledger test-isolation test-schedules test-credentials test-security-profiles test-yaml-security-profiles test-gate-real lint clean clean-stamps \
         up down logs watch dev-config dev-up dev-down dev-logs dev-reset dev-infra help \
         login-registry push pull up-pull build-tooling push-tooling
 
@@ -47,29 +58,47 @@ build-cli-all: ## Build CLI for all platforms (Linux, macOS, Windows, AMD64/ARM6
 	@cd dist && sha256sum alcove-* > checksums-sha256.txt
 	@echo "Cross-platform CLI binaries written to dist/"
 
-build-images: build-image-bridge build-image-gate build-image-skiff-base ## Build all container images with podman
-
-build-image-bridge:
+# Stamp-based image builds — only rebuild when source files change
+$(STAMP_DIR)/bridge: $(SHARED_GO) $(BRIDGE_SOURCES) $(GO_MOD_FILES)
 	$(PODMAN) build --build-arg VERSION=$(VERSION) -f build/Containerfile.bridge -t localhost/alcove-bridge:$(VERSION) .
+	@touch $@
 
-build-image-gate:
+$(STAMP_DIR)/gate: $(SHARED_GO) $(GATE_SOURCES) $(GO_MOD_FILES)
 	$(PODMAN) build --build-arg VERSION=$(VERSION) -f build/Containerfile.gate -t localhost/alcove-gate:$(VERSION) .
+	@touch $@
 
-build-image-skiff-base:
+$(STAMP_DIR)/skiff-base: $(SHARED_GO) $(SKIFF_SOURCES) $(GO_MOD_FILES)
 	$(PODMAN) build --build-arg VERSION=$(VERSION) -f build/Containerfile.skiff-base -t localhost/alcove-skiff-base:$(VERSION) .
+	@touch $@
+
+build-images: $(STAMP_DIR)/bridge $(STAMP_DIR)/gate $(STAMP_DIR)/skiff-base ## Build container images (smart rebuild)
+
+build-image-bridge: ## Force rebuild bridge image
+	@rm -f $(STAMP_DIR)/bridge
+	@$(MAKE) $(STAMP_DIR)/bridge
+
+build-image-gate: ## Force rebuild gate image
+	@rm -f $(STAMP_DIR)/gate
+	@$(MAKE) $(STAMP_DIR)/gate
+
+build-image-skiff-base: ## Force rebuild skiff-base image
+	@rm -f $(STAMP_DIR)/skiff-base
+	@$(MAKE) $(STAMP_DIR)/skiff-base
 
 build-skiff: build ## Rebuild only the Skiff base image (after changing debug-env or skiff-init)
 	$(PODMAN) build --build-arg VERSION=$(VERSION) -f build/Containerfile.skiff-base -t localhost/alcove-skiff-base:$(VERSION) .
 
 ##@ Easy Targets
 
-up: dev-config dev-infra build ## Build locally and start Bridge + infra (~20s)
+up: dev-config dev-infra build build-images ## Build locally and start Bridge + infra (~20s)
 	@echo "Starting Bridge locally..."
 	@LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
 	HAIL_URL="nats://localhost:4222" \
 	RUNTIME=podman \
 	ALCOVE_NETWORK=$(INTERNAL_NET) \
 	ALCOVE_EXTERNAL_NETWORK=$(EXTERNAL_NET) \
+	SKIFF_IMAGE=localhost/alcove-skiff-base:$(VERSION) \
+	GATE_IMAGE=localhost/alcove-gate:$(VERSION) \
 	nohup $(BINDIR)/bridge > /tmp/alcove-bridge.log 2>&1 &
 	@sleep 2
 	@echo ""
@@ -99,6 +128,8 @@ watch: dev-config dev-infra  ## Run Bridge with hot-reload (auto-restart on code
 	RUNTIME=podman \
 	ALCOVE_NETWORK=$(INTERNAL_NET) \
 	ALCOVE_EXTERNAL_NETWORK=$(EXTERNAL_NET) \
+	SKIFF_IMAGE=localhost/alcove-skiff-base:$(VERSION) \
+	GATE_IMAGE=localhost/alcove-gate:$(VERSION) \
 	air
 
 ##@ Development
@@ -208,6 +239,7 @@ dev-logs: ## Tail logs from all dev containers
 
 dev-reset: dev-down ## Stop containers and remove all volumes
 	-$(PODMAN) volume rm alcove-ledger-data 2>/dev/null
+	rm -rf $(STAMP_DIR)
 	@echo "Dev environment reset (volumes removed)."
 
 ##@ Quality
@@ -250,7 +282,11 @@ lint: ## Run linters (go vet + staticcheck)
 
 clean: ## Remove build artifacts
 	rm -rf $(BINDIR)
+	rm -rf $(STAMP_DIR)
 	@echo "Cleaned."
+
+clean-stamps: ## Remove build stamps (force full rebuild)
+	rm -rf $(STAMP_DIR)
 
 ##@ Registry
 

@@ -165,12 +165,22 @@ jobs:
 
       - name: Run functional tests (parallel)
         run: |
-          ADMIN_PASSWORD=admin ./scripts/test-credentials.sh &
-          ADMIN_PASSWORD=admin ./scripts/test-schedules.sh &
-          ADMIN_PASSWORD=admin ./scripts/test-user-isolation.sh &
-          ADMIN_PASSWORD=admin ./scripts/test-ledger-access.sh &
-          ADMIN_PASSWORD=admin ./scripts/test-yaml-only.sh &
-          wait
+          pids=()
+          ADMIN_PASSWORD=admin ./scripts/test-credentials.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-schedules.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-user-isolation.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-ledger-access.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-yaml-only.sh & pids+=($!)
+
+          failed=0
+          for pid in "${pids[@]}"; do
+            wait "$pid" || failed=1
+          done
+
+          if [ "$failed" -eq 1 ]; then
+            echo "One or more test scripts failed"
+            exit 1
+          fi
 
       - name: Run agent repo tests
         run: ADMIN_PASSWORD=admin ./scripts/test-agent-repos.sh
