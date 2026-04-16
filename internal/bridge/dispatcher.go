@@ -407,7 +407,7 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 			}
 
 			// Look up tool definition.
-			tool, err := d.toolStore.GetTool(ctx, toolName, submitter)
+			tool, err := d.toolStore.GetTool(ctx, toolName, activeTeamID)
 			if err != nil {
 				log.Printf("warning: tool %q not found: %v", toolName, err)
 				continue
