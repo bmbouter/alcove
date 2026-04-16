@@ -115,13 +115,24 @@ jobs:
             ${{ env.REGISTRY }}/alcove-gate:latest
             ${{ env.REGISTRY }}/alcove-gate:sha-${{ steps.version.outputs.sha_short }}
 
+      - name: Build and push skiff-tooling image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: build/Containerfile.skiff-tooling
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/alcove-skiff-tooling:latest
+
       - name: Build and push skiff-base image
         uses: docker/build-push-action@v7
         with:
           context: .
           file: build/Containerfile.skiff-base
           push: true
-          build-args: VERSION=${{ steps.version.outputs.version }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            SKIFF_TOOLING_BASE=${{ env.REGISTRY }}/alcove-skiff-tooling:latest
           tags: |
             ${{ env.REGISTRY }}/alcove-skiff-base:${{ steps.version.outputs.version }}
             ${{ env.REGISTRY }}/alcove-skiff-base:latest

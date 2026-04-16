@@ -19,7 +19,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.Version=${VERSION}" -o /out/debug-env ./cmd/debug-env
 
 # Stage 2: Thin overlay on pre-built tooling base
-FROM localhost/alcove-skiff-tooling:latest
+# SKIFF_TOOLING_BASE can be overridden for CI (localhost/) vs release (ghcr.io/)
+ARG SKIFF_TOOLING_BASE=localhost/alcove-skiff-tooling:latest
+FROM ${SKIFF_TOOLING_BASE}
 
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="alcove-skiff-base" \
