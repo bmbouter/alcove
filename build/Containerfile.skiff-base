@@ -2,6 +2,9 @@
 # Contains skiff-init binary, credential helper, and git configuration.
 # Requires the tooling base image (build with Containerfile.skiff-tooling first).
 
+# Global ARG — must be before first FROM for multi-stage builds
+ARG SKIFF_TOOLING_BASE=localhost/alcove-skiff-tooling:latest
+
 # Stage 1: Build skiff-init
 FROM docker.io/library/golang:1.25 AS builder
 
@@ -19,8 +22,6 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.Version=${VERSION}" -o /out/debug-env ./cmd/debug-env
 
 # Stage 2: Thin overlay on pre-built tooling base
-# SKIFF_TOOLING_BASE can be overridden for CI (localhost/) vs release (ghcr.io/)
-ARG SKIFF_TOOLING_BASE=localhost/alcove-skiff-tooling:latest
 FROM ${SKIFF_TOOLING_BASE}
 
 ARG VERSION=dev
