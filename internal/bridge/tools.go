@@ -94,12 +94,22 @@ func (ts *ToolStore) CreateTool(ctx context.Context, tool *ToolDefinition, teamI
 
 // ListTools returns ALL builtin tools plus the given owner's custom tools.
 func (ts *ToolStore) ListTools(ctx context.Context, teamID string) ([]ToolDefinition, error) {
-	query := `SELECT id, name, display_name, tool_type, mcp_command, mcp_args, api_host, auth_header, auth_format, operations, team_id, created_at
-		FROM mcp_tools
-		WHERE tool_type = 'builtin' OR team_id = $1
-		ORDER BY tool_type ASC, name ASC`
+	var query string
+	var args []any
+	if teamID != "" {
+		query = `SELECT id, name, display_name, tool_type, mcp_command, mcp_args, api_host, auth_header, auth_format, operations, team_id, created_at
+			FROM mcp_tools
+			WHERE tool_type = 'builtin' OR team_id = $1
+			ORDER BY tool_type ASC, name ASC`
+		args = []any{teamID}
+	} else {
+		query = `SELECT id, name, display_name, tool_type, mcp_command, mcp_args, api_host, auth_header, auth_format, operations, team_id, created_at
+			FROM mcp_tools
+			WHERE tool_type = 'builtin'
+			ORDER BY tool_type ASC, name ASC`
+	}
 
-	rows, err := ts.db.Query(ctx, query, teamID)
+	rows, err := ts.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("querying tools: %w", err)
 	}
@@ -108,15 +118,18 @@ func (ts *ToolStore) ListTools(ctx context.Context, teamID string) ([]ToolDefini
 	var tools []ToolDefinition
 	for rows.Next() {
 		var t ToolDefinition
-		var mcpCommand, apiHost, authHeader, authFormat *string
+		var mcpCommand, apiHost, authHeader, authFormat, teamID *string
 		var mcpArgs, operations string
 
 		if err := rows.Scan(&t.ID, &t.Name, &t.DisplayName, &t.ToolType,
 			&mcpCommand, &mcpArgs, &apiHost, &authHeader, &authFormat,
-			&operations, &t.TeamID, &t.CreatedAt); err != nil {
+			&operations, &teamID, &t.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scanning tool: %w", err)
 		}
 
+		if teamID != nil {
+			t.TeamID = *teamID
+		}
 		if mcpCommand != nil {
 			t.MCPCommand = *mcpCommand
 		}
