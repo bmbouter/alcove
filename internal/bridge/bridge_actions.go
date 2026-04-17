@@ -280,6 +280,18 @@ func bridgeActionAwaitCI(ctx context.Context, inputs map[string]interface{}, cre
 		}
 
 		if len(checks.CheckRuns) == 0 {
+			// If no checks after 90s, treat as passed (repo has no CI configured).
+			if time.Since(deadline.Add(-time.Duration(timeout)*time.Second)) > 90*time.Second {
+				log.Printf("bridge-action await-ci: no check runs found after 90s for %s#%d, treating as passed", repo, pr)
+				return &BridgeActionResult{
+					Status: "succeeded",
+					Outputs: map[string]interface{}{
+						"status":        "passed",
+						"failure_logs":  "",
+						"failed_checks": []string{},
+					},
+				}, nil
+			}
 			time.Sleep(pollInterval)
 			continue
 		}

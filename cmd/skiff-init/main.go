@@ -993,6 +993,11 @@ func installPlugins() {
 
 // cloneRepo performs a shallow clone of the given repo.
 func cloneRepo(repo, branch string) error {
+	// Mark /workspace as safe to avoid "dubious ownership" errors when the
+	// directory is owned by a different UID (e.g., root-created in the image).
+	safeDir := exec.Command("git", "config", "--global", "--add", "safe.directory", "/workspace")
+	safeDir.Run()
+
 	args := []string{"clone", "--depth=1"}
 	if branch != "" {
 		args = append(args, "--branch", branch)

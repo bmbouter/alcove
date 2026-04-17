@@ -213,6 +213,7 @@ func main() {
 
 	// Create and start the scheduler.
 	scheduler := bridge.NewScheduler(dbpool, dispatcher, cfg, credStore, defStore, settingsStore)
+	scheduler.SetWorkflowEngine(workflowEngine)
 	scheduler.Start(context.Background())
 	defer scheduler.Stop()
 
