@@ -2508,8 +2508,12 @@
 
             // Re-render all events (simple and reliable)
             content.innerHTML = '';
-            for (var i = 0; i < events.length; i++) {
-                appendTranscriptEvent(content, events[i]);
+            if (isExecutableTranscript(events)) {
+                renderExecutableTranscript(content, events);
+            } else {
+                for (var i = 0; i < events.length; i++) {
+                    appendTranscriptEvent(content, events[i]);
+                }
             }
             // Auto-scroll to bottom
             content.scrollTop = content.scrollHeight;
@@ -2519,6 +2523,84 @@
                 content.innerHTML = '<div class="transcript-system" style="color:var(--status-error)">Failed to load transcript.</div>';
             }
         }
+    }
+
+    function isExecutableTranscript(events) {
+        if (!events || events.length < 3) return false;
+        var execCount = 0;
+        for (var i = 0; i < events.length; i++) {
+            var ev = events[i];
+            var type = ev.type || ev.role || 'system';
+            if (type === 'text' && ev.source === 'executable') {
+                execCount++;
+            } else if (type === 'system' || type === 'result') {
+                continue;
+            }
+        }
+        return execCount > 3;
+    }
+
+    function renderExecutableTranscript(container, events) {
+        var lines = [];
+        for (var i = 0; i < events.length; i++) {
+            var ev = events[i];
+            var type = ev.type || ev.role || 'system';
+            if (type === 'system' || type === 'result') {
+                if (lines.length > 0) {
+                    flushExecutableBlock(container, lines);
+                    lines = [];
+                }
+                appendTranscriptEvent(container, ev);
+                continue;
+            }
+            if (type === 'text' && ev.source === 'executable') {
+                lines.push(ev.content || '');
+            }
+        }
+        if (lines.length > 0) {
+            flushExecutableBlock(container, lines);
+        }
+    }
+
+    function flushExecutableBlock(container, lines) {
+        var div = document.createElement('div');
+        div.className = 'tx-exec-block';
+        var html = '';
+        for (var i = 0; i < lines.length; i++) {
+            html += renderExecutableLine(lines[i]);
+        }
+        div.innerHTML = html;
+        container.appendChild(div);
+    }
+
+    function renderExecutableLine(line) {
+        var escaped = escapeHtml(line);
+
+        // Section headers: === Category Name ===
+        if (/^=== .+ ===$/.test(line)) {
+            var name = line.replace(/^=== /, '').replace(/ ===$/, '');
+            return '<div class="tx-exec-section">' + escapeHtml(name) + '</div>';
+        }
+
+        // Empty lines
+        if (line.trim() === '') {
+            return '<div class="tx-exec-blank"></div>';
+        }
+
+        // Sub-section headers: "  Plugins (requested: 2):" or "  Credentials (3):"
+        if (/^\s{2}\w[\w\s]*\(.*\):\s*$/.test(line)) {
+            return '<div class="tx-exec-subheader">' + escaped + '</div>';
+        }
+
+        // Apply annotation badges
+        escaped = escaped.replace(/\[DUMMY\]/g, '<span class="tx-exec-badge tx-exec-dummy">DUMMY</span>');
+        escaped = escaped.replace(/\[MASKED\]/g, '<span class="tx-exec-badge tx-exec-masked">MASKED</span>');
+        escaped = escaped.replace(/\[GATE-PROXY\]/g, '<span class="tx-exec-badge tx-exec-gate">GATE-PROXY</span>');
+        escaped = escaped.replace(/\[REAL\]/g, '<span class="tx-exec-badge tx-exec-real">REAL</span>');
+        escaped = escaped.replace(/\[OK\]\s*/g, '<span class="tx-exec-ok">[OK]</span> ');
+        escaped = escaped.replace(/\[MISS\]/g, '<span class="tx-exec-miss">[MISS]</span>');
+
+        return '<div class="tx-exec-line">' + escaped + '</div>';
     }
 
     // Simple markdown-like rendering (no library needed)
