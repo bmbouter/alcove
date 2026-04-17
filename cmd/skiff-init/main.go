@@ -65,7 +65,10 @@ func main() {
 	// --- Read task from environment variables (injected by Bridge) ---
 	taskID := requireEnv("TASK_ID")
 	sessionID := envOrDefault("SESSION_ID", taskID)
-	prompt := requireEnv("PROMPT")
+	prompt := os.Getenv("PROMPT")
+	if prompt == "" && os.Getenv("ALCOVE_EXECUTABLE") == "" {
+		log.Fatal("required environment variable PROMPT is not set")
+	}
 	repo := os.Getenv("REPO")
 	branch := os.Getenv("BRANCH")
 	provider := envOrDefault("PROVIDER", "anthropic")

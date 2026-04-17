@@ -230,9 +230,10 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		TeamID:      activeTeamID,
 	}
 
-	// For executable agents, store the prompt as the description/context if empty
+	// For executable agents, set a descriptive prompt if empty.
 	if req.Executable != nil && req.Prompt == "" {
-		session.Prompt = fmt.Sprintf("Executable agent: %s", req.Executable.URL)
+		req.Prompt = fmt.Sprintf("Executable agent: %s", req.Executable.URL)
+		session.Prompt = req.Prompt
 	}
 
 	// Generate a session token for the Skiff pod to authenticate to Ledger.
@@ -708,7 +709,7 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		DirectOutbound: req.DirectOutbound,
 	}
 
-	handle, err := d.rt.RunTask(ctx, spec)
+handle, err := d.rt.RunTask(ctx, spec)
 	if err != nil {
 		// Update session to error state.
 		d.updateSessionStatus(ctx, sessionID, "error", nil, nil)
