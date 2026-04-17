@@ -32,6 +32,7 @@ go.work.sum
 config.yaml
 alcove.yaml
 alcove.conf
+.dev-credentials.yaml
 
 # OS
 .DS_Store

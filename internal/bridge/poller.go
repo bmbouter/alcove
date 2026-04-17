@@ -516,7 +516,7 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, teamID string, schedu
 				// Extract issue context for workflow trigger context
 				var triggerContext map[string]interface{}
 				if issueNumber != "" {
-					triggerContext = p.extractIssueContext(ctx, token, baseURL, eventRepo, issueNumber, payload)
+					triggerContext = p.extractIssueContext(ctx, token, baseURL, eventRepo, issueNumber, event.Payload)
 				}
 
 				_, err = p.workflowEngine.StartWorkflowRun(ctx, workflowID, "event", taskReq.TriggerRef, sched.TeamID, triggerContext)

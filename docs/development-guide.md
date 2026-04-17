@@ -113,6 +113,28 @@ go install honnef.co/go/tools/cmd/staticcheck@latest
 
 There are two ways to run Alcove locally. Both require podman.
 
+### Developer credentials
+
+Before your first `make up`, set up `.dev-credentials.yaml` -- the single
+source of truth for dev credentials (LLM provider and GitHub PAT):
+
+```bash
+cp .dev-credentials.yaml.example .dev-credentials.yaml
+# Edit .dev-credentials.yaml — uncomment one LLM provider block and fill in values.
+# Optionally add your GitHub PAT (or it will fall back to `gh auth token`).
+```
+
+This file is gitignored. When you run `make up` (or `make watch`), `make
+dev-config` merges the LLM settings from `.dev-credentials.yaml` into
+`alcove.yaml` (the Bridge infrastructure config), configuring the system LLM.
+
+To also create API-level credentials (LLM + GitHub) in the database for
+session execution, run the `dev-up` skill, which reads `.dev-credentials.yaml`
+and creates the appropriate credentials via the Bridge API.
+
+You only need to create this file once. It persists across `make down` /
+`make up` cycles.
+
 ### Quick iteration (recommended)
 
 For day-to-day Go code changes, use hot-reload:

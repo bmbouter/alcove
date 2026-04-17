@@ -144,11 +144,54 @@ watch: dev-config dev-infra  ## Run Bridge with hot-reload (no session dispatch 
 
 ##@ Development
 
-dev-config: ## Generate alcove.yaml from example if it does not exist
+# Python script to merge .dev-credentials.yaml LLM config into alcove.yaml.
+# Using define/export so Make preserves newlines (python3 -c needs real newlines).
+define MERGE_CREDS_SCRIPT
+import yaml, sys
+
+with open('.dev-credentials.yaml') as f:
+    creds = yaml.safe_load(f) or {}
+
+llm = creds.get('llm')
+if not llm:
+    print('  No llm section in .dev-credentials.yaml, skipping system_llm merge.')
+    sys.exit(0)
+
+with open('alcove.yaml') as f:
+    cfg = yaml.safe_load(f) or {}
+
+slm = {'provider': llm['provider']}
+if llm['provider'] == 'anthropic':
+    slm['api_key'] = llm.get('api_key', '')
+    slm['model'] = 'claude-sonnet-4-20250514'
+elif llm['provider'] == 'claude-oauth':
+    slm['oauth_token'] = llm.get('oauth_token', '')
+    slm['model'] = 'claude-sonnet-4-20250514'
+elif llm['provider'] == 'google-vertex':
+    slm['service_account_json'] = llm.get('service_account_json', '')
+    slm['project_id'] = llm.get('project_id', '')
+    slm['region'] = llm.get('region', '')
+    slm['model'] = 'claude-sonnet-4-20250514'
+else:
+    print(f'  Unknown LLM provider: {llm["provider"]}')
+    sys.exit(1)
+
+cfg['system_llm'] = slm
+with open('alcove.yaml', 'w') as f:
+    yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
+print('  Injected system_llm into alcove.yaml.')
+endef
+export MERGE_CREDS_SCRIPT
+
+dev-config: ## Generate alcove.yaml from example (merges .dev-credentials.yaml if present)
 	@if [ ! -f alcove.yaml ]; then \
 		echo "Generating alcove.yaml with a random database_encryption_key..."; \
 		sed "s/change-me-to-a-strong-secret/$$(openssl rand -hex 32)/" alcove.yaml.example > alcove.yaml; \
 		echo "Created alcove.yaml — edit as needed."; \
+	fi
+	@if [ -f .dev-credentials.yaml ]; then \
+		echo "Merging .dev-credentials.yaml LLM config into alcove.yaml..."; \
+		python3 -c "$$MERGE_CREDS_SCRIPT"; \
 	fi
 
 dev-up: dev-config ## Start full containerized environment
@@ -225,6 +268,11 @@ dev-infra: ## Start only NATS + PostgreSQL (run Bridge locally with ./bin/bridge
 		-p 4222:4222 \
 		-p 8222:8222 \
 		docker.io/library/nats:latest
+	@echo "Waiting for PostgreSQL to be ready..."
+	@for i in 1 2 3 4 5 6 7 8 9 10; do \
+		$(PODMAN) exec alcove-ledger pg_isready -U alcove -q 2>/dev/null && break; \
+		sleep 1; \
+	done
 	@echo ""
 	@echo "Infrastructure is up. Run Bridge locally with:"
 	@echo "  LEDGER_DATABASE_URL=\"postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable\" \\"

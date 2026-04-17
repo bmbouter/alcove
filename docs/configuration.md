@@ -64,6 +64,72 @@ provide `ALCOVE_DATABASE_ENCRYPTION_KEY` via a k8s Secret (see
 The `alcove.yaml` file is gitignored. An `alcove.yaml.example` is committed to
 the repository as a reference.
 
+### .dev-credentials.yaml (Local Development)
+
+For local development, `.dev-credentials.yaml` is the single source of truth
+for developer credentials. It centralizes your LLM provider keys and GitHub
+PAT in one gitignored file so they can be automatically wired into both Bridge
+configuration and the credential store.
+
+**Setup:**
+
+```bash
+cp .dev-credentials.yaml.example .dev-credentials.yaml
+# Edit .dev-credentials.yaml and fill in your values
+```
+
+**Example file:**
+
+```yaml
+# LLM provider — used for both Bridge system LLM and session credentials.
+# Uncomment ONE provider block.
+
+# Option A: Google Vertex AI (Service Account)
+# llm:
+#   provider: google-vertex
+#   service_account_json: |
+#     {"type": "service_account", ...}
+#   project_id: my-gcp-project
+#   region: us-east5
+
+# Option B: Anthropic API
+# llm:
+#   provider: anthropic
+#   api_key: sk-ant-...
+
+# Option C: Claude Pro/Max (OAuth)
+# llm:
+#   provider: claude-oauth
+#   oauth_token: <token from 'claude setup-token'>
+
+# GitHub PAT — for agent repo sync and SCM operations.
+# github_token: ghp_...
+```
+
+**How it works:** The `make dev-config` target (called automatically by
+`make up`, `make dev-up`, and `make watch`) merges the `llm` section from
+`.dev-credentials.yaml` into the `system_llm` block of `alcove.yaml`. This
+means you configure your LLM credentials once in `.dev-credentials.yaml` and
+the system LLM is set up automatically -- no need to manually edit
+`alcove.yaml` for local development.
+
+The same LLM credential is also used to seed the credential store for session
+execution. When you run the `dev-up` skill, it reads `.dev-credentials.yaml`
+and creates the appropriate LLM provider credential via the Bridge API, along
+with a GitHub credential if `github_token` is set. This means a single file
+configures both the system LLM (Bridge-internal AI features) and the session
+LLM (what Claude Code uses inside Skiff containers).
+
+**Key points:**
+
+- `.dev-credentials.yaml` is gitignored -- never commit real credentials.
+- `.dev-credentials.yaml.example` is committed as a reference template.
+- This file is for local development only. Production and Kubernetes
+  deployments configure credentials through `alcove.yaml`, environment
+  variables, and the credential API directly.
+- If `.dev-credentials.yaml` is absent, `make dev-config` skips the merge
+  step and you must configure `system_llm` in `alcove.yaml` manually.
+
 For the CLI client the resolution order is (highest to lowest priority):
 
 1. CLI flag (`--server`)
@@ -315,9 +381,16 @@ environment variables -- it cannot be changed through the dashboard or API.
 The dashboard shows a read-only status indicating whether the system LLM is
 configured; edit `alcove.yaml` to change it.
 
+For local development, you do not need to configure the system LLM manually.
+Instead, set your LLM credentials in `.dev-credentials.yaml` and `make dev-config`
+(or `make up` / `make dev-up`) will automatically populate the `system_llm`
+section of `alcove.yaml`. See [.dev-credentials.yaml](#dev-credentialsyaml-local-development)
+above.
+
 ### alcove.yaml Configuration
 
-Add the system LLM settings to your `alcove.yaml`:
+Add the system LLM settings to your `alcove.yaml` (or use `.dev-credentials.yaml`
+for local dev):
 
 **Option A: Anthropic API**
 
@@ -376,10 +449,20 @@ Alcove also supports configuring LLM providers for task execution via the
 credentials API and dashboard. At least one provider must be configured for
 Claude Code to function.
 
+### Local Development
+
+For local development, LLM session credentials are created automatically from
+`.dev-credentials.yaml`. When you run the `dev-up` skill, it reads the `llm`
+section and creates the matching provider credential in the credential store
+via the Bridge API. No manual credential creation is needed.
+
+See [.dev-credentials.yaml](#dev-credentialsyaml-local-development) for setup
+instructions.
+
 ### Quick Start (Environment Variables)
 
-For initial setup, you can set environment variables. Bridge auto-migrates
-these into the credential store on first startup:
+For non-dev deployments, you can set environment variables for initial setup.
+Bridge auto-migrates these into the credential store on first startup:
 
 ```bash
 # Anthropic API (simplest)
