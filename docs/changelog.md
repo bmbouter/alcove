@@ -3,10 +3,25 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
-## v0.21.0 (Unreleased)
+## v0.23.0
 
-### Fixed
-- Consolidated duplicate `ExecutableSpec` type definitions into `internal/types.go` to eliminate code duplication and improve maintainability (#325)
+### Features
+- Render executable agent transcripts as formatted monospace blocks
+  with colored annotation badges (DUMMY, GATE-PROXY, REAL, MASKED,
+  OK, MISS) instead of individual bullet-point events.
+
+### Bug Fixes
+- Fix executable agents not running when dispatched via "Run Now".
+  skiff-init required PROMPT env var even for executable agents,
+  causing the binary to never execute.
+- Fix executable agents exiting with code 1 as PID 1 in containers
+  due to child process reaping semantics.
+- Fix workflow provider resolution: treat 'workflow' placeholder as
+  empty so dispatcher falls back to the team's LLM credential.
+- Fix GetTool NULL team_id scan error (same pattern as ListTools).
+- Fix SDLC workflow engine end-to-end pipeline execution.
+- Fix SDLC workflow: pass issue context to developer agent.
+- Consolidate duplicate ExecutableSpec type definitions.
 
 ## v0.20.0
 
