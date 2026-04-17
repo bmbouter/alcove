@@ -15,7 +15,6 @@
 package bridge
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 )
