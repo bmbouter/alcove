@@ -294,6 +294,41 @@ Bridge reads service credentials from k8s Secrets (or env vars) and injects them
 into Gate sidecars at session creation time. Defense-in-depth within Bridge is
 sufficient for Phase 1 (minimal RBAC, audit logging on all API endpoints).
 
+### 19. Workflow Graph with Bounded Cycles
+
+**Decision**: Workflows support a directed graph of steps with two types:
+**agent steps** (Skiff pods running Claude Code) and **bridge steps**
+(deterministic actions executed inline by Bridge).
+
+**Bridge actions**: Three built-in actions move infrastructure concerns out of
+LLM prompts and into reliable Bridge code:
+
+| Action | Description |
+|--------|-------------|
+| `create-pr` | Creates a GitHub pull request from a branch |
+| `await-ci` | Polls CI status on a PR until all checks complete |
+| `merge-pr` | Merges a pull request |
+
+Bridge actions take structured inputs and produce structured outputs that
+downstream steps can reference via template variables
+(`{{steps.<id>.outputs.<key>}}`).
+
+**Dependencies**: Steps declare dependencies via boolean expressions
+(`depends: "A.Succeeded && B.Succeeded"`) supporting `&&`, `||`, parentheses,
+and `.Succeeded`/`.Failed` conditions. This replaces the older `needs` list
+syntax (which is still supported for backward compatibility).
+
+**Bounded cycles**: Steps can reference each other in cycles (e.g.,
+review -> revision -> review). The `max_iterations` field prevents infinite
+loops. When exhausted, the step status becomes `max_iterations_exceeded`.
+Iteration tracking is stored in `workflow_run_steps` (migration
+`028_workflow_graph_v2.sql`).
+
+**Rationale**: LLMs are unreliable for infrastructure operations like creating
+PRs, polling CI, and merging. Moving these to deterministic Bridge code
+eliminates prompt engineering fragility and makes workflows auditable. Bounded
+cycles enable practical review/revision patterns without risking infinite loops.
+
 
 ## CLI Design
 

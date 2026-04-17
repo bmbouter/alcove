@@ -28,7 +28,7 @@ Bridge → Hail (NATS) → Skiff Pod [skiff container + gate sidecar] → Gate �
 - Skiff pods are ephemeral: one session, one container, then destroyed
 - Gate is a sidecar (shares network namespace with Skiff)
 - Gate proxies ALL external traffic including LLM API calls (Skiff has no real credentials)
-- NetworkPolicy enforces this on OpenShift; dual-network isolation (`--internal` flag) on podman; no network isolation on Docker (see Key Decisions)
+- On OpenShift, a static `alcove-allow-internal` NetworkPolicy restricts egress (per-task NetworkPolicy is disabled due to OVN-Kubernetes DNS resolution issues); dual-network isolation (`--internal` flag) on podman; no network isolation on Docker (see Key Decisions)
 
 ## Design Documents
 
@@ -36,7 +36,7 @@ Read these for full context:
 
 1. `docs/design/implementation-status.md` — **START HERE** — current state, what works, what's next
 2. `docs/design/architecture.md` — component design, deployment diagrams, network isolation, roadmap
-3. `docs/design/architecture-decisions.md` — 18 resolved decisions, CLI design, config format, repo layout
+3. `docs/design/architecture-decisions.md` — 19 resolved decisions, CLI design, config format, repo layout
 4. `docs/design/problem-statement.md` — why ephemeral agents
 5. `docs/design/credential-management.md` — credential storage, encryption, OAuth2 token flow
 6. `docs/design/auth-backends.md` — auth backend design (memory, postgres, rh-identity)

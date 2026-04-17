@@ -54,6 +54,7 @@ alcove --help
 | `--server <url>` | Bridge server URL (overrides env and config file) |
 | `--output <format>` | Output format: `json` or `table` (default: `table`) |
 | `--profile <name>` | Use a named profile from config (overrides `ALCOVE_PROFILE` and `active_profile`) |
+| `--team <name>` | Team name to scope this invocation (overrides `active_team` in profile) |
 | `--proxy-url <url>` | HTTP/HTTPS proxy URL (overrides environment) |
 | `--no-proxy <hosts>` | Comma-separated list of hosts to exclude from proxy (overrides `NO_PROXY` env var) |
 | `-u, --username <user>` | Username for Basic Auth (overrides `ALCOVE_USERNAME`) |
@@ -236,6 +237,7 @@ server: https://alcove.example.com
 output: table
 username: myuser
 password: mypassword
+active_team: my-team
 proxy_url: http://proxy.example.com:8080
 no_proxy: localhost,127.0.0.1,.internal.com
 defaults:
@@ -680,6 +682,7 @@ directory if they don't exist. Valid keys:
 | `password` | Basic Auth password |
 | `proxy_url` | HTTP/HTTPS proxy URL |
 | `no_proxy` | Comma-separated no-proxy hosts |
+| `active_team` | Active team name for team-scoped operations |
 | `defaults.repo` | Default repository |
 | `defaults.provider` | Default LLM provider |
 | `defaults.model` | Default model |
@@ -906,4 +909,596 @@ alcove version
 
 # JSON output
 alcove version --output json
+```
+
+---
+
+## alcove teams
+
+Manage teams. Every resource in Alcove belongs to a team. Users can belong to
+multiple teams, and a personal team is auto-created on signup.
+
+```
+alcove teams <subcommand>
+```
+
+### Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | List all teams |
+| `create` | Create a new team |
+| `use` | Set the active team for the current profile |
+| `add-member` | Add a member to a team |
+| `remove-member` | Remove a member from a team |
+| `delete` | Delete a team |
+
+---
+
+## alcove teams list
+
+List all teams the current user belongs to.
+
+```
+alcove teams list
+```
+
+### Flags
+
+No command-specific flags. Supports global `--output json`.
+
+### Description
+
+Displays all teams in a table. The active team (set via `alcove teams use` or
+`active_team` in the config file) is marked with an asterisk (`*`). Each row
+shows the team name, whether it is a personal team, and the creation timestamp.
+
+### Examples
+
+```bash
+# List all teams
+alcove teams list
+
+# JSON output
+alcove teams list --output json
+```
+
+Sample table output:
+
+```
+  NAME        PERSONAL  CREATED
+* my-team     no        2026-03-25T10:00:00Z
+  personal    yes       2026-03-20T08:00:00Z
+```
+
+---
+
+## alcove teams create
+
+Create a new team.
+
+```
+alcove teams create <name>
+```
+
+### Flags
+
+No command-specific flags. Supports global `--output json`.
+
+### Description
+
+Creates a new team with the given name. The current user is automatically added
+as a member. After creating a team, use `alcove teams use` to set it as the
+active team.
+
+### Examples
+
+```bash
+# Create a team
+alcove teams create backend-team
+
+# Create and get JSON output
+alcove teams create --output json frontend-team
+```
+
+---
+
+## alcove teams use
+
+Set the active team for the current profile.
+
+```
+alcove teams use [name]
+```
+
+### Flags
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--personal` | bool | Switch to your personal team |
+
+### Description
+
+Sets `active_team` in the config file for the active profile. All subsequent
+team-scoped commands (sessions, catalog, credentials) will use this team unless
+overridden by the `--team` global flag.
+
+Use `--personal` to switch to your auto-created personal team without needing to
+know its name.
+
+### Examples
+
+```bash
+# Set active team by name
+alcove teams use backend-team
+
+# Switch to personal team
+alcove teams use --personal
+
+# Set active team for a specific profile
+alcove --profile staging teams use backend-team
+```
+
+---
+
+## alcove teams add-member
+
+Add a member to a team.
+
+```
+alcove teams add-member <team> <username>
+```
+
+### Flags
+
+No command-specific flags. Supports global `--output json`.
+
+### Description
+
+Adds the specified user to the team. The team name is resolved to its ID
+automatically.
+
+### Examples
+
+```bash
+# Add a user to a team
+alcove teams add-member backend-team alice
+
+# JSON output
+alcove teams add-member --output json backend-team bob
+```
+
+---
+
+## alcove teams remove-member
+
+Remove a member from a team.
+
+```
+alcove teams remove-member <team> <username>
+```
+
+### Flags
+
+No command-specific flags. Supports global `--output json`.
+
+### Description
+
+Removes the specified user from the team.
+
+### Examples
+
+```bash
+# Remove a user from a team
+alcove teams remove-member backend-team alice
+```
+
+---
+
+## alcove teams delete
+
+Delete a team.
+
+```
+alcove teams delete <team> [flags]
+```
+
+### Flags
+
+| Flag | Short | Type | Description |
+|------|-------|------|-------------|
+| `--yes` | `-y` | bool | Skip the confirmation prompt |
+
+### Description
+
+Permanently deletes a team. This cannot be undone. Without `-y`, prompts for
+confirmation before proceeding.
+
+### Examples
+
+```bash
+# Delete a team (prompts for confirmation)
+alcove teams delete old-team
+
+# Delete without confirmation prompt
+alcove teams delete -y old-team
+```
+
+---
+
+## alcove catalog
+
+Manage the service catalog. The catalog contains sources (git repos) and items
+(agents, plugins, MCPs) that can be enabled or disabled per team.
+
+```
+alcove catalog <subcommand>
+```
+
+Catalog commands require an active team. Set one with `alcove teams use <name>`
+or pass `--team <name>` on each invocation.
+
+### Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | List catalog entries |
+| `search` | Search catalog entries by name, description, or tags |
+| `items` | List items within a catalog source |
+| `enable` | Enable a catalog source or individual item |
+| `disable` | Disable a catalog source or individual item |
+| `agents` | List all enabled agents across all sources |
+
+---
+
+## alcove catalog list
+
+List catalog entries for the active team.
+
+```
+alcove catalog list [flags]
+```
+
+### Flags
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--category` | string | Filter by category |
+
+### Description
+
+Displays all catalog entries in a table. Each row shows the entry ID, category,
+source type, name, enabled status, and a truncated description.
+
+### Examples
+
+```bash
+# List all catalog entries
+alcove catalog list
+
+# Filter by category
+alcove catalog list --category agent
+
+# JSON output
+alcove catalog list --output json
+
+# List entries for a specific team (without switching active team)
+alcove --team backend-team catalog list
+```
+
+---
+
+## alcove catalog search
+
+Search catalog entries by name, description, or tags.
+
+```
+alcove catalog search <query>
+```
+
+### Flags
+
+No command-specific flags. Supports global `--output json`.
+
+### Description
+
+Searches all catalog entries for the active team. The query is matched
+case-insensitively against the entry name, description, and tags. Results are
+displayed in the same table format as `alcove catalog list`.
+
+### Examples
+
+```bash
+# Search for entries related to "marketing"
+alcove catalog search marketing
+
+# Search with JSON output
+alcove catalog search --output json testing
+```
+
+---
+
+## alcove catalog items
+
+List items within a catalog source.
+
+```
+alcove catalog items <source> [flags]
+```
+
+### Flags
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--search` | string | Filter items by name or slug |
+
+### Description
+
+Displays items (agents, plugins, MCPs) that belong to a specific catalog source.
+Each row shows the slug, name, type, and enabled status.
+
+### Examples
+
+```bash
+# List all items in a source
+alcove catalog items agency-agents
+
+# Filter items by name
+alcove catalog items agency-agents --search writer
+
+# JSON output
+alcove catalog items --output json agency-agents
+```
+
+---
+
+## alcove catalog enable
+
+Enable a catalog source or individual item for the active team.
+
+```
+alcove catalog enable <source>[/<item>]
+```
+
+### Flags
+
+No command-specific flags. Supports global `--output json`.
+
+### Description
+
+Enables catalog entries so they are available for use in sessions. When the
+argument contains a `/`, it enables a single item within a source. When no `/`
+is present, it enables all items in the source (bulk enable).
+
+### Examples
+
+```bash
+# Enable a single item
+alcove catalog enable agency-agents/marketing-writer
+
+# Enable all items in a source
+alcove catalog enable agency-agents
+
+# Enable for a specific team
+alcove --team backend-team catalog enable agency-agents/code-reviewer
+```
+
+---
+
+## alcove catalog disable
+
+Disable a catalog source or individual item for the active team.
+
+```
+alcove catalog disable <source>[/<item>]
+```
+
+### Flags
+
+No command-specific flags. Supports global `--output json`.
+
+### Description
+
+Disables catalog entries so they are no longer available for use in sessions.
+When the argument contains a `/`, it disables a single item within a source.
+When no `/` is present, it disables all items in the source (bulk disable).
+
+### Examples
+
+```bash
+# Disable a single item
+alcove catalog disable agency-agents/marketing-writer
+
+# Disable all items in a source
+alcove catalog disable agency-agents
+```
+
+---
+
+## alcove catalog agents
+
+List all enabled agents across all catalog sources.
+
+```
+alcove catalog agents
+```
+
+### Flags
+
+No command-specific flags. Supports global `--output json`.
+
+### Description
+
+Displays all agents that are currently enabled for the active team, aggregated
+across all catalog sources. Each row shows the `source/slug` identifier and the
+agent name. These identifiers are used to reference agents in workflow step
+definitions.
+
+### Examples
+
+```bash
+# List all enabled agents
+alcove catalog agents
+
+# JSON output
+alcove catalog agents --output json
+```
+
+Sample table output:
+
+```
+SOURCE/SLUG                          NAME
+agency-agents/marketing-writer       Marketing Writer
+agency-agents/code-reviewer          Code Reviewer
+```
+
+---
+
+## alcove credentials
+
+Manage team credentials and secrets. Credentials store API keys, service account
+JSON, and other secrets used by Gate to proxy requests to external services.
+
+```
+alcove credentials <subcommand>
+```
+
+The command is also available via the `creds` alias: `alcove creds <subcommand>`.
+
+Credential commands require an active team. Set one with `alcove teams use <name>`
+or pass `--team <name>` on each invocation.
+
+### Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | List credentials for the active team |
+| `create` | Create a new credential |
+| `delete` | Delete a credential by ID |
+
+---
+
+## alcove credentials list
+
+List credentials for the active team.
+
+```
+alcove credentials list
+```
+
+### Flags
+
+No command-specific flags. Supports global `--output json`.
+
+### Description
+
+Displays all credentials for the active team. Each row shows the credential
+name, provider, auth type, and creation timestamp. Credential values (secrets)
+are never displayed.
+
+### Examples
+
+```bash
+# List credentials
+alcove credentials list
+
+# Using the alias
+alcove creds list
+
+# JSON output
+alcove credentials list --output json
+```
+
+Sample table output:
+
+```
+NAME             PROVIDER        TYPE             CREATED
+anthropic-key    anthropic       api_key          2026-03-25T10:00:00Z
+github-pat       github          secret           2026-03-20T08:00:00Z
+vertex-sa        google-vertex   service_account  2026-03-18T14:30:00Z
+```
+
+---
+
+## alcove credentials create
+
+Create a new credential for the active team.
+
+```
+alcove credentials create [flags]
+```
+
+### Flags
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--name` | string | Credential name (required) |
+| `--provider` | string | Provider name (default: `generic`). Examples: `anthropic`, `google-vertex`, `github`, `gitlab` |
+| `--auth-type` | string | Auth type (default: `secret`). Examples: `api_key`, `service_account`, `secret` |
+| `--secret` | string | Shorthand: sets `provider=generic`, `auth-type=secret`, and uses value as credential |
+| `--credential` | string | Credential value (e.g., API key, service account JSON) |
+| `--project-id` | string | GCP project ID (Vertex AI only) |
+| `--region` | string | GCP region (Vertex AI only) |
+| `--api-host` | string | Custom API host (e.g., self-hosted GitLab URL) |
+
+### Description
+
+Creates a new credential for the active team. Either `--secret` (shorthand) or
+`--credential` must be provided along with `--name`.
+
+The `--secret` flag is a convenience shorthand that sets the provider to
+`generic` and the auth type to `secret`. For provider-specific credentials (LLM
+API keys, SCM tokens), use `--provider` and `--auth-type` with `--credential`.
+
+### Examples
+
+```bash
+# Create a generic secret
+alcove credentials create --name my-token --secret sk-abc123
+
+# Create an Anthropic API key credential
+alcove credentials create --name anthropic-key --provider anthropic --auth-type api_key --credential sk-ant-abc123
+
+# Create a Google Vertex AI service account credential
+alcove credentials create --name vertex-sa --provider google-vertex --auth-type service_account \
+  --credential '{"type":"service_account",...}' --project-id my-project --region us-east5
+
+# Create a GitHub PAT credential
+alcove credentials create --name github-pat --provider github --auth-type secret --credential ghp_abc123
+
+# Create a credential for a self-hosted GitLab instance
+alcove credentials create --name gitlab-token --provider gitlab --auth-type secret \
+  --credential glpat-abc123 --api-host https://gitlab.company.com
+
+# Using the alias
+alcove creds create --name my-secret --secret supersecretvalue
+```
+
+---
+
+## alcove credentials delete
+
+Delete a credential by ID.
+
+```
+alcove credentials delete <id>
+```
+
+### Flags
+
+No command-specific flags. Supports global `--output json`.
+
+### Description
+
+Permanently deletes a credential. Use `alcove credentials list` to find the
+credential ID.
+
+### Examples
+
+```bash
+# Delete a credential
+alcove credentials delete 12345678-abcd-1234-abcd-123456789012
+
+# JSON output
+alcove credentials delete --output json 12345678-abcd-1234-abcd-123456789012
 ```

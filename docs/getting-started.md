@@ -114,7 +114,7 @@ TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
 
 # Start a session
-curl -X POST http://localhost:8080/api/v1/tasks \
+curl -X POST http://localhost:8080/api/v1/sessions \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"prompt":"Say hello","provider":"anthropic","timeout":300}'
@@ -139,14 +139,16 @@ your `alcove.yaml`:
 
 ```yaml
 # Anthropic API
-llm_provider: anthropic
-llm_api_key: sk-ant-...
+system_llm:
+  provider: anthropic
+  api_key: sk-ant-...
 
 # or Google Vertex AI
-# llm_provider: google-vertex
-# llm_service_account_json: '{"type":"service_account",...}'
-# llm_project: your-gcp-project-id
-# llm_region: us-east5
+# system_llm:
+#   provider: google-vertex
+#   service_account_json: '{"type":"service_account",...}'
+#   project_id: your-gcp-project-id
+#   region: us-east5
 ```
 
 The dashboard shows a read-only system LLM status. If not configured, it
@@ -210,7 +212,7 @@ and you will only see resources owned by that team.
 ./bin/alcove teams use "My Team"
 
 # Add a member
-./bin/alcove teams add-member "My Team" --username alice
+./bin/alcove teams add-member "My Team" alice
 
 # List your teams
 ./bin/alcove teams list
@@ -270,7 +272,8 @@ or dashboard -- YAML is the single source of truth.
 3. Optionally add security profiles in `.alcove/security-profiles/`
 4. Register the repo in the dashboard under **Agent Repos** (user menu)
 
-Bridge syncs agent repos every 5 minutes. Once synced, agent definitions appear
+Bridge syncs agent repos every 15 minutes (configurable via
+`AGENT_REPO_SYNC_INTERVAL`). Once synced, agent definitions appear
 on the dashboard where you can run them or view the source YAML. Starter
 templates are available to help you get started.
 
@@ -320,51 +323,51 @@ exhausted, the step status becomes `max_iterations_exceeded`.
 ### Minimal Example
 
 ```yaml
+name: Develop and Merge
 workflow:
-  steps:
-    - id: implement
-      type: agent
-      agent: dev
+  - id: implement
+    type: agent
+    agent: dev
 
-    - id: create-pr
-      type: bridge
-      action: create-pr
-      depends: "implement.Succeeded"
-      inputs:
-        branch: "{{steps.implement.inputs.branch}}"
-        title: "Fix #{{trigger.issue_number}}"
-        base: main
+  - id: create-pr
+    type: bridge
+    action: create-pr
+    depends: "implement.Succeeded"
+    inputs:
+      branch: "{{steps.implement.inputs.branch}}"
+      title: "Fix #{{trigger.issue_number}}"
+      base: main
 
-    - id: await-ci
-      type: bridge
-      action: await-ci
-      depends: "create-pr.Succeeded || ci-fix.Succeeded"
-      max_iterations: 4
-      inputs:
-        pr: "{{steps.create-pr.outputs.pr_number}}"
+  - id: await-ci
+    type: bridge
+    action: await-ci
+    depends: "create-pr.Succeeded || ci-fix.Succeeded"
+    max_iterations: 4
+    inputs:
+      pr: "{{steps.create-pr.outputs.pr_number}}"
 
-    - id: ci-fix
-      type: agent
-      agent: dev
-      depends: "await-ci.Failed"
-      max_iterations: 3
+  - id: ci-fix
+    type: agent
+    agent: dev
+    depends: "await-ci.Failed"
+    max_iterations: 3
 
-    - id: code-review
-      type: agent
-      agent: reviewer
-      depends: "await-ci.Succeeded || revision.Succeeded"
-      max_iterations: 3
+  - id: code-review
+    type: agent
+    agent: reviewer
+    depends: "await-ci.Succeeded || revision.Succeeded"
+    max_iterations: 3
 
-    - id: revision
-      type: agent
-      agent: dev
-      depends: "code-review.Failed"
-      max_iterations: 3
+  - id: revision
+    type: agent
+    agent: dev
+    depends: "code-review.Failed"
+    max_iterations: 3
 
-    - id: merge
-      type: bridge
-      action: merge-pr
-      depends: "code-review.Succeeded"
+  - id: merge
+    type: bridge
+    action: merge-pr
+    depends: "code-review.Succeeded"
 ```
 
 This workflow implements a full develop-review-merge cycle: implement the change,
@@ -416,7 +419,7 @@ curl -X POST http://localhost:8080/api/v1/credentials \
   -d '{"name":"github","provider":"github","auth_type":"pat","credential":"ghp_your_token"}'
 
 # Start a session with GitHub scope
-curl -X POST http://localhost:8080/api/v1/tasks \
+curl -X POST http://localhost:8080/api/v1/sessions \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"prompt":"Fix the typo in README.md and open a PR","provider":"vertex","scope":{"services":{"github":{"repos":["org/repo"],"operations":["clone","push_branch","create_pr_draft"]}}}}'
@@ -428,7 +431,7 @@ curl -X POST http://localhost:8080/api/v1/credentials \
   -d '{"name":"jira","provider":"jira","auth_type":"basic","credential":"user@example.com:your-api-token"}'
 
 # Start a session with JIRA scope
-curl -X POST http://localhost:8080/api/v1/tasks \
+curl -X POST http://localhost:8080/api/v1/sessions \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"prompt":"Triage new issues in PROJ","scope":{"services":{"jira":{"repos":["PROJ"],"operations":["read_issues","search_issues","add_comment"]}}}}'

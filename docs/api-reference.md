@@ -40,6 +40,28 @@ The following POST endpoints are exempt from user authentication. They are used 
 
 Rate limiting: after 5 failed login attempts within 15 minutes, the account is locked for 30 minutes.
 
+### Team Scoping with X-Alcove-Team
+
+Most API endpoints are scoped to a team. The auth middleware resolves the active team using the `X-Alcove-Team` request header:
+
+```
+X-Alcove-Team: <team-id>
+```
+
+- If `X-Alcove-Team` is set, the middleware validates that the authenticated user is a member of that team. On success, the resolved team ID is used for all resource queries. If the user is not a member (and not an admin), the middleware falls back to the user's personal team.
+- If `X-Alcove-Team` is omitted, the user's personal team is used automatically.
+
+Every user has a personal team created at signup. Shared teams can be created via the Teams API. Resources (sessions, workflows, credentials, catalog selections) belong to the active team and are not visible to other teams.
+
+**curl example:**
+
+```bash
+# List sessions scoped to a specific team
+curl http://localhost:8080/api/v1/sessions \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Alcove-Team: 550e8400-e29b-41d4-a716-446655440000"
+```
+
 ### POST /api/v1/auth/login
 
 Authenticate and receive a session token.
@@ -264,7 +286,7 @@ curl -X DELETE http://localhost:8080/api/v1/auth/tbr-associations/550e8400-e29b-
 
 ## Sessions (Start)
 
-### POST /api/v1/tasks
+### POST /api/v1/sessions
 
 Start a new session for execution. Bridge creates a session, dispatches it to a Skiff pod, and returns the session record.
 
@@ -342,7 +364,7 @@ The submitter is read from the `X-Alcove-User` header (set automatically by the 
 **curl example:**
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/tasks \
+curl -X POST http://localhost:8080/api/v1/sessions \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -885,6 +907,7 @@ Create a new credential.
 | `credential` | string | yes      | Raw credential material (API key or JSON service account key) |
 | `project_id` | string | no       | GCP project ID (Vertex only) |
 | `region`     | string | no       | GCP region (Vertex only) |
+| `api_host`   | string | no       | Custom API host URL (e.g., self-hosted GitLab instance) |
 
 **Response (201):**
 
@@ -1040,7 +1063,7 @@ For API key providers, `token_type` is `"api_key"` and `expires_in` is `0`.
 
 ## Schedules
 
-Manage recurring tasks with cron expressions. The scheduler checks for due schedules every 60 seconds.
+Schedules are defined in YAML agent definition files (via the `schedule:` field) and synced from agent repos. The API provides **read-only** access to synced schedules. To create, update, or delete schedules, edit the YAML files in your agent repos and trigger a sync.
 
 ### GET /api/v1/schedules
 
@@ -1070,77 +1093,19 @@ List all schedules.
 }
 ```
 
-### POST /api/v1/schedules
-
-Create a new schedule.
-
-**Request body:**
-
-```json
-{
-  "name": "nightly-tests",
-  "cron": "0 2 * * *",
-  "prompt": "Run the full test suite and fix any failures",
-  "repo": "https://github.com/example/myproject.git",
-  "provider": "anthropic",
-  "scope_preset": "",
-  "timeout": 3600,
-  "enabled": true
-}
-```
-
-| Field          | Type   | Required | Description |
-|----------------|--------|----------|-------------|
-| `name`         | string | yes      | Display name |
-| `cron`         | string | yes      | 5-field cron expression (min hour dom month dow) |
-| `prompt`       | string | yes      | Task prompt |
-| `repo`         | string | no       | Git repository URL |
-| `provider`     | string | no       | LLM provider name |
-| `scope_preset` | string | no       | Scope preset name |
-| `timeout`      | int    | no       | Task timeout in seconds |
-| `enabled`      | bool   | yes      | Whether the schedule is active |
-
-Cron syntax supports: exact values, wildcards (`*`), step values (`*/5`), ranges (`1-5`), and lists (`1,3,5`).
-
-**Response (201):**
-
-```json
-{
-  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "name": "nightly-tests",
-  "cron": "0 2 * * *",
-  "prompt": "Run the full test suite and fix any failures",
-  "repo": "https://github.com/example/myproject.git",
-  "provider": "anthropic",
-  "scope_preset": "",
-  "timeout": 3600,
-  "enabled": true,
-  "next_run": "2026-03-26T02:00:00Z",
-  "created_at": "2026-03-25T14:00:00Z"
-}
-```
-
 **Status codes:**
 
 | Code | Meaning |
 |------|---------|
-| 201  | Schedule created |
-| 400  | Invalid body or cron expression |
-| 500  | Storage error |
+| 200  | Schedules listed |
+| 405  | Method not allowed (only GET is supported) |
+| 500  | Database error |
 
 **curl example:**
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/schedules \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "weekly-deps",
-    "cron": "0 9 * * 1",
-    "prompt": "Update all Go dependencies and run tests",
-    "repo": "https://github.com/example/myproject.git",
-    "enabled": true
-  }'
+curl http://localhost:8080/api/v1/schedules \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ### GET /api/v1/schedules/{id}
@@ -1155,80 +1120,7 @@ Get a single schedule.
 |------|---------|
 | 200  | Schedule found |
 | 404  | Schedule not found |
-
-### PUT /api/v1/schedules/{id}
-
-Update a schedule. The cron expression is re-validated and `next_run` is recomputed.
-
-**Request body:** same fields as POST (the `id` in the URL takes precedence).
-
-**Response (200):** the updated schedule object.
-
-**Status codes:**
-
-| Code | Meaning |
-|------|---------|
-| 200  | Schedule updated |
-| 400  | Invalid body or cron expression |
-| 500  | Storage error |
-
-### DELETE /api/v1/schedules/{id}
-
-Delete a schedule.
-
-**Response (200):**
-
-```json
-{
-  "deleted": true
-}
-```
-
-**Status codes:**
-
-| Code | Meaning |
-|------|---------|
-| 200  | Schedule deleted |
-| 500  | Storage error |
-
-### POST /api/v1/schedules/{id}/enable
-
-Enable or disable a schedule. When enabling, `next_run` is recomputed from the current time.
-
-**Request body:**
-
-```json
-{
-  "enabled": true
-}
-```
-
-**Response (200):**
-
-```json
-{
-  "updated": true
-}
-```
-
-**Status codes:**
-
-| Code | Meaning |
-|------|---------|
-| 200  | Schedule updated |
-| 400  | Invalid body |
-| 405  | Method not allowed (must be POST) |
-| 500  | Storage error |
-
-**curl example:**
-
-```bash
-# Disable a schedule
-curl -X POST http://localhost:8080/api/v1/schedules/$SCHEDULE_ID/enable \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"enabled": false}'
-```
+| 405  | Method not allowed (only GET is supported) |
 
 ---
 
@@ -1387,7 +1279,7 @@ curl http://localhost:8080/api/v1/health
 
 ## Tools
 
-Manage the MCP tool registry. Builtin tools (`github`, `gitlab`, `jira`) are read-only and cannot be modified or deleted.
+Tools are managed via YAML definitions in agent repos. The API provides **read-only** access to synced tools. Builtin tools (`github`, `gitlab`, `jira`) are always available.
 
 ### GET /api/v1/tools
 
@@ -1416,71 +1308,18 @@ List all registered tools (builtin and custom).
 }
 ```
 
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200  | Tools listed |
+| 405  | Method not allowed (only GET is supported) |
+
 **curl example:**
 
 ```bash
 curl http://localhost:8080/api/v1/tools \
   -H "Authorization: Bearer $TOKEN"
-```
-
-### POST /api/v1/tools
-
-Register a new custom tool.
-
-**Request body:**
-
-```json
-{
-  "name": "my-tool",
-  "display_name": "My Custom Tool",
-  "tool_type": "custom",
-  "mcp_command": "/usr/local/bin/my-tool-server",
-  "mcp_args": ["--port", "3000"],
-  "api_host": "https://my-tool.example.com",
-  "auth_header": "Authorization",
-  "auth_format": "Bearer %s",
-  "operations": [
-    { "name": "read_data", "description": "Read data from the tool", "risk": "read" },
-    { "name": "write_data", "description": "Write data to the tool", "risk": "write" }
-  ]
-}
-```
-
-| Field          | Type   | Required | Description |
-|----------------|--------|----------|-------------|
-| `name`         | string | yes      | Unique tool identifier (kebab-case) |
-| `display_name` | string | yes      | Human-readable name |
-| `tool_type`    | string | no       | `"builtin"` or `"custom"` (defaults to `"custom"`) |
-| `mcp_command`  | string | no       | MCP server command |
-| `mcp_args`     | array  | no       | MCP server command arguments |
-| `api_host`     | string | no       | API base URL |
-| `auth_header`  | string | no       | HTTP header name for authentication |
-| `auth_format`  | string | no       | Format string for auth header value (e.g. `"Bearer %s"`) |
-| `operations`   | array  | no       | List of operations with `name`, `description`, and `risk` |
-
-**Response (201):** the created tool object.
-
-**Status codes:**
-
-| Code | Meaning |
-|------|---------|
-| 201  | Tool created |
-| 400  | Missing `name` or `display_name` |
-| 500  | Storage error |
-
-**curl example:**
-
-```bash
-curl -X POST http://localhost:8080/api/v1/tools \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "my-tool",
-    "display_name": "My Custom Tool",
-    "operations": [
-      { "name": "read_data", "description": "Read data", "risk": "read" }
-    ]
-  }'
 ```
 
 ### GET /api/v1/tools/{name}
@@ -1495,6 +1334,7 @@ Get a single tool by name.
 |------|---------|
 | 200  | Tool found |
 | 404  | Tool not found |
+| 405  | Method not allowed (only GET is supported) |
 
 **curl example:**
 
@@ -1503,68 +1343,11 @@ curl http://localhost:8080/api/v1/tools/github \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-### PUT /api/v1/tools/{name}
-
-Update a custom tool. Builtin tools cannot be modified (returns 403).
-
-**Request body:** same fields as POST (the `name` in the URL takes precedence).
-
-**Response (200):** the updated tool object.
-
-**Status codes:**
-
-| Code | Meaning |
-|------|---------|
-| 200  | Tool updated |
-| 400  | Invalid body |
-| 403  | Builtin tools cannot be modified |
-| 404  | Tool not found |
-
-### DELETE /api/v1/tools/{name}
-
-Delete a custom tool. Builtin tools cannot be deleted (returns 403).
-
-**Response (200):**
-
-```json
-{
-  "deleted": true
-}
-```
-
-**Status codes:**
-
-| Code | Meaning |
-|------|---------|
-| 200  | Tool deleted |
-| 403  | Builtin tools cannot be deleted |
-| 404  | Tool not found |
-
-**curl example:**
-
-```bash
-curl -X DELETE http://localhost:8080/api/v1/tools/my-tool \
-  -H "Authorization: Bearer $TOKEN"
-```
-
 ---
 
 ## Security
 
-Manage security profiles that define per-tool access rules for sessions. YAML-sourced profiles are read-only and cannot be modified or deleted.
-
-Each profile includes a `source` field indicating its origin:
-
-| Source    | Description |
-|-----------|-------------|
-| `user`    | Created via the API or dashboard |
-| `yaml`    | Loaded from a `.alcove/security-profiles/*.yml` file in an agent repo |
-
-YAML-sourced profiles also include `source_repo` (the agent repo URL) and
-`source_key` (the file path within the repo, e.g.
-`.alcove/security-profiles/my-profile.yml`).
-
-`PUT` and `DELETE` requests are rejected with **403** for YAML-sourced profiles.
+Security profiles define per-tool access rules for sessions. They are managed via YAML definitions in agent repos (`.alcove/security-profiles/*.yml`). The API provides **read-only** access to synced profiles. To create, update, or delete profiles, edit the YAML files in your agent repos and trigger a sync.
 
 ### GET /api/v1/security-profiles
 
@@ -1614,76 +1397,18 @@ List all security profiles.
 }
 ```
 
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200  | Profiles listed |
+| 405  | Method not allowed (only GET is supported) |
+
 **curl example:**
 
 ```bash
 curl http://localhost:8080/api/v1/security-profiles \
   -H "Authorization: Bearer $TOKEN"
-```
-
-### POST /api/v1/security-profiles
-
-Create a new security profile.
-
-**Request body:**
-
-```json
-{
-  "name": "pr-creator",
-  "display_name": "PR Creator",
-  "description": "Can read any repo and create PRs on specific repos",
-  "tools": {
-    "github": {
-      "rules": [
-        { "repos": ["*"], "operations": ["clone", "read_prs", "read_contents"] },
-        { "repos": ["example/myproject"], "operations": ["clone", "push_branch", "create_pr_draft"] }
-      ]
-    }
-  }
-}
-```
-
-| Field          | Type   | Required | Description |
-|----------------|--------|----------|-------------|
-| `name`         | string | yes      | Unique profile identifier (kebab-case) |
-| `display_name` | string | no       | Human-readable name |
-| `description`  | string | no       | Profile description |
-| `tools`        | object | yes      | Map of tool name to `ProfileToolConfig` |
-
-Each `ProfileToolConfig` contains a `rules` array. Each rule specifies:
-
-| Field        | Type     | Description |
-|--------------|----------|-------------|
-| `repos`      | string[] | Repository patterns (e.g. `["org/repo"]` or `["*"]` for all) |
-| `operations` | string[] | Allowed operations for those repos |
-
-**Response (201):** the created profile object.
-
-**Status codes:**
-
-| Code | Meaning |
-|------|---------|
-| 201  | Profile created |
-| 400  | Missing `name` or `tools` |
-| 500  | Storage error |
-
-**curl example:**
-
-```bash
-curl -X POST http://localhost:8080/api/v1/security-profiles \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "read-only-github",
-    "display_name": "Read-Only GitHub",
-    "tools": {
-      "github": {
-        "rules": [
-          { "repos": ["*"], "operations": ["clone", "read_prs", "read_contents"] }
-        ]
-      }
-    }
-  }'
 ```
 
 ### GET /api/v1/security-profiles/{name}
@@ -1698,112 +1423,17 @@ Get a single profile by name.
 |------|---------|
 | 200  | Profile found |
 | 404  | Profile not found |
-
-### PUT /api/v1/security-profiles/{name}
-
-Update a custom profile. YAML-sourced profiles cannot be modified (returns 403).
-
-**Request body:** same fields as POST (the `name` in the URL takes precedence).
-
-**Response (200):** the updated profile object.
-
-**Status codes:**
-
-| Code | Meaning |
-|------|---------|
-| 200  | Profile updated |
-| 400  | Invalid body |
-| 403  | YAML-sourced profiles cannot be modified |
-| 404  | Profile not found |
-
-### DELETE /api/v1/security-profiles/{name}
-
-Delete a custom profile. YAML-sourced profiles cannot be deleted (returns 403).
-
-**Response (200):**
-
-```json
-{
-  "deleted": true
-}
-```
-
-**Status codes:**
-
-| Code | Meaning |
-|------|---------|
-| 200  | Profile deleted |
-| 403  | YAML-sourced profiles cannot be deleted |
-| 404  | Profile not found |
-
-**curl example:**
-
-```bash
-curl -X DELETE http://localhost:8080/api/v1/security-profiles/my-profile \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-### POST /api/v1/security-profiles/build
-
-Use AI to generate a security profile from a natural language description. Requires a system LLM to be configured (see Admin Settings).
-
-**Request body:**
-
-```json
-{
-  "description": "Read any GitHub repo and create draft PRs on example/myproject"
-}
-```
-
-**Response (200):**
-
-```json
-{
-  "profile": {
-    "name": "github-pr-creator",
-    "display_name": "GitHub PR Creator",
-    "description": "Read any GitHub repo and create draft PRs on example/myproject",
-    "tools": {
-      "github": {
-        "rules": [
-          { "repos": ["*"], "operations": ["clone", "read_prs", "read_contents"] },
-          { "repos": ["example/myproject"], "operations": ["clone", "push_branch", "create_pr_draft"] }
-        ]
-      }
-    }
-  }
-}
-```
-
-The returned profile is not saved automatically. Submit it to `POST /api/v1/security-profiles` to persist it.
-
-**Status codes:**
-
-| Code | Meaning |
-|------|---------|
-| 200  | Profile generated |
-| 400  | Missing `description` |
-| 500  | LLM error |
-| 503  | System LLM not configured |
-
-**curl example:**
-
-```bash
-curl -X POST http://localhost:8080/api/v1/security-profiles/build \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"description": "Read any GitHub repo and create draft PRs on example/myproject"}'
-```
+| 405  | Method not allowed (only GET is supported) |
 
 ---
 
 ## Agent Repos
 
-Configure git repositories containing YAML agent definitions (`.alcove/tasks/*.yml`). Agent repos are synced automatically every 5 minutes.
+Configure git repositories containing YAML agent definitions (`.alcove/tasks/*.yml`). Agent repos are synced automatically every 15 minutes. When a team context is active (via the `X-Alcove-Team` header), agent repos are stored as team settings. Without a team context, they fall back to per-user settings.
 
-### GET /api/v1/admin/settings/task-repos
+### GET /api/v1/user/settings/agent-repos
 
-Get the system-wide agent repos (admin only).
+Get agent repos for the active team (or the current user if no team context).
 
 **Response (200):**
 
@@ -1813,25 +1443,66 @@ Get the system-wide agent repos (admin only).
     {
       "url": "https://github.com/org/task-definitions.git",
       "ref": "main",
-      "name": "Org Agents"
+      "name": "Org Agents",
+      "enabled": true
     }
   ]
 }
 ```
 
-### PUT /api/v1/admin/settings/task-repos
+**curl example:**
 
-Set the system-wide agent repos (admin only). Replaces the entire list.
+```bash
+curl http://localhost:8080/api/v1/user/settings/agent-repos \
+  -H "Authorization: Bearer $TOKEN"
+```
 
-**Request/Response:** same shape as skill repos.
+### PUT /api/v1/user/settings/agent-repos
 
-### GET /api/v1/user/settings/task-repos
+Set agent repos for the active team (or the current user if no team context). Replaces the entire list and triggers an immediate sync.
 
-Get the current user's personal agent repos.
+**Request body:**
 
-### PUT /api/v1/user/settings/task-repos
+```json
+{
+  "repos": [
+    {
+      "url": "https://github.com/org/task-definitions.git",
+      "ref": "main",
+      "name": "Org Agents",
+      "enabled": true
+    }
+  ]
+}
+```
 
-Set the current user's personal agent repos.
+**Response (200):** the saved repos array.
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200  | Repos saved |
+| 400  | Invalid request body |
+| 401  | Authentication required |
+| 500  | Storage error |
+
+**curl example:**
+
+```bash
+curl -X PUT http://localhost:8080/api/v1/user/settings/agent-repos \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repos": [
+      {
+        "url": "https://github.com/org/task-definitions.git",
+        "ref": "main",
+        "name": "Org Agents"
+      }
+    ]
+  }'
+```
 
 ---
 
@@ -1839,7 +1510,7 @@ Set the current user's personal agent repos.
 
 Agent definitions are YAML files discovered from registered agent repos. They define reusable, parameterized agents.
 
-### GET /api/v1/task-definitions
+### GET /api/v1/agent-definitions
 
 List all agent definitions from synced agent repos.
 
@@ -1847,7 +1518,7 @@ List all agent definitions from synced agent repos.
 
 ```json
 {
-  "definitions": [
+  "agent_definitions": [
     {
       "name": "run-tests",
       "prompt": "Run the full test suite and fix any failures",
@@ -1866,19 +1537,19 @@ List all agent definitions from synced agent repos.
 }
 ```
 
-### GET /api/v1/task-definitions/{name}
+### GET /api/v1/agent-definitions/{name}
 
 Get a single agent definition by name.
 
-### POST /api/v1/task-definitions/{name}/run
+### POST /api/v1/agent-definitions/{name}/run
 
 Run an agent definition immediately as a new session. Returns the created session.
 
-**Response (201):** same shape as `POST /api/v1/tasks`.
+**Response (201):** same shape as `POST /api/v1/sessions` (POST).
 
-### POST /api/v1/task-definitions/sync
+### POST /api/v1/agent-definitions/sync
 
-Trigger an immediate sync of all agent repos (normally happens every 5 minutes).
+Trigger an immediate sync of all agent repos (normally happens every 15 minutes).
 
 **Response (200):**
 
@@ -1936,7 +1607,7 @@ See [Configuration Reference](configuration.md#user-based-trigger-filtering) for
 
 Starter templates for creating agent definitions.
 
-### GET /api/v1/task-templates
+### GET /api/v1/agent-templates
 
 List available starter templates.
 
@@ -1948,7 +1619,7 @@ List available starter templates.
     {
       "name": "basic-task",
       "description": "A simple task with a prompt and repo",
-      "yaml": "name: my-task\nprompt: |\n  Your prompt here\nrepo: https://github.com/org/repo.git\ntimeout: 1800\n"
+      "raw_yaml": "name: my-task\nprompt: |\n  Your prompt here\nrepo: https://github.com/org/repo.git\ntimeout: 1800\n"
     }
   ]
 }
@@ -2003,6 +1674,797 @@ This endpoint returns **405 Method Not Allowed**. The system LLM configuration i
 | Code | Meaning |
 |------|---------|
 | 405  | Method not allowed (system LLM is config-file-only) |
+
+---
+
+## Teams
+
+Teams are the ownership unit in Alcove. Every resource belongs to a team, and every user belongs to one or more teams. A personal team is auto-created for each user at signup. Shared teams can be created for collaboration.
+
+The `X-Alcove-Team` header scopes all API requests to a specific team (see [Team Scoping](#team-scoping-with-x-alcove-team) above).
+
+### GET /api/v1/teams
+
+List all teams the authenticated user is a member of.
+
+**Response (200):**
+
+```json
+{
+  "teams": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "name": "admin's workspace",
+      "is_personal": true,
+      "created_at": "2026-03-20T10:00:00Z"
+    },
+    {
+      "id": "660e8400-e29b-41d4-a716-446655440001",
+      "name": "Platform Team",
+      "is_personal": false,
+      "created_at": "2026-04-01T10:00:00Z"
+    }
+  ],
+  "count": 2
+}
+```
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200  | Teams listed |
+| 401  | Authentication required |
+| 500  | Database error |
+
+**curl example:**
+
+```bash
+curl http://localhost:8080/api/v1/teams \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### POST /api/v1/teams
+
+Create a new shared team. The authenticated user is added as the first member.
+
+**Request body:**
+
+```json
+{
+  "name": "Platform Team"
+}
+```
+
+| Field  | Type   | Required | Description |
+|--------|--------|----------|-------------|
+| `name` | string | yes      | Team display name |
+
+**Response (201):**
+
+```json
+{
+  "id": "660e8400-e29b-41d4-a716-446655440001",
+  "name": "Platform Team",
+  "is_personal": false,
+  "created_at": "2026-04-01T10:00:00Z",
+  "members": ["admin"]
+}
+```
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 201  | Team created |
+| 400  | Missing `name` |
+| 401  | Authentication required |
+| 500  | Database error |
+
+**curl example:**
+
+```bash
+curl -X POST http://localhost:8080/api/v1/teams \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Platform Team"}'
+```
+
+### GET /api/v1/teams/{id}
+
+Get a team's details including its member list. Requires team membership or admin access.
+
+**Response (200):**
+
+```json
+{
+  "id": "660e8400-e29b-41d4-a716-446655440001",
+  "name": "Platform Team",
+  "is_personal": false,
+  "created_at": "2026-04-01T10:00:00Z",
+  "members": ["admin", "developer"]
+}
+```
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200  | Team found |
+| 401  | Authentication required |
+| 403  | Access denied (not a member and not admin) |
+| 404  | Team not found |
+
+### PUT /api/v1/teams/{id}
+
+Rename a team. Personal teams cannot be renamed (returns 400).
+
+**Request body:**
+
+```json
+{
+  "name": "New Team Name"
+}
+```
+
+**Response (200):**
+
+```json
+{
+  "updated": true
+}
+```
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200  | Team renamed |
+| 400  | Missing `name`, team not found, or personal team |
+| 401  | Authentication required |
+| 403  | Access denied |
+
+### DELETE /api/v1/teams/{id}
+
+Delete a team. Personal teams cannot be deleted (returns 400). Any running sessions for the team are cancelled before deletion.
+
+**Response (200):**
+
+```json
+{
+  "deleted": true
+}
+```
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200  | Team deleted |
+| 400  | Team not found or personal team |
+| 401  | Authentication required |
+| 403  | Access denied |
+
+**curl example:**
+
+```bash
+curl -X DELETE http://localhost:8080/api/v1/teams/660e8400-e29b-41d4-a716-446655440001 \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### POST /api/v1/teams/{id}/members
+
+Add a user to a team. The user must exist. Cannot add members to personal teams.
+
+**Request body:**
+
+```json
+{
+  "username": "developer"
+}
+```
+
+**Response (201):**
+
+```json
+{
+  "added": true
+}
+```
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 201  | Member added |
+| 400  | Missing `username`, user does not exist, or personal team |
+| 401  | Authentication required |
+| 403  | Access denied |
+
+**curl example:**
+
+```bash
+curl -X POST http://localhost:8080/api/v1/teams/$TEAM_ID/members \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"username": "developer"}'
+```
+
+### DELETE /api/v1/teams/{id}/members/{username}
+
+Remove a user from a team. Cannot remove members from personal teams.
+
+**Response (200):**
+
+```json
+{
+  "removed": true
+}
+```
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200  | Member removed |
+| 400  | Member not found or personal team |
+| 401  | Authentication required |
+| 403  | Access denied |
+
+**curl example:**
+
+```bash
+curl -X DELETE http://localhost:8080/api/v1/teams/$TEAM_ID/members/developer \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### GET /api/v1/teams/{id}/catalog
+
+List catalog sources with item counts for the team.
+
+**Response (200):**
+
+```json
+{
+  "sources": [
+    {
+      "source_id": "alcove-agents",
+      "name": "Alcove Agents",
+      "description": "Built-in agent collection",
+      "category": "agents",
+      "total_items": 12,
+      "enabled_items": 5
+    }
+  ]
+}
+```
+
+**curl example:**
+
+```bash
+curl http://localhost:8080/api/v1/teams/$TEAM_ID/catalog \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### GET /api/v1/teams/{id}/catalog/{source_id}
+
+List all items within a catalog source, with per-team enabled state.
+
+**Query parameters:**
+
+| Parameter | Type   | Description |
+|-----------|--------|-------------|
+| `search`  | string | Filter items by name or description (case-insensitive substring match) |
+
+**Response (200):**
+
+```json
+{
+  "source_id": "alcove-agents",
+  "items": [
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "source_id": "alcove-agents",
+      "slug": "code-reviewer",
+      "name": "Code Reviewer",
+      "description": "Reviews pull requests for code quality",
+      "item_type": "agent",
+      "source_file": ".alcove/tasks/code-reviewer.yml",
+      "synced_at": "2026-04-15T10:00:00Z",
+      "enabled": true
+    }
+  ]
+}
+```
+
+### PUT /api/v1/teams/{id}/catalog/{source_id}
+
+Bulk toggle items within a catalog source for the team.
+
+**Request body:**
+
+```json
+{
+  "items": [
+    { "slug": "code-reviewer", "enabled": true },
+    { "slug": "test-runner", "enabled": false }
+  ]
+}
+```
+
+**Response (200):**
+
+```json
+{
+  "updated": true,
+  "source_id": "alcove-agents",
+  "count": 2
+}
+```
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200  | Items updated |
+| 400  | Missing or empty `items` array |
+| 404  | Catalog source not found |
+| 500  | Database error |
+
+### PUT /api/v1/teams/{id}/catalog/{source_id}/{item_slug}
+
+Toggle an individual catalog item for the team.
+
+**Request body:**
+
+```json
+{
+  "enabled": true
+}
+```
+
+**Response (200):**
+
+```json
+{
+  "updated": true,
+  "source_id": "alcove-agents",
+  "item_slug": "code-reviewer",
+  "enabled": true
+}
+```
+
+### POST /api/v1/teams/{id}/catalog/custom
+
+Add a custom plugin repository to the team.
+
+**Request body:**
+
+```json
+{
+  "url": "https://github.com/org/custom-agents.git",
+  "ref": "main",
+  "name": "Custom Agents"
+}
+```
+
+**Response (201):**
+
+```json
+{
+  "added": true,
+  "custom_plugins": [
+    {
+      "url": "https://github.com/org/custom-agents.git",
+      "ref": "main",
+      "name": "Custom Agents"
+    }
+  ]
+}
+```
+
+### DELETE /api/v1/teams/{id}/catalog/custom/{index}
+
+Remove a custom plugin repository by index.
+
+**Response (200):**
+
+```json
+{
+  "removed": true,
+  "custom_plugins": []
+}
+```
+
+### GET /api/v1/teams/{id}/agents
+
+List all enabled agents (catalog items with `item_type="agent"`) for the team. Useful for workflow authoring.
+
+**Response (200):**
+
+```json
+{
+  "agents": [
+    {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "source_id": "alcove-agents",
+      "slug": "code-reviewer",
+      "name": "Code Reviewer",
+      "description": "Reviews pull requests for code quality",
+      "item_type": "agent",
+      "source_file": ".alcove/tasks/code-reviewer.yml",
+      "synced_at": "2026-04-15T10:00:00Z",
+      "enabled": true
+    }
+  ]
+}
+```
+
+**curl example:**
+
+```bash
+curl http://localhost:8080/api/v1/teams/$TEAM_ID/agents \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+## Workflows
+
+Workflows define multi-step execution graphs with agent steps (Skiff pods) and bridge steps (deterministic actions like `create-pr`, `await-ci`, `merge-pr`). Workflows are defined in YAML agent definition files and synced from agent repos.
+
+### GET /api/v1/workflows
+
+List all workflow definitions for the active team.
+
+**Response (200):**
+
+```json
+{
+  "workflows": [
+    {
+      "id": "b1c2d3e4-f5a6-7890-abcd-ef1234567890",
+      "name": "review-and-merge",
+      "source_repo": "https://github.com/org/task-definitions.git",
+      "source_file": ".alcove/tasks/review-and-merge.yml",
+      "team_id": "550e8400-e29b-41d4-a716-446655440000",
+      "source_key": "https://github.com/org/task-definitions.git::.alcove/tasks/review-and-merge.yml",
+      "raw_yaml": "name: review-and-merge\nworkflow:\n  ...",
+      "last_synced": "2026-04-15T10:00:00Z",
+      "workflow": [
+        {
+          "id": "code",
+          "agent": "alcove-agents/coder",
+          "repo": "https://github.com/org/myproject.git",
+          "outputs": ["branch"]
+        },
+        {
+          "id": "create-pr",
+          "type": "bridge",
+          "action": "create-pr",
+          "depends": "code",
+          "inputs": {
+            "repo": "org/myproject",
+            "branch": "{{steps.code.outputs.branch}}",
+            "base": "main",
+            "title": "Automated changes"
+          }
+        }
+      ]
+    }
+  ],
+  "count": 1
+}
+```
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200  | Workflows listed |
+| 500  | Database error |
+
+**curl example:**
+
+```bash
+curl http://localhost:8080/api/v1/workflows \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Alcove-Team: $TEAM_ID"
+```
+
+### GET /api/v1/workflow-runs
+
+List workflow run executions for the active team.
+
+**Query parameters:**
+
+| Parameter | Type   | Description |
+|-----------|--------|-------------|
+| `status`  | string | Filter by status: `pending`, `running`, `completed`, `failed`, `cancelled`, `awaiting_approval` |
+
+**Response (200):**
+
+```json
+{
+  "workflow_runs": [
+    {
+      "id": "c2d3e4f5-a6b7-8901-bcde-f12345678901",
+      "workflow_id": "b1c2d3e4-f5a6-7890-abcd-ef1234567890",
+      "status": "running",
+      "trigger_type": "manual",
+      "trigger_ref": "",
+      "current_step": "code",
+      "step_outputs": {},
+      "started_at": "2026-04-15T14:00:00Z",
+      "team_id": "550e8400-e29b-41d4-a716-446655440000",
+      "created_at": "2026-04-15T14:00:00Z"
+    }
+  ],
+  "count": 1
+}
+```
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200  | Runs listed |
+| 500  | Database error |
+
+**curl example:**
+
+```bash
+# List all running workflow runs
+curl "http://localhost:8080/api/v1/workflow-runs?status=running" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Alcove-Team: $TEAM_ID"
+```
+
+### GET /api/v1/workflow-runs/{id}
+
+Get detailed information about a workflow run, including all step executions.
+
+**Response (200):**
+
+```json
+{
+  "workflow_run": {
+    "id": "c2d3e4f5-a6b7-8901-bcde-f12345678901",
+    "workflow_id": "b1c2d3e4-f5a6-7890-abcd-ef1234567890",
+    "status": "running",
+    "trigger_type": "manual",
+    "trigger_ref": "",
+    "current_step": "review",
+    "step_outputs": {
+      "code": {
+        "branch": "auto/fix-tests"
+      }
+    },
+    "started_at": "2026-04-15T14:00:00Z",
+    "team_id": "550e8400-e29b-41d4-a716-446655440000",
+    "created_at": "2026-04-15T14:00:00Z"
+  },
+  "steps": [
+    {
+      "id": "d3e4f5a6-b789-0123-cdef-456789012345",
+      "run_id": "c2d3e4f5-a6b7-8901-bcde-f12345678901",
+      "step_id": "code",
+      "session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "status": "completed",
+      "outputs": { "branch": "auto/fix-tests" },
+      "iteration": 1,
+      "started_at": "2026-04-15T14:00:05Z",
+      "finished_at": "2026-04-15T14:15:30Z",
+      "type": "agent"
+    },
+    {
+      "id": "e4f5a6b7-8901-2345-def0-567890123456",
+      "run_id": "c2d3e4f5-a6b7-8901-bcde-f12345678901",
+      "step_id": "review",
+      "status": "running",
+      "iteration": 1,
+      "started_at": "2026-04-15T14:15:35Z",
+      "type": "agent",
+      "depends": "code"
+    }
+  ]
+}
+```
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200  | Run found |
+| 400  | Missing run ID |
+| 404  | Run not found |
+
+**curl example:**
+
+```bash
+curl http://localhost:8080/api/v1/workflow-runs/$RUN_ID \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### POST /api/v1/workflow-runs/{id}/approve/{step_id}
+
+Approve a workflow step that is awaiting approval. Steps with `approval: required` pause execution until explicitly approved.
+
+**Response (200):**
+
+```json
+{
+  "status": "approved",
+  "run_id": "c2d3e4f5-a6b7-8901-bcde-f12345678901",
+  "step_id": "deploy"
+}
+```
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200  | Step approved |
+| 400  | Step not in awaiting_approval state or other validation error |
+
+### POST /api/v1/workflow-runs/{id}/reject/{step_id}
+
+Reject a workflow step that is awaiting approval. The step is marked as failed and the workflow continues based on its dependency graph.
+
+**Response (200):**
+
+```json
+{
+  "status": "rejected",
+  "run_id": "c2d3e4f5-a6b7-8901-bcde-f12345678901",
+  "step_id": "deploy"
+}
+```
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200  | Step rejected |
+| 400  | Step not in awaiting_approval state or other validation error |
+
+**curl examples:**
+
+```bash
+# Approve a step
+curl -X POST http://localhost:8080/api/v1/workflow-runs/$RUN_ID/approve/deploy \
+  -H "Authorization: Bearer $TOKEN"
+
+# Reject a step
+curl -X POST http://localhost:8080/api/v1/workflow-runs/$RUN_ID/reject/deploy \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+## Bridge Actions
+
+Bridge actions are deterministic actions executed by Bridge itself (not by Skiff agents). They are used as steps in workflows with `type: bridge`. This endpoint lists the available bridge actions and their input/output schemas.
+
+### GET /api/v1/bridge-actions
+
+List all available bridge action schemas.
+
+**Response (200):**
+
+```json
+{
+  "actions": [
+    {
+      "name": "create-pr",
+      "description": "Create a pull request on GitHub",
+      "inputs": {
+        "repo": "string (required) - Repository in owner/repo format",
+        "branch": "string (required) - Source branch name",
+        "base": "string (required) - Target branch name",
+        "title": "string (required) - PR title",
+        "body": "string (optional) - PR body/description",
+        "draft": "bool (optional) - Create as draft PR"
+      },
+      "outputs": {
+        "pr_number": "int - Pull request number",
+        "pr_url": "string - Pull request URL"
+      }
+    },
+    {
+      "name": "await-ci",
+      "description": "Wait for CI checks to complete on a pull request",
+      "inputs": {
+        "repo": "string (required) - Repository in owner/repo format",
+        "pr": "int (required) - Pull request number",
+        "timeout": "int (optional) - Timeout in seconds (default 900)"
+      },
+      "outputs": {
+        "status": "string - CI result: 'passed' or 'failed'",
+        "failure_logs": "string - Concatenated failure logs (if failed)",
+        "failed_checks": "[]string - Names of failed checks"
+      }
+    },
+    {
+      "name": "merge-pr",
+      "description": "Merge a pull request on GitHub",
+      "inputs": {
+        "repo": "string (required) - Repository in owner/repo format",
+        "pr": "int (required) - Pull request number",
+        "method": "string (optional) - Merge method: merge, squash, rebase (default merge)",
+        "delete_branch": "bool (optional) - Delete source branch after merge (default true)"
+      },
+      "outputs": {
+        "merge_sha": "string - The SHA of the merge commit"
+      }
+    }
+  ],
+  "count": 3
+}
+```
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200  | Actions listed |
+
+**curl example:**
+
+```bash
+curl http://localhost:8080/api/v1/bridge-actions \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+## Catalog
+
+The catalog provides a registry of available sources (git repositories containing agents, plugins, LSPs, MCPs) and their items. Catalog entries are seeded from embedded data at compile time. Teams toggle individual items via the Teams catalog endpoints.
+
+### GET /api/v1/catalog
+
+List all catalog sources with category breakdown.
+
+**Response (200):**
+
+```json
+{
+  "entries": [
+    {
+      "id": "alcove-agents",
+      "name": "Alcove Agents",
+      "description": "Built-in agent collection for common development tasks",
+      "category": "agents",
+      "source_type": "git",
+      "source_url": "https://github.com/bmbouter/alcove-catalog.git",
+      "source_path": "agents",
+      "ref": "main",
+      "docs_url": "https://github.com/bmbouter/alcove-catalog",
+      "tags": ["official", "agents"]
+    }
+  ],
+  "count": 1,
+  "categories": [
+    { "id": "agents", "count": 1 }
+  ]
+}
+```
+
+Each catalog entry represents a source (a git repository or sub-path within one). Items within each source are discovered during sync and managed per-team via the `/api/v1/teams/{id}/catalog` endpoints.
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200  | Catalog listed |
+
+**curl example:**
+
+```bash
+curl http://localhost:8080/api/v1/catalog \
+  -H "Authorization: Bearer $TOKEN"
+```
 
 ---
 

@@ -16,15 +16,14 @@ Every workflow step has a `type` field:
 
 ```yaml
 workflow:
-  steps:
-    - id: implement
-      type: agent
-      agent: dev
+  - id: implement
+    type: agent
+    agent: dev
 
-    - id: create-pr
-      type: bridge
-      action: create-pr
-      depends: "implement.Succeeded"
+  - id: create-pr
+    type: bridge
+    action: create-pr
+    depends: "implement.Succeeded"
 ```
 
 Bridge actions are faster, cheaper, and more reliable than asking an agent to
@@ -37,15 +36,14 @@ from the catalog, use the `source/item` slug format:
 
 ```yaml
 workflow:
-  steps:
-    - id: implement
-      type: agent
-      agent: "my-agents/dev"
+  - id: implement
+    type: agent
+    agent: "my-agents/dev"
 
-    - id: code-review
-      type: agent
-      agent: "my-agents/reviewer"
-      depends: "implement.Succeeded"
+  - id: code-review
+    type: agent
+    agent: "my-agents/reviewer"
+    depends: "implement.Succeeded"
 ```
 
 The `source/item` slug corresponds to a catalog source and an item within it.
@@ -86,9 +84,10 @@ Creates a GitHub/GitLab pull request from a branch.
 
 | Input | Required | Description |
 |-------|----------|-------------|
+| `repo` | yes | Repository in `owner/repo` format |
 | `branch` | yes | Source branch name |
+| `base` | yes | Target branch name |
 | `title` | yes | PR title |
-| `base` | no | Target branch (default: `main`) |
 | `body` | no | PR description |
 | `draft` | no | Create as draft PR (default: `false`) |
 
@@ -100,12 +99,21 @@ Polls CI status on a PR until all checks complete.
 
 | Input | Required | Description |
 |-------|----------|-------------|
+| `repo` | yes | Repository in `owner/repo` format |
 | `pr` | yes | PR number |
 | `timeout` | no | Max wait time in seconds (default: `900`) |
 
 **Outputs:** `status` (`passed` or `failed`), `failure_logs`, `failed_checks`
 
-The step succeeds if all checks pass; fails if any check fails.
+The step succeeds (status `completed`) when it gets a CI result. The CI
+outcome is in the `status` output: `passed` if all checks succeed or are
+skipped, `failed` if any check fails. When CI fails, `failure_logs` contains
+the last 3000 characters of each failed check's log output.
+
+**No-CI heuristic:** If no check runs appear within 90 seconds of the first
+poll, `await-ci` treats CI as passed. This handles repos that have no CI
+configured -- without this heuristic, the step would wait until the timeout
+expires.
 
 ### merge-pr
 
@@ -113,6 +121,7 @@ Merges a pull request.
 
 | Input | Required | Description |
 |-------|----------|-------------|
+| `repo` | yes | Repository in `owner/repo` format |
 | `pr` | yes | PR number |
 | `method` | no | `merge`, `squash`, or `rebase` (default: `merge`) |
 | `delete_branch` | no | Delete source branch after merge (default: `true`) |
@@ -145,7 +154,8 @@ depends: "create-pr.Succeeded || ci-fix.Succeeded"
 depends: "(code-review.Succeeded || revision.Succeeded) && security-review.Succeeded"
 ```
 
-A step with no `depends` field is a root step and runs immediately.
+A step with no `depends` field and no `needs` field is a root step and runs
+immediately when the workflow starts.
 
 **Backward compatibility:** The older `needs: [step1, step2]` list syntax is
 still supported. It is equivalent to `depends: "step1.Succeeded && step2.Succeeded"`.
@@ -176,18 +186,51 @@ This cycle repeats until review passes or `max_iterations` is exhausted.
 **How `max_iterations` works:**
 
 - Default is `1` (step runs at most once -- backward compatible, no cycles)
-- Each execution increments the step's visit count
-- When `visit_count >= max_iterations`, the step status becomes
-  `max_iterations_exceeded`
-- Bridge escalates by adding a `needs-human-review` label and commenting on the PR
+- Each execution increments the step's iteration counter
+- When the counter reaches `max_iterations`, the step is marked as `failed`
+  with output `{"error": "max_iterations_exceeded"}`
+- Bridge then evaluates dependent steps normally: steps depending via
+  `.Failed` will fire, steps depending via `.Succeeded` become unreachable
+  and are marked `skipped`
+- If the exhausted step is the last active step in a cycle, the workflow
+  completes with status `failed`
 
-Set `max_iterations > 1` on every step involved in a cycle.
+Set `max_iterations > 1` on every step involved in a cycle. The workflow
+validator warns when a cycle participant has `max_iterations` set to 1.
+
+## Approval Gates
+
+Steps with `approval: required` pause the workflow and wait for human action:
+
+```yaml
+- id: promote-prod
+  type: agent
+  agent: deploy-agent
+  depends: "verify.Succeeded"
+  approval: required
+```
+
+Approve or reject via the API:
+
+```bash
+# Approve
+curl -X POST /api/v1/workflow-runs/{run_id}/approve/{step_id}
+
+# Reject
+curl -X POST /api/v1/workflow-runs/{run_id}/reject/{step_id}
+```
+
+When a step is approved, its approval requirement is cleared and the step
+is dispatched normally. When rejected, the step is marked as `failed` and
+the workflow run is marked as `failed`.
+
+The dashboard Workflows page shows pending approvals with approve/reject buttons.
 
 ## Inputs and Outputs
 
 ### Template Variables
 
-Step inputs support Go template variables for referencing data from triggers
+Step inputs support template variables for referencing data from triggers
 and other steps:
 
 ```yaml
@@ -196,6 +239,7 @@ inputs:
   pr: "{{steps.create-pr.outputs.pr_number}}"
   ci_logs: "{{steps.await-ci.outputs.failure_logs}}"
   feedback: "{{steps.code-review.outputs.comments}}"
+  original_branch: "{{steps.implement.inputs.branch}}"
 ```
 
 | Variable | Description |
@@ -228,13 +272,12 @@ a step needs additional secrets not defined in the agent.
 
 ```yaml
 workflow:
-  steps:
-    - id: analyze
-      type: agent
-      agent: Log Analyzer
-      credentials:
-        SPLUNK_TOKEN: splunk-prod        # Override agent's default credential
-        CUSTOM_WEBHOOK: slack-webhook    # Additional credential for this step
+  - id: analyze
+    type: agent
+    agent: Log Analyzer
+    credentials:
+      SPLUNK_TOKEN: splunk-prod        # Override agent's default credential
+      CUSTOM_WEBHOOK: slack-webhook    # Additional credential for this step
 ```
 
 **Merge behavior:** Step credentials merge with agent credentials. Step values
@@ -298,88 +341,95 @@ trigger:
     labels: [ready-for-dev]
 
 workflow:
-  steps:
-    # 1. Dev agent implements the feature
-    - id: implement
-      type: agent
-      agent: dev
-      inputs:
-        branch: "issue-{{trigger.issue_number}}-fix"
+  # 1. Dev agent implements the feature
+  - id: implement
+    type: agent
+    agent: dev
+    inputs:
+      branch: "issue-{{trigger.issue_number}}-fix"
 
-    # 2. Bridge creates the PR (no LLM needed)
-    - id: create-pr
-      type: bridge
-      action: create-pr
-      depends: "implement.Succeeded"
-      inputs:
-        branch: "{{steps.implement.inputs.branch}}"
-        title: "Fix #{{trigger.issue_number}}"
-        base: main
+  # 2. Bridge creates the PR (no LLM needed)
+  - id: create-pr
+    type: bridge
+    action: create-pr
+    depends: "implement.Succeeded"
+    inputs:
+      repo: "org/myproject"
+      branch: "{{steps.implement.inputs.branch}}"
+      title: "Fix #{{trigger.issue_number}}"
+      base: main
 
-    # 3. Bridge polls CI status
-    - id: await-ci
-      type: bridge
-      action: await-ci
-      depends: "create-pr.Succeeded || ci-fix.Succeeded"
-      max_iterations: 4
-      inputs:
-        pr: "{{steps.create-pr.outputs.pr_number}}"
+  # 3. Bridge polls CI status
+  - id: await-ci
+    type: bridge
+    action: await-ci
+    depends: "create-pr.Succeeded || ci-fix.Succeeded"
+    max_iterations: 4
+    inputs:
+      repo: "org/myproject"
+      pr: "{{steps.create-pr.outputs.pr_number}}"
 
-    # 4. If CI fails, dev agent fixes it (up to 3 attempts)
-    - id: ci-fix
-      type: agent
-      agent: dev
-      depends: "await-ci.Failed"
-      max_iterations: 3
-      inputs:
-        branch: "{{steps.implement.inputs.branch}}"
-        ci_logs: "{{steps.await-ci.outputs.failure_logs}}"
+  # 4. If await-ci times out, dev agent investigates (up to 3 attempts)
+  # Note: await-ci succeeds even when CI fails (the CI outcome is in
+  # outputs.status). This step only runs if await-ci itself fails
+  # (e.g., timeout).
+  - id: ci-fix
+    type: agent
+    agent: dev
+    depends: "await-ci.Failed"
+    max_iterations: 3
+    inputs:
+      branch: "{{steps.implement.inputs.branch}}"
+      ci_logs: "{{steps.await-ci.outputs.failure_logs}}"
 
-    # 5. Code review runs after CI passes (parallel with security review)
-    - id: code-review
-      type: agent
-      agent: reviewer
-      depends: "await-ci.Succeeded || revision.Succeeded"
-      max_iterations: 3
-      inputs:
-        pr: "{{steps.create-pr.outputs.pr_number}}"
+  # 5. Code review runs after CI passes (parallel with security review)
+  - id: code-review
+    type: agent
+    agent: reviewer
+    depends: "await-ci.Succeeded || revision.Succeeded"
+    max_iterations: 3
+    inputs:
+      pr: "{{steps.create-pr.outputs.pr_number}}"
 
-    # 6. Security review runs in parallel with code review
-    - id: security-review
-      type: agent
-      agent: security-reviewer
-      depends: "await-ci.Succeeded || revision.Succeeded"
-      max_iterations: 3
-      inputs:
-        pr: "{{steps.create-pr.outputs.pr_number}}"
+  # 6. Security review runs in parallel with code review
+  - id: security-review
+    type: agent
+    agent: security-reviewer
+    depends: "await-ci.Succeeded || revision.Succeeded"
+    max_iterations: 3
+    inputs:
+      pr: "{{steps.create-pr.outputs.pr_number}}"
 
-    # 7. If either review fails, dev agent revises
-    - id: revision
-      type: agent
-      agent: dev
-      depends: "code-review.Failed || security-review.Failed"
-      max_iterations: 3
-      inputs:
-        branch: "{{steps.implement.inputs.branch}}"
-        code_feedback: "{{steps.code-review.outputs.comments}}"
-        security_feedback: "{{steps.security-review.outputs.comments}}"
+  # 7. If either review fails, dev agent revises
+  - id: revision
+    type: agent
+    agent: dev
+    depends: "code-review.Failed || security-review.Failed"
+    max_iterations: 3
+    inputs:
+      branch: "{{steps.implement.inputs.branch}}"
+      code_feedback: "{{steps.code-review.outputs.comments}}"
+      security_feedback: "{{steps.security-review.outputs.comments}}"
 
-    # 8. Bridge merges when both reviews pass
-    - id: merge
-      type: bridge
-      action: merge-pr
-      depends: "code-review.Succeeded && security-review.Succeeded"
-      inputs:
-        pr: "{{steps.create-pr.outputs.pr_number}}"
+  # 8. Bridge merges when both reviews pass
+  - id: merge
+    type: bridge
+    action: merge-pr
+    depends: "code-review.Succeeded && security-review.Succeeded"
+    inputs:
+      repo: "org/myproject"
+      pr: "{{steps.create-pr.outputs.pr_number}}"
 ```
 
 **Cycles in this workflow:**
 
-1. `await-ci -> ci-fix -> await-ci` -- CI retry loop
+1. `await-ci -> ci-fix -> await-ci` -- CI retry loop (fires only on
+   await-ci timeout; see await-ci reference above)
 2. `code-review/security-review -> revision -> code-review/security-review` -- review loop
 
 Each cycle is bounded by `max_iterations`. If a step exhausts its iterations,
-the workflow stops and Bridge escalates for human review.
+the step fails with `{"error": "max_iterations_exceeded"}` and Bridge
+evaluates dependent steps normally.
 
 ## Writing Minimal Agent Prompts
 
@@ -419,13 +469,12 @@ For services that Gate cannot proxy, you can enable direct outbound connections:
 
 ```yaml
 workflow:
-  steps:
-    - id: external-call
-      type: agent
-      agent: API Client
-      direct_outbound: true
-      credentials:
-        API_KEY: my-api-secret
+  - id: external-call
+    type: agent
+    agent: API Client
+    direct_outbound: true
+    credentials:
+      API_KEY: my-api-secret
 ```
 
 When `direct_outbound: true`:
