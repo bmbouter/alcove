@@ -3119,6 +3119,51 @@ details[open] > .tx-tool-expand-toggle::before {
     flex-wrap: wrap;
 }
 
+/* Executable agent transcript (debug-env, etc.) */
+.tx-exec-block {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    margin: 8px 0;
+    overflow-x: auto;
+}
+.tx-exec-section {
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    padding: 10px 0 4px;
+    margin-top: 8px;
+    border-left: 3px solid var(--status-running);
+    padding-left: 10px;
+}
+.tx-exec-section:first-child { margin-top: 0; padding-top: 2px; }
+.tx-exec-subheader {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    padding: 6px 0 2px;
+    margin-top: 4px;
+}
+.tx-exec-line { color: var(--text-muted); padding: 1px 0; white-space: pre; }
+.tx-exec-blank { height: 8px; }
+.tx-exec-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    letter-spacing: 0.3px;
+}
+.tx-exec-dummy { background: rgba(243,156,18,0.2); color: #f39c12; }
+.tx-exec-masked { background: rgba(230,126,34,0.2); color: #e67e22; }
+.tx-exec-gate { background: rgba(52,152,219,0.15); color: #3498db; }
+.tx-exec-real { background: rgba(46,204,113,0.2); color: #2ecc71; }
+.tx-exec-ok { color: var(--status-completed); font-weight: 700; }
+.tx-exec-miss { color: var(--status-error); font-weight: 700; }
+
 /* === Footer === */
 .alcove-footer {
     text-align: center;
