@@ -3,6 +3,11 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.21.0 (Unreleased)
+
+### Fixed
+- Consolidated duplicate `ExecutableSpec` type definitions into `internal/types.go` to eliminate code duplication and improve maintainability (#325)
+
 ## v0.20.0
 
 ### Features

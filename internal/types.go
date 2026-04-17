@@ -94,10 +94,17 @@ type ProxyLogEntry struct {
 	SessionID  string    `json:"session_id"`
 }
 
+// ExecutableSpec defines a pre-compiled executable agent to run instead of Claude Code.
+type ExecutableSpec struct {
+	URL  string            `json:"url" yaml:"url"`             // Download URL for the binary
+	Args []string          `json:"args,omitempty" yaml:"args"` // Command-line arguments
+	Env  map[string]string `json:"env,omitempty" yaml:"env"`   // Additional environment variables
+}
+
 // Provider holds LLM provider configuration.
 type Provider struct {
-	Name            string `json:"name"`
-	Type            string `json:"type"` // google-vertex, anthropic, claude-pro
-	Model           string `json:"model,omitempty"`
-	MaxBudgetUSD    float64 `json:"max_budget_usd,omitempty"`
+	Name         string  `json:"name"`
+	Type         string  `json:"type"` // google-vertex, anthropic, claude-pro
+	Model        string  `json:"model,omitempty"`
+	MaxBudgetUSD float64 `json:"max_budget_usd,omitempty"`
 }

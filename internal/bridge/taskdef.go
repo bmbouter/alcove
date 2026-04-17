@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/bmbouter/alcove/internal"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"gopkg.in/yaml.v3"
@@ -32,13 +33,6 @@ type PluginSpec struct {
 	Ref    string `json:"ref,omitempty" yaml:"ref,omitempty"`       // Branch/tag for git sources
 }
 
-// ExecutableSpec defines a pre-compiled executable agent to run instead of Claude Code.
-type ExecutableSpec struct {
-	URL  string            `json:"url" yaml:"url"`             // Download URL for the binary
-	Args []string          `json:"args,omitempty" yaml:"args"` // Command-line arguments
-	Env  map[string]string `json:"env,omitempty" yaml:"env"`   // Additional environment variables
-}
-
 // CIGate configures Bridge-driven CI monitoring for PRs created by a task.
 type CIGate struct {
 	MaxRetries int `json:"max_retries" yaml:"max_retries"`
@@ -47,25 +41,25 @@ type CIGate struct {
 
 // TaskDefinition represents an agent definition defined in a YAML file within an agent repo.
 type TaskDefinition struct {
-	ID          string                `json:"id"`
-	Name        string                `json:"name" yaml:"name"`
-	Description string                `json:"description" yaml:"description"`
-	Prompt      string                `json:"prompt,omitempty" yaml:"prompt"`
-	Executable  *ExecutableSpec       `json:"executable,omitempty" yaml:"executable"`
-	Repo        string                `json:"repo,omitempty" yaml:"repo"`
-	Provider    string                `json:"provider,omitempty" yaml:"provider"`
-	Model       string                `json:"model,omitempty" yaml:"model"`
-	Timeout     int                   `json:"timeout,omitempty" yaml:"timeout"`
-	BudgetUSD   float64               `json:"budget_usd,omitempty" yaml:"budget_usd"`
-	Debug       bool                  `json:"debug,omitempty" yaml:"debug"`
-	Profiles    []string              `json:"profiles,omitempty" yaml:"profiles"`
-	Plugins     []PluginSpec          `json:"plugins,omitempty" yaml:"plugins"`
-	Tools       map[string]ToolConfig `json:"tools,omitempty" yaml:"tools"`
-	Credentials map[string]string     `json:"credentials,omitempty" yaml:"credentials"`
-	Schedule    *TaskDefSchedule      `json:"schedule,omitempty" yaml:"schedule"`
-	Trigger     *EventTrigger         `json:"trigger,omitempty" yaml:"trigger"`
-	CIGate         *CIGate               `json:"ci_gate,omitempty" yaml:"ci_gate"`
-	DirectOutbound bool                  `json:"direct_outbound,omitempty" yaml:"direct_outbound"`
+	ID             string                   `json:"id"`
+	Name           string                   `json:"name" yaml:"name"`
+	Description    string                   `json:"description" yaml:"description"`
+	Prompt         string                   `json:"prompt,omitempty" yaml:"prompt"`
+	Executable     *internal.ExecutableSpec `json:"executable,omitempty" yaml:"executable"`
+	Repo           string                   `json:"repo,omitempty" yaml:"repo"`
+	Provider       string                   `json:"provider,omitempty" yaml:"provider"`
+	Model          string                   `json:"model,omitempty" yaml:"model"`
+	Timeout        int                      `json:"timeout,omitempty" yaml:"timeout"`
+	BudgetUSD      float64                  `json:"budget_usd,omitempty" yaml:"budget_usd"`
+	Debug          bool                     `json:"debug,omitempty" yaml:"debug"`
+	Profiles       []string                 `json:"profiles,omitempty" yaml:"profiles"`
+	Plugins        []PluginSpec             `json:"plugins,omitempty" yaml:"plugins"`
+	Tools          map[string]ToolConfig    `json:"tools,omitempty" yaml:"tools"`
+	Credentials    map[string]string        `json:"credentials,omitempty" yaml:"credentials"`
+	Schedule       *TaskDefSchedule         `json:"schedule,omitempty" yaml:"schedule"`
+	Trigger        *EventTrigger            `json:"trigger,omitempty" yaml:"trigger"`
+	CIGate         *CIGate                  `json:"ci_gate,omitempty" yaml:"ci_gate"`
+	DirectOutbound bool                     `json:"direct_outbound,omitempty" yaml:"direct_outbound"`
 
 	// Metadata (not from YAML).
 	TeamID       string     `json:"team_id,omitempty"`

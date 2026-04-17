@@ -194,13 +194,6 @@ func main() {
 	os.Exit(exitCode)
 }
 
-// ExecutableSpec defines an executable agent configuration.
-type ExecutableSpec struct {
-	URL  string            `json:"url"`
-	Args []string          `json:"args,omitempty"`
-	Env  map[string]string `json:"env,omitempty"`
-}
-
 // runExecutable downloads and executes a pre-compiled executable agent. It returns the exit code,
 // outcome string, artifacts, and any outputs.
 func runExecutable(
@@ -214,7 +207,7 @@ func runExecutable(
 ) (int, string, []internal.Artifact, map[string]string) {
 
 	// Parse the executable configuration
-	var execSpec ExecutableSpec
+	var execSpec internal.ExecutableSpec
 	if err := json.Unmarshal([]byte(execConfigJSON), &execSpec); err != nil {
 		log.Printf("error parsing ALCOVE_EXECUTABLE: %v", err)
 		return 1, "error", nil, nil
