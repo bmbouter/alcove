@@ -14,6 +14,8 @@ workflow:
     max_retries: 3
     inputs:
       branch: "issue-{{trigger.issue_number}}-fix"
+      issue_number: "{{trigger.issue_number}}"
+      repo: "bmbouter/alcove"
     outputs: [summary]
 
   - id: create-pr
