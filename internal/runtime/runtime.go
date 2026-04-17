@@ -71,6 +71,12 @@ type Runtime interface {
 
 	// Info returns runtime metadata (type, version, etc.).
 	Info(ctx context.Context) (RuntimeInfo, error)
+
+	// CleanupOrphanedContainers finds and removes containers matching the
+	// given name prefix (e.g., "gate-") whose corresponding partner container
+	// is gone. For "gate-" prefix, it checks whether the matching "skiff-"
+	// container still exists. Returns the count of cleaned-up containers.
+	CleanupOrphanedContainers(ctx context.Context, prefix string) (int, error)
 }
 
 // RuntimeInfo describes the container runtime.

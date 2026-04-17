@@ -62,6 +62,10 @@ func (m *mockRuntime) Info(_ context.Context) (runtime.RuntimeInfo, error) {
 	return runtime.RuntimeInfo{Type: "mock"}, nil
 }
 
+func (m *mockRuntime) CleanupOrphanedContainers(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
+
 // TestReconcileLoop_ContextCancellation verifies that ReconcileLoop exits
 // when its context is cancelled.
 func TestReconcileLoop_ContextCancellation(t *testing.T) {

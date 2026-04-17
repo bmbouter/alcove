@@ -356,6 +356,57 @@ type podmanVersionInfo struct {
 	} `json:"Client"`
 }
 
+// CleanupOrphanedContainers finds containers whose names start with prefix
+// (e.g., "gate-") and removes any whose corresponding skiff container is gone.
+func (p *PodmanRuntime) CleanupOrphanedContainers(ctx context.Context, prefix string) (int, error) {
+	// List all containers (running and stopped) matching the prefix.
+	out, err := p.run(ctx, "ps", "-a", "--filter", "name=^"+prefix, "--format", "json")
+	if err != nil {
+		return 0, fmt.Errorf("listing containers with prefix %s: %w", prefix, err)
+	}
+
+	trimmed := strings.TrimSpace(string(out))
+	if trimmed == "" || trimmed == "null" || trimmed == "[]" {
+		return 0, nil
+	}
+
+	var entries []podmanPsEntry
+	if err := json.Unmarshal([]byte(trimmed), &entries); err != nil {
+		return 0, fmt.Errorf("parsing container list: %w", err)
+	}
+
+	cleaned := 0
+	for _, entry := range entries {
+		if len(entry.Names) == 0 {
+			continue
+		}
+		name := entry.Names[0]
+
+		// Derive the corresponding skiff container name.
+		// "gate-<taskID>" -> "skiff-<taskID>"
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		taskID := strings.TrimPrefix(name, prefix)
+		skiffName := SkiffContainerName(taskID)
+
+		// Check if the skiff container still exists.
+		skiffHandle := TaskHandle{ID: taskID}
+		status, err := p.TaskStatus(ctx, skiffHandle)
+		if err == nil && status == "running" {
+			// Skiff is still running — do not remove its Gate.
+			continue
+		}
+
+		// Skiff is gone or not running — clean up the gate container.
+		log.Printf("cleanup: removing orphaned container %s (skiff %s status: %s)", name, skiffName, status)
+		_ = p.stopAndRemove(ctx, name)
+		cleaned++
+	}
+
+	return cleaned, nil
+}
+
 // Info returns runtime metadata including the podman version.
 func (p *PodmanRuntime) Info(ctx context.Context) (RuntimeInfo, error) {
 	out, err := p.run(ctx, "version", "--format", "json")
