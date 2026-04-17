@@ -16,6 +16,9 @@ workflow:
       branch: "issue-{{trigger.issue_number}}-fix"
       issue_number: "{{trigger.issue_number}}"
       repo: "bmbouter/alcove"
+      issue_title: "{{trigger.issue_title}}"
+      issue_body: "{{trigger.issue_body}}"
+      issue_url: "{{trigger.issue_url}}"
     outputs: [summary]
 
   - id: create-pr
@@ -44,6 +47,11 @@ workflow:
     max_iterations: 3
     inputs:
       branch: "{{steps.implement.inputs.branch}}"
+      issue_number: "{{trigger.issue_number}}"
+      repo: "bmbouter/alcove"
+      issue_title: "{{trigger.issue_title}}"
+      issue_body: "{{trigger.issue_body}}"
+      issue_url: "{{trigger.issue_url}}"
       ci_logs: "{{steps.await-ci.outputs.failure_logs}}"
     outputs: [summary]
 
@@ -72,6 +80,11 @@ workflow:
     max_iterations: 3
     inputs:
       branch: "{{steps.implement.inputs.branch}}"
+      issue_number: "{{trigger.issue_number}}"
+      repo: "bmbouter/alcove"
+      issue_title: "{{trigger.issue_title}}"
+      issue_body: "{{trigger.issue_body}}"
+      issue_url: "{{trigger.issue_url}}"
       code_feedback: "{{steps.code-review.outputs.comments}}"
       security_feedback: "{{steps.security-review.outputs.comments}}"
     outputs: [summary]
