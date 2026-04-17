@@ -76,20 +76,20 @@ func (d *Dispatcher) SetWorkflowEngine(we *WorkflowEngine) {
 
 // TaskRequest is the JSON body for POST /api/v1/sessions.
 type TaskRequest struct {
-	Prompt     string                `json:"prompt,omitempty"`
-	Executable *ExecutableSpec       `json:"executable,omitempty"`
-	Repo       string                `json:"repo,omitempty"`
-	Provider   string                `json:"provider,omitempty"`
-	Timeout    int                   `json:"timeout,omitempty"` // seconds, default 3600
-	Scope      *internal.Scope       `json:"scope,omitempty"`
-	Tools      map[string]ToolConfig `json:"tools,omitempty"`
-	Profiles   []string              `json:"profiles,omitempty"`
-	Model      string                `json:"model,omitempty"`
-	Budget     float64               `json:"budget_usd,omitempty"`
-	Debug      bool                  `json:"debug,omitempty"`
-	Plugins        []PluginSpec          `json:"-"` // Set internally from agent definition
-	Credentials    map[string]string     `json:"-"` // ENV_VAR_NAME: credential_provider_name
-	DirectOutbound bool                  `json:"direct_outbound,omitempty"`
+	Prompt         string                   `json:"prompt,omitempty"`
+	Executable     *internal.ExecutableSpec `json:"executable,omitempty"`
+	Repo           string                   `json:"repo,omitempty"`
+	Provider       string                   `json:"provider,omitempty"`
+	Timeout        int                      `json:"timeout,omitempty"` // seconds, default 3600
+	Scope          *internal.Scope          `json:"scope,omitempty"`
+	Tools          map[string]ToolConfig    `json:"tools,omitempty"`
+	Profiles       []string                 `json:"profiles,omitempty"`
+	Model          string                   `json:"model,omitempty"`
+	Budget         float64                  `json:"budget_usd,omitempty"`
+	Debug          bool                     `json:"debug,omitempty"`
+	Plugins        []PluginSpec             `json:"-"` // Set internally from agent definition
+	Credentials    map[string]string        `json:"-"` // ENV_VAR_NAME: credential_provider_name
+	DirectOutbound bool                     `json:"direct_outbound,omitempty"`
 	// Task metadata — set by dispatch code paths, stored in sessions table.
 	TaskName    string `json:"-"` // Schedule/agent definition name
 	TriggerType string `json:"-"` // "event", "cron", "manual", "webhook"
@@ -709,7 +709,7 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		DirectOutbound: req.DirectOutbound,
 	}
 
-handle, err := d.rt.RunTask(ctx, spec)
+	handle, err := d.rt.RunTask(ctx, spec)
 	if err != nil {
 		// Update session to error state.
 		d.updateSessionStatus(ctx, sessionID, "error", nil, nil)
