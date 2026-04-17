@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 2026-04-12
+Last updated: 2026-04-16
 
 ## Project Overview
 
@@ -65,7 +65,10 @@ alcove/
 │   │       ├── 008_credential_api_host.sql  ✅ Custom API host for credentials (GitLab private servers)
 │   │       ├── 009_system_settings.sql  ✅ System settings key-value store
 │   │       ├── ...
-│   │       └── 026_teams.sql           ✅ Teams, team_members, team_settings tables; owner→team_id migration
+│   │       ├── 027_teams.sql           ✅ Teams, team_members, team_settings tables; owner→team_id migration
+│   │       ├── 028_workflow_graph_v2.sql  ✅ Workflow run steps iteration tracking
+│   │       ├── 029_catalog_items.sql   ✅ Catalog items and team_catalog_items tables
+│   │       └── 030_session_runtime_config.sql  ✅ Session runtime configuration storage
 │   ├── gate/
 │   │   ├── proxy.go            ✅ HTTP proxy, CONNECT tunneling, LLM API injection (api_key + bearer + oauth_token), audit logging, 401 token refresh
 │   │   ├── proxy_test.go       ✅ Proxy tests
@@ -94,7 +97,7 @@ alcove/
 │   └── design/
 │       ├── implementation-status.md    ✅ This file
 │       ├── architecture.md             ✅ Full component design
-│       ├── architecture-decisions.md   ✅ 18 resolved decisions
+│       ├── architecture-decisions.md   ✅ 19 resolved decisions
 │       ├── problem-statement.md        ✅ Why ephemeral agents
 │       ├── credential-management.md    ✅ Credential storage and token flow design
 │       ├── auth-backends.md            ✅ Dual auth backend design
@@ -119,7 +122,7 @@ alcove/
 - Bridge starts, connects to NATS + PostgreSQL ✅
 - Database migrations run automatically on startup ✅
 - Auth works (login, token, rate limiting) with memory, postgres, and rh-identity backends ✅
-- `POST /api/v1/tasks` creates session in DB, publishes to NATS, starts Gate + Skiff containers ✅
+- `POST /api/v1/sessions` creates session in DB, publishes to NATS, starts Gate + Skiff containers ✅
 - Skiff containers boot, read session config from env vars, attempt to run Claude Code ✅
 - LLM credential flow works end-to-end: Bridge acquires tokens, Gate injects headers ✅
 - Containers exit and are cleaned up by `--rm` (or kept with `ALCOVE_DEBUG=true`) ✅
@@ -221,7 +224,10 @@ alcove/
 14. **MCP Tool Gateway** — Tool registry for MCP tools with CRUD API. Tools define
     MCP command, args, display name, and optional API host. Tool configs from
     security profiles are resolved at dispatch time and passed to Gate/Skiff
-    containers. Database schema in migration 006.
+    containers via `ALCOVE_MCP_CONFIG` (Skiff) and `GATE_TOOL_CONFIGS` (Gate)
+    environment variables. Gate registers dynamic proxy endpoints (`/<tool>/`)
+    for each configured tool, with credential injection and scope enforcement.
+    Database schema in migration 006.
 
 15. **Admin Settings** — System LLM configuration is read from `alcove.yaml`
     or `BRIDGE_LLM_*` environment variables (config-file-only, not writable
@@ -250,15 +256,18 @@ alcove/
 20. **YAML Agent Definitions** — Agents defined in `.alcove/tasks/*.yml` in git
     repos. Agent repo registration (system + per-user) via settings API.
     YAML schema supports name, prompt, repo, provider, model, timeout, budget,
-    profiles, tools, and schedule fields. Auto-sync every 5 minutes. Dashboard
+    profiles, tools, and schedule fields. Auto-sync every 15 minutes. Dashboard
     supports Run Now and View YAML actions. Starter templates available via
-    `GET /api/v1/task-templates`.
+    `GET /api/v1/agent-templates`.
 
 21. **Kubernetes Runtime** — `KubernetesRuntime` in `internal/runtime/kubernetes.go`
     implements the `Runtime` interface using direct client-go API calls (no
     operator needed). Each session runs as a k8s Job with Gate as a native sidecar
     (init container with `restartPolicy: Always`) and Skiff as the main
-    container. Creates a per-task NetworkPolicy restricting egress. Compatible
+    container. Per-task NetworkPolicy creation is disabled due to OVN-Kubernetes
+    DNS resolution failures; a static `alcove-allow-internal` policy provides
+    egress restriction instead. Service hostnames (HAIL_URL, LEDGER_URL) are
+    resolved to IPs at dispatch time to bypass DNS issues in task pods. Compatible
     with OpenShift restricted-v2 SCC (runs as non-root, drops all capabilities,
     sets `seccompProfile: RuntimeDefault`). Minimal RBAC: Bridge needs create/delete
     permissions for Jobs and NetworkPolicies.
@@ -312,7 +321,7 @@ alcove/
     roles). The `X-Alcove-Team` header scopes all API requests to a team. The
     dashboard provides a team switcher dropdown. The CLI supports `alcove teams`
     subcommands and a `--team` flag. Database tables: `teams`, `team_members`,
-    `team_settings` (migration `026_teams.sql`). Agent repos are team-scoped
+    `team_settings` (migration `027_teams.sql`). Agent repos are team-scoped
     (moved from user settings to team settings). Teams API:
     `GET/POST /api/v1/teams`, `GET/PUT/DELETE /api/v1/teams/{id}`,
     `POST /api/v1/teams/{id}/members`,
@@ -330,27 +339,6 @@ alcove/
     Iteration tracking is stored in `workflow_run_steps` (migration
     `028_workflow_graph_v2.sql`). The old `needs` list syntax remains supported
     for backward compatibility.
-
-## What's NOT Working Yet
-
-### 1. NATS Dead Code
-
-The dispatcher still publishes to `tasks.dispatch` on NATS (line 125 of
-dispatcher.go) but nothing subscribes — Skiff reads session config from environment
-variables, not NATS. This publish call is the remaining dead code.
-
-### 2. Gate Log Flushing to Ledger
-
-Gate has `StartLogFlusher()` and `sendLogsToLedger()` but the actual HTTP POST
-to Bridge's proxy-log ingestion endpoint is not yet implemented (marked with
-a TODO in `proxy.go`). Proxy logs are currently buffered in Gate's memory but
-not sent to Ledger automatically.
-
-### 3. CLI End-to-End Verification
-
-The CLI (`cmd/alcove/main.go`) is fully implemented with 8 subcommands but has
-not been systematically tested against a running Bridge instance. Individual
-commands (`run`, `list`, `logs`, `status`, `cancel`, `login`) need verification.
 
 ## How to Run (Developer Workflow)
 
@@ -394,7 +382,7 @@ TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
   -d '{"username":"admin","password":"admin"}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
 
-curl -s -X POST http://localhost:8080/api/v1/tasks \
+curl -s -X POST http://localhost:8080/api/v1/sessions \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"prompt":"Say hello","provider":"anthropic","timeout":300,"scope":{"services":{}}}'
@@ -405,22 +393,17 @@ make build-images
 
 ## Next Steps (Priority Order)
 
-### Short-term (Phase 1 completion)
+### Short-term
 
-1. **Wire Gate log flushing** — implement the HTTP POST in `sendLogsToLedger()`
-   to send proxy log entries to Bridge's `/api/v1/sessions/{id}/proxy-log` endpoint.
+1. **CLI end-to-end testing** — verify `alcove run`, `alcove list`, `alcove logs`,
+   `alcove status`, `alcove cancel` work against a running Bridge instance.
 
-2. **CLI testing** — verify `alcove run`, `alcove list`, `alcove logs`, `alcove status`,
-   `alcove cancel` work against a running Bridge.
+### Medium-term
 
-3. **Clean up dead code** — remove `SubscribeTaskDispatch()` from hail client.
-
-### Medium-term (Phase 2)
-
-4. **Session artifacts** — structured output (PRs, patches, commits) with
+2. **Session artifacts** — structured output (PRs, patches, commits) with
    links back to source services.
 
-5. **Credential rotation and expiry** — notifications for expiring credentials,
+3. **Credential rotation and expiry** — notifications for expiring credentials,
    automatic rotation support.
 
 See the full roadmap in [architecture-decisions.md](architecture-decisions.md#roadmap-revised).
@@ -428,7 +411,7 @@ See the full roadmap in [architecture-decisions.md](architecture-decisions.md#ro
 ## Key Design Documents
 
 - [architecture.md](architecture.md) — full component design, deployment diagrams, network isolation
-- [architecture-decisions.md](architecture-decisions.md) — 18 resolved decisions, CLI design, config format, repo layout, revised roadmap
+- [architecture-decisions.md](architecture-decisions.md) — 19 resolved decisions, CLI design, config format, repo layout, revised roadmap
 - [problem-statement.md](problem-statement.md) — why ephemeral agents (context contamination, credential drift, filesystem poisoning, credential exposure)
 - [credential-management.md](credential-management.md) — credential storage, encryption, OAuth2 token flow, token refresh design
 - [auth-backends.md](auth-backends.md) — auth backend design (memory, postgres, rh-identity)

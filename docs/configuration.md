@@ -25,21 +25,23 @@ database_encryption_key: your-aes-256-key-here
 database_url: postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable
 nats_url: nats://localhost:4222
 auth_backend: memory
-port: 8080
+port: "8080"
 runtime: podman
 
 # System LLM configuration (choose one provider)
 # Option A: Anthropic API
-llm_provider: anthropic
-llm_api_key: sk-ant-...
-llm_model: claude-sonnet-4-20250514
+system_llm:
+  provider: anthropic
+  api_key: sk-ant-...
+  model: claude-sonnet-4-20250514
 
 # Option B: Google Vertex AI
-# llm_provider: google-vertex
-# llm_service_account_json: '{"type":"service_account","project_id":"...","private_key":"...",...}'
-# llm_project: your-gcp-project-id
-# llm_region: us-east5
-# llm_model: claude-sonnet-4-20250514
+# system_llm:
+#   provider: google-vertex
+#   service_account_json: '{"type":"service_account","project_id":"...","private_key":"...",...}'
+#   project_id: your-gcp-project-id
+#   region: us-east5
+#   model: claude-sonnet-4-20250514
 ```
 
 **Search order:** Bridge looks for the config file in this order:
@@ -62,11 +64,11 @@ provide `ALCOVE_DATABASE_ENCRYPTION_KEY` via a k8s Secret (see
 The `alcove.yaml` file is gitignored. An `alcove.yaml.example` is committed to
 the repository as a reference.
 
-For the CLI client the resolution order is:
+For the CLI client the resolution order is (highest to lowest priority):
 
-1. Config file (`~/.config/alcove/config.yaml`)
+1. CLI flag (`--server`)
 2. Environment variable (`ALCOVE_SERVER`)
-3. CLI flag (`--server`)
+3. Config file (`~/.config/alcove/config.yaml`)
 
 ---
 
@@ -80,7 +82,7 @@ can also be set in `alcove.yaml` (see [alcove.yaml](#alcoveyaml) above).
 | `HAIL_URL` | string | `nats://localhost:4222` | NATS server URL for the Hail message bus. |
 | `LEDGER_DATABASE_URL` | string | `postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable` | PostgreSQL connection string for the Ledger session store. |
 | `BRIDGE_PORT` | string | `8080` | HTTP listen port for the Bridge API and dashboard. |
-| `RUNTIME` | string | `podman` | Container runtime. Must be `podman` or `kubernetes`. |
+| `RUNTIME` | string | `podman` | Container runtime. Must be `podman`, `docker`, or `kubernetes`. |
 | `AUTH_BACKEND` | string | `memory` | Authentication backend. Must be `memory`, `postgres`, or `rh-identity`. See [Auth Backend Selection](#auth-backend-selection). |
 | `RH_IDENTITY_ADMINS` | string | _(unset)_ | Comma-separated list of usernames (emails) to bootstrap as admins when using `rh-identity` backend. |
 | `ALCOVE_DATABASE_ENCRYPTION_KEY` | string | _(required)_ | Encryption key for the credential store. **Bridge refuses to start without this.** For local dev, `make up` generates it automatically. |
@@ -99,12 +101,13 @@ can also be set in `alcove.yaml` (see [alcove.yaml](#alcoveyaml) above).
 | `SKIFF_HAIL_URL` | string | `nats://alcove-hail:4222` | NATS URL injected into Skiff containers (may differ from Bridge's own `HAIL_URL`). |
 | `ALCOVE_SKILL_REPOS` | string (JSON) | _(unset)_ | JSON array of skill repo objects. Overrides database-configured skill repos. Each object has `url` (required), `ref` (optional, default `main`), and `name` (optional). |
 | `AGENT_REPO_SYNC_INTERVAL` | string (duration) | `15m` | How often Bridge syncs YAML agent definitions from registered agent repos. Accepts Go duration syntax. Manual sync available via API or dashboard "Sync Now" button. |
-| `BRIDGE_LLM_PROVIDER` | string | _(unset)_ | System LLM provider: `anthropic` or `google-vertex`. Overrides `llm_provider` in alcove.yaml. |
-| `BRIDGE_LLM_API_KEY` | string | _(unset)_ | Anthropic API key for the system LLM. Overrides `llm_api_key` in alcove.yaml. |
-| `BRIDGE_LLM_MODEL` | string | _(unset)_ | Model name for the system LLM. Overrides `llm_model` in alcove.yaml. |
-| `BRIDGE_LLM_SERVICE_ACCOUNT_JSON` | string | _(unset)_ | Google service account JSON for the system LLM (Vertex AI). Overrides `llm_service_account_json` in alcove.yaml. |
-| `BRIDGE_LLM_PROJECT` | string | _(unset)_ | GCP project ID for the system LLM (Vertex AI). Overrides `llm_project` in alcove.yaml. |
-| `BRIDGE_LLM_REGION` | string | _(unset)_ | GCP region for the system LLM (Vertex AI). Overrides `llm_region` in alcove.yaml. |
+| `BRIDGE_LLM_PROVIDER` | string | _(unset)_ | System LLM provider: `anthropic`, `google-vertex`, or `claude-oauth`. Overrides `system_llm.provider` in alcove.yaml. |
+| `BRIDGE_LLM_API_KEY` | string | _(unset)_ | Anthropic API key for the system LLM. Overrides `system_llm.api_key` in alcove.yaml. |
+| `BRIDGE_LLM_OAUTH_TOKEN` | string | _(unset)_ | Claude Pro/Max OAuth token for the system LLM (for `claude-oauth` provider). Overrides `system_llm.oauth_token` in alcove.yaml. |
+| `BRIDGE_LLM_MODEL` | string | _(unset)_ | Model name for the system LLM. Overrides `system_llm.model` in alcove.yaml. |
+| `BRIDGE_LLM_SERVICE_ACCOUNT_JSON` | string | _(unset)_ | Google service account JSON for the system LLM (Vertex AI). Overrides `system_llm.service_account_json` in alcove.yaml. |
+| `BRIDGE_LLM_PROJECT` | string | _(unset)_ | GCP project ID for the system LLM (Vertex AI). Overrides `system_llm.project_id` in alcove.yaml. |
+| `BRIDGE_LLM_REGION` | string | _(unset)_ | GCP region for the system LLM (Vertex AI). Overrides `system_llm.region` in alcove.yaml. |
 
 ---
 
@@ -306,7 +309,7 @@ column) to associate resources with teams.
 
 ## System LLM Setup
 
-Alcove supports two LLM backends for the system LLM (used by AI-powered
+Alcove supports three LLM backends for the system LLM (used by AI-powered
 features). The system LLM is configured exclusively in `alcove.yaml` or via
 environment variables -- it cannot be changed through the dashboard or API.
 The dashboard shows a read-only status indicating whether the system LLM is
@@ -319,20 +322,36 @@ Add the system LLM settings to your `alcove.yaml`:
 **Option A: Anthropic API**
 
 ```yaml
-llm_provider: anthropic
-llm_api_key: sk-ant-...
-llm_model: claude-sonnet-4-20250514    # optional, defaults to claude-sonnet-4-20250514
+system_llm:
+  provider: anthropic
+  api_key: sk-ant-...
+  model: claude-sonnet-4-20250514    # optional, defaults to claude-sonnet-4-20250514
 ```
 
 **Option B: Google Vertex AI**
 
 ```yaml
-llm_provider: google-vertex
-llm_service_account_json: '{"type":"service_account","project_id":"my-project",...}'
-llm_project: my-gcp-project-id
-llm_region: us-east5                   # optional, defaults to us-east5
-llm_model: claude-sonnet-4-20250514    # optional
+system_llm:
+  provider: google-vertex
+  service_account_json: '{"type":"service_account","project_id":"my-project",...}'
+  project_id: my-gcp-project-id
+  region: us-east5                   # optional, defaults to us-east5
+  model: claude-sonnet-4-20250514    # optional
 ```
+
+**Option C: Claude OAuth (Pro/Max)**
+
+```yaml
+system_llm:
+  provider: claude-oauth
+  oauth_token: sk-ant-oat01-...
+  model: claude-sonnet-4-20250514    # optional
+```
+
+This uses a Claude Pro or Max OAuth token for the system LLM. The token is
+sent as a Bearer token with the `anthropic-beta: oauth-2025-04-20` header.
+Set the token via `BRIDGE_LLM_OAUTH_TOKEN` environment variable or
+`oauth_token` under `system_llm` in `alcove.yaml`.
 
 ### Environment Variable Overrides
 
@@ -340,8 +359,9 @@ Environment variables override `alcove.yaml` values:
 
 | Variable | Description |
 |---|---|
-| `BRIDGE_LLM_PROVIDER` | LLM provider: `anthropic` or `google-vertex` |
+| `BRIDGE_LLM_PROVIDER` | LLM provider: `anthropic`, `google-vertex`, or `claude-oauth` |
 | `BRIDGE_LLM_API_KEY` | Anthropic API key |
+| `BRIDGE_LLM_OAUTH_TOKEN` | Claude Pro/Max OAuth token (for `claude-oauth` provider) |
 | `BRIDGE_LLM_MODEL` | Model name |
 | `BRIDGE_LLM_SERVICE_ACCOUNT_JSON` | Google service account JSON (Vertex AI) |
 | `BRIDGE_LLM_PROJECT` | GCP project ID (Vertex AI) |
@@ -417,7 +437,9 @@ Example `alcove.yaml`:
 
 ```yaml
 auth_backend: rh-identity
-rh_identity_admins: alice@redhat.com,bob@redhat.com
+rh_identity_admins:
+  - alice@redhat.com
+  - bob@redhat.com
 database_url: postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable
 database_encryption_key: your-aes-256-key-here
 ```
@@ -528,12 +550,11 @@ access to synced data.
 
 Configure agent repos in the dashboard or via the API:
 
-- **System-wide (admin):** `GET/PUT /api/v1/admin/settings/task-repos`
-- **Per-user:** `GET/PUT /api/v1/user/settings/task-repos`
+- **Per-team (or per-user fallback):** `GET/PUT /api/v1/user/settings/agent-repos`
 
 Bridge syncs agent repos automatically every 15 minutes (configurable via
 `AGENT_REPO_SYNC_INTERVAL`). A manual sync can be triggered via
-`POST /api/v1/task-definitions/sync` or the "Sync Now" button in the dashboard.
+`POST /api/v1/agent-definitions/sync` or the "Sync Now" button in the dashboard.
 Repos that haven't changed since the last sync are skipped. Each YAML file defines an agent:
 
 ```yaml
@@ -667,7 +688,7 @@ of the event author.
 
 Agent definitions appear in the dashboard where users can run them directly or
 view the source YAML. Starter templates are also available via
-`GET /api/v1/task-templates`.
+`GET /api/v1/agent-templates`.
 
 ---
 
@@ -876,9 +897,12 @@ Creates a GitHub pull request from a branch.
 
 | Input | Type | Required | Description |
 |-------|------|----------|-------------|
+| `repo` | string | yes | Repository in `owner/repo` format |
 | `branch` | string | yes | Source branch name |
+| `base` | string | yes | Target branch name |
 | `title` | string | yes | PR title |
-| `base` | string | no | Base branch (default: `main`) |
+| `body` | string | no | PR description |
+| `draft` | bool | no | Create as draft PR (default: `false`) |
 
 | Output | Type | Description |
 |--------|------|-------------|
@@ -891,9 +915,19 @@ Polls CI status on a pull request until all checks complete.
 
 | Input | Type | Required | Description |
 |-------|------|----------|-------------|
-| `pr` | string | yes | PR number to poll |
+| `repo` | string | yes | Repository in `owner/repo` format |
+| `pr` | int | yes | PR number to poll |
+| `timeout` | int | no | Max wait time in seconds (default: `900`) |
 
-The step succeeds if all CI checks pass, and fails if any check fails.
+The step succeeds (status `completed`) when it gets a CI result. The CI
+outcome is in the `status` output: `passed` or `failed`. When CI fails,
+`failure_logs` contains the last 3000 characters of each failed check's log.
+
+| Output | Type | Description |
+|--------|------|-------------|
+| `status` | string | CI result: `passed` or `failed` |
+| `failure_logs` | string | Concatenated failure logs (if failed) |
+| `failed_checks` | []string | Names of failed checks |
 
 #### `merge-pr`
 
@@ -901,7 +935,14 @@ Merges a pull request.
 
 | Input | Type | Required | Description |
 |-------|------|----------|-------------|
-| `pr` | string | yes | PR number to merge |
+| `repo` | string | yes | Repository in `owner/repo` format |
+| `pr` | int | yes | PR number to merge |
+| `method` | string | no | `merge`, `squash`, or `rebase` (default: `merge`) |
+| `delete_branch` | bool | no | Delete source branch after merge (default: `true`) |
+
+| Output | Type | Description |
+|--------|------|-------------|
+| `merge_sha` | string | The SHA of the merge commit |
 
 ### Depends Expression Syntax
 

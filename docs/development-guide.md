@@ -181,7 +181,7 @@ Bridge reads these environment variables:
 |----------|---------|---------|
 | `LEDGER_DATABASE_URL` | PostgreSQL connection string | `postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable` |
 | `HAIL_URL` | NATS server URL | `nats://localhost:4222` |
-| `RUNTIME` | Container runtime to use | `podman` or `kubernetes` |
+| `RUNTIME` | Container runtime to use | `podman`, `docker`, or `kubernetes` |
 | `SKIFF_IMAGE` | Skiff container image | `ghcr.io/bmbouter/alcove-skiff-base:latest` |
 | `GATE_IMAGE` | Gate container image | `ghcr.io/bmbouter/alcove-gate:latest` |
 | `ALCOVE_WEB_DIR` | Path to dashboard static files | `/web` or `./web` |
@@ -436,15 +436,20 @@ parallelism 4, 32-byte key.
 ## Runtime Backends
 
 The `Runtime` interface in `internal/runtime/runtime.go` abstracts over
-container runtimes. There are two implementations:
+container runtimes. There are three implementations:
 
 - **PodmanRuntime** (`podman.go`) -- creates Skiff and Gate as separate
   containers on dual podman networks (`--internal` for isolation)
+- **DockerRuntime** (`docker.go`) -- same as Podman but without `--internal`
+  network flag support. Skiff containers have unrestricted network access.
+  Intended for environments where Podman is unavailable.
 - **KubernetesRuntime** (`kubernetes.go`) -- creates a k8s Job with Gate as a
   native sidecar (init container with `restartPolicy: Always`) and Skiff as the
-  main container. Also creates a per-task NetworkPolicy restricting egress.
+  main container. Uses a static `alcove-allow-internal` NetworkPolicy for
+  egress restriction (per-task NetworkPolicy is disabled due to OVN-Kubernetes
+  DNS issues).
 
-Set `RUNTIME=podman` or `RUNTIME=kubernetes` to select the backend.
+Set `RUNTIME=podman`, `RUNTIME=docker`, or `RUNTIME=kubernetes` to select the backend.
 
 ### Kubernetes Runtime Details
 
@@ -455,8 +460,10 @@ Key design points:
   `restartPolicy: Always`, which makes it a native sidecar that starts before
   and stops after the main Skiff container. Gate and Skiff share the pod's
   network namespace, so proxy env vars point to `localhost:8443`.
-- **NetworkPolicy per task:** each Job gets a NetworkPolicy restricting egress
-  to only the Gate sidecar (on localhost), Hail (NATS), and Bridge.
+- **NetworkPolicy:** per-task NetworkPolicy creation is disabled due to
+  OVN-Kubernetes DNS resolution failures. A static `alcove-allow-internal`
+  policy provides egress restriction instead. Service hostnames are resolved
+  to IPs at dispatch time to bypass DNS issues in task pods.
 - **OpenShift compatible:** security contexts use `restricted-v2` SCC
   (non-root, drop all capabilities, `seccompProfile: RuntimeDefault`).
 - **Minimal RBAC:** Bridge needs create/get/list/delete on Jobs and
@@ -564,9 +571,9 @@ To test agent repo syncing locally:
 3. Register the repo via the API or dashboard.
 4. Wait for the sync interval (default 15 minutes, configurable via
    `AGENT_REPO_SYNC_INTERVAL`) or trigger a manual sync via
-   `POST /api/v1/task-definitions/sync` or the "Sync Now" button in the
+   `POST /api/v1/agent-definitions/sync` or the "Sync Now" button in the
    dashboard.
-5. Check the dashboard or `GET /api/v1/task-definitions` to verify the agents
+5. Check the dashboard or `GET /api/v1/agent-definitions` to verify the agents
    appear.
 
 **Note:** Catalog items (plugins, agents, LSPs, MCPs) are seeded from data
@@ -590,7 +597,7 @@ See `internal/gate/` for the proxy implementation and
 All resources are owned by teams rather than individual users. The database
 schema reflects this with a `team_id` column on all resource tables (sessions,
 credentials, security profiles, agent definitions, schedules, tools, agent
-repos). The migration `026_teams.sql` creates three tables:
+repos). The migration `027_teams.sql` creates three tables:
 
 | Table | Columns | Purpose |
 |-------|---------|---------|
@@ -615,8 +622,8 @@ items within sources. Migration `029_catalog_items.sql` creates two tables:
 
 | Table | Columns | Purpose |
 |-------|---------|---------|
-| `catalog_items` | `id`, `source_id`, `name`, `category`, `description`, `created_at` | Individual items within catalog sources (plugins, agents, LSPs, MCPs). |
-| `team_catalog_items` | `team_id`, `item_id`, `enabled`, `updated_at` | Per-team enable/disable state for individual catalog items. |
+| `catalog_items` | `id`, `source_id`, `slug`, `name`, `description`, `item_type`, `definition`, `source_file`, `synced_at` | Individual items within catalog sources (plugins, agents, LSPs, MCPs). |
+| `team_catalog_items` | `team_id`, `source_id`, `item_slug`, `enabled`, `enabled_at` | Per-team enable/disable state for individual catalog items. |
 
 The catalog introspection flow:
 
