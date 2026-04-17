@@ -46,7 +46,30 @@ git clone https://github.com/bmbouter/alcove.git
 cd alcove
 ```
 
-### 2. Build and run
+### 2. Configure credentials
+
+Copy the credentials example file and fill in your values:
+
+```bash
+cp .dev-credentials.yaml.example .dev-credentials.yaml
+```
+
+Edit `.dev-credentials.yaml` and uncomment the LLM provider block you want to
+use (Anthropic, Google Vertex AI, or Claude OAuth). Optionally add your GitHub
+PAT for agent repo sync and SCM operations. This file is gitignored -- never
+commit real credentials.
+
+```yaml
+# Example: Anthropic API
+llm:
+  provider: anthropic
+  api_key: sk-ant-...
+
+# GitHub PAT (optional)
+github_token: ghp_...
+```
+
+### 3. Build and run
 
 **Option A: Build locally** (takes ~3 min first time):
 ```bash
@@ -63,10 +86,13 @@ This builds all container images and starts:
 - **Hail** (NATS message bus) on nats://localhost:4222
 - **Ledger** (PostgreSQL) on localhost:5432
 
-`make up` auto-generates an `alcove.yaml` file from `alcove.yaml.example` with
-a random `database_encryption_key` for credential encryption. This file is gitignored.
+`make up` runs `make dev-config`, which auto-generates `alcove.yaml` from
+`alcove.yaml.example` with a random `database_encryption_key`. If
+`.dev-credentials.yaml` exists, `make dev-config` also reads it and populates
+the `system_llm` section of `alcove.yaml` automatically. Both files are
+gitignored.
 
-### 3. Open the dashboard
+### 4. Open the dashboard
 
 Go to http://localhost:8080 in your browser. Log in with:
 - Username: `admin`
@@ -82,7 +108,7 @@ Change the default password after first login.
 > **Note:** The database is ephemeral. Each `make down` + `make up` cycle wipes
 > all data (containers run with `--rm`).
 
-### 4. Start your first session
+### 5. Start your first session
 
 From the dashboard:
 1. Click "New Session"
@@ -123,7 +149,7 @@ curl -X POST http://localhost:8080/api/v1/sessions \
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/sessions
 ```
 
-### 5. Stop
+### 6. Stop
 
 ```bash
 make down
@@ -133,32 +159,48 @@ make down
 
 ### System LLM
 
-The system LLM (used for AI-powered features) is configured in `alcove.yaml`
-or via environment variables -- not through the dashboard. Add one of these to
-your `alcove.yaml`:
+The system LLM (used for AI-powered features) is configured via
+`.dev-credentials.yaml` -- not through the dashboard. Define your LLM provider
+in `.dev-credentials.yaml`:
 
 ```yaml
 # Anthropic API
-system_llm:
+llm:
   provider: anthropic
   api_key: sk-ant-...
 
 # or Google Vertex AI
-# system_llm:
+# llm:
 #   provider: google-vertex
-#   service_account_json: '{"type":"service_account",...}'
+#   service_account_json: |
+#     {"type": "service_account", ...}
 #   project_id: your-gcp-project-id
 #   region: us-east5
+
+# or Claude Pro/Max (OAuth)
+# llm:
+#   provider: claude-oauth
+#   oauth_token: <token from 'claude setup-token'>
 ```
 
+When you run `make up`, `make dev-up`, or `make watch`, the `make dev-config`
+step reads `.dev-credentials.yaml` and generates the `system_llm` section in
+`alcove.yaml` automatically. You should not need to edit `alcove.yaml` directly
+for LLM configuration.
+
 The dashboard shows a read-only system LLM status. If not configured, it
-displays a message directing you to edit `alcove.yaml`.
+displays a message directing you to set up `.dev-credentials.yaml`.
 
-### LLM Providers (Task Execution)
+### LLM Providers (Session Execution)
 
-Alcove also needs an LLM provider credential for running tasks with Claude
-Code. Set environment variables for initial setup (auto-migrated to the
-credential store on first startup), then manage via the dashboard:
+Alcove also needs an LLM provider credential for running sessions with Claude
+Code. For local development, `.dev-credentials.yaml` handles this automatically
+-- the same LLM credentials are used for both the system LLM and session
+execution. No separate configuration is needed.
+
+For non-dev deployments, you can set environment variables for initial setup
+(auto-migrated to the credential store on first startup), then manage via the
+dashboard:
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-...          # Anthropic API
@@ -445,6 +487,7 @@ full operation taxonomy and security model.
 | Command | Description |
 |---------|-------------|
 | `make up` | Build images and start everything |
+| `make dev-config` | Generate alcove.yaml (merges .dev-credentials.yaml if present) |
 | `make down` | Stop all containers |
 | `make logs` | Show logs from all containers |
 | `make build` | Build Go binaries locally |
