@@ -513,7 +513,13 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, teamID string, schedu
 					log.Printf("poller: error looking up workflow for schedule %s: %v", sched.Name, err)
 					continue
 				}
-				_, err = p.workflowEngine.StartWorkflowRun(ctx, workflowID, "event", taskReq.TriggerRef, sched.TeamID)
+				// Extract issue context for workflow trigger context
+				var triggerContext map[string]interface{}
+				if issueNumber != "" {
+					triggerContext = p.extractIssueContext(ctx, token, baseURL, eventRepo, issueNumber, payload)
+				}
+
+				_, err = p.workflowEngine.StartWorkflowRun(ctx, workflowID, "event", taskReq.TriggerRef, sched.TeamID, triggerContext)
 				if err != nil {
 					log.Printf("poller: error starting workflow run for %s: %v", sched.Name, err)
 					continue
@@ -545,4 +551,54 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, teamID string, schedu
 	if dispatched > 0 {
 		log.Printf("poller: dispatched %d task(s) from %s", dispatched, repo)
 	}
+}
+
+// extractIssueContext extracts issue context (title, body, url) from the GitHub event payload.
+// This context is used for workflow template expansion of trigger variables.
+func (p *GitHubPoller) extractIssueContext(ctx context.Context, token, baseURL, repo, issueNumber string, payload json.RawMessage) map[string]interface{} {
+	context := make(map[string]interface{})
+
+	// First try to extract from the event payload itself
+	var eventPayload map[string]interface{}
+	if json.Unmarshal(payload, &eventPayload) == nil {
+		if issue, ok := eventPayload["issue"].(map[string]interface{}); ok {
+			if title, ok := issue["title"].(string); ok {
+				context["issue_title"] = title
+			}
+			if body, ok := issue["body"].(string); ok {
+				context["issue_body"] = body
+			}
+			if htmlURL, ok := issue["html_url"].(string); ok {
+				context["issue_url"] = htmlURL
+			}
+		}
+	}
+
+	// If we have the basic info from payload, we're good
+	if _, hasTitle := context["issue_title"]; hasTitle {
+		return context
+	}
+
+	// Otherwise, fetch from GitHub API as fallback
+	data, err := p.githubAPIGet(ctx, token, fmt.Sprintf("%s/repos/%s/issues/%s", baseURL, repo, issueNumber))
+	if err != nil {
+		log.Printf("poller: context: could not fetch issue #%s: %v", issueNumber, err)
+		return context
+	}
+
+	var issue struct {
+		Title   string `json:"title"`
+		Body    string `json:"body"`
+		HTMLURL string `json:"html_url"`
+	}
+	if err := json.Unmarshal(data, &issue); err != nil {
+		log.Printf("poller: context: error parsing issue #%s: %v", issueNumber, err)
+		return context
+	}
+
+	context["issue_title"] = issue.Title
+	context["issue_body"] = issue.Body
+	context["issue_url"] = issue.HTMLURL
+
+	return context
 }

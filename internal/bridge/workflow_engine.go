@@ -91,7 +91,7 @@ type WorkflowRunStep struct {
 }
 
 // StartWorkflowRun creates a new workflow run and dispatches initial steps.
-func (we *WorkflowEngine) StartWorkflowRun(ctx context.Context, workflowID, triggerType, triggerRef, teamID string) (*WorkflowRun, error) {
+func (we *WorkflowEngine) StartWorkflowRun(ctx context.Context, workflowID, triggerType, triggerRef, teamID string, triggerContext ...map[string]interface{}) (*WorkflowRun, error) {
 	// Get the workflow definition
 	workflow, err := we.getWorkflowByID(ctx, workflowID)
 	if err != nil {
@@ -110,6 +110,11 @@ func (we *WorkflowEngine) StartWorkflowRun(ctx context.Context, workflowID, trig
 		StepOutputs: make(map[string]interface{}),
 		TeamID:      teamID,
 		CreatedAt:   now,
+	}
+
+	// Store trigger context if provided
+	if len(triggerContext) > 0 && triggerContext[0] != nil {
+		run.StepOutputs["_trigger_context"] = triggerContext[0]
 	}
 
 	// Insert workflow run
@@ -854,7 +859,8 @@ func (we *WorkflowEngine) processInputValue(value interface{}, stepOutputs map[s
 }
 
 // expandTemplate expands template variables in a string.
-// Supports {{steps.stepName.outputs.outputName}} and {{trigger.issue_number}}.
+// Supports {{steps.stepName.outputs.outputName}}, {{trigger.issue_number}},
+// {{trigger.issue_title}}, {{trigger.issue_body}}, and {{trigger.issue_url}}.
 func (we *WorkflowEngine) expandTemplateWithContext(template string, stepOutputs map[string]interface{}, triggerRef string) (string, error) {
 	result := template
 
@@ -865,6 +871,32 @@ func (we *WorkflowEngine) expandTemplateWithContext(template string, stepOutputs
 			issueNumber = triggerRef[idx+1:]
 		}
 		result = strings.ReplaceAll(result, "{{trigger.issue_number}}", issueNumber)
+	}
+
+	// Pattern: {{trigger.issue_title}}, {{trigger.issue_body}}, {{trigger.issue_url}}
+	// These are extracted from the workflow run context rather than the triggerRef string.
+	// When a workflow is triggered by a GitHub issue event, these values are available
+	// in the workflow run's trigger context and should be passed through the execution chain.
+	// For now, we retrieve them from the workflow run's step outputs where they are stored
+	// when the workflow is initiated by the GitHub event handler.
+	if strings.Contains(result, "{{trigger.issue_title}}") ||
+	   strings.Contains(result, "{{trigger.issue_body}}") ||
+	   strings.Contains(result, "{{trigger.issue_url}}") {
+
+		// Look for trigger context in step outputs under a special "_trigger_context" key
+		if triggerContext, exists := stepOutputs["_trigger_context"]; exists {
+			if contextMap, ok := triggerContext.(map[string]interface{}); ok {
+				if issueTitle, ok := contextMap["issue_title"].(string); ok {
+					result = strings.ReplaceAll(result, "{{trigger.issue_title}}", issueTitle)
+				}
+				if issueBody, ok := contextMap["issue_body"].(string); ok {
+					result = strings.ReplaceAll(result, "{{trigger.issue_body}}", issueBody)
+				}
+				if issueURL, ok := contextMap["issue_url"].(string); ok {
+					result = strings.ReplaceAll(result, "{{trigger.issue_url}}", issueURL)
+				}
+			}
+		}
 	}
 
 	// Pattern: {{steps.stepName.outputs.outputName}}
