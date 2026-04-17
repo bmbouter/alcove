@@ -158,23 +158,37 @@ func (ts *ToolStore) ListTools(ctx context.Context, teamID string) ([]ToolDefini
 // GetTool looks up a tool by name. Returns builtin tools regardless of owner;
 // returns custom tools only if the owner matches.
 func (ts *ToolStore) GetTool(ctx context.Context, name, teamID string) (*ToolDefinition, error) {
-	query := `SELECT id, name, display_name, tool_type, mcp_command, mcp_args, api_host, auth_header, auth_format, operations, team_id, created_at
-		FROM mcp_tools
-		WHERE name = $1 AND (tool_type = 'builtin' OR team_id = $2)
-		LIMIT 1`
+	var query string
+	var args []any
+	if teamID != "" {
+		query = `SELECT id, name, display_name, tool_type, mcp_command, mcp_args, api_host, auth_header, auth_format, operations, team_id, created_at
+			FROM mcp_tools
+			WHERE name = $1 AND (tool_type = 'builtin' OR team_id = $2)
+			LIMIT 1`
+		args = []any{name, teamID}
+	} else {
+		query = `SELECT id, name, display_name, tool_type, mcp_command, mcp_args, api_host, auth_header, auth_format, operations, team_id, created_at
+			FROM mcp_tools
+			WHERE name = $1 AND tool_type = 'builtin'
+			LIMIT 1`
+		args = []any{name}
+	}
 
 	var t ToolDefinition
-	var mcpCommand, apiHost, authHeader, authFormat *string
+	var mcpCommand, apiHost, authHeader, authFormat, scannedTeamID *string
 	var mcpArgs, operations string
 
-	err := ts.db.QueryRow(ctx, query, name, teamID).Scan(
+	err := ts.db.QueryRow(ctx, query, args...).Scan(
 		&t.ID, &t.Name, &t.DisplayName, &t.ToolType,
 		&mcpCommand, &mcpArgs, &apiHost, &authHeader, &authFormat,
-		&operations, &t.TeamID, &t.CreatedAt)
+		&operations, &scannedTeamID, &t.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("tool %q not found: %w", name, err)
 	}
 
+	if scannedTeamID != nil {
+		t.TeamID = *scannedTeamID
+	}
 	if mcpCommand != nil {
 		t.MCPCommand = *mcpCommand
 	}
