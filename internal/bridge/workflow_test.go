@@ -843,6 +843,142 @@ workflow:
 	}
 }
 
+// TestParseWorkflowDefinition_SDLCPipeline parses a complete SDLC pipeline YAML
+// with bridge actions, depends expressions, max_iterations, and various step
+// types to verify the parsed structure.
+func TestParseWorkflowDefinition_SDLCPipeline(t *testing.T) {
+	yamlData := `
+name: SDLC Pipeline
+workflow:
+  - id: implement
+    agent: autonomous-developer
+    repo: pulp/pulp_python
+    trigger:
+      github:
+        events: [issues]
+        labels: [ready-for-dev]
+    outputs: [pr_url, summary, branch]
+
+  - id: create-pr
+    type: bridge
+    action: create-pr
+    needs: [implement]
+    inputs:
+      repo: pulp/pulp_python
+      branch: "{{steps.implement.inputs.branch}}"
+      title: "Fix issue {{trigger.issue_number}}"
+    outputs: [pr_number, pr_url]
+
+  - id: await-ci
+    type: bridge
+    action: await-ci
+    needs: [create-pr]
+    inputs:
+      repo: pulp/pulp_python
+      pr_number: "{{steps.create-pr.outputs.pr_number}}"
+    outputs: [ci_status]
+
+  - id: review
+    agent: code-reviewer
+    depends: "await-ci.completed"
+    max_iterations: 3
+    inputs:
+      pr_url: "{{steps.create-pr.outputs.pr_url}}"
+
+  - id: merge-pr
+    type: bridge
+    action: merge-pr
+    depends: "review.completed"
+    inputs:
+      repo: pulp/pulp_python
+      pr_number: "{{steps.create-pr.outputs.pr_number}}"
+`
+
+	wd, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if wd.Name != "SDLC Pipeline" {
+		t.Errorf("expected name 'SDLC Pipeline', got '%s'", wd.Name)
+	}
+	if len(wd.Workflow) != 5 {
+		t.Fatalf("expected 5 steps, got %d", len(wd.Workflow))
+	}
+
+	// Step 1: implement (agent step with trigger)
+	s := wd.Workflow[0]
+	if s.ID != "implement" {
+		t.Errorf("step 0: expected ID 'implement', got '%s'", s.ID)
+	}
+	if s.Agent != "autonomous-developer" {
+		t.Errorf("step 0: expected agent 'autonomous-developer', got '%s'", s.Agent)
+	}
+	if s.Trigger == nil || s.Trigger.GitHub == nil {
+		t.Fatal("step 0: expected GitHub trigger")
+	}
+	if len(s.Trigger.GitHub.Events) != 1 || s.Trigger.GitHub.Events[0] != "issues" {
+		t.Errorf("step 0: expected events [issues], got %v", s.Trigger.GitHub.Events)
+	}
+	if len(s.Outputs) != 3 {
+		t.Errorf("step 0: expected 3 outputs, got %d", len(s.Outputs))
+	}
+
+	// Step 2: create-pr (bridge step with needs)
+	s = wd.Workflow[1]
+	if s.ID != "create-pr" {
+		t.Errorf("step 1: expected ID 'create-pr', got '%s'", s.ID)
+	}
+	if s.Type != "bridge" {
+		t.Errorf("step 1: expected type 'bridge', got '%s'", s.Type)
+	}
+	if s.Action != "create-pr" {
+		t.Errorf("step 1: expected action 'create-pr', got '%s'", s.Action)
+	}
+	if len(s.Needs) != 1 || s.Needs[0] != "implement" {
+		t.Errorf("step 1: expected needs [implement], got %v", s.Needs)
+	}
+	if len(s.Inputs) != 3 {
+		t.Errorf("step 1: expected 3 inputs, got %d", len(s.Inputs))
+	}
+
+	// Step 3: await-ci (bridge step)
+	s = wd.Workflow[2]
+	if s.ID != "await-ci" {
+		t.Errorf("step 2: expected ID 'await-ci', got '%s'", s.ID)
+	}
+	if s.Type != "bridge" || s.Action != "await-ci" {
+		t.Errorf("step 2: expected bridge/await-ci, got %s/%s", s.Type, s.Action)
+	}
+
+	// Step 4: review (agent step with depends and max_iterations)
+	s = wd.Workflow[3]
+	if s.ID != "review" {
+		t.Errorf("step 3: expected ID 'review', got '%s'", s.ID)
+	}
+	if s.Type != "" {
+		t.Errorf("step 3: expected empty type (defaults to agent), got '%s'", s.Type)
+	}
+	if s.Depends != "await-ci.completed" {
+		t.Errorf("step 3: expected depends 'await-ci.completed', got '%s'", s.Depends)
+	}
+	if s.MaxIterations != 3 {
+		t.Errorf("step 3: expected max_iterations 3, got %d", s.MaxIterations)
+	}
+
+	// Step 5: merge-pr (bridge step with depends)
+	s = wd.Workflow[4]
+	if s.ID != "merge-pr" {
+		t.Errorf("step 4: expected ID 'merge-pr', got '%s'", s.ID)
+	}
+	if s.Type != "bridge" || s.Action != "merge-pr" {
+		t.Errorf("step 4: expected bridge/merge-pr, got %s/%s", s.Type, s.Action)
+	}
+	if s.Depends != "review.completed" {
+		t.Errorf("step 4: expected depends 'review.completed', got '%s'", s.Depends)
+	}
+}
+
 func TestValidateConditionSyntax_Enhanced(t *testing.T) {
 	tests := []struct {
 		condition string

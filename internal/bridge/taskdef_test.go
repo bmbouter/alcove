@@ -1,6 +1,12 @@
 package bridge
 
-import "testing"
+import (
+	"encoding/json"
+	"reflect"
+	"testing"
+
+	"github.com/bmbouter/alcove/internal"
+)
 
 func TestResolvePluginBundles(t *testing.T) {
 	// Test bundle expansion
@@ -200,5 +206,199 @@ func TestToTaskRequestIncludesCredentials(t *testing.T) {
 	}
 	if req.Credentials["DB_PASS"] != "database" {
 		t.Errorf("DB_PASS: got %q, want %q", req.Credentials["DB_PASS"], "database")
+	}
+}
+
+// TestToTaskRequest_AllFields verifies that ToTaskRequest maps every relevant
+// TaskDefinition field to the TaskRequest, with special attention to fields
+// (DirectOutbound, CIGate) that were previously dropped.
+func TestToTaskRequest_AllFields(t *testing.T) {
+	def := &TaskDefinition{
+		Name:        "Full Agent",
+		Description: "An agent with every field set",
+		Prompt:      "Implement the thing",
+		Executable:  &internal.ExecutableSpec{URL: "https://example.com/bin", Args: []string{"--fast"}, Env: map[string]string{"K": "V"}},
+		Repo:        "pulp/pulp_python",
+		Provider:    "anthropic",
+		Model:       "claude-opus-4-6",
+		Timeout:     600,
+		BudgetUSD:   5.50,
+		Debug:       true,
+		Profiles:    []string{"strict"},
+		Plugins:     []PluginSpec{{Name: "code-review", Source: "claude-plugins-official", Ref: "v1"}},
+		Tools:       map[string]ToolConfig{"github": {Enabled: true, Repos: []string{"org/repo"}, Operations: []string{"read"}}},
+		Credentials: map[string]string{"TOKEN": "my-svc"},
+		DirectOutbound: true,
+		CIGate:      &CIGate{MaxRetries: 3, Timeout: 900},
+	}
+
+	req := def.ToTaskRequest()
+
+	// Verify each mapped field.
+	if req.Prompt != def.Prompt {
+		t.Errorf("Prompt: got %q, want %q", req.Prompt, def.Prompt)
+	}
+	if req.Executable == nil || req.Executable.URL != def.Executable.URL {
+		t.Errorf("Executable: got %v, want URL %q", req.Executable, def.Executable.URL)
+	}
+	if req.Repo != def.Repo {
+		t.Errorf("Repo: got %q, want %q", req.Repo, def.Repo)
+	}
+	if req.Provider != def.Provider {
+		t.Errorf("Provider: got %q, want %q", req.Provider, def.Provider)
+	}
+	if req.Model != def.Model {
+		t.Errorf("Model: got %q, want %q", req.Model, def.Model)
+	}
+	if req.Timeout != def.Timeout {
+		t.Errorf("Timeout: got %d, want %d", req.Timeout, def.Timeout)
+	}
+	if req.Budget != def.BudgetUSD {
+		t.Errorf("Budget: got %f, want %f", req.Budget, def.BudgetUSD)
+	}
+	if !req.Debug {
+		t.Error("Debug: expected true")
+	}
+	if len(req.Profiles) != 1 || req.Profiles[0] != "strict" {
+		t.Errorf("Profiles: got %v, want [strict]", req.Profiles)
+	}
+	if len(req.Plugins) != 1 || req.Plugins[0].Name != "code-review" {
+		t.Errorf("Plugins: got %v, want [{code-review ...}]", req.Plugins)
+	}
+	if len(req.Tools) != 1 {
+		t.Errorf("Tools: expected 1, got %d", len(req.Tools))
+	}
+	if len(req.Credentials) != 1 || req.Credentials["TOKEN"] != "my-svc" {
+		t.Errorf("Credentials: got %v, want {TOKEN:my-svc}", req.Credentials)
+	}
+	if !req.DirectOutbound {
+		t.Error("DirectOutbound: expected true in TaskRequest")
+	}
+
+	// CIGate is intentionally NOT mapped to TaskRequest (it is consumed by Bridge
+	// workflow logic, not sent to Skiff), so verify it is absent.
+	// There is no CIGate field on TaskRequest; this is a compile-time guarantee.
+	// This comment documents the design decision.
+}
+
+// TestGetAgentDefinitionFieldCopyRoundTrip ensures that every parseable field
+// (those with a yaml struct tag) survives the JSON marshal -> unmarshal -> field
+// copy round-trip used by GetAgentDefinition. If a new field with a yaml tag is
+// added to TaskDefinition but not added to the copy block in GetAgentDefinition,
+// this test will fail.
+func TestGetAgentDefinitionFieldCopyRoundTrip(t *testing.T) {
+	// Step 1: Create a TaskDefinition with ALL yaml-tagged fields set to
+	// non-zero values. Every parseable field must be populated here.
+	original := TaskDefinition{
+		Name:        "round-trip-agent",
+		Description: "Tests that all fields survive the copy block",
+		Prompt:      "Do the thing",
+		Executable: &internal.ExecutableSpec{
+			URL:  "https://example.com/binary",
+			Args: []string{"--flag"},
+			Env:  map[string]string{"KEY": "VAL"},
+		},
+		Repo:     "https://github.com/org/repo",
+		Provider: "anthropic",
+		Model:    "claude-opus-4-6",
+		Timeout:  600,
+		BudgetUSD: 5.50,
+		Debug:    true,
+		Profiles: []string{"strict", "permissive"},
+		Plugins: []PluginSpec{
+			{Name: "code-review", Source: "claude-plugins-official", Ref: "v1"},
+		},
+		Tools: map[string]ToolConfig{
+			"github": {Enabled: true, Repos: []string{"org/repo"}, Operations: []string{"read"}},
+		},
+		Credentials: map[string]string{"TOKEN": "my-svc"},
+		Schedule: &TaskDefSchedule{
+			Cron:    "0 */6 * * *",
+			Enabled: true,
+		},
+		Trigger: &EventTrigger{
+			GitHub: &GitHubTrigger{
+				Events:  []string{"push"},
+				Actions: []string{"opened"},
+			},
+		},
+		CIGate: &CIGate{
+			MaxRetries: 3,
+			Timeout:    900,
+		},
+		DirectOutbound: true,
+	}
+
+	// Step 2: Marshal to JSON (simulates UpsertAgentDefinition storing parsed JSONB).
+	parsedJSON, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	// Step 3: Unmarshal (simulates reading the parsed column back from the DB).
+	var parsed TaskDefinition
+	if err := json.Unmarshal(parsedJSON, &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	// Step 4: Simulate the field copy block from GetAgentDefinition.
+	// This block MUST be kept in sync with the one in GetAgentDefinition.
+	// If you add a field here, add it there too (and vice versa).
+	//
+	// Name and Description come from dedicated DB columns (via Scan), not
+	// from the parsed JSONB copy block, so we pre-populate them here.
+	td := TaskDefinition{
+		Name:        original.Name,
+		Description: original.Description,
+	}
+	td.Prompt = parsed.Prompt
+	td.Executable = parsed.Executable
+	td.Repo = parsed.Repo
+	td.Provider = parsed.Provider
+	td.Model = parsed.Model
+	td.Timeout = parsed.Timeout
+	td.BudgetUSD = parsed.BudgetUSD
+	td.Debug = parsed.Debug
+	td.Profiles = parsed.Profiles
+	td.Tools = parsed.Tools
+	td.Schedule = parsed.Schedule
+	td.Trigger = parsed.Trigger
+	td.Plugins = parsed.Plugins
+	td.Credentials = parsed.Credentials
+	td.DirectOutbound = parsed.DirectOutbound
+	td.CIGate = parsed.CIGate
+
+	// Step 5: Use reflect to verify every yaml-tagged field matches the
+	// original. Fields with a yaml tag are "parseable" (come from the YAML
+	// agent definition, stored in the parsed JSONB column). If a new yaml
+	// field is added to TaskDefinition but forgotten in the copy block above,
+	// it will be zero in td but non-zero in original, and this loop catches it.
+	origVal := reflect.ValueOf(original)
+	tdVal := reflect.ValueOf(td)
+	origType := origVal.Type()
+
+	yamlFieldCount := 0
+	for i := 0; i < origType.NumField(); i++ {
+		field := origType.Field(i)
+		if _, hasYAML := field.Tag.Lookup("yaml"); !hasYAML {
+			continue // skip metadata-only fields (no yaml tag)
+		}
+		yamlFieldCount++
+		origField := origVal.Field(i).Interface()
+		tdField := tdVal.Field(i).Interface()
+		if !reflect.DeepEqual(origField, tdField) {
+			t.Errorf("field %q not preserved after copy: got %v, want %v\n"+
+				"Hint: add td.%s = parsed.%s to the copy block in GetAgentDefinition",
+				field.Name, tdField, origField, field.Name, field.Name)
+		}
+	}
+
+	// Sanity check: make sure we actually checked a meaningful number of fields.
+	// Update this count when adding new yaml-tagged fields to TaskDefinition.
+	const expectedYAMLFields = 18
+	if yamlFieldCount != expectedYAMLFields {
+		t.Errorf("expected %d yaml-tagged fields in TaskDefinition, found %d; "+
+			"update this test and the copy block in GetAgentDefinition",
+			expectedYAMLFields, yamlFieldCount)
 	}
 }

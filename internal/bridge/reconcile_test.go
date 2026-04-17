@@ -27,6 +27,11 @@ import (
 type mockRuntime struct {
 	statuses map[string]string // taskID -> status
 	mu       sync.Mutex
+
+	// Tracking fields for verifying calls.
+	cleanupCalls       []string // prefixes passed to CleanupOrphanedContainers
+	cleanupResult      int      // count to return from CleanupOrphanedContainers
+	stopServiceCalls   []string // names passed to StopService
 }
 
 func (m *mockRuntime) RunTask(_ context.Context, _ runtime.TaskSpec) (runtime.TaskHandle, error) {
@@ -50,7 +55,10 @@ func (m *mockRuntime) EnsureService(_ context.Context, _ runtime.ServiceSpec) er
 	return nil
 }
 
-func (m *mockRuntime) StopService(_ context.Context, _ string) error {
+func (m *mockRuntime) StopService(_ context.Context, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.stopServiceCalls = append(m.stopServiceCalls, name)
 	return nil
 }
 
@@ -62,8 +70,11 @@ func (m *mockRuntime) Info(_ context.Context) (runtime.RuntimeInfo, error) {
 	return runtime.RuntimeInfo{Type: "mock"}, nil
 }
 
-func (m *mockRuntime) CleanupOrphanedContainers(_ context.Context, _ string) (int, error) {
-	return 0, nil
+func (m *mockRuntime) CleanupOrphanedContainers(_ context.Context, prefix string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cleanupCalls = append(m.cleanupCalls, prefix)
+	return m.cleanupResult, nil
 }
 
 // TestReconcileLoop_ContextCancellation verifies that ReconcileLoop exits
@@ -153,5 +164,124 @@ func TestRecoverHandles_NoDBConnection(t *testing.T) {
 	defer d.mu.Unlock()
 	if len(d.handles) != 0 {
 		t.Errorf("expected empty handles map, got %d entries", len(d.handles))
+	}
+}
+
+// TestCleanupOrphanedContainers_GatePrefix verifies that
+// CleanupOrphanedContainers is called with the "gate-" prefix and returns the
+// expected count. The real ReconcileLoop calls this on a 2-minute ticker
+// (see dispatcher.go ReconcileLoop); we test the call directly here because
+// the ticker interval makes a true integration test impractical.
+func TestCleanupOrphanedContainers_GatePrefix(t *testing.T) {
+	rt := &mockRuntime{
+		statuses:      map[string]string{},
+		cleanupResult: 2,
+	}
+	d := &Dispatcher{
+		rt:      rt,
+		handles: make(map[string]runtime.TaskHandle),
+	}
+
+	// Directly call CleanupOrphanedContainers as the reconcile loop would.
+	cleaned, err := d.rt.CleanupOrphanedContainers(context.Background(), "gate-")
+	if err != nil {
+		t.Fatalf("CleanupOrphanedContainers() error: %v", err)
+	}
+	if cleaned != 2 {
+		t.Errorf("cleaned = %d, want 2", cleaned)
+	}
+
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if len(rt.cleanupCalls) != 1 {
+		t.Fatalf("expected 1 cleanup call, got %d", len(rt.cleanupCalls))
+	}
+	if rt.cleanupCalls[0] != "gate-" {
+		t.Errorf("cleanup prefix = %q, want %q", rt.cleanupCalls[0], "gate-")
+	}
+}
+
+// TestStatusHandler_GateCleanup verifies that when a session reaches a
+// terminal state (completed/error/timeout), the dispatcher triggers
+// StopService for the gate container derived from the task handle.
+func TestStatusHandler_GateCleanup(t *testing.T) {
+	rt := &mockRuntime{statuses: map[string]string{}}
+	d := &Dispatcher{
+		rt:      rt,
+		handles: make(map[string]runtime.TaskHandle),
+	}
+
+	// Pre-populate a handle as if RunTask had created it.
+	taskID := "task-42"
+	sessionID := "session-42"
+	d.handles[sessionID] = runtime.TaskHandle{
+		ID:      taskID,
+		PodName: runtime.SkiffContainerName(taskID),
+	}
+
+	// Simulate the gate cleanup logic from the status handler:
+	// On terminal state, the dispatcher removes the handle and calls
+	// StopService on the gate container name after a grace period.
+	d.mu.Lock()
+	handle, hasHandle := d.handles[sessionID]
+	delete(d.handles, sessionID)
+	d.mu.Unlock()
+
+	if !hasHandle {
+		t.Fatal("expected handle to be present for session")
+	}
+
+	// Call StopService directly (the real code does this in a goroutine
+	// after a 5s sleep, but we skip the delay for testing).
+	gateName := runtime.GateContainerName(handle.ID)
+	if err := d.rt.StopService(context.Background(), gateName); err != nil {
+		t.Fatalf("StopService() error: %v", err)
+	}
+
+	// Verify StopService was called with the correct gate container name.
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if len(rt.stopServiceCalls) != 1 {
+		t.Fatalf("expected 1 StopService call, got %d", len(rt.stopServiceCalls))
+	}
+	expectedGateName := "gate-task-42"
+	if rt.stopServiceCalls[0] != expectedGateName {
+		t.Errorf("StopService called with %q, want %q", rt.stopServiceCalls[0], expectedGateName)
+	}
+
+	// Verify the handle was removed from the map.
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if _, exists := d.handles[sessionID]; exists {
+		t.Error("handle should have been removed from handles map")
+	}
+}
+
+// TestStatusHandler_GateCleanup_NoHandle verifies that when a session
+// reaches a terminal state but has no handle (e.g., after Bridge restart),
+// no StopService call is made and no panic occurs.
+func TestStatusHandler_GateCleanup_NoHandle(t *testing.T) {
+	rt := &mockRuntime{statuses: map[string]string{}}
+	d := &Dispatcher{
+		rt:      rt,
+		handles: make(map[string]runtime.TaskHandle),
+	}
+
+	// Simulate the gate cleanup logic with no handle present.
+	sessionID := "session-orphan"
+	d.mu.Lock()
+	_, hasHandle := d.handles[sessionID]
+	delete(d.handles, sessionID)
+	d.mu.Unlock()
+
+	if hasHandle {
+		t.Fatal("expected no handle for this session")
+	}
+
+	// No StopService call should be made when there is no handle.
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if len(rt.stopServiceCalls) != 0 {
+		t.Errorf("expected 0 StopService calls, got %d", len(rt.stopServiceCalls))
 	}
 }

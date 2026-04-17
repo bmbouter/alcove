@@ -346,3 +346,117 @@ func TestDockerIsContainerRunning_EmptyOutput(t *testing.T) {
 		t.Errorf("isContainerRunning() = true, want false")
 	}
 }
+
+func TestDockerCleanupOrphanedContainers_RemovesOrphans(t *testing.T) {
+	// Docker ps returns line-delimited JSON (not an array).
+	// gate-abc has no running skiff → should be removed.
+	// gate-xyz has a running skiff → should NOT be removed.
+	psOutput := `{"Names":"gate-abc","State":"running"}
+{"Names":"gate-xyz","State":"running"}`
+
+	inspectRunning, err := json.Marshal([]dockerInspect{
+		{State: dockerContainerState{Status: "running", Running: true}},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+
+	responses := []fakeResponse{
+		{stdout: psOutput, exitCode: 0},                  // ps -a --filter name=^gate-
+		{stdout: "", exitCode: 1},                        // inspect skiff-abc → not found
+		{stdout: "", exitCode: 0},                        // stop gate-abc
+		{stdout: "", exitCode: 0},                        // rm -f gate-abc
+		{stdout: string(inspectRunning), exitCode: 0},    // inspect skiff-xyz → running
+	}
+
+	execFn, calls := fakeExecCommandMulti(t, responses)
+	d := &DockerRuntime{
+		DockerBin:   "docker",
+		execCommand: execFn,
+	}
+
+	cleaned, cleanErr := d.CleanupOrphanedContainers(context.Background(), "gate-")
+	if cleanErr != nil {
+		t.Fatalf("CleanupOrphanedContainers() error: %v", cleanErr)
+	}
+	if cleaned != 1 {
+		t.Errorf("cleaned = %d, want 1", cleaned)
+	}
+
+	// Verify the ps call was made with the correct filter.
+	psCall := strings.Join((*calls)[0], " ")
+	if !strings.Contains(psCall, "ps -a --filter name=^gate-") {
+		t.Errorf("expected ps call with gate- filter, got: %s", psCall)
+	}
+
+	// Verify stop/rm were called for gate-abc.
+	stopCall := strings.Join((*calls)[2], " ")
+	if !strings.Contains(stopCall, "stop") || !strings.Contains(stopCall, "gate-abc") {
+		t.Errorf("expected stop gate-abc, got: %s", stopCall)
+	}
+	rmCall := strings.Join((*calls)[3], " ")
+	if !strings.Contains(rmCall, "rm -f gate-abc") {
+		t.Errorf("expected rm -f gate-abc, got: %s", rmCall)
+	}
+
+	// Verify inspect was called for skiff-xyz (the running one).
+	inspectXyz := strings.Join((*calls)[4], " ")
+	if !strings.Contains(inspectXyz, "inspect") || !strings.Contains(inspectXyz, "skiff-xyz") {
+		t.Errorf("expected inspect skiff-xyz, got: %s", inspectXyz)
+	}
+}
+
+func TestDockerCleanupOrphanedContainers_SkipsRunningSkiff(t *testing.T) {
+	psOutput := `{"Names":"gate-task1","State":"running"}`
+	inspectRunning, err := json.Marshal([]dockerInspect{
+		{State: dockerContainerState{Status: "running", Running: true}},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+
+	responses := []fakeResponse{
+		{stdout: psOutput, exitCode: 0},                  // ps
+		{stdout: string(inspectRunning), exitCode: 0},    // inspect skiff-task1 → running
+	}
+
+	execFn, calls := fakeExecCommandMulti(t, responses)
+	d := &DockerRuntime{
+		DockerBin:   "docker",
+		execCommand: execFn,
+	}
+
+	cleaned, cleanErr := d.CleanupOrphanedContainers(context.Background(), "gate-")
+	if cleanErr != nil {
+		t.Fatalf("CleanupOrphanedContainers() error: %v", cleanErr)
+	}
+	if cleaned != 0 {
+		t.Errorf("cleaned = %d, want 0 (skiff is still running)", cleaned)
+	}
+
+	// Should only have 2 calls: ps + inspect. No stop/rm.
+	if len(*calls) != 2 {
+		t.Errorf("expected 2 calls (ps + inspect), got %d", len(*calls))
+	}
+}
+
+func TestDockerCleanupOrphanedContainers_EmptyList(t *testing.T) {
+	execFn, calls := fakeExecCommand(t, "", 0)
+	d := &DockerRuntime{
+		DockerBin:   "docker",
+		execCommand: execFn,
+	}
+
+	cleaned, err := d.CleanupOrphanedContainers(context.Background(), "gate-")
+	if err != nil {
+		t.Fatalf("CleanupOrphanedContainers() error: %v", err)
+	}
+	if cleaned != 0 {
+		t.Errorf("cleaned = %d, want 0", cleaned)
+	}
+
+	// Only the ps call should be made.
+	if len(*calls) != 1 {
+		t.Errorf("expected 1 call (ps only), got %d", len(*calls))
+	}
+}
