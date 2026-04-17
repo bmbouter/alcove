@@ -403,7 +403,11 @@ func validateInputsTemplateSyntax(inputs map[string]interface{}) error {
 		if str, ok := value.(string); ok {
 			// Check for template syntax like "{{steps.implement.outputs.summary}}" or "{{trigger.issue_number}}"
 			if strings.Contains(str, "{{") && strings.Contains(str, "}}") {
-				if !strings.Contains(str, "steps.") && !strings.Contains(str, "trigger.") {
+				if !strings.Contains(str, "steps.") &&
+				   !strings.Contains(str, "trigger.issue_number") &&
+				   !strings.Contains(str, "trigger.issue_title") &&
+				   !strings.Contains(str, "trigger.issue_body") &&
+				   !strings.Contains(str, "trigger.issue_url") {
 					return fmt.Errorf("input '%s' contains invalid template syntax: %s", key, str)
 				}
 			}

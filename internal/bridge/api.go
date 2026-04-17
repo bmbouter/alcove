@@ -1947,6 +1947,45 @@ func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
 			taskReq.TriggerRef = fmt.Sprintf("%s#%s", repo, prNumber)
 		}
 
+		// Route workflow schedules through the workflow engine.
+		if sched.Provider == "workflow" && a.workflowEngine != nil && sched.ID != "" {
+			// Look up the workflow by schedule ID to get its source_key, then find the workflow
+			var sourceKey string
+			err := a.db.QueryRow(ctx,
+				`SELECT COALESCE(source_key, '') FROM schedules WHERE id = $1`,
+				sched.ID,
+			).Scan(&sourceKey)
+			if err != nil || sourceKey == "" {
+				log.Printf("webhook: no source_key found for workflow schedule %s", sched.Name)
+				continue
+			}
+
+			// Look up the workflow by source_key
+			var workflowID string
+			err = a.db.QueryRow(ctx,
+				`SELECT id FROM workflows WHERE source_key = $1 AND team_id = $2`,
+				sourceKey, sched.TeamID,
+			).Scan(&workflowID)
+			if err != nil {
+				log.Printf("webhook: error looking up workflow for schedule %s: %v", sched.Name, err)
+				continue
+			}
+
+			// Extract issue context for workflow trigger context
+			var triggerContext map[string]interface{}
+			if issueNumber != "" {
+				triggerContext = a.extractIssueContextFromPayload(payload, issueNumber)
+			}
+
+			_, err = a.workflowEngine.StartWorkflowRun(ctx, workflowID, "webhook", taskReq.TriggerRef, sched.TeamID, triggerContext)
+			if err != nil {
+				log.Printf("webhook: error starting workflow run for %s: %v", sched.Name, err)
+				continue
+			}
+			dispatched++
+			log.Printf("webhook: dispatched workflow %s for %s %s/%s", sched.Name, eventType, repo, action)
+		} else {
+
 		session, err := a.dispatcher.DispatchTask(ctx, taskReq, "webhook", sched.TeamID)
 		if err != nil {
 			log.Printf("webhook: error dispatching schedule %s (%s): %v", sched.Name, sched.ID, err)
@@ -1969,6 +2008,7 @@ func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
 
 		dispatched++
 		log.Printf("webhook: dispatched schedule %s (%s) for %s %s/%s", sched.Name, sched.ID, eventType, repo, action)
+		}
 	}
 
 	// Update delivery record with match count.
@@ -2462,6 +2502,27 @@ func (a *API) handleCatalog(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- Helpers ---
+
+// extractIssueContextFromPayload extracts issue context (title, body, url) from the GitHub webhook payload.
+// This context is used for workflow template expansion of trigger variables.
+func (a *API) extractIssueContextFromPayload(payload map[string]any, issueNumber string) map[string]interface{} {
+	context := make(map[string]interface{})
+
+	// Extract from the webhook payload itself
+	if issue, ok := payload["issue"].(map[string]interface{}); ok {
+		if title, ok := issue["title"].(string); ok {
+			context["issue_title"] = title
+		}
+		if body, ok := issue["body"].(string); ok {
+			context["issue_body"] = body
+		}
+		if htmlURL, ok := issue["html_url"].(string); ok {
+			context["issue_url"] = htmlURL
+		}
+	}
+
+	return context
+}
 
 func respondJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
