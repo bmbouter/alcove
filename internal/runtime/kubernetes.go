@@ -506,6 +506,13 @@ func (k *KubernetesRuntime) CreateVolume(ctx context.Context, name string) (stri
 	return name, nil
 }
 
+// CleanupOrphanedContainers is a no-op on Kubernetes. Gate runs as a native
+// sidecar (init container with restartPolicy: Always) within the same pod as
+// Skiff, so it is automatically cleaned up when the pod terminates.
+func (k *KubernetesRuntime) CleanupOrphanedContainers(ctx context.Context, prefix string) (int, error) {
+	return 0, nil
+}
+
 // Info returns runtime metadata for the Kubernetes runtime, including the
 // server version reported by the API server.
 func (k *KubernetesRuntime) Info(ctx context.Context) (RuntimeInfo, error) {

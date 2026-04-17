@@ -781,8 +781,26 @@ func (d *Dispatcher) ListenForStatusUpdates(ctx context.Context) error {
 		// Clean up handle on terminal states.
 		if update.Status == "completed" || update.Status == "error" || update.Status == "timeout" {
 			d.mu.Lock()
+			handle, hasHandle := d.handles[update.SessionID]
 			delete(d.handles, update.SessionID)
 			d.mu.Unlock()
+
+			// Clean up the Gate sidecar container after a grace period.
+			// The goroutine waits 5 seconds so Gate can flush final logs.
+			// Uses a detached context so cleanup completes even if the
+			// parent context is cancelled (e.g., during Bridge shutdown).
+			if hasHandle {
+				go func(taskID, sessionID string) {
+					time.Sleep(5 * time.Second)
+					gateName := runtime.GateContainerName(taskID)
+					log.Printf("cleanup: stopping gate sidecar %s for completed session %s", gateName, sessionID)
+					cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					defer cancel()
+					if err := d.rt.StopService(cleanupCtx, gateName); err != nil {
+						log.Printf("cleanup: failed to stop gate %s: %v", gateName, err)
+					}
+				}(handle.ID, update.SessionID)
+			}
 
 			// Notify workflow engine of step completion
 			if d.workflowEngine != nil {
@@ -894,7 +912,8 @@ func (d *Dispatcher) RecoverHandles(ctx context.Context) {
 
 // ReconcileLoop periodically checks for sessions stuck in "running" state
 // whose containers have exited. This catches status updates lost during
-// Bridge restarts or NATS message drops.
+// Bridge restarts or NATS message drops. It also sweeps orphaned Gate
+// sidecar containers whose Skiff containers are gone.
 func (d *Dispatcher) ReconcileLoop(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Minute)
 	defer ticker.Stop()
@@ -905,6 +924,14 @@ func (d *Dispatcher) ReconcileLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			d.RecoverHandles(ctx)
+
+			// Sweep orphaned Gate containers.
+			cleaned, err := d.rt.CleanupOrphanedContainers(ctx, "gate-")
+			if err != nil {
+				log.Printf("reconcile: error cleaning up orphaned gate containers: %v", err)
+			} else if cleaned > 0 {
+				log.Printf("reconcile: cleaned up %d orphaned gate container(s)", cleaned)
+			}
 		}
 	}
 }

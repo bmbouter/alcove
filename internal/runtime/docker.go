@@ -352,6 +352,63 @@ type dockerVersionInfo struct {
 	} `json:"Client"`
 }
 
+// CleanupOrphanedContainers finds containers whose names start with prefix
+// (e.g., "gate-") and removes any whose corresponding skiff container is gone.
+func (d *DockerRuntime) CleanupOrphanedContainers(ctx context.Context, prefix string) (int, error) {
+	// List all containers (running and stopped) matching the prefix.
+	// Docker ps -a --format json returns one JSON object per line.
+	out, err := d.run(ctx, "ps", "-a", "--filter", "name=^"+prefix, "--format", "json")
+	if err != nil {
+		return 0, fmt.Errorf("listing containers with prefix %s: %w", prefix, err)
+	}
+
+	trimmed := strings.TrimSpace(string(out))
+	if trimmed == "" {
+		return 0, nil
+	}
+
+	var entries []dockerPsEntry
+	for _, line := range strings.Split(trimmed, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var entry dockerPsEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+
+	cleaned := 0
+	for _, entry := range entries {
+		name := entry.Names
+		if name == "" || !strings.HasPrefix(name, prefix) {
+			continue
+		}
+
+		// Derive the corresponding skiff container name.
+		// "gate-<taskID>" -> "skiff-<taskID>"
+		taskID := strings.TrimPrefix(name, prefix)
+		skiffName := SkiffContainerName(taskID)
+
+		// Check if the skiff container still exists.
+		skiffHandle := TaskHandle{ID: taskID}
+		status, err := d.TaskStatus(ctx, skiffHandle)
+		if err == nil && status == "running" {
+			// Skiff is still running — do not remove its Gate.
+			continue
+		}
+
+		// Skiff is gone or not running — clean up the gate container.
+		log.Printf("cleanup: removing orphaned container %s (skiff %s status: %s)", name, skiffName, status)
+		_ = d.stopAndRemove(ctx, name)
+		cleaned++
+	}
+
+	return cleaned, nil
+}
+
 // Info returns runtime metadata including the docker version.
 func (d *DockerRuntime) Info(ctx context.Context) (RuntimeInfo, error) {
 	out, err := d.run(ctx, "version", "--format", "json")
