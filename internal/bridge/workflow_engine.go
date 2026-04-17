@@ -934,9 +934,38 @@ func resolveInputs(inputs map[string]string, stepOutputs map[string]map[string]s
 
 // readStepOutputs reads outputs from a completed session.
 func (we *WorkflowEngine) readStepOutputs(ctx context.Context, sessionID string) (map[string]interface{}, error) {
-	// TODO: Implement reading outputs from session artifacts or a dedicated outputs mechanism
-	// For now, return empty outputs
-	return make(map[string]interface{}), nil
+	// Read outputs from the workflow_run_steps table where they are stored
+	// by the updateWorkflowStepOutputs function when sessions complete
+	var outputsJSON []byte
+
+	err := we.db.QueryRow(ctx, `
+		SELECT outputs
+		FROM workflow_run_steps
+		WHERE session_id = $1
+	`, sessionID).Scan(&outputsJSON)
+
+	if err != nil {
+		// Session may not be part of a workflow, or outputs may not be available
+		return make(map[string]interface{}), nil
+	}
+
+	// If no outputs were stored, return empty map
+	if outputsJSON == nil {
+		return make(map[string]interface{}), nil
+	}
+
+	// Parse the JSON outputs into a map
+	var outputs map[string]interface{}
+	if err := json.Unmarshal(outputsJSON, &outputs); err != nil {
+		log.Printf("warning: failed to unmarshal step outputs for session %s: %v", sessionID, err)
+		return make(map[string]interface{}), nil
+	}
+
+	if len(outputs) > 0 {
+		log.Printf("read step outputs for session %s: %d field(s)", sessionID, len(outputs))
+	}
+
+	return outputs, nil
 }
 
 // RecoverWorkflows recovers running workflows after Bridge restart.
