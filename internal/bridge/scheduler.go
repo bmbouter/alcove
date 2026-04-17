@@ -242,6 +242,12 @@ type Scheduler struct {
 	wg            sync.WaitGroup
 }
 
+// SetWorkflowEngine attaches a WorkflowEngine to the scheduler's poller so that
+// workflow-type schedules are dispatched through the workflow engine.
+func (s *Scheduler) SetWorkflowEngine(we *WorkflowEngine) {
+	s.poller.workflowEngine = we
+}
+
 // NewScheduler creates a Scheduler with the given dependencies.
 func NewScheduler(db *pgxpool.Pool, dispatcher *Dispatcher, cfg *Config, credStore *CredentialStore, defStore *AgentDefStore, settingsStore *SettingsStore) *Scheduler {
 	return &Scheduler{

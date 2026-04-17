@@ -235,7 +235,7 @@ func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, teamID strin
 		       s.next_run, s.last_run
 		FROM agent_definitions td
 		LEFT JOIN schedules s ON s.source_key = td.source_key AND s.source = 'yaml'
-		WHERE td.id = $1 AND td.team_id = $2
+		WHERE (td.id = $1 OR td.name = $1) AND td.team_id = $2
 	`, id, teamID).Scan(
 		&td.ID, &td.Name, &td.Description, &td.SourceRepo, &td.SourceFile,
 		&td.SourceKey, &td.RawYAML, &parsedJSON, &hasSchedule, &syncError,

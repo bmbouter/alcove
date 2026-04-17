@@ -47,6 +47,8 @@ RUN git config --system credential.helper '/usr/local/bin/alcove-credential-help
     git config --system url."https://gitlab.com/".insteadOf "git@gitlab.com:" && \
     git config --system url."https://gitlab.com/".insteadOf "ssh://git@gitlab.com/"
 
+RUN mkdir -p /workspace && chmod 777 /workspace
+
 USER 1001
 WORKDIR /home/skiff
 ENTRYPOINT ["/usr/local/bin/skiff-init"]

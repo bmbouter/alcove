@@ -50,11 +50,12 @@ var githubEventTypeMap = map[string]string{
 // GitHubPoller polls the GitHub Events API for repos referenced by
 // polling-mode event schedules and dispatches matching tasks.
 type GitHubPoller struct {
-	db         *pgxpool.Pool
-	dispatcher *Dispatcher
-	credStore  *CredentialStore
-	defStore   *AgentDefStore
-	client     *http.Client
+	db             *pgxpool.Pool
+	dispatcher     *Dispatcher
+	credStore      *CredentialStore
+	defStore       *AgentDefStore
+	workflowEngine *WorkflowEngine
+	client         *http.Client
 }
 
 // pollSchedule holds the fields needed from a schedule for polling and dispatch.
@@ -500,10 +501,29 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, teamID string, schedu
 			metaJSON, _ := json.Marshal(meta)
 			taskReq.Prompt = taskReq.Prompt + "\n\n" + enrichedContext + "\n\n[event: " + string(metaJSON) + "]"
 
-			_, err := p.dispatcher.DispatchTask(ctx, taskReq, "poller", sched.TeamID)
-			if err != nil {
-				log.Printf("poller: error dispatching schedule %s for %s: %v", sched.Name, eventRepo, err)
-				continue
+			// Route workflow schedules through the workflow engine.
+			if sched.Provider == "workflow" && p.workflowEngine != nil && sched.SourceKey != "" {
+				// Look up the workflow by source_key to get its ID.
+				var workflowID string
+				err := p.db.QueryRow(ctx,
+					`SELECT id FROM workflows WHERE source_key = $1 AND team_id = $2`,
+					sched.SourceKey, sched.TeamID,
+				).Scan(&workflowID)
+				if err != nil {
+					log.Printf("poller: error looking up workflow for schedule %s: %v", sched.Name, err)
+					continue
+				}
+				_, err = p.workflowEngine.StartWorkflowRun(ctx, workflowID, "event", taskReq.TriggerRef, sched.TeamID)
+				if err != nil {
+					log.Printf("poller: error starting workflow run for %s: %v", sched.Name, err)
+					continue
+				}
+			} else {
+				_, err := p.dispatcher.DispatchTask(ctx, taskReq, "poller", sched.TeamID)
+				if err != nil {
+					log.Printf("poller: error dispatching schedule %s for %s: %v", sched.Name, eventRepo, err)
+					continue
+				}
 			}
 
 			// Mark this task as dispatched for this issue/PR in this poll cycle.

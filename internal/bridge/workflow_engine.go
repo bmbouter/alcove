@@ -309,8 +309,21 @@ func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, st
 	}
 
 	// Inject step inputs into the task request
-	if err := we.injectStepInputs(ctx, run.ID, step, &taskReq); err != nil {
+	if err := we.injectStepInputs(ctx, run.ID, step, &taskReq, run.TriggerRef); err != nil {
 		return fmt.Errorf("injecting inputs for step %s: %w", step.ID, err)
+	}
+
+	// Store resolved inputs in step outputs so later steps can reference them via
+	// {{steps.X.inputs.Y}} templates (e.g., create-pr needs implement's branch input).
+	if len(step.Inputs) > 0 {
+		stepOutputs, _ := we.getRunStepOutputs(ctx, run.ID)
+		ref := run.TriggerRef
+		resolvedInputs := make(map[string]interface{})
+		for key, value := range step.Inputs {
+			resolved, _ := we.processInputValue(value, stepOutputs, ref)
+			resolvedInputs["_input_"+key] = resolved
+		}
+		we.updateRunStepOutputs(ctx, run.ID, step.ID, resolvedInputs)
 	}
 
 	// Dispatch the task
@@ -339,7 +352,7 @@ func (we *WorkflowEngine) executeBridgeAction(ctx context.Context, run *Workflow
 	}
 
 	// Resolve inputs (expand templates).
-	resolvedInputs, err := we.resolveStepInputs(ctx, run.ID, step)
+	resolvedInputs, err := we.resolveStepInputs(ctx, run.ID, step, run.TriggerRef)
 	if err != nil {
 		return fmt.Errorf("resolving inputs for bridge step %s: %w", step.ID, err)
 	}
@@ -399,7 +412,7 @@ func (we *WorkflowEngine) executeBridgeAction(ctx context.Context, run *Workflow
 }
 
 // resolveStepInputs resolves template references in step inputs.
-func (we *WorkflowEngine) resolveStepInputs(ctx context.Context, runID string, step *WorkflowStep) (map[string]interface{}, error) {
+func (we *WorkflowEngine) resolveStepInputs(ctx context.Context, runID string, step *WorkflowStep, triggerRef ...string) (map[string]interface{}, error) {
 	if len(step.Inputs) == 0 {
 		return make(map[string]interface{}), nil
 	}
@@ -409,9 +422,14 @@ func (we *WorkflowEngine) resolveStepInputs(ctx context.Context, runID string, s
 		return nil, fmt.Errorf("getting step outputs: %w", err)
 	}
 
+	ref := ""
+	if len(triggerRef) > 0 {
+		ref = triggerRef[0]
+	}
+
 	resolved := make(map[string]interface{})
 	for key, value := range step.Inputs {
-		processedValue, err := we.processInputValue(value, stepOutputs)
+		processedValue, err := we.processInputValue(value, stepOutputs, ref)
 		if err != nil {
 			return nil, fmt.Errorf("processing input %s: %w", key, err)
 		}
@@ -628,6 +646,47 @@ func (we *WorkflowEngine) checkWorkflowCompletion(ctx context.Context, run *Work
 		return fmt.Errorf("getting workflow run steps: %w", err)
 	}
 
+	// Get the workflow definition and step statuses for dependency evaluation.
+	workflow, _ := we.getWorkflowByID(ctx, run.WorkflowID)
+	stepStatuses, _ := we.getAllStepStatuses(ctx, run.ID)
+
+	// Mark unreachable pending steps as skipped: if all referenced steps are
+	// terminal (completed/failed/skipped) and the depends expression is false,
+	// the step can never be triggered.
+	if workflow != nil && stepStatuses != nil {
+		for _, step := range steps {
+			if step.Status != "pending" {
+				continue
+			}
+			stepDef := workflow.GetStepByID(step.StepID)
+			if stepDef == nil || stepDef.Depends == "" {
+				continue
+			}
+			referencedIDs := ExtractDependsStepIDs(stepDef.Depends)
+			allTerminal := true
+			for _, refID := range referencedIDs {
+				status, ok := stepStatuses[refID]
+				if !ok || (status != "completed" && status != "failed" && status != "skipped") {
+					allTerminal = false
+					break
+				}
+			}
+			if !allTerminal {
+				continue
+			}
+			result, err := EvaluateDepends(stepDef.Depends, stepStatuses)
+			if err == nil && !result {
+				log.Printf("marking unreachable step %s as skipped", step.StepID)
+				we.updateStepStatus(ctx, run.ID, step.StepID, "skipped", nil, nil)
+			}
+		}
+		// Re-fetch steps after potential skips.
+		steps, err = we.getWorkflowRunSteps(ctx, run.ID)
+		if err != nil {
+			return fmt.Errorf("re-getting workflow run steps: %w", err)
+		}
+	}
+
 	allComplete := true
 	anyFailed := false
 
@@ -733,7 +792,7 @@ func (we *WorkflowEngine) getAllStepStatuses(ctx context.Context, runID string) 
 }
 
 // injectStepInputs processes step inputs and injects them into the task request.
-func (we *WorkflowEngine) injectStepInputs(ctx context.Context, runID string, step *WorkflowStep, taskReq *TaskRequest) error {
+func (we *WorkflowEngine) injectStepInputs(ctx context.Context, runID string, step *WorkflowStep, taskReq *TaskRequest, triggerRef ...string) error {
 	if len(step.Inputs) == 0 {
 		return nil
 	}
@@ -744,10 +803,16 @@ func (we *WorkflowEngine) injectStepInputs(ctx context.Context, runID string, st
 		return fmt.Errorf("getting step outputs: %w", err)
 	}
 
+	// Get trigger ref for template expansion
+	ref := ""
+	if len(triggerRef) > 0 {
+		ref = triggerRef[0]
+	}
+
 	// Process each input
 	processedInputs := make(map[string]interface{})
 	for key, value := range step.Inputs {
-		processedValue, err := we.processInputValue(value, stepOutputs)
+		processedValue, err := we.processInputValue(value, stepOutputs, ref)
 		if err != nil {
 			return fmt.Errorf("processing input %s: %w", key, err)
 		}
@@ -778,23 +843,33 @@ func (we *WorkflowEngine) injectStepInputs(ctx context.Context, runID string, st
 }
 
 // processInputValue processes a single input value, expanding templates if necessary.
-func (we *WorkflowEngine) processInputValue(value interface{}, stepOutputs map[string]interface{}) (interface{}, error) {
+func (we *WorkflowEngine) processInputValue(value interface{}, stepOutputs map[string]interface{}, triggerRef string) (interface{}, error) {
 	if str, ok := value.(string); ok {
-		// Check for template syntax like "{{steps.implement.outputs.summary}}"
+		// Check for template syntax like "{{steps.implement.outputs.summary}}" or "{{trigger.issue_number}}"
 		if strings.Contains(str, "{{") && strings.Contains(str, "}}") {
-			return we.expandTemplate(str, stepOutputs)
+			return we.expandTemplateWithContext(str, stepOutputs, triggerRef)
 		}
 	}
 	return value, nil
 }
 
 // expandTemplate expands template variables in a string.
-func (we *WorkflowEngine) expandTemplate(template string, stepOutputs map[string]interface{}) (string, error) {
+// Supports {{steps.stepName.outputs.outputName}} and {{trigger.issue_number}}.
+func (we *WorkflowEngine) expandTemplateWithContext(template string, stepOutputs map[string]interface{}, triggerRef string) (string, error) {
 	result := template
 
+	// Pattern: {{trigger.issue_number}} — extract from triggerRef like "owner/repo#42"
+	if strings.Contains(result, "{{trigger.issue_number}}") {
+		issueNumber := ""
+		if idx := strings.LastIndex(triggerRef, "#"); idx >= 0 {
+			issueNumber = triggerRef[idx+1:]
+		}
+		result = strings.ReplaceAll(result, "{{trigger.issue_number}}", issueNumber)
+	}
+
 	// Pattern: {{steps.stepName.outputs.outputName}}
-	pattern := regexp.MustCompile(`\{\{steps\.(\w+)\.outputs\.(\w+)\}\}`)
-	matches := pattern.FindAllStringSubmatch(template, -1)
+	pattern := regexp.MustCompile(`\{\{steps\.([\w-]+)\.outputs\.([\w-]+)\}\}`)
+	matches := pattern.FindAllStringSubmatch(result, -1)
 
 	for _, match := range matches {
 		fullMatch := match[0]
@@ -804,15 +879,35 @@ func (we *WorkflowEngine) expandTemplate(template string, stepOutputs map[string
 		if stepOutput, exists := stepOutputs[stepID]; exists {
 			if outputMap, ok := stepOutput.(map[string]interface{}); ok {
 				if outputValue, exists := outputMap[outputKey]; exists {
-					if str, ok := outputValue.(string); ok {
-						result = strings.ReplaceAll(result, fullMatch, str)
-					}
+					result = strings.ReplaceAll(result, fullMatch, fmt.Sprintf("%v", outputValue))
+				}
+			}
+		}
+	}
+
+	// Pattern: {{steps.stepName.inputs.inputName}} — resolve from workflow definition
+	inputPattern := regexp.MustCompile(`\{\{steps\.([\w-]+)\.inputs\.([\w-]+)\}\}`)
+	inputMatches := inputPattern.FindAllStringSubmatch(result, -1)
+	for _, match := range inputMatches {
+		fullMatch := match[0]
+		stepID := match[1]
+		inputKey := match[2]
+
+		if stepOutput, exists := stepOutputs[stepID]; exists {
+			if outputMap, ok := stepOutput.(map[string]interface{}); ok {
+				if inputVal, exists := outputMap["_input_"+inputKey]; exists {
+					result = strings.ReplaceAll(result, fullMatch, fmt.Sprintf("%v", inputVal))
 				}
 			}
 		}
 	}
 
 	return result, nil
+}
+
+// expandTemplate is the legacy wrapper without trigger context.
+func (we *WorkflowEngine) expandTemplate(template string, stepOutputs map[string]interface{}) (string, error) {
+	return we.expandTemplateWithContext(template, stepOutputs, "")
 }
 
 // resolveInputs resolves template references in step inputs using outputs from previous steps.
@@ -1410,8 +1505,15 @@ func (we *WorkflowEngine) updateRunStepOutputs(ctx context.Context, runID, stepI
 		return fmt.Errorf("getting current step outputs: %w", err)
 	}
 
-	// Update with new step outputs
-	currentOutputs[stepID] = stepOutputs
+	// Merge with existing outputs for this step (preserve _input_* keys from dispatch time)
+	if existing, ok := currentOutputs[stepID].(map[string]interface{}); ok {
+		for k, v := range stepOutputs {
+			existing[k] = v
+		}
+		currentOutputs[stepID] = existing
+	} else {
+		currentOutputs[stepID] = stepOutputs
+	}
 
 	// Marshal and update
 	outputsJSON, err := json.Marshal(currentOutputs)
