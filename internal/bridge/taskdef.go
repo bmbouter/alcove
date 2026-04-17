@@ -193,12 +193,22 @@ func (s *AgentDefStore) ListAgentDefinitions(ctx context.Context, teamID string)
 		if parsedJSON != nil {
 			var parsed TaskDefinition
 			if err := json.Unmarshal(parsedJSON, &parsed); err == nil {
+				td.Prompt = parsed.Prompt
+				td.Executable = parsed.Executable
+				td.Repo = parsed.Repo
+				td.Provider = parsed.Provider
+				td.Model = parsed.Model
+				td.Timeout = parsed.Timeout
+				td.BudgetUSD = parsed.BudgetUSD
+				td.Debug = parsed.Debug
 				td.Profiles = parsed.Profiles
+				td.Tools = parsed.Tools
 				td.Schedule = parsed.Schedule
 				td.Trigger = parsed.Trigger
-				td.Repo = parsed.Repo
-				td.Executable = parsed.Executable
+				td.Plugins = parsed.Plugins
 				td.Credentials = parsed.Credentials
+				td.DirectOutbound = parsed.DirectOutbound
+				td.CIGate = parsed.CIGate
 			}
 		}
 
@@ -262,6 +272,8 @@ func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, teamID strin
 			td.Trigger = parsed.Trigger
 			td.Plugins = parsed.Plugins
 			td.Credentials = parsed.Credentials
+			td.DirectOutbound = parsed.DirectOutbound
+			td.CIGate = parsed.CIGate
 		}
 	}
 
@@ -353,7 +365,22 @@ func (s *AgentDefStore) ListAgentDefinitionsByRepo(ctx context.Context, repoURL,
 		if parsedJSON != nil {
 			var parsed TaskDefinition
 			if err := json.Unmarshal(parsedJSON, &parsed); err == nil {
+				td.Prompt = parsed.Prompt
+				td.Executable = parsed.Executable
+				td.Repo = parsed.Repo
+				td.Provider = parsed.Provider
+				td.Model = parsed.Model
+				td.Timeout = parsed.Timeout
+				td.BudgetUSD = parsed.BudgetUSD
+				td.Debug = parsed.Debug
 				td.Profiles = parsed.Profiles
+				td.Tools = parsed.Tools
+				td.Schedule = parsed.Schedule
+				td.Trigger = parsed.Trigger
+				td.Plugins = parsed.Plugins
+				td.Credentials = parsed.Credentials
+				td.DirectOutbound = parsed.DirectOutbound
+				td.CIGate = parsed.CIGate
 			}
 		}
 		defs = append(defs, td)

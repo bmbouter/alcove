@@ -15,55 +15,132 @@
 package bridge
 
 import (
-	"encoding/json"
 	"testing"
 )
 
-// TestReadStepOutputs verifies that the readStepOutputs function correctly
-// reads outputs from the workflow_run_steps table and handles various edge cases.
-func TestReadStepOutputs_Integration(t *testing.T) {
-	// This test would require a real database connection in a full integration test.
-	// For now, we'll just verify the function's signature and basic logic.
+// TestExpandTemplateWithContext verifies template expansion in workflow inputs,
+// covering trigger references, hyphenated step IDs, input prefix lookups, and
+// non-string value conversion.
+func TestExpandTemplateWithContext(t *testing.T) {
+	// expandTemplateWithContext is a method on *WorkflowEngine but does not
+	// touch the database, so a zero-value engine with nil deps is fine.
+	we := &WorkflowEngine{}
 
-	// Test the JSON unmarshaling logic that's used in readStepOutputs
-	testOutputsJSON := `{"summary": "Task completed", "pr_url": "https://github.com/org/repo/pull/123", "exit_code": "0"}`
-
-	var outputs map[string]interface{}
-	err := json.Unmarshal([]byte(testOutputsJSON), &outputs)
-	if err != nil {
-		t.Errorf("failed to unmarshal test outputs: %v", err)
+	// Build step outputs that simulate previous step completions.
+	stepOutputs := map[string]interface{}{
+		// Step with a simple ID.
+		"implement": map[string]interface{}{
+			"summary":        "Implemented the feature",
+			"_input_branch":  "feature/issue-42",
+		},
+		// Step with a hyphenated ID (the regex must use [\w-]+).
+		"create-pr": map[string]interface{}{
+			"pr_number": float64(99), // JSON numbers decode as float64
+			"pr_url":    "https://github.com/org/repo/pull/99",
+		},
 	}
 
-	if len(outputs) != 3 {
-		t.Errorf("expected 3 outputs, got %d", len(outputs))
+	triggerRef := "owner/repo#42"
+
+	tests := []struct {
+		name     string
+		template string
+		expected string
+	}{
+		{
+			name:     "trigger issue_number from triggerRef",
+			template: "Fix issue {{trigger.issue_number}}",
+			expected: "Fix issue 42",
+		},
+		{
+			name:     "hyphenated step ID in outputs",
+			template: "PR #{{steps.create-pr.outputs.pr_number}}",
+			expected: "PR #99",
+		},
+		{
+			name:     "input prefix lookup via steps.X.inputs.Y",
+			template: "Branch: {{steps.implement.inputs.branch}}",
+			expected: "Branch: feature/issue-42",
+		},
+		{
+			name:     "regular output expansion",
+			template: "Summary: {{steps.implement.outputs.summary}}",
+			expected: "Summary: Implemented the feature",
+		},
+		{
+			name:     "non-string float64 converted to string",
+			template: "{{steps.create-pr.outputs.pr_number}}",
+			expected: "99",
+		},
+		{
+			name:     "unresolved template remains as literal",
+			template: "{{steps.nonexistent.outputs.value}}",
+			expected: "{{steps.nonexistent.outputs.value}}",
+		},
+		{
+			name:     "multiple templates in one string",
+			template: "PR {{steps.create-pr.outputs.pr_number}} for issue {{trigger.issue_number}}",
+			expected: "PR 99 for issue 42",
+		},
 	}
 
-	if outputs["summary"] != "Task completed" {
-		t.Errorf("expected summary='Task completed', got %v", outputs["summary"])
-	}
-
-	if outputs["pr_url"] != "https://github.com/org/repo/pull/123" {
-		t.Errorf("expected pr_url='https://github.com/org/repo/pull/123', got %v", outputs["pr_url"])
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := we.expandTemplateWithContext(tt.template, stepOutputs, triggerRef)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result != tt.expected {
+				t.Errorf("got %q, want %q", result, tt.expected)
+			}
+		})
 	}
 }
 
-// TestReadStepOutputs_EmptyOutputs tests the handling of empty or nil outputs
-func TestReadStepOutputs_EmptyOutputs(t *testing.T) {
-	// Test empty JSON object
-	emptyJSON := `{}`
-	var outputs map[string]interface{}
-	err := json.Unmarshal([]byte(emptyJSON), &outputs)
+// TestExpandTemplateWithContext_IntValue ensures integer values stored in step
+// outputs (as opposed to float64 from JSON) are also converted to strings.
+func TestExpandTemplateWithContext_IntValue(t *testing.T) {
+	we := &WorkflowEngine{}
+
+	stepOutputs := map[string]interface{}{
+		"build": map[string]interface{}{
+			"exit_code": 0, // plain int, not float64
+		},
+	}
+
+	result, err := we.expandTemplateWithContext("{{steps.build.outputs.exit_code}}", stepOutputs, "")
 	if err != nil {
-		t.Errorf("failed to unmarshal empty outputs: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
-
-	if len(outputs) != 0 {
-		t.Errorf("expected 0 outputs for empty JSON, got %d", len(outputs))
+	if result != "0" {
+		t.Errorf("got %q, want %q", result, "0")
 	}
+}
 
-	// Test that we initialize empty map correctly when outputs is nil
-	outputs = make(map[string]interface{})
-	if len(outputs) != 0 {
-		t.Errorf("expected 0 outputs for newly created map, got %d", len(outputs))
+// TestExpandTemplateWithContext_EmptyTriggerRef ensures that trigger templates
+// resolve to empty string (not panic) when triggerRef has no "#" delimiter.
+func TestExpandTemplateWithContext_EmptyTriggerRef(t *testing.T) {
+	we := &WorkflowEngine{}
+
+	result, err := we.expandTemplateWithContext("Issue {{trigger.issue_number}}", nil, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "Issue " {
+		t.Errorf("got %q, want %q", result, "Issue ")
+	}
+}
+
+// TestExpandTemplateWithContext_NilStepOutputs ensures that step template
+// references remain as literals when stepOutputs is nil (not panic).
+func TestExpandTemplateWithContext_NilStepOutputs(t *testing.T) {
+	we := &WorkflowEngine{}
+
+	result, err := we.expandTemplateWithContext("{{steps.build.outputs.status}}", nil, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "{{steps.build.outputs.status}}" {
+		t.Errorf("got %q, want %q", result, "{{steps.build.outputs.status}}")
 	}
 }
