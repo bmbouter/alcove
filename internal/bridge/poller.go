@@ -328,10 +328,16 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, teamID string, schedu
 				}
 			}
 		}
-		// Extract issue number for issue events
+
+		// Extract issue/PR state from payload for filtering.
+		var itemState string
 		if issue, ok := payload["issue"].(map[string]interface{}); ok {
-			if num, ok := issue["number"].(float64); ok {
-				issueNumber = strconv.Itoa(int(num))
+			if s, ok := issue["state"].(string); ok {
+				itemState = s
+			}
+		} else if pr, ok := payload["pull_request"].(map[string]interface{}); ok {
+			if s, ok := pr["state"].(string); ok {
+				itemState = s
 			}
 		}
 
@@ -402,6 +408,27 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, teamID string, schedu
 		}
 
 		eventRepo := event.Repo.Name
+
+		// Skip events for closed/merged issues and PRs. Only dispatch work
+		// for items that are currently open. The event payload contains the
+		// state at event time; we also verify current state via a live API
+		// call to catch issues that were open when labeled but closed since.
+		if itemState != "" && itemState != "open" {
+			log.Printf("poller: skipping %s event for %s (item state: %s)", eventType, repo, itemState)
+			continue
+		}
+		if issueNumber != "" && itemState == "open" {
+			data, err := p.githubAPIGet(ctx, token, fmt.Sprintf("%s/repos/%s/issues/%s", baseURL, repo, issueNumber))
+			if err == nil {
+				var current struct {
+					State string `json:"state"`
+				}
+				if json.Unmarshal(data, &current) == nil && current.State != "open" {
+					log.Printf("poller: skipping %s event for %s#%s (live state: %s)", eventType, repo, issueNumber, current.State)
+					continue
+				}
+			}
+		}
 
 		// Match against each schedule.
 		for _, sched := range schedules {
