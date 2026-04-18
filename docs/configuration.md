@@ -769,6 +769,17 @@ trigger:
 If `users` is omitted or empty, all matching events are dispatched regardless
 of the event author.
 
+### Closed Issue/PR Filtering
+
+Events for closed or merged issues and pull requests are automatically skipped.
+Both the poller and webhook handler inspect the issue or PR state in the event
+payload and discard events where the state is not `open`. The poller additionally
+makes a live GitHub API call to verify current state, catching cases where an
+item was open when the event was created but has since been closed.
+
+This behavior is always on and cannot be disabled. It prevents wasted compute
+from dispatching agents against issues or PRs that are no longer actionable.
+
 Agent definitions appear in the dashboard where users can run them directly or
 view the source YAML. Starter templates are also available via
 `GET /api/v1/agent-templates`.

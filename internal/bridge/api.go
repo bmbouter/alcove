@@ -1786,6 +1786,25 @@ func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Extract issue/PR state for filtering.
+	var itemState string
+	if issue, ok := payload["issue"].(map[string]any); ok {
+		if s, ok := issue["state"].(string); ok {
+			itemState = s
+		}
+	} else if pr, ok := payload["pull_request"].(map[string]any); ok {
+		if s, ok := pr["state"].(string); ok {
+			itemState = s
+		}
+	}
+
+	// Skip events for closed/merged issues and PRs.
+	if itemState != "" && itemState != "open" {
+		log.Printf("webhook: skipping %s event (item state: %s)", eventType, itemState)
+		respondJSON(w, http.StatusOK, map[string]string{"status": "skipped", "reason": "item not open"})
+		return
+	}
+
 	// Extract labels from issue or pull_request.
 	var labels []string
 	if issue, ok := payload["issue"].(map[string]any); ok {

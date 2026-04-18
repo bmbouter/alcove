@@ -315,6 +315,10 @@ trigger:
 Supported events: `issues`, `issue_comment`, `pull_request`, `push`.
 Use `labels` and `users` fields for safety filtering.
 
+**Closed item filtering:** Events for closed or merged issues and pull requests
+are automatically skipped. This is always on and prevents wasted compute from
+dispatching agents against items that are no longer actionable.
+
 ### Schedule Triggers
 
 Schedules are defined via the `schedule:` field in `.alcove/tasks/*.yml` files.
