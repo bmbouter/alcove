@@ -15,7 +15,8 @@ prompt: |
 
   Output: {"version": "vX.Y.Z", "has_commits": true/false}
 
-repo: https://github.com/bmbouter/alcove.git
+repos:
+  - url: https://github.com/bmbouter/alcove.git
 timeout: 3600
 
 outputs:
