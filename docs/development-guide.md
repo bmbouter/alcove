@@ -46,10 +46,10 @@ All build and test operations use `make`. Run `make help` to see all targets.
 make build
 ```
 
-This compiles all binaries (`bridge`, `gate`, `skiff-init`, `alcove`, `shim`,
+This compiles all binaries (`bridge`, `gate`, `skiff-init`, `alcove`,
 etc.) into the `bin/` directory. Version information is injected via `-ldflags`
-from `git describe`. The `shim` binary is built with `CGO_ENABLED=0` for static
-linking so it can be injected into arbitrary dev container images.
+from `git describe`. The shim binary (`cmd/shim`) is compiled as part of
+the dev container image build (`make build-dev`) and baked in via s6-overlay.
 
 ### Building container images
 
@@ -217,8 +217,6 @@ Bridge reads these environment variables:
 | `BRIDGE_URL` | URL where Bridge is reachable by Skiff/Gate | `http://host.containers.internal:8080` |
 | `SKIFF_HAIL_URL` | NATS URL as seen from inside Skiff containers | `nats://host.containers.internal:4222` |
 | `AGENT_REPO_SYNC_INTERVAL` | How often Bridge syncs agent definitions from repos | `15m` (default) |
-| `SHIM_BIN_PATH` | Host path to the shim binary (injected into dev containers on Podman) | `./bin/shim` (default) |
-| `SHIM_IMAGE` | Container image for the shim init container (K8s only) | `ghcr.io/bmbouter/alcove-shim:latest` (default) |
 
 Set these as environment variables before running Bridge.
 

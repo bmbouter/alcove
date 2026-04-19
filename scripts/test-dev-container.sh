@@ -126,10 +126,10 @@ else
   fail "Makefile CMDS missing shim"
 fi
 
-if grep -q 'SHIM_BIN_PATH' Makefile; then
-  pass "Makefile passes SHIM_BIN_PATH to Bridge"
+if ! grep -q 'SHIM_BIN_PATH' Makefile; then
+  pass "Makefile does not pass SHIM_BIN_PATH (shim baked into image)"
 else
-  fail "Makefile missing SHIM_BIN_PATH"
+  fail "Makefile still references SHIM_BIN_PATH (should be removed)"
 fi
 
 # Test 5: Shim binary is statically linked

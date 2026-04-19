@@ -1091,7 +1091,6 @@ func TestRunTask_DevContainer(t *testing.T) {
 		TaskID:            "task-dev",
 		Image:             "skiff:latest",
 		GateImage:         "gate:latest",
-		ShimImage:         "ghcr.io/bmbouter/alcove-shim:latest",
 		DevContainerImage: "golang:1.25",
 		DevContainerEnv:   map[string]string{"SHIM_TOKEN": "secret-token-123"},
 		DevContainerNetworkAccess: "internal",
@@ -1119,57 +1118,38 @@ func TestRunTask_DevContainer(t *testing.T) {
 	}
 	job := jobs.Items[0]
 
-	// With dev container: 3 init containers (shim-init, gate, dev).
+	// With dev container: 2 init containers (gate, dev).
+	// The shim is baked into the dev container image — no shim-init needed.
 	initContainers := job.Spec.Template.Spec.InitContainers
-	if len(initContainers) != 3 {
-		t.Fatalf("expected 3 init containers, got %d", len(initContainers))
+	if len(initContainers) != 2 {
+		t.Fatalf("expected 2 init containers, got %d", len(initContainers))
 	}
 
-	// Verify init container order: shim-init, gate, dev.
-	if initContainers[0].Name != "shim-init" {
-		t.Errorf("init container 0 name = %q, want %q", initContainers[0].Name, "shim-init")
+	// Verify init container order: gate, dev.
+	if initContainers[0].Name != "gate" {
+		t.Errorf("init container 0 name = %q, want %q", initContainers[0].Name, "gate")
 	}
-	if initContainers[1].Name != "gate" {
-		t.Errorf("init container 1 name = %q, want %q", initContainers[1].Name, "gate")
+	if initContainers[1].Name != "dev" {
+		t.Errorf("init container 1 name = %q, want %q", initContainers[1].Name, "dev")
 	}
-	if initContainers[2].Name != "dev" {
-		t.Errorf("init container 2 name = %q, want %q", initContainers[2].Name, "dev")
-	}
-
-	// Verify shim-init: runs to completion (no restartPolicy), uses ShimImage.
-	shimInit := initContainers[0]
-	if shimInit.Image != "ghcr.io/bmbouter/alcove-shim:latest" {
-		t.Errorf("shim-init image = %q, want %q", shimInit.Image, "ghcr.io/bmbouter/alcove-shim:latest")
-	}
-	if shimInit.RestartPolicy != nil {
-		t.Errorf("shim-init should have nil restartPolicy (runs to completion), got %v", *shimInit.RestartPolicy)
-	}
-	if len(shimInit.Command) != 3 || shimInit.Command[0] != "cp" {
-		t.Errorf("shim-init command = %v, want [cp /usr/local/bin/shim /shim-bin/alcove-shim]", shimInit.Command)
-	}
-	// shim-init should mount shim-bin volume.
-	shimInitMounts := volumeMountNames(shimInit.VolumeMounts)
-	if !shimInitMounts["shim-bin"] {
-		t.Error("shim-init should mount shim-bin volume")
-	}
-	assertSecurityContext(t, shimInit.SecurityContext, "shim-init")
 
 	// Verify gate: native sidecar (restartPolicy Always).
-	gate := initContainers[1]
+	gate := initContainers[0]
 	if gate.RestartPolicy == nil || *gate.RestartPolicy != corev1.ContainerRestartPolicyAlways {
 		t.Errorf("gate restartPolicy should be Always")
 	}
 
-	// Verify dev container: native sidecar, correct image, command, env, volumes.
-	dev := initContainers[2]
+	// Verify dev container: native sidecar, correct image, env, volumes.
+	// No Command override — the image's built-in entrypoint (s6-overlay) is used.
+	dev := initContainers[1]
 	if dev.Image != "golang:1.25" {
 		t.Errorf("dev image = %q, want %q", dev.Image, "golang:1.25")
 	}
 	if dev.RestartPolicy == nil || *dev.RestartPolicy != corev1.ContainerRestartPolicyAlways {
 		t.Errorf("dev restartPolicy should be Always")
 	}
-	if len(dev.Command) != 1 || dev.Command[0] != "/shim-bin/alcove-shim" {
-		t.Errorf("dev command = %v, want [/shim-bin/alcove-shim]", dev.Command)
+	if len(dev.Command) != 0 {
+		t.Errorf("dev command should be empty (image entrypoint used), got %v", dev.Command)
 	}
 	devEnvMap := envVarsToMap(dev.Env)
 	if devEnvMap["SHIM_TOKEN"] != "secret-token-123" {
@@ -1178,9 +1158,6 @@ func TestRunTask_DevContainer(t *testing.T) {
 	devMounts := volumeMountNames(dev.VolumeMounts)
 	if !devMounts["workspace"] {
 		t.Error("dev should mount workspace volume")
-	}
-	if !devMounts["shim-bin"] {
-		t.Error("dev should mount shim-bin volume")
 	}
 	assertSecurityContext(t, dev.SecurityContext, "dev")
 
@@ -1197,23 +1174,16 @@ func TestRunTask_DevContainer(t *testing.T) {
 		t.Errorf("DEV_CONTAINER_HOST = %q, want %q (K8s override)", skiffEnvMap["DEV_CONTAINER_HOST"], "localhost:9090")
 	}
 
-	// Verify volumes: workspace and shim-bin emptyDirs.
+	// Verify volumes: only workspace emptyDir (no shim-bin volume).
 	volumes := job.Spec.Template.Spec.Volumes
-	if len(volumes) != 2 {
-		t.Fatalf("expected 2 volumes, got %d", len(volumes))
+	if len(volumes) != 1 {
+		t.Fatalf("expected 1 volume, got %d", len(volumes))
 	}
-	volNames := make(map[string]bool)
-	for _, v := range volumes {
-		volNames[v.Name] = true
-		if v.VolumeSource.EmptyDir == nil {
-			t.Errorf("volume %q should be emptyDir", v.Name)
-		}
+	if volumes[0].Name != "workspace" {
+		t.Errorf("volume name = %q, want %q", volumes[0].Name, "workspace")
 	}
-	if !volNames["workspace"] {
-		t.Error("missing workspace volume")
-	}
-	if !volNames["shim-bin"] {
-		t.Error("missing shim-bin volume")
+	if volumes[0].VolumeSource.EmptyDir == nil {
+		t.Errorf("workspace volume should be emptyDir")
 	}
 }
 

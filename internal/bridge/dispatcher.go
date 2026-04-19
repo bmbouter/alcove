@@ -730,7 +730,6 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 	if req.DevContainer != nil && req.DevContainer.Image != "" {
 		spec.DevContainerImage = req.DevContainer.Image
 		spec.DevContainerNetworkAccess = req.DevContainer.NetworkAccess
-		spec.ShimImage = envOrDefault("SHIM_IMAGE", "ghcr.io/bmbouter/alcove-shim:latest")
 
 		shimToken := generateShimToken(32)
 		spec.DevContainerEnv = map[string]string{

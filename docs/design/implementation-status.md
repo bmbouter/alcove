@@ -267,8 +267,8 @@ alcove/
     operator needed). Each session runs as a k8s Job with Gate as a native sidecar
     (init container with `restartPolicy: Always`) and Skiff as the main
     container. Dev containers are supported as native sidecars with the shim
-    binary copied via an init container (`SHIM_IMAGE`), emptyDir volumes for
-    workspace and shim binary sharing, and `DEV_CONTAINER_HOST` overridden to
+    baked into the image via s6-overlay, emptyDir volumes for
+    workspace sharing, and `DEV_CONTAINER_HOST` overridden to
     `localhost:9090` (K8s pod containers share a network namespace).
     `network_access=external` is logged as a warning since per-container network
     isolation is not enforceable in a K8s Pod. Per-task NetworkPolicy creation
@@ -353,17 +353,16 @@ alcove/
     Agent definitions declare `dev_container.image` and optionally
     `dev_container.network_access` (`internal` default, `external` for internet
     access) in YAML. Podman creates a shared workspace volume at `/workspace`,
-    starts the dev container with the shim binary (`cmd/shim`) injected as
-    entrypoint, and mounts the volume in both Skiff and dev containers. The
+    starts the dev container (which has the shim binary baked in via s6-overlay),
+    and mounts the workspace volume in both Skiff and dev containers. The
     shim exposes `GET /healthz` and `POST /exec` with NDJSON streaming,
     protected by bearer auth (`SHIM_TOKEN`). The dispatcher generates a random
     `SHIM_TOKEN` and passes `DEV_TOKEN` and `DEV_CONTAINER_HOST` to Skiff.
-    On Kubernetes, the dev container runs as a native sidecar with the shim
-    binary copied via an init container (`SHIM_IMAGE`) and shared emptyDir
-    volumes; `DEV_CONTAINER_HOST` is overridden to `localhost:9090` since K8s
-    pod containers share a network namespace. Docker rejects dev containers
-    with a clear error. The shim binary is built with `CGO_ENABLED=0` for
-    static linking and is uploaded as a release asset.
+    On Kubernetes, the dev container runs as a native sidecar with emptyDir
+    workspace volume; `DEV_CONTAINER_HOST` is overridden to `localhost:9090`
+    since K8s pod containers share a network namespace. Docker rejects dev
+    containers with a clear error. Dev container images are built with
+    `make build-dev` from `build/Containerfile.dev`.
 
 30. **Multi-Repo Support** — Agent definitions use a `repos:` list (each entry
     is a `RepoSpec` with `name`, `url`, and optional `ref` fields) instead of
@@ -491,8 +490,6 @@ See the full roadmap in [architecture-decisions.md](architecture-decisions.md#ro
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Default model for Anthropic provider |
 | `VERTEX_MODEL` | `claude-sonnet-4-20250514` | Default model for Vertex AI provider |
 | `BRIDGE_URL` | `http://alcove-bridge:<port>` | Bridge URL used for Gate token refresh callbacks |
-| `SHIM_BIN_PATH` | `./bin/shim` | Host path to the shim binary (Podman dev containers) |
-| `SHIM_IMAGE` | `ghcr.io/bmbouter/alcove-shim:latest` | Container image for the shim init container (K8s dev containers) |
 
 ### Skiff (injected by Bridge)
 

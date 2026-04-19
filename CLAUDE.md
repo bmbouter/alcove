@@ -30,7 +30,7 @@ Bridge → Hail (NATS) → Skiff Pod [skiff container + gate sidecar] → Gate �
 - Skiff pods are ephemeral: one session, one container, then destroyed
 - Gate is a sidecar (shares network namespace with Skiff)
 - Gate proxies ALL external traffic including LLM API calls (Skiff has no real credentials)
-- Optional dev container runs alongside Skiff with a shared `/workspace` volume, enabling agents to build/test code in project-specific environments; the shim binary is injected as the entrypoint
+- Optional dev container runs alongside Skiff with a shared `/workspace` volume, enabling agents to build/test code in project-specific environments; the shim binary is baked into the dev container image via s6-overlay (built with `make build-dev`)
 - On OpenShift, a static `alcove-allow-internal` NetworkPolicy restricts egress (per-task NetworkPolicy is disabled due to OVN-Kubernetes DNS resolution issues); dual-network isolation (`--internal` flag) on podman; no network isolation on Docker (see Key Decisions)
 
 ## Design Documents
@@ -48,42 +48,32 @@ Read these for full context:
 ## Quick Commands
 
 ```bash
+# Primary dev workflow — hot-reload with full session dispatch
+make watch                    # Builds images, starts NATS+PostgreSQL, runs Bridge via Air
+                              # Save a .go file → Air rebuilds → Bridge restarts → sessions work
+make down                     # Stop everything (Bridge + NATS + PostgreSQL)
+
+# First-time setup or database wipe (then switch to make watch)
+make up                       # Build binaries + images, start containerized Bridge + infra
+                              # Requires follow-up curl commands to seed credentials (see dev-up skill)
+
 # Build
 make build                    # Build all Go binaries to bin/
-make build-images             # Build container images with podman
+make build-images             # Build container images with podman (smart rebuild via stamps)
 make build-tooling            # Build heavy skiff-tooling base image (only when tools change)
-make -j3 build-images         # Parallel container image builds (~30s with pre-built tooling)
 make test                     # Run tests
 
-# Full environment (build + start everything)
-make up                       # Build binaries + start Bridge + NATS + PostgreSQL (~12s)
-make watch                    # Hot-reload: auto-rebuilds Bridge on .go file changes
-make down                     # Stop everything
-make logs                     # Show logs from all containers
-
-# Dev environment (infrastructure only, run Bridge locally)
+# Infrastructure
 make dev-infra                # Start only NATS + PostgreSQL on podman
-make dev-up                   # Start full environment (Bridge + NATS + PostgreSQL)
+make dev-up                   # Start full containerized environment
 make dev-down                 # Stop everything
-make dev-reset                # Stop + remove volumes (clean slate, re-seed credentials)
-
-# Run Bridge locally with Podman (after make dev-infra)
-LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
-HAIL_URL="nats://localhost:4222" \
-RUNTIME=podman \
-ALCOVE_NETWORK="alcove-internal" \
-ALCOVE_EXTERNAL_NETWORK="alcove-external" \
-./bin/bridge
+make dev-reset                # Stop + remove volumes (clean slate)
 
 # Run Bridge locally with Docker (after infrastructure setup)
 LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
 HAIL_URL="nats://localhost:4222" \
 RUNTIME=docker \
 ./bin/bridge
-
-# Upgrade Bridge (running sessions continue undisturbed)
-make build-images
-podman run -d --replace --name alcove-bridge ...  # same args as dev-up
 ```
 
 ## Code Conventions
@@ -115,5 +105,5 @@ podman run -d --replace --name alcove-bridge ...  # same args as dev-up
 - **YAML is the single source of truth for schedules, security profiles, and tools** — no API-based creation, update, or deletion; schedules are defined via `schedule:` in `.alcove/tasks/*.yml`; security profiles in `.alcove/security-profiles/*.yml`; tools come from catalog or builtin definitions; the API provides read-only access to synced data
 - **`alcove.yaml` for infrastructure settings** — config file search order: `ALCOVE_CONFIG_FILE` env var → `./alcove.yaml` → `/etc/alcove/alcove.yaml`; env vars always override; `database_encryption_key` is required (Bridge refuses to start without it); `make up` auto-generates the file for local dev; file is gitignored
 - **`.dev-credentials.yaml` for dev credentials** — single source of truth for local dev LLM provider and GitHub PAT; copy `.dev-credentials.yaml.example`, fill in values; `make dev-config` (run by `make up`) merges LLM settings into `alcove.yaml`; the dev-up process reads it to create API credentials in the database; file is gitignored
-- **Dev containers are optional sidecars** — agent definitions can declare `dev_container.image` to run a project-provided container alongside Skiff; Podman creates a shared workspace volume at `/workspace`, starts the dev container with the shim binary as entrypoint, and mounts the volume in both containers; the shim provides bearer-auth-protected `POST /exec` for remote command execution with NDJSON streaming; `dev_container.network_access` controls network access (`internal` default, `external` joins both networks on Podman); on Kubernetes, the dev container runs as a native sidecar with the shim copied via init container and emptyDir volumes (`SHIM_IMAGE` env var, `DEV_CONTAINER_HOST=localhost:9090`); Docker rejects dev containers with a clear error; `SHIM_BIN_PATH` env var tells Bridge where to find the host shim binary (Podman); `--security-opt label=disable` and `:z` mount flag handle SELinux compatibility; see architecture decision #20 in `docs/design/architecture-decisions.md` for the full design
+- **Dev containers are optional sidecars** — agent definitions can declare `dev_container.image` to run a project-provided container alongside Skiff; dev container images are built with s6-overlay and the shim binary baked in (`make build-dev` builds the base image from `build/Containerfile.dev`); s6 manages PostgreSQL, NATS, and the shim as supervised services with proper dependencies; Podman creates a shared workspace volume at `/workspace` and mounts it in both containers; the shim provides bearer-auth-protected `POST /exec` for remote command execution with NDJSON streaming; `dev_container.network_access` controls network access (`internal` default, `external` joins both networks on Podman); on Kubernetes, the dev container runs as a native sidecar with emptyDir workspace volume (`DEV_CONTAINER_HOST=localhost:9090`); Docker rejects dev containers with a clear error; `--security-opt label=disable` handles SELinux compatibility on Podman; see architecture decision #20 in `docs/design/architecture-decisions.md` for the full design
 - **Multi-repo support** — agent definitions use `repos:` (a list of `RepoSpec` with `name`, `url`, `ref` fields) instead of a single `repo:` string; Skiff receives a `REPOS` JSON env var and clones each repo into `/workspace/<name>/`; database migration `031_multi_repo.sql` replaces the `repo TEXT` column with `repos JSONB`; see architecture decision #21 in `docs/design/architecture-decisions.md` for the full design

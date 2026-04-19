@@ -298,31 +298,17 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 			log.Printf("warning: dev container network_access=external is not enforceable on Kubernetes; all containers in a Pod share the same network namespace")
 		}
 
-		// Shared volumes for workspace and shim binary.
+		// Shared workspace volume for Skiff and dev container.
 		devVolumes = []corev1.Volume{
 			{Name: "workspace", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
-			{Name: "shim-bin", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 		}
 
-		// shim-init: runs to completion, copies the shim binary to a shared emptyDir.
-		// Must be a regular init container (no restartPolicy) so it completes
-		// before the native sidecars start.
-		shimInitContainer := corev1.Container{
-			Name:            "shim-init",
-			Image:           spec.ShimImage,
-			Command:         []string{"cp", "/usr/local/bin/shim", "/shim-bin/alcove-shim"},
-			SecurityContext: securityContext,
-			VolumeMounts: []corev1.VolumeMount{
-				{Name: "shim-bin", MountPath: "/shim-bin"},
-			},
-		}
-
-		// dev: native sidecar running the dev container image via the copied shim.
+		// dev: native sidecar running the dev container image.
+		// The shim is baked into the dev container image via s6-overlay.
 		devContainerEnvVars := envMapToVars(spec.DevContainerEnv)
 		devContainer := corev1.Container{
 			Name:            "dev",
 			Image:           spec.DevContainerImage,
-			Command:         []string{"/shim-bin/alcove-shim"},
 			Env:             devContainerEnvVars,
 			SecurityContext: securityContext,
 			RestartPolicy:   &sidecarRestart,
@@ -338,12 +324,10 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 			},
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: "workspace", MountPath: "/workspace"},
-				{Name: "shim-bin", MountPath: "/shim-bin", ReadOnly: true},
 			},
 		}
 
-		// shim-init runs to completion first, then Gate and dev start as sidecars.
-		devInitContainers = []corev1.Container{shimInitContainer, devContainer}
+		devInitContainers = []corev1.Container{devContainer}
 
 		// Skiff also needs the workspace volume.
 		skiffExtraVolumeMounts = []corev1.VolumeMount{
@@ -370,15 +354,13 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 		VolumeMounts: skiffExtraVolumeMounts,
 	}
 
-	// Build the init container list: shim-init (if present) first, then
-	// Gate sidecar, then dev sidecar (if present).
-	// Order: shim-init (run-to-completion) → Gate (native sidecar) → dev (native sidecar)
+	// Build the init container list: Gate sidecar, then dev sidecar (if present).
+	// Order: Gate (native sidecar) → dev (native sidecar)
 	var initContainers []corev1.Container
 	if len(devInitContainers) > 0 {
-		// shim-init first (runs to completion), then Gate, then dev sidecar.
-		initContainers = append(initContainers, devInitContainers[0]) // shim-init
-		initContainers = append(initContainers, gateContainer)         // Gate sidecar
-		initContainers = append(initContainers, devInitContainers[1]) // dev sidecar
+		// Gate first, then dev sidecar.
+		initContainers = append(initContainers, gateContainer)          // Gate sidecar
+		initContainers = append(initContainers, devInitContainers[0])   // dev sidecar
 	} else {
 		initContainers = []corev1.Container{gateContainer}
 	}

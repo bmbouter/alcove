@@ -25,6 +25,8 @@ make up     # rebuilds binaries + images, restarts everything
 curl -s http://localhost:8080/api/v1/health
 ```
 
+**Note:** If you are using `make watch` (recommended), manual restarts are unnecessary — Air automatically rebuilds Bridge when `.go` files change. This skill is for the containerized `make up` workflow.
+
 No credential or agent repo configuration needed — the database retains everything.
 
 If postgres auth backend was in use, Bridge needs `AUTH_BACKEND=postgres` — see the dev-up skill for the full command.

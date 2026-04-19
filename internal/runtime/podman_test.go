@@ -784,7 +784,6 @@ func TestRunTask_WithDevContainer(t *testing.T) {
 	execFn, calls := fakeExecCommand(t, "container-id-123\n", 0)
 	p := &PodmanRuntime{
 		PodmanBin:   "podman",
-		ShimBin:     "/host/path/to/shim",
 		execCommand: execFn,
 	}
 
@@ -808,7 +807,7 @@ func TestRunTask_WithDevContainer(t *testing.T) {
 		t.Errorf("handle.ID = %q, want %q", handle.ID, "task-dc")
 	}
 
-	// Expect 5 calls: gate start, volume create, dev container start, shim exec, skiff start.
+	// Expect 4 calls: gate start, volume create, dev container start, skiff start.
 	if len(*calls) != 4 {
 		t.Fatalf("expected 4 podman calls, got %d", len(*calls))
 	}
@@ -825,7 +824,7 @@ func TestRunTask_WithDevContainer(t *testing.T) {
 		t.Errorf("expected volume create, got: %s", volArgs)
 	}
 
-	// Call 2: dev container start — should include shim volume mount and entrypoint override.
+	// Call 2: dev container start — shim is baked into the image, no injection needed.
 	devArgs := strings.Join((*calls)[2], " ")
 	if !strings.Contains(devArgs, "--name dev-task-dc") {
 		t.Errorf("dev call missing --name dev-task-dc: %s", devArgs)
@@ -838,12 +837,6 @@ func TestRunTask_WithDevContainer(t *testing.T) {
 	}
 	if !strings.Contains(devArgs, "workspace-task-dc:/workspace") {
 		t.Errorf("dev call missing workspace volume: %s", devArgs)
-	}
-	if !strings.Contains(devArgs, "/host/path/to/shim:/usr/local/bin/alcove-shim:ro") {
-		t.Errorf("dev call missing shim volume mount: %s", devArgs)
-	}
-	if !strings.Contains(devArgs, "--entrypoint /usr/local/bin/alcove-shim") {
-		t.Errorf("dev call missing entrypoint override: %s", devArgs)
 	}
 	if !strings.Contains(devArgs, "SHIM_TOKEN=tok123") {
 		t.Errorf("dev call missing SHIM_TOKEN env: %s", devArgs)
@@ -948,7 +941,6 @@ func TestRunTask_WithDevContainerExternalNetwork(t *testing.T) {
 	execFn, calls := fakeExecCommand(t, "container-id-123\n", 0)
 	p := &PodmanRuntime{
 		PodmanBin:   "podman",
-		ShimBin:     "/host/path/to/shim",
 		execCommand: execFn,
 	}
 
@@ -992,7 +984,6 @@ func TestRunTask_WithDevContainerInternalNetwork(t *testing.T) {
 	execFn, calls := fakeExecCommand(t, "container-id-123\n", 0)
 	p := &PodmanRuntime{
 		PodmanBin:   "podman",
-		ShimBin:     "/host/path/to/shim",
 		execCommand: execFn,
 	}
 

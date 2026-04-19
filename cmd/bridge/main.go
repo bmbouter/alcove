@@ -88,7 +88,7 @@ func main() {
 	}
 
 	// Initialize the container runtime.
-	rt, err := bridge.NewRuntime(cfg.RuntimeType, os.Getenv("SHIM_BIN_PATH"))
+	rt, err := bridge.NewRuntime(cfg.RuntimeType)
 	if err != nil {
 		log.Fatalf("initializing runtime: %v", err)
 	}

@@ -71,7 +71,7 @@ jobs:
           done
 
           # Build server components for Linux AMD64 (existing pattern)
-          for cmd in bridge gate skiff-init debug-env shim; do
+          for cmd in bridge gate skiff-init debug-env; do
             echo "Building ${cmd}..."
             CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
               go build -ldflags="-s -w -X main.Version=${VERSION}" \
@@ -138,6 +138,18 @@ jobs:
             ${{ env.REGISTRY }}/alcove-skiff-base:latest
             ${{ env.REGISTRY }}/alcove-skiff-base:sha-${{ steps.version.outputs.sha_short }}
 
+      - name: Build and push dev container image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: build/Containerfile.dev
+          push: true
+          build-args: VERSION=${{ steps.version.outputs.version }}
+          tags: |
+            ${{ env.REGISTRY }}/alcove-dev:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/alcove-dev:latest
+            ${{ env.REGISTRY }}/alcove-dev:sha-${{ steps.version.outputs.sha_short }}
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -149,7 +161,6 @@ jobs:
             dist/alcove-gate-linux-amd64
             dist/alcove-skiff-init-linux-amd64
             dist/alcove-debug-env-linux-amd64
-            dist/alcove-shim-linux-amd64
             dist/alcove-linux-amd64
             dist/alcove-linux-arm64
             dist/alcove-darwin-amd64
