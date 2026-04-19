@@ -1502,3 +1502,221 @@ alcove credentials delete 12345678-abcd-1234-abcd-123456789012
 # JSON output
 alcove credentials delete --output json 12345678-abcd-1234-abcd-123456789012
 ```
+
+---
+
+## alcove agents
+
+Manage agent definitions and agent repos. Agent definitions are synced from
+YAML files in registered agent repos (`.alcove/tasks/*.yml`). Use these
+commands to list, sync, run agents, and manage the repos they come from.
+
+```
+alcove agents <subcommand>
+```
+
+### Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | List synced agent definitions |
+| `sync` | Trigger agent definition sync |
+| `run` | Run an agent definition by name |
+| `repos` | List and manage configured agent repos |
+
+---
+
+## alcove agents list
+
+List synced agent definitions for the active team.
+
+```
+alcove agents list
+```
+
+### Flags
+
+No command-specific flags. Supports global `--output json`.
+
+### Description
+
+Displays all agent definitions that have been synced from registered agent
+repos. Each row shows the agent name, source repo, and other metadata.
+
+### Examples
+
+```bash
+# List all agent definitions
+alcove agents list
+
+# JSON output
+alcove agents list --output json
+```
+
+---
+
+## alcove agents sync
+
+Trigger an immediate agent definition sync.
+
+```
+alcove agents sync
+```
+
+### Flags
+
+No command-specific flags. Supports global `--output json`.
+
+### Description
+
+Requests the Bridge to sync agent definitions from all registered agent repos
+immediately, rather than waiting for the next automatic sync interval
+(default: 15 minutes). This is equivalent to clicking "Sync Now" in the
+dashboard.
+
+### Examples
+
+```bash
+# Trigger a sync
+alcove agents sync
+```
+
+---
+
+## alcove agents run
+
+Run an agent definition by name.
+
+```
+alcove agents run <name> [flags]
+```
+
+### Flags
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--watch` | bool | Stream the session transcript via SSE after dispatch |
+
+### Description
+
+Dispatches a session using a named agent definition. The agent definition must
+have been synced from an agent repo. The agent's prompt, repos, provider,
+model, timeout, budget, profiles, and tools are all taken from the definition.
+
+With `--watch`, the CLI streams the live transcript until the session completes
+(same behavior as `alcove run --watch`).
+
+### Examples
+
+```bash
+# Run an agent by name
+alcove agents run run-tests
+
+# Run and stream the transcript
+alcove agents run --watch run-tests
+
+# JSON output
+alcove agents run --output json run-tests
+```
+
+---
+
+## alcove agents repos
+
+List configured agent repos for the active team.
+
+```
+alcove agents repos
+```
+
+### Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `add` | Add an agent repo |
+| `remove` | Remove an agent repo |
+
+### Flags
+
+No command-specific flags. Supports global `--output json`.
+
+### Description
+
+When run without a subcommand, lists all agent repos configured for the active
+team. Each row shows the repo name, URL, and ref (branch/tag).
+
+### Examples
+
+```bash
+# List agent repos
+alcove agents repos
+
+# JSON output
+alcove agents repos --output json
+```
+
+---
+
+## alcove agents repos add
+
+Add an agent repo.
+
+```
+alcove agents repos add [flags]
+```
+
+### Flags
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--url` | string | Repository URL (required) |
+| `--ref` | string | Branch, tag, or commit (default: `main`) |
+| `--name` | string | Display name for the repo |
+
+### Description
+
+Registers a new agent repo for the active team. Bridge will sync agent
+definitions from `.alcove/tasks/*.yml` in the repo on the next sync cycle.
+
+### Examples
+
+```bash
+# Add a repo with default branch
+alcove agents repos add --url https://github.com/org/my-agents.git
+
+# Add a repo with a specific branch and display name
+alcove agents repos add --url https://github.com/org/my-agents.git --ref develop --name "My Agents"
+```
+
+---
+
+## alcove agents repos remove
+
+Remove an agent repo.
+
+```
+alcove agents repos remove [flags]
+```
+
+### Flags
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--url` | string | Repository URL to remove |
+| `--name` | string | Name of the repo to remove |
+
+### Description
+
+Removes an agent repo from the active team. Provide either `--url` or `--name`
+to identify the repo to remove. Agent definitions previously synced from this
+repo will be removed on the next sync.
+
+### Examples
+
+```bash
+# Remove a repo by URL
+alcove agents repos remove --url https://github.com/org/my-agents.git
+
+# Remove a repo by name
+alcove agents repos remove --name "My Agents"
+```
