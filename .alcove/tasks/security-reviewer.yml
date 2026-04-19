@@ -27,15 +27,3 @@ profiles:
 plugins:
   - name: code-review
     source: claude-plugins-official
-
-trigger:
-  github:
-    events:
-      - pull_request
-    actions:
-      - labeled
-    repos:
-      - bmbouter/alcove
-    labels:
-      - awaiting-review
-    delivery_mode: polling
