@@ -12,7 +12,8 @@ prompt: |
 
   Output: {"approved": true/false, "comments": "summary of review"}
 
-repo: https://github.com/bmbouter/alcove.git
+repos:
+  - url: https://github.com/bmbouter/alcove.git
 timeout: 1800
 
 outputs:
