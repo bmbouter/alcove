@@ -167,8 +167,6 @@ can also be set in `alcove.yaml` (see [alcove.yaml](#alcoveyaml) above).
 | `SKIFF_HAIL_URL` | string | `nats://alcove-hail:4222` | NATS URL injected into Skiff containers (may differ from Bridge's own `HAIL_URL`). |
 | `ALCOVE_SKILL_REPOS` | string (JSON) | _(unset)_ | JSON array of skill repo objects. Overrides database-configured skill repos. Each object has `url` (required), `ref` (optional, default `main`), and `name` (optional). |
 | `AGENT_REPO_SYNC_INTERVAL` | string (duration) | `15m` | How often Bridge syncs YAML agent definitions from registered agent repos. Accepts Go duration syntax. Manual sync available via API or dashboard "Sync Now" button. |
-| `SHIM_BIN_PATH` | string | `./bin/shim` | Host path to the shim binary. When a dev container is configured on Podman, Bridge volume-mounts this binary into the dev container as its entrypoint. |
-| `SHIM_IMAGE` | string | `ghcr.io/bmbouter/alcove-shim:latest` | Container image for the shim init container. Used on Kubernetes to copy the shim binary into the dev container pod via an init container. |
 | `BRIDGE_LLM_PROVIDER` | string | _(unset)_ | System LLM provider: `anthropic`, `google-vertex`, or `claude-oauth`. Overrides `system_llm.provider` in alcove.yaml. |
 | `BRIDGE_LLM_API_KEY` | string | _(unset)_ | Anthropic API key for the system LLM. Overrides `system_llm.api_key` in alcove.yaml. |
 | `BRIDGE_LLM_OAUTH_TOKEN` | string | _(unset)_ | Claude Pro/Max OAuth token for the system LLM (for `claude-oauth` provider). Overrides `system_llm.oauth_token` in alcove.yaml. |
@@ -752,10 +750,10 @@ internally. The `REPOS` JSON env var is injected into Skiff with the full list.
 
 - Podman creates a shared workspace volume and mounts it at `/workspace` in both
   Skiff and the dev container.
-- The shim binary (`cmd/shim`) is volume-mounted into the dev container from the
-  host (`SHIM_BIN_PATH`, default `./bin/shim`) with `:ro,z` flags and used as
-  the entrypoint. `--security-opt label=disable` is set on the dev container
-  for SELinux compatibility.
+- The shim binary (`cmd/shim`) is baked into the dev container image at build
+  time via s6-overlay. The dev container image is built with `make build-dev`
+  from `build/Containerfile.dev`. `--security-opt label=disable` is set on the
+  dev container for SELinux compatibility on Podman.
 - The shim exposes `GET /healthz` and `POST /exec` (NDJSON streaming) on port
   9090, protected by bearer auth (`SHIM_TOKEN`).
 - Bridge generates a random `SHIM_TOKEN` and passes it to the dev container. Skiff
@@ -768,9 +766,9 @@ internally. The `REPOS` JSON env var is injected into Skiff with the full list.
 
 | Runtime | Behavior |
 |---------|----------|
-| **Podman** | Full support. Workspace volume, shim injection, `network_access` controls network. |
+| **Podman** | Full support. Workspace volume, shim baked into image, `network_access` controls network. |
 | **Docker** | Not supported. Bridge returns an error if `dev_container` is set. |
-| **Kubernetes** | Full support. Dev container as native sidecar, shim copied via init container (`SHIM_IMAGE`), emptyDir volumes, `DEV_CONTAINER_HOST=localhost:9090`. `network_access=external` is logged as a warning since all containers in a Pod share the same network namespace. |
+| **Kubernetes** | Full support. Dev container as native sidecar, shim baked into image, emptyDir volumes, `DEV_CONTAINER_HOST=localhost:9090`. `network_access=external` is logged as a warning since all containers in a Pod share the same network namespace. |
 
 ### Event Delivery Mode
 

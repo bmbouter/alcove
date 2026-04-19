@@ -29,11 +29,6 @@ type PodmanRuntime struct {
 	// PodmanBin is the path to the podman binary. Defaults to "podman".
 	PodmanBin string
 
-	// ShimBin is the host path to the shim binary. When a dev container is
-	// started, this binary is volume-mounted into the container and executed
-	// as a background process. Defaults to "./bin/shim".
-	ShimBin string
-
 	// execCommand is a hook for testing. If nil, exec.CommandContext is used.
 	execCommand func(ctx context.Context, name string, args ...string) *exec.Cmd
 }
@@ -93,13 +88,6 @@ func (p *PodmanRuntime) podmanBin() string {
 		return p.PodmanBin
 	}
 	return "podman"
-}
-
-func (p *PodmanRuntime) shimBin() string {
-	if p.ShimBin != "" {
-		return p.ShimBin
-	}
-	return "./bin/shim"
 }
 
 // run executes a podman command and returns its combined output.
@@ -219,8 +207,6 @@ func (p *PodmanRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHandle,
 			"--network", devNetworkArg,
 			"--security-opt", "label=disable",
 			"-v", workspaceVol+":/workspace",
-			"-v", p.shimBin()+":/usr/local/bin/alcove-shim:ro,z",
-			"--entrypoint", "/usr/local/bin/alcove-shim",
 		)
 		for k, v := range spec.DevContainerEnv {
 			devArgs = append(devArgs, "--env", k+"="+v)

@@ -236,6 +236,17 @@ curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/sessions?
 ```
 Must show `"total": 0` (clean database).
 
+## Step 9: Switch to make watch for ongoing development
+
+Now that the database is seeded with credentials and agent repos, stop the containerized Bridge and switch to the hot-reload workflow:
+
+```bash
+make down
+make watch
+```
+
+From here on, save a `.go` file and Air automatically rebuilds Bridge. The database retains all credentials and agent repos. Real Skiff/Gate sessions dispatch because `make watch` ensures container images are built.
+
 ## Postgres auth backend
 
 If postgres auth is needed instead of the default memory backend, restart Bridge with `AUTH_BACKEND=postgres` using the manual container command from Step 3.
@@ -249,3 +260,5 @@ Three things configured:
 
 One thing verified:
 - Agent repo sync shows N > 0 definitions
+
+Ongoing dev workflow: use `make watch` (not `make up`) for day-to-day development.

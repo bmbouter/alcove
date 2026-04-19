@@ -40,7 +40,6 @@ type TaskSpec struct {
 	DevContainerImage         string            // Container image for the dev container sidecar
 	DevContainerEnv           map[string]string // env vars for dev container (includes SHIM_TOKEN)
 	DevContainerNetworkAccess string            // "internal" or "external"; defaults to "internal"
-	ShimImage                 string            // Container image for the shim init container (k8s only)
 }
 
 // ServiceSpec describes a long-lived infrastructure service (Hail, Ledger).

@@ -1,0 +1,2 @@
+#!/bin/sh
+exec su postgres -c "/usr/lib/postgresql/16/bin/postgres -D /var/lib/postgresql/data"

@@ -15,7 +15,7 @@ IMAGES       := bridge gate skiff-base
 GO       := go
 PODMAN   := podman
 
-CMDS     := bridge gate skiff-init alcove debug-env shim
+CMDS     := bridge gate skiff-init alcove debug-env
 
 # Stamp directory for image build tracking
 STAMP_DIR := .stamps
@@ -28,7 +28,7 @@ BRIDGE_SOURCES := $(shell find cmd/bridge/ -name '*.go' -type f 2>/dev/null) $(s
 GATE_SOURCES := $(shell find cmd/gate/ -name '*.go' -type f 2>/dev/null) build/Containerfile.gate
 SKIFF_SOURCES := $(shell find cmd/skiff-init/ -name '*.go' -type f 2>/dev/null) build/Containerfile.skiff-base build/alcove-credential-helper
 
-.PHONY: all build build-cli-all build-images build-image-bridge build-image-gate build-image-skiff-base build-skiff \
+.PHONY: all build build-cli-all build-images build-image-bridge build-image-gate build-image-skiff-base build-skiff build-dev \
         test test-network test-ledger test-isolation test-schedules test-credentials test-security-profiles test-yaml-security-profiles test-gate-real lint clean clean-stamps \
         up down logs watch dev-config dev-up dev-down dev-logs dev-reset dev-infra help \
         login-registry push pull up-pull build-tooling push-tooling
@@ -41,11 +41,7 @@ build: ## Build all Go binaries locally
 	@mkdir -p $(BINDIR)
 	@for cmd in $(CMDS); do \
 		echo "Building $$cmd..."; \
-		if [ "$$cmd" = "shim" ]; then \
-			CGO_ENABLED=0 $(GO) build $(LDFLAGS) -o $(BINDIR)/$$cmd ./cmd/$$cmd; \
-		else \
-			$(GO) build $(LDFLAGS) -o $(BINDIR)/$$cmd ./cmd/$$cmd; \
-		fi; \
+		$(GO) build $(LDFLAGS) -o $(BINDIR)/$$cmd ./cmd/$$cmd; \
 	done
 	@echo "Binaries written to $(BINDIR)/"
 
@@ -92,6 +88,9 @@ build-image-skiff-base: ## Force rebuild skiff-base image
 build-skiff: build ## Rebuild only the Skiff base image (after changing debug-env or skiff-init)
 	$(PODMAN) build --build-arg VERSION=$(VERSION) -f build/Containerfile.skiff-base -t localhost/alcove-skiff-base:$(VERSION) .
 
+build-dev: ## Build the alcove dev container image
+	$(PODMAN) build -f build/Containerfile.dev -t localhost/alcove-dev:$(VERSION) .
+
 ##@ Easy Targets
 
 up: dev-config dev-infra build build-images ## Build locally and start Bridge + infra
@@ -114,7 +113,6 @@ up: dev-config dev-infra build build-images ## Build locally and start Bridge + 
 		-e ALCOVE_EXTERNAL_NETWORK=$(EXTERNAL_NET) \
 		-e SKIFF_IMAGE=localhost/alcove-skiff-base:$(VERSION) \
 		-e GATE_IMAGE=localhost/alcove-gate:$(VERSION) \
-		-e SHIM_BIN_PATH=$(CURDIR)/$(BINDIR)/shim \
 		localhost/alcove-bridge:$(VERSION) > /dev/null
 	@sleep 2
 	@echo ""
@@ -137,7 +135,7 @@ down: ## Stop everything
 logs: ## Show Bridge logs
 	@$(PODMAN) logs --tail 50 alcove-bridge 2>/dev/null || echo "No logs found"
 
-watch: dev-config dev-infra  ## Run Bridge with hot-reload (no session dispatch — use 'make up' for full sessions)
+watch: dev-config dev-infra build-images  ## Hot-reload Bridge dev loop (Air rebuilds on save, dispatches real Skiff/Gate sessions)
 	LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
 	HAIL_URL="nats://localhost:4222" \
 	RUNTIME=podman \
@@ -239,7 +237,6 @@ dev-up: dev-config ## Start full containerized environment
 		-e ALCOVE_EXTERNAL_NETWORK=$(EXTERNAL_NET) \
 		-e SKIFF_IMAGE=localhost/alcove-skiff-base:$(VERSION) \
 		-e GATE_IMAGE=localhost/alcove-gate:$(VERSION) \
-		-e SHIM_BIN_PATH=$(CURDIR)/$(BINDIR)/shim \
 		localhost/alcove-bridge:$(VERSION)
 	@echo ""
 	@echo "Alcove is starting up. Fetching admin password..."

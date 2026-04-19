@@ -111,9 +111,9 @@ to run a project-provided container alongside Skiff. A shared volume at
 container via the execution shim (`cmd/shim`). The shim binary is injected as
 the dev container's entrypoint and provides `POST /exec` with NDJSON streaming,
 protected by bearer auth. `dev_container.network_access` controls network access
-(`internal` default, `external` for internet access). On Podman, the shim is
-volume-mounted from the host; on Kubernetes, it is copied via an init container
-(`SHIM_IMAGE`). Dev containers support multi-repo workspaces where each repo is
+(`internal` default, `external` for internet access). The shim is baked into the
+dev container image at build time via s6-overlay (`make build-dev` builds from
+`build/Containerfile.dev`). Dev containers support multi-repo workspaces where each repo is
 cloned into `/workspace/<name>/`.
 
 ### Gate — The Authorization Proxy
