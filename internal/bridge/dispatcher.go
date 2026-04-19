@@ -16,6 +16,8 @@ package bridge
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -74,11 +76,21 @@ func (d *Dispatcher) SetWorkflowEngine(we *WorkflowEngine) {
 	d.workflowEngine = we
 }
 
+// generateShimToken returns a cryptographically random hex-encoded token
+// of the specified byte length (the resulting string is 2*n hex characters).
+func generateShimToken(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand failed: " + err.Error())
+	}
+	return hex.EncodeToString(b)
+}
+
 // TaskRequest is the JSON body for POST /api/v1/sessions.
 type TaskRequest struct {
 	Prompt         string                   `json:"prompt,omitempty"`
 	Executable     *internal.ExecutableSpec `json:"executable,omitempty"`
-	Repo           string                   `json:"repo,omitempty"`
+	Repos          []internal.RepoSpec      `json:"repos,omitempty"`
 	Provider       string                   `json:"provider,omitempty"`
 	Timeout        int                      `json:"timeout,omitempty"` // seconds, default 3600
 	Scope          *internal.Scope          `json:"scope,omitempty"`
@@ -90,6 +102,7 @@ type TaskRequest struct {
 	Plugins        []PluginSpec             `json:"-"` // Set internally from agent definition
 	Credentials    map[string]string        `json:"-"` // ENV_VAR_NAME: credential_provider_name
 	DirectOutbound bool                     `json:"direct_outbound,omitempty"`
+	DevContainer   *DevContainerSpec       `json:"dev_container,omitempty"`
 	// Task metadata — set by dispatch code paths, stored in sessions table.
 	TaskName    string `json:"-"` // Schedule/agent definition name
 	TriggerType string `json:"-"` // "event", "cron", "manual", "webhook"
@@ -219,7 +232,7 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		TaskID:      taskID,
 		Submitter:   submitter,
 		Prompt:      req.Prompt,
-		Repo:        req.Repo,
+		Repos:       req.Repos,
 		Provider:    provider,
 		Scope:       scope,
 		Status:      "running",
@@ -248,7 +261,7 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 	task := internal.Task{
 		ID:       taskID,
 		Prompt:   req.Prompt,
-		Repo:     req.Repo,
+		Repos:    req.Repos,
 		Provider: provider,
 		Scope:    scope,
 		Timeout:  time.Duration(timeout) * time.Second,
@@ -336,8 +349,9 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 	if req.Budget > 0 {
 		skiffEnv["TASK_BUDGET"] = fmt.Sprintf("%.2f", req.Budget)
 	}
-	if req.Repo != "" {
-		skiffEnv["REPO"] = req.Repo
+	if len(req.Repos) > 0 {
+		reposJSON, _ := json.Marshal(req.Repos)
+		skiffEnv["REPOS"] = string(reposJSON)
 	}
 
 	// For Vertex AI, fetch project/region for Gate URL construction.
@@ -692,6 +706,10 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		runtimeConfig["credentials"] = credEntries
 	}
 
+	if req.DevContainer != nil && req.DevContainer.Image != "" {
+		runtimeConfig["dev_container"] = req.DevContainer
+	}
+
 	runtimeConfigJSON, _ := json.Marshal(runtimeConfig)
 	_, _ = d.db.Exec(ctx, `UPDATE sessions SET runtime_config = $1 WHERE id = $2`, runtimeConfigJSON, sessionID)
 
@@ -707,6 +725,21 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		ExternalNet:    envOrDefault("ALCOVE_EXTERNAL_NETWORK", runtime.DefaultExternalNetwork),
 		Debug:          req.Debug || d.cfg.DebugMode,
 		DirectOutbound: req.DirectOutbound,
+	}
+
+	if req.DevContainer != nil && req.DevContainer.Image != "" {
+		spec.DevContainerImage = req.DevContainer.Image
+		spec.DevContainerNetworkAccess = req.DevContainer.NetworkAccess
+		spec.ShimImage = envOrDefault("SHIM_IMAGE", "ghcr.io/bmbouter/alcove-shim:latest")
+
+		shimToken := generateShimToken(32)
+		spec.DevContainerEnv = map[string]string{
+			"SHIM_TOKEN": shimToken,
+		}
+
+		devHost := runtime.DevContainerName(taskID) + ":9090"
+		skiffEnv["DEV_TOKEN"] = shimToken
+		skiffEnv["DEV_CONTAINER_HOST"] = devHost
 	}
 
 	handle, err := d.rt.RunTask(ctx, spec)
@@ -799,6 +832,11 @@ func (d *Dispatcher) ListenForStatusUpdates(ctx context.Context) error {
 					if err := d.rt.StopService(cleanupCtx, gateName); err != nil {
 						log.Printf("cleanup: failed to stop gate %s: %v", gateName, err)
 					}
+					// Clean up dev container and workspace volume (no-op if not present).
+					devName := runtime.DevContainerName(taskID)
+					if err := d.rt.StopService(cleanupCtx, devName); err != nil {
+						log.Printf("cleanup: failed to stop dev container %s: %v (may not exist)", devName, err)
+					}
 				}(handle.ID, update.SessionID)
 			}
 
@@ -822,11 +860,15 @@ func (d *Dispatcher) ListenForStatusUpdates(ctx context.Context) error {
 // insertSession writes a new session record to the Ledger (PostgreSQL).
 func (d *Dispatcher) insertSession(ctx context.Context, s *internal.Session, sessionToken string) error {
 	scopeJSON, _ := json.Marshal(s.Scope)
+	var reposJSON []byte
+	if len(s.Repos) > 0 {
+		reposJSON, _ = json.Marshal(s.Repos)
+	}
 	_, err := d.db.Exec(ctx, `
-		INSERT INTO sessions (id, task_id, submitter, prompt, scope, provider, started_at, outcome, session_token, task_name, trigger_type, trigger_ref, repo, team_id)
+		INSERT INTO sessions (id, task_id, submitter, prompt, scope, provider, started_at, outcome, session_token, task_name, trigger_type, trigger_ref, repos, team_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`, s.ID, s.TaskID, s.Submitter, s.Prompt, scopeJSON, s.Provider, s.StartedAt, s.Status, sessionToken,
-		nilIfEmpty(s.TaskName), nilIfEmpty(s.TriggerType), nilIfEmpty(s.TriggerRef), nilIfEmpty(s.Repo), s.TeamID)
+		nilIfEmpty(s.TaskName), nilIfEmpty(s.TriggerType), nilIfEmpty(s.TriggerRef), reposJSON, s.TeamID)
 	return err
 }
 
@@ -931,6 +973,14 @@ func (d *Dispatcher) ReconcileLoop(ctx context.Context) {
 				log.Printf("reconcile: error cleaning up orphaned gate containers: %v", err)
 			} else if cleaned > 0 {
 				log.Printf("reconcile: cleaned up %d orphaned gate container(s)", cleaned)
+			}
+
+			// Sweep orphaned dev containers.
+			devCleaned, devErr := d.rt.CleanupOrphanedContainers(ctx, "dev-")
+			if devErr != nil {
+				log.Printf("reconcile: error cleaning up orphaned dev containers: %v", devErr)
+			} else if devCleaned > 0 {
+				log.Printf("reconcile: cleaned up %d orphaned dev container(s)", devCleaned)
 			}
 		}
 	}

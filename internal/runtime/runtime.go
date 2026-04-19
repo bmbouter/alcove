@@ -36,7 +36,11 @@ type TaskSpec struct {
 	Network      string            // podman network name (podman only); used as the internal network
 	ExternalNet    string            // podman external network for gate egress (podman only)
 	Debug          bool              // if true, containers are not auto-removed on exit
-	DirectOutbound bool              // if true, skiff gets both networks and no HTTP(S)_PROXY
+	DirectOutbound    bool              // if true, skiff gets both networks and no HTTP(S)_PROXY
+	DevContainerImage         string            // Container image for the dev container sidecar
+	DevContainerEnv           map[string]string // env vars for dev container (includes SHIM_TOKEN)
+	DevContainerNetworkAccess string            // "internal" or "external"; defaults to "internal"
+	ShimImage                 string            // Container image for the shim init container (k8s only)
 }
 
 // ServiceSpec describes a long-lived infrastructure service (Hail, Ledger).

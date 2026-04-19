@@ -15,6 +15,7 @@ a complete session transcript. No persistent state crosses session boundaries.
 | **Bridge** | Controller, REST API, dashboard, scheduler, agent repo syncer | `cmd/bridge` | Deployment |
 | **Skiff** | Ephemeral Claude Code worker | `cmd/skiff-init` | Job / `podman run --rm` / `docker run --rm` |
 | **Gate** | Auth proxy sidecar (token swap, LLM proxy, SCM proxy, scope enforcement) | `cmd/gate` | Sidecar in Skiff pod |
+| **Shim** | Execution sidecar injected into dev containers (`GET /healthz`, `POST /exec` with NDJSON streaming) | `cmd/shim` | Sidecar in dev container |
 | **Hail** | Message bus (NATS) | external | Deployment |
 | **Ledger** | Session store (PostgreSQL) | external | Deployment + PVC |
 
@@ -22,12 +23,14 @@ a complete session transcript. No persistent state crosses session boundaries.
 
 ```
 Bridge → Hail (NATS) → Skiff Pod [skiff container + gate sidecar] → Gate → External Services
-                                                                  → Ledger (PostgreSQL)
+                                ↕ /workspace volume (optional)              → Ledger (PostgreSQL)
+                        Dev Container [project image + shim]
 ```
 
 - Skiff pods are ephemeral: one session, one container, then destroyed
 - Gate is a sidecar (shares network namespace with Skiff)
 - Gate proxies ALL external traffic including LLM API calls (Skiff has no real credentials)
+- Optional dev container runs alongside Skiff with a shared `/workspace` volume, enabling agents to build/test code in project-specific environments; the shim binary is injected as the entrypoint
 - On OpenShift, a static `alcove-allow-internal` NetworkPolicy restricts egress (per-task NetworkPolicy is disabled due to OVN-Kubernetes DNS resolution issues); dual-network isolation (`--internal` flag) on podman; no network isolation on Docker (see Key Decisions)
 
 ## Design Documents
@@ -36,7 +39,7 @@ Read these for full context:
 
 1. `docs/design/implementation-status.md` — **START HERE** — current state, what works, what's next
 2. `docs/design/architecture.md` — component design, deployment diagrams, network isolation, roadmap
-3. `docs/design/architecture-decisions.md` — 19 resolved decisions, CLI design, config format, repo layout
+3. `docs/design/architecture-decisions.md` — 21 resolved decisions, CLI design, config format, repo layout
 4. `docs/design/problem-statement.md` — why ephemeral agents
 5. `docs/design/credential-management.md` — credential storage, encryption, OAuth2 token flow
 6. `docs/design/auth-backends.md` — auth backend design (memory, postgres, rh-identity)
@@ -112,3 +115,5 @@ podman run -d --replace --name alcove-bridge ...  # same args as dev-up
 - **YAML is the single source of truth for schedules, security profiles, and tools** — no API-based creation, update, or deletion; schedules are defined via `schedule:` in `.alcove/tasks/*.yml`; security profiles in `.alcove/security-profiles/*.yml`; tools come from catalog or builtin definitions; the API provides read-only access to synced data
 - **`alcove.yaml` for infrastructure settings** — config file search order: `ALCOVE_CONFIG_FILE` env var → `./alcove.yaml` → `/etc/alcove/alcove.yaml`; env vars always override; `database_encryption_key` is required (Bridge refuses to start without it); `make up` auto-generates the file for local dev; file is gitignored
 - **`.dev-credentials.yaml` for dev credentials** — single source of truth for local dev LLM provider and GitHub PAT; copy `.dev-credentials.yaml.example`, fill in values; `make dev-config` (run by `make up`) merges LLM settings into `alcove.yaml`; the dev-up process reads it to create API credentials in the database; file is gitignored
+- **Dev containers are optional sidecars** — agent definitions can declare `dev_container.image` to run a project-provided container alongside Skiff; Podman creates a shared workspace volume at `/workspace`, starts the dev container with the shim binary as entrypoint, and mounts the volume in both containers; the shim provides bearer-auth-protected `POST /exec` for remote command execution with NDJSON streaming; `dev_container.network_access` controls network access (`internal` default, `external` joins both networks on Podman); on Kubernetes, the dev container runs as a native sidecar with the shim copied via init container and emptyDir volumes (`SHIM_IMAGE` env var, `DEV_CONTAINER_HOST=localhost:9090`); Docker rejects dev containers with a clear error; `SHIM_BIN_PATH` env var tells Bridge where to find the host shim binary (Podman); `--security-opt label=disable` and `:z` mount flag handle SELinux compatibility; see architecture decision #20 in `docs/design/architecture-decisions.md` for the full design
+- **Multi-repo support** — agent definitions use `repos:` (a list of `RepoSpec` with `name`, `url`, `ref` fields) instead of a single `repo:` string; Skiff receives a `REPOS` JSON env var and clones each repo into `/workspace/<name>/`; database migration `031_multi_repo.sql` replaces the `repo TEXT` column with `repos JSONB`; see architecture decision #21 in `docs/design/architecture-decisions.md` for the full design

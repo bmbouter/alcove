@@ -15,7 +15,7 @@ IMAGES       := bridge gate skiff-base
 GO       := go
 PODMAN   := podman
 
-CMDS     := bridge gate skiff-init alcove debug-env
+CMDS     := bridge gate skiff-init alcove debug-env shim
 
 # Stamp directory for image build tracking
 STAMP_DIR := .stamps
@@ -41,7 +41,11 @@ build: ## Build all Go binaries locally
 	@mkdir -p $(BINDIR)
 	@for cmd in $(CMDS); do \
 		echo "Building $$cmd..."; \
-		$(GO) build $(LDFLAGS) -o $(BINDIR)/$$cmd ./cmd/$$cmd; \
+		if [ "$$cmd" = "shim" ]; then \
+			CGO_ENABLED=0 $(GO) build $(LDFLAGS) -o $(BINDIR)/$$cmd ./cmd/$$cmd; \
+		else \
+			$(GO) build $(LDFLAGS) -o $(BINDIR)/$$cmd ./cmd/$$cmd; \
+		fi; \
 	done
 	@echo "Binaries written to $(BINDIR)/"
 
@@ -110,6 +114,7 @@ up: dev-config dev-infra build build-images ## Build locally and start Bridge + 
 		-e ALCOVE_EXTERNAL_NETWORK=$(EXTERNAL_NET) \
 		-e SKIFF_IMAGE=localhost/alcove-skiff-base:$(VERSION) \
 		-e GATE_IMAGE=localhost/alcove-gate:$(VERSION) \
+		-e SHIM_BIN_PATH=$(CURDIR)/$(BINDIR)/shim \
 		localhost/alcove-bridge:$(VERSION) > /dev/null
 	@sleep 2
 	@echo ""
@@ -234,6 +239,7 @@ dev-up: dev-config ## Start full containerized environment
 		-e ALCOVE_EXTERNAL_NETWORK=$(EXTERNAL_NET) \
 		-e SKIFF_IMAGE=localhost/alcove-skiff-base:$(VERSION) \
 		-e GATE_IMAGE=localhost/alcove-gate:$(VERSION) \
+		-e SHIM_BIN_PATH=$(CURDIR)/$(BINDIR)/shim \
 		localhost/alcove-bridge:$(VERSION)
 	@echo ""
 	@echo "Alcove is starting up. Fetching admin password..."

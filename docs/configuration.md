@@ -167,6 +167,8 @@ can also be set in `alcove.yaml` (see [alcove.yaml](#alcoveyaml) above).
 | `SKIFF_HAIL_URL` | string | `nats://alcove-hail:4222` | NATS URL injected into Skiff containers (may differ from Bridge's own `HAIL_URL`). |
 | `ALCOVE_SKILL_REPOS` | string (JSON) | _(unset)_ | JSON array of skill repo objects. Overrides database-configured skill repos. Each object has `url` (required), `ref` (optional, default `main`), and `name` (optional). |
 | `AGENT_REPO_SYNC_INTERVAL` | string (duration) | `15m` | How often Bridge syncs YAML agent definitions from registered agent repos. Accepts Go duration syntax. Manual sync available via API or dashboard "Sync Now" button. |
+| `SHIM_BIN_PATH` | string | `./bin/shim` | Host path to the shim binary. When a dev container is configured on Podman, Bridge volume-mounts this binary into the dev container as its entrypoint. |
+| `SHIM_IMAGE` | string | `ghcr.io/bmbouter/alcove-shim:latest` | Container image for the shim init container. Used on Kubernetes to copy the shim binary into the dev container pod via an init container. |
 | `BRIDGE_LLM_PROVIDER` | string | _(unset)_ | System LLM provider: `anthropic`, `google-vertex`, or `claude-oauth`. Overrides `system_llm.provider` in alcove.yaml. |
 | `BRIDGE_LLM_API_KEY` | string | _(unset)_ | Anthropic API key for the system LLM. Overrides `system_llm.api_key` in alcove.yaml. |
 | `BRIDGE_LLM_OAUTH_TOKEN` | string | _(unset)_ | Claude Pro/Max OAuth token for the system LLM (for `claude-oauth` provider). Overrides `system_llm.oauth_token` in alcove.yaml. |
@@ -214,7 +216,8 @@ Skiff is the ephemeral worker container (`cmd/skiff-init`). These variables are
 | `TASK_ID` | string | _(required)_ | Unique identifier for the task. |
 | `SESSION_ID` | string | value of `TASK_ID` | Session identifier. Defaults to the task ID if not set separately. |
 | `PROMPT` | string | _(required)_ | The natural-language prompt sent to Claude Code. |
-| `REPO` | string | _(unset)_ | Git repository URL to clone into the workspace. |
+| `REPOS` | string (JSON) | _(unset)_ | JSON array of `RepoSpec` objects (`[{"name":"...","url":"...","ref":"..."}]`). Each repo is cloned into `/workspace/<name>/`. |
+| `REPO` | string | _(unset)_ | Git repository URL to clone into the workspace (legacy; `REPOS` takes precedence). |
 | `BRANCH` | string | _(unset)_ | Branch to check out after cloning. |
 | `PROVIDER` | string | `anthropic` | LLM provider name. |
 | `CLAUDE_MODEL` | string | _(unset)_ | Model override passed to `claude --model`. |
@@ -231,6 +234,8 @@ Skiff is the ephemeral worker container (`cmd/skiff-init`). These variables are
 | `ANTHROPIC_API_KEY` | string | `sk-placeholder-routed-through-gate` | Placeholder key that satisfies Claude Code validation. Real key is held by Gate. |
 | `ALCOVE_SKILL_REPOS` | string (JSON) | _(injected)_ | JSON array of skill repo objects. Skiff clones each repo and passes them to Claude Code via `--plugin-dir` flags. |
 | `ALCOVE_PLUGINS` | string (JSON) | _(injected)_ | JSON array of plugin specs from the agent definition. Skiff installs each plugin at startup (marketplace, official, or git-sourced). |
+| `DEV_TOKEN` | string | _(injected)_ | Bearer token for authenticating with the dev container's shim. Set only when `dev_container` is configured. |
+| `DEV_CONTAINER_HOST` | string | _(injected)_ | Hostname and port of the dev container's shim (e.g., `dev-<taskID>:9090`). Set only when `dev_container` is configured. |
 
 The following SCM-related environment variables are injected by Bridge when the
 task's scope includes a `github` or `gitlab` service. They configure the `gh`
@@ -644,7 +649,10 @@ Repos that haven't changed since the last sync are skipped. Each YAML file defin
 name: run-tests
 prompt: |
   Run the full test suite and fix any failures.
-repo: https://github.com/org/myproject.git
+repos:
+  - name: myproject
+    url: https://github.com/org/myproject.git
+    ref: main
 provider: anthropic
 model: claude-sonnet-4-20250514
 timeout: 1800
@@ -669,7 +677,8 @@ schedule: "0 2 * * *"
 |-------------|----------|----------|-------------|
 | `name`      | string   | yes      | Unique agent name |
 | `prompt`    | string   | yes      | The agent instruction |
-| `repo`      | string   | no       | Git repository URL to clone |
+| `repos`     | RepoSpec[] | no     | List of git repositories to clone (see [RepoSpec](#repospec) below) |
+| `repo`      | string   | no       | Git repository URL to clone (legacy; converted to single-element `repos` list) |
 | `provider`  | string   | no       | LLM provider name |
 | `model`     | string   | no       | Model override |
 | `timeout`   | int      | no       | Timeout in seconds |
@@ -679,6 +688,7 @@ schedule: "0 2 * * *"
 | `plugins`   | PluginSpec[] | no   | Claude Code plugins to install (see [Plugins](#plugins)) |
 | `credentials` | map[string]string | no | Environment variable names to credential provider mappings (see [Credentials](#credentials)) |
 | `direct_outbound` | bool | no | Allow direct outbound connections bypassing Gate proxy (default `false`) |
+| `dev_container` | object | no | Dev container sidecar configuration (see [Dev Containers](#dev-containers)) |
 | `schedule`  | string   | no       | Cron expression for automatic execution |
 | `labels`    | string[] | no       | GitHub issue/PR labels for event filtering (see below) |
 | `users`     | string[] | no       | GitHub usernames for event filtering (see below) |
@@ -700,6 +710,67 @@ On Kubernetes, the cluster administrator must deploy the
 `alcove-allow-direct-outbound` NetworkPolicy before using this feature. Without
 it, pods with `direct_outbound: true` will still be subject to the default
 per-task NetworkPolicy that restricts egress.
+
+### Dev Containers
+
+Agent definitions can declare an optional `dev_container` block to run a
+project-provided container alongside Skiff. This lets agents build, test, and
+lint code in a project-specific environment without bloating the Skiff base
+image.
+
+```yaml
+name: go-developer
+prompt: |
+  Implement the feature and run tests before pushing.
+repos:
+  - url: https://github.com/org/myproject.git
+dev_container:
+  image: golang:1.25
+  network_access: internal
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `dev_container.image` | string | yes (if block present) | Container image for the dev container |
+| `dev_container.network_access` | string | no | Network access level: `internal` (default, no internet) or `external` (internet access) |
+
+### RepoSpec
+
+Each entry in the `repos` list is a `RepoSpec` object:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | no | Directory name under `/workspace/`. Derived from URL if omitted. |
+| `url`  | string | yes | Git repository URL to clone |
+| `ref`  | string | no | Branch, tag, or commit to check out (default: repo default branch) |
+
+Skiff clones each repo into `/workspace/<name>/`. If a single `repo:` string
+is provided (legacy), it is converted to a single-element `repos` list
+internally. The `REPOS` JSON env var is injected into Skiff with the full list.
+
+**How it works:**
+
+- Podman creates a shared workspace volume and mounts it at `/workspace` in both
+  Skiff and the dev container.
+- The shim binary (`cmd/shim`) is volume-mounted into the dev container from the
+  host (`SHIM_BIN_PATH`, default `./bin/shim`) with `:ro,z` flags and used as
+  the entrypoint. `--security-opt label=disable` is set on the dev container
+  for SELinux compatibility.
+- The shim exposes `GET /healthz` and `POST /exec` (NDJSON streaming) on port
+  9090, protected by bearer auth (`SHIM_TOKEN`).
+- Bridge generates a random `SHIM_TOKEN` and passes it to the dev container. Skiff
+  receives `DEV_TOKEN` (same value) and `DEV_CONTAINER_HOST` (hostname:port).
+- When `network_access` is `internal` (default), the dev container runs on the
+  internal network only (no external access). When `external`, it joins both
+  the internal and external networks on Podman, giving it internet access.
+
+**Runtime support:**
+
+| Runtime | Behavior |
+|---------|----------|
+| **Podman** | Full support. Workspace volume, shim injection, `network_access` controls network. |
+| **Docker** | Not supported. Bridge returns an error if `dev_container` is set. |
+| **Kubernetes** | Full support. Dev container as native sidecar, shim copied via init container (`SHIM_IMAGE`), emptyDir volumes, `DEV_CONTAINER_HOST=localhost:9090`. `network_access=external` is logged as a warning since all containers in a Pod share the same network namespace. |
 
 ### Event Delivery Mode
 
@@ -732,7 +803,8 @@ triggering automated development tasks.
 name: auto-fix
 prompt: |
   Investigate and fix the issue described above.
-repo: https://github.com/org/myproject.git
+repos:
+  - url: https://github.com/org/myproject.git
 trigger:
   github:
     events: [issues]
@@ -756,7 +828,8 @@ session dispatch to trusted users.
 name: auto-fix
 prompt: |
   Investigate and fix the issue described above.
-repo: https://github.com/org/myproject.git
+repos:
+  - url: https://github.com/org/myproject.git
 trigger:
   github:
     events: [issues, issue_comment]
@@ -976,6 +1049,7 @@ review/revision patterns.
 | `max_iterations` | int | no | `1` | Maximum times this step can execute (1 = no revisiting) |
 | `max_retries` | int | no | `0` | Maximum retry count on failure |
 | `inputs` | map | no | — | Key-value inputs passed to the step |
+| `repos` | RepoSpec[] | no | — | Override repos for this step (same format as agent-level `repos`) |
 | `credentials` | map[string]string | no | — | Env var to credential provider mappings; merges with agent credentials (step overrides agent) |
 | `direct_outbound` | bool | no | `false` | Allow direct outbound connections bypassing Gate proxy |
 

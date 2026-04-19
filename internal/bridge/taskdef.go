@@ -18,6 +18,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/bmbouter/alcove/internal"
@@ -33,6 +35,12 @@ type PluginSpec struct {
 	Ref    string `json:"ref,omitempty" yaml:"ref,omitempty"`       // Branch/tag for git sources
 }
 
+// DevContainerSpec declares a dev container image to run as a sidecar.
+type DevContainerSpec struct {
+	Image         string `json:"image" yaml:"image"`
+	NetworkAccess string `json:"network_access,omitempty" yaml:"network_access,omitempty"`
+}
+
 // CIGate configures Bridge-driven CI monitoring for PRs created by a task.
 type CIGate struct {
 	MaxRetries int `json:"max_retries" yaml:"max_retries"`
@@ -46,7 +54,7 @@ type TaskDefinition struct {
 	Description    string                   `json:"description" yaml:"description"`
 	Prompt         string                   `json:"prompt,omitempty" yaml:"prompt"`
 	Executable     *internal.ExecutableSpec `json:"executable,omitempty" yaml:"executable"`
-	Repo           string                   `json:"repo,omitempty" yaml:"repo"`
+	Repos          []internal.RepoSpec      `json:"repos,omitempty" yaml:"repos"`
 	Provider       string                   `json:"provider,omitempty" yaml:"provider"`
 	Model          string                   `json:"model,omitempty" yaml:"model"`
 	Timeout        int                      `json:"timeout,omitempty" yaml:"timeout"`
@@ -60,6 +68,7 @@ type TaskDefinition struct {
 	Trigger        *EventTrigger            `json:"trigger,omitempty" yaml:"trigger"`
 	CIGate         *CIGate                  `json:"ci_gate,omitempty" yaml:"ci_gate"`
 	DirectOutbound bool                     `json:"direct_outbound,omitempty" yaml:"direct_outbound"`
+	DevContainer   *DevContainerSpec       `json:"dev_container,omitempty" yaml:"dev_container"`
 
 	// Metadata (not from YAML).
 	TeamID       string     `json:"team_id,omitempty"`
@@ -118,6 +127,36 @@ func ParseTaskDefinition(data []byte) (*TaskDefinition, error) {
 		}
 	}
 
+	if td.DevContainer != nil && td.DevContainer.Image == "" {
+		return nil, fmt.Errorf("dev_container block present but image is empty")
+	}
+	if td.DevContainer != nil && td.DevContainer.NetworkAccess != "" {
+		if td.DevContainer.NetworkAccess != "internal" && td.DevContainer.NetworkAccess != "external" {
+			return nil, fmt.Errorf("dev_container.network_access must be \"internal\" or \"external\", got %q", td.DevContainer.NetworkAccess)
+		}
+	}
+	// Default network_access to "internal" if not set.
+	if td.DevContainer != nil && td.DevContainer.NetworkAccess == "" {
+		td.DevContainer.NetworkAccess = "internal"
+	}
+
+	// Validate repos: each must have a non-empty URL, derive Name from URL if not provided, check for duplicates.
+	if len(td.Repos) > 0 {
+		namesSeen := make(map[string]bool)
+		for i := range td.Repos {
+			if td.Repos[i].URL == "" {
+				return nil, fmt.Errorf("repos[%d] has empty URL", i)
+			}
+			if td.Repos[i].Name == "" {
+				td.Repos[i].Name = repoNameFromURL(td.Repos[i].URL)
+			}
+			if namesSeen[td.Repos[i].Name] {
+				return nil, fmt.Errorf("duplicate repo name %q", td.Repos[i].Name)
+			}
+			namesSeen[td.Repos[i].Name] = true
+		}
+	}
+
 	return &td, nil
 }
 
@@ -127,7 +166,7 @@ func (td *TaskDefinition) ToTaskRequest() TaskRequest {
 	return TaskRequest{
 		Prompt:         td.Prompt,
 		Executable:     td.Executable,
-		Repo:           td.Repo,
+		Repos:          td.Repos,
 		Provider:       td.Provider,
 		Timeout:        td.Timeout,
 		Tools:          td.Tools,
@@ -138,6 +177,7 @@ func (td *TaskDefinition) ToTaskRequest() TaskRequest {
 		Plugins:        td.Plugins,
 		Credentials:    td.Credentials,
 		DirectOutbound: td.DirectOutbound,
+		DevContainer:   td.DevContainer,
 	}
 }
 
@@ -195,7 +235,7 @@ func (s *AgentDefStore) ListAgentDefinitions(ctx context.Context, teamID string)
 			if err := json.Unmarshal(parsedJSON, &parsed); err == nil {
 				td.Prompt = parsed.Prompt
 				td.Executable = parsed.Executable
-				td.Repo = parsed.Repo
+				td.Repos = parsed.Repos
 				td.Provider = parsed.Provider
 				td.Model = parsed.Model
 				td.Timeout = parsed.Timeout
@@ -209,6 +249,7 @@ func (s *AgentDefStore) ListAgentDefinitions(ctx context.Context, teamID string)
 				td.Credentials = parsed.Credentials
 				td.DirectOutbound = parsed.DirectOutbound
 				td.CIGate = parsed.CIGate
+				td.DevContainer = parsed.DevContainer
 			}
 		}
 
@@ -260,7 +301,7 @@ func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, teamID strin
 		if err := json.Unmarshal(parsedJSON, &parsed); err == nil {
 			td.Prompt = parsed.Prompt
 			td.Executable = parsed.Executable
-			td.Repo = parsed.Repo
+			td.Repos = parsed.Repos
 			td.Provider = parsed.Provider
 			td.Model = parsed.Model
 			td.Timeout = parsed.Timeout
@@ -274,6 +315,7 @@ func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, teamID strin
 			td.Credentials = parsed.Credentials
 			td.DirectOutbound = parsed.DirectOutbound
 			td.CIGate = parsed.CIGate
+			td.DevContainer = parsed.DevContainer
 		}
 	}
 
@@ -367,7 +409,7 @@ func (s *AgentDefStore) ListAgentDefinitionsByRepo(ctx context.Context, repoURL,
 			if err := json.Unmarshal(parsedJSON, &parsed); err == nil {
 				td.Prompt = parsed.Prompt
 				td.Executable = parsed.Executable
-				td.Repo = parsed.Repo
+				td.Repos = parsed.Repos
 				td.Provider = parsed.Provider
 				td.Model = parsed.Model
 				td.Timeout = parsed.Timeout
@@ -381,6 +423,7 @@ func (s *AgentDefStore) ListAgentDefinitionsByRepo(ctx context.Context, repoURL,
 				td.Credentials = parsed.Credentials
 				td.DirectOutbound = parsed.DirectOutbound
 				td.CIGate = parsed.CIGate
+				td.DevContainer = parsed.DevContainer
 			}
 		}
 		defs = append(defs, td)
@@ -439,6 +482,13 @@ func ResolvePluginBundles(plugins []PluginSpec) []PluginSpec {
 		}
 	}
 	return resolved
+}
+
+// repoNameFromURL derives a short repo name from a URL by taking the
+// basename and stripping any ".git" suffix.
+func repoNameFromURL(url string) string {
+	base := path.Base(url)
+	return strings.TrimSuffix(base, ".git")
 }
 
 // nilIfEmpty returns nil if the string is empty, otherwise a pointer to it.

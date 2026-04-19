@@ -330,6 +330,74 @@ eliminates prompt engineering fragility and makes workflows auditable. Bounded
 cycles enable practical review/revision patterns without risking infinite loops.
 
 
+### 20. Dev Containers with Execution Shim
+
+**Decision**: Agent definitions can optionally declare a `dev_container.image`
+to run a project-provided container alongside Skiff. A shared volume at
+`/workspace` is mounted in both containers. A small Go HTTP server (the shim,
+`cmd/shim`) is injected into the dev container as its entrypoint.
+
+**How it works**:
+- Podman creates a workspace volume, starts the dev container with the shim
+  binary volume-mounted as `/usr/local/bin/alcove-shim` (with `:ro,z` for
+  SELinux compatibility), and uses it as the entrypoint.
+  `--security-opt label=disable` is set on the dev container to avoid
+  SELinux label conflicts with the shared workspace volume.
+- The shim serves `GET /healthz` and `POST /exec` (bearer auth via
+  `SHIM_TOKEN`), streaming stdout/stderr as NDJSON.
+- The dispatcher generates a random `SHIM_TOKEN` and passes it to both the
+  dev container and Skiff (as `DEV_TOKEN`). Skiff also receives
+  `DEV_CONTAINER_HOST` pointing to the dev container's hostname and port.
+- `dev_container.network_access` controls network access: `internal`
+  (default) restricts the dev container to the internal network only;
+  `external` joins both internal and external networks on Podman, giving
+  the dev container internet access (e.g., for `pip install` or `npm install`).
+  On Kubernetes, `external` is logged as a warning since all containers in a
+  Pod share the same network namespace.
+- On Kubernetes, the dev container runs as a native sidecar (init container
+  with `restartPolicy: Always`). The shim binary is copied into the pod via
+  an init container using the `SHIM_IMAGE` container image and shared
+  emptyDir volumes. `DEV_CONTAINER_HOST` is overridden to `localhost:9090`
+  since K8s pod containers share a network namespace.
+- Docker rejects dev containers with a clear error (`RUNTIME=docker`).
+- The shim binary is built with `CGO_ENABLED=0` for static linking and
+  `SHIM_BIN_PATH` tells Bridge where to find it on the host (Podman).
+  `SHIM_IMAGE` tells Bridge which container image to use for the shim init
+  container (Kubernetes).
+
+**Rationale**: Agents need to build and test code in project-specific
+environments (e.g., a Go project needs `go build`, a Python project needs
+`pip install`). Running these tools inside Skiff would bloat the base image
+and create security surface. A separate container with the project's own
+image keeps Skiff minimal and lets each project define its own toolchain.
+The shim injection pattern means dev container images do not need any
+Alcove-specific tooling pre-installed.
+
+### 21. Multi-Repo Support
+
+**Decision**: Agent definitions support a `repos:` list (each entry is a
+`RepoSpec` with `name`, `url`, and optional `ref` fields) instead of a
+single `repo:` string. Skiff clones each repo into `/workspace/<name>/`.
+
+**How it works**:
+- The `repos:` field in YAML agent definitions is a list of objects:
+  `{name: "myapp", url: "https://github.com/org/myapp.git", ref: "main"}`.
+- If `name` is omitted, it is derived from the repository URL (last path
+  segment without `.git`).
+- The dispatcher serializes the list as a `REPOS` JSON env var for Skiff.
+- Skiff clones each repo into `/workspace/<name>/`.
+- Database migration `031_multi_repo.sql` replaces `repo TEXT` with
+  `repos JSONB` on both `sessions` and `schedules` tables, migrating
+  existing single-repo data into the new format.
+- The old `repo:` string field is still accepted in YAML and is converted
+  to a single-element `repos` list internally.
+
+**Rationale**: Many development tasks span multiple repositories (e.g., an
+application and its shared library). Supporting multiple repos per session
+lets agents work across repo boundaries without manual workarounds. The
+`/workspace/<name>/` layout keeps each clone isolated and predictable.
+
+
 ## CLI Design
 
 ### Phase 1 Commands
@@ -428,6 +496,7 @@ alcove/
 ├── cmd/
 │   ├── bridge/         # Controller binary
 │   ├── gate/           # Authorization proxy binary
+│   ├── shim/           # Dev container execution sidecar binary
 │   └── skiff-init/     # Skiff init process binary
 ├── internal/
 │   ├── runtime/        # KubeRuntime + PodmanRuntime + DockerRuntime

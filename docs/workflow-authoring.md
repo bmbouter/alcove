@@ -466,6 +466,28 @@ Post your review via the GitHub API.
 Output {"approved": true} or {"approved": false, "comments": "..."}.
 ```
 
+## Dev Containers in Workflows
+
+Agent steps can use agents that declare a `dev_container.image`. When the
+workflow dispatches the step, the dev container is started alongside Skiff
+with a shared `/workspace` volume. The agent can then build and test code
+inside the dev container via the execution shim. This is configured in the
+agent definition, not in the workflow step itself.
+
+```yaml
+# In .alcove/tasks/go-dev.yml
+name: go-dev
+prompt: |
+  Implement the feature, then run `go test ./...` in the dev container.
+repos:
+  - url: https://github.com/org/myproject.git
+dev_container:
+  image: golang:1.25
+```
+
+See `docs/configuration.md` for the full `dev_container` field reference and
+runtime support matrix.
+
 ## Direct Outbound Mode
 
 By default, Skiff containers route all network traffic through the Gate proxy.

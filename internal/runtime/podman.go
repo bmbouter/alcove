@@ -29,6 +29,11 @@ type PodmanRuntime struct {
 	// PodmanBin is the path to the podman binary. Defaults to "podman".
 	PodmanBin string
 
+	// ShimBin is the host path to the shim binary. When a dev container is
+	// started, this binary is volume-mounted into the container and executed
+	// as a background process. Defaults to "./bin/shim".
+	ShimBin string
+
 	// execCommand is a hook for testing. If nil, exec.CommandContext is used.
 	execCommand func(ctx context.Context, name string, args ...string) *exec.Cmd
 }
@@ -90,6 +95,13 @@ func (p *PodmanRuntime) podmanBin() string {
 	return "podman"
 }
 
+func (p *PodmanRuntime) shimBin() string {
+	if p.ShimBin != "" {
+		return p.ShimBin
+	}
+	return "./bin/shim"
+}
+
 // run executes a podman command and returns its combined output.
 func (p *PodmanRuntime) run(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := p.cmd(ctx, args...)
@@ -97,9 +109,24 @@ func (p *PodmanRuntime) run(ctx context.Context, args ...string) ([]byte, error)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("podman %s: %w: %s", strings.Join(args, " "), err, stderr.String())
+		return nil, fmt.Errorf("podman %s: %w: %s", redactEnvArgs(args), err, stderr.String())
 	}
 	return stdout.Bytes(), nil
+}
+
+// redactEnvArgs returns a string representation of podman args with --env
+// values redacted to prevent leaking secrets (SHIM_TOKEN, etc.) in error messages.
+func redactEnvArgs(args []string) string {
+	redacted := make([]string, len(args))
+	for i, arg := range args {
+		if i > 0 && args[i-1] == "--env" && strings.Contains(arg, "=") {
+			parts := strings.SplitN(arg, "=", 2)
+			redacted[i] = parts[0] + "=REDACTED"
+		} else {
+			redacted[i] = arg
+		}
+	}
+	return strings.Join(redacted, " ")
 }
 
 // SkiffContainerName returns the container name for the main skiff container.
@@ -110,6 +137,16 @@ func SkiffContainerName(taskID string) string {
 // GateContainerName returns the container name for the gate sidecar container.
 func GateContainerName(taskID string) string {
 	return "gate-" + taskID
+}
+
+// DevContainerName returns the container name for the dev container sidecar.
+func DevContainerName(taskID string) string {
+	return "dev-" + taskID
+}
+
+// WorkspaceVolumeName returns the volume name for the shared workspace.
+func WorkspaceVolumeName(taskID string) string {
+	return "workspace-" + taskID
 }
 
 // RunTask starts a skiff container and its gate sidecar using dual-network
@@ -154,6 +191,50 @@ func (p *PodmanRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHandle,
 		return TaskHandle{}, fmt.Errorf("starting gate sidecar: %w", err)
 	}
 
+	// Start dev container sidecar if configured.
+	devName := DevContainerName(spec.TaskID)
+	workspaceVol := WorkspaceVolumeName(spec.TaskID)
+	if spec.DevContainerImage != "" {
+		// Create a shared workspace volume for Skiff ↔ dev container.
+		if _, err := p.run(ctx, "volume", "create", workspaceVol); err != nil {
+			_ = p.stopAndRemove(ctx, gateName)
+			return TaskHandle{}, fmt.Errorf("creating workspace volume: %w", err)
+		}
+
+		// Start the dev container. By default it is on the internal network only
+		// (no external access). When DevContainerNetworkAccess is "external", it
+		// joins both the internal and external networks so it can reach the internet.
+		devArgs := []string{
+			"run", "-d",
+		}
+		if !spec.Debug {
+			devArgs = append(devArgs, "--rm")
+		}
+		devNetworkArg := internalNet
+		if spec.DevContainerNetworkAccess == "external" {
+			devNetworkArg = internalNet + "," + externalNet
+		}
+		devArgs = append(devArgs,
+			"--name", devName,
+			"--network", devNetworkArg,
+			"--security-opt", "label=disable",
+			"-v", workspaceVol+":/workspace",
+			"-v", p.shimBin()+":/usr/local/bin/alcove-shim:ro,z",
+			"--entrypoint", "/usr/local/bin/alcove-shim",
+		)
+		for k, v := range spec.DevContainerEnv {
+			devArgs = append(devArgs, "--env", k+"="+v)
+		}
+		devArgs = append(devArgs, spec.DevContainerImage)
+
+		if _, err := p.run(ctx, devArgs...); err != nil {
+			// Clean up gate + volume on dev container failure.
+			_ = p.stopAndRemove(ctx, gateName)
+			_, _ = p.run(ctx, "volume", "rm", workspaceVol)
+			return TaskHandle{}, fmt.Errorf("starting dev container: %w", err)
+		}
+	}
+
 	// Start the main skiff container on the internal network ONLY.
 	// It can reach Gate, Hail, Ledger, Bridge but NOT the internet.
 	skiffArgs := []string{
@@ -173,6 +254,11 @@ func (p *PodmanRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHandle,
 		skiffArgs = append(skiffArgs, "--network", internalNet)
 	}
 
+	// Mount workspace volume in Skiff if dev container is configured.
+	if spec.DevContainerImage != "" {
+		skiffArgs = append(skiffArgs, "-v", workspaceVol+":/workspace")
+	}
+
 	// Merge spec env with the proxy configuration.
 	skiffEnv := make(map[string]string)
 	for k, v := range spec.Env {
@@ -188,8 +274,12 @@ func (p *PodmanRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHandle,
 		}
 		// Exempt internal services and Gate from proxy. Gate must be reached directly
 		// (not through itself) for ANTHROPIC_BASE_URL to work.
+		noProxyBase := fmt.Sprintf("localhost,127.0.0.1,alcove-hail,alcove-bridge,alcove-ledger,host.containers.internal,%s", gateName)
+		if spec.DevContainerImage != "" {
+			noProxyBase += "," + devName
+		}
 		if _, ok := skiffEnv["NO_PROXY"]; !ok {
-			skiffEnv["NO_PROXY"] = fmt.Sprintf("localhost,127.0.0.1,alcove-hail,alcove-bridge,alcove-ledger,host.containers.internal,%s", gateName)
+			skiffEnv["NO_PROXY"] = noProxyBase
 		}
 	}
 
@@ -199,7 +289,11 @@ func (p *PodmanRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHandle,
 	skiffArgs = append(skiffArgs, spec.Image)
 
 	if _, err := p.run(ctx, skiffArgs...); err != nil {
-		// Clean up the gate container if skiff fails to start.
+		// Clean up the gate container (and dev container + volume if present).
+		if spec.DevContainerImage != "" {
+			_ = p.stopAndRemove(ctx, devName)
+			_, _ = p.run(ctx, "volume", "rm", workspaceVol)
+		}
 		_ = p.stopAndRemove(ctx, gateName)
 		return TaskHandle{}, fmt.Errorf("starting skiff container: %w", err)
 	}
@@ -211,9 +305,12 @@ func (p *PodmanRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHandle,
 }
 
 // CancelTask stops and removes both the skiff and gate containers for a task.
+// It also cleans up any dev container and workspace volume associated with the task.
 func (p *PodmanRuntime) CancelTask(ctx context.Context, handle TaskHandle) error {
 	skiffName := SkiffContainerName(handle.ID)
 	gateName := GateContainerName(handle.ID)
+	devName := DevContainerName(handle.ID)
+	workspaceVol := WorkspaceVolumeName(handle.ID)
 
 	var firstErr error
 	if err := p.stopAndRemove(ctx, skiffName); err != nil {
@@ -222,6 +319,10 @@ func (p *PodmanRuntime) CancelTask(ctx context.Context, handle TaskHandle) error
 	if err := p.stopAndRemove(ctx, gateName); err != nil && firstErr == nil {
 		firstErr = err
 	}
+	// Always attempt dev container cleanup (no-op if not present).
+	_ = p.stopAndRemove(ctx, devName)
+	// Always attempt workspace volume cleanup (no-op if not present).
+	_, _ = p.run(ctx, "volume", "rm", workspaceVol)
 	return firstErr
 }
 
@@ -398,9 +499,14 @@ func (p *PodmanRuntime) CleanupOrphanedContainers(ctx context.Context, prefix st
 			continue
 		}
 
-		// Skiff is gone or not running — clean up the gate container.
+		// Skiff is gone or not running — clean up the orphaned container.
 		log.Printf("cleanup: removing orphaned container %s (skiff %s status: %s)", name, skiffName, status)
 		_ = p.stopAndRemove(ctx, name)
+		// If cleaning up dev containers, also remove the workspace volume.
+		if prefix == "dev-" {
+			workspaceVol := WorkspaceVolumeName(taskID)
+			_, _ = p.run(ctx, "volume", "rm", workspaceVol)
+		}
 		cleaned++
 	}
 

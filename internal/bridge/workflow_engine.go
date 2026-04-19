@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bmbouter/alcove/internal"
 	"github.com/bmbouter/alcove/internal/bridge/condition"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -268,7 +269,7 @@ func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, st
 				agentDef.Prompt = prompt
 			}
 			if repo, ok := item.Definition["repo"].(string); ok {
-				agentDef.Repo = repo
+				agentDef.Repos = []internal.RepoSpec{{URL: repo}}
 			}
 		}
 		err = nil
@@ -298,18 +299,15 @@ func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, st
 		taskReq.DirectOutbound = true
 	}
 
-	// If step has a repo specified, override the agent's repo
-	if step.Repo != "" {
-		taskReq.Repo = step.Repo
-
-		// Validate cross-repo access: ensure credentials are available for the target repo
-		if err := we.validateCrossRepoCredentials(ctx, step.Repo, run.TeamID); err != nil {
-			return fmt.Errorf("cross-repo credential validation failed for repo %s: %w", step.Repo, err)
-		}
-
-		// Apply cross-repo enhancements to the task request
-		if err := we.enhanceTaskRequestForRepo(ctx, &taskReq, step.Repo, run.TeamID); err != nil {
-			return fmt.Errorf("cross-repo enhancement failed for repo %s: %w", step.Repo, err)
+	// If step has repos specified, override the agent's repos
+	if len(step.Repos) > 0 {
+		taskReq.Repos = step.Repos
+		// Cross-repo credential validation for each repo
+		for _, r := range step.Repos {
+			repoPath := r.URL
+			if err := we.validateCrossRepoCredentials(ctx, repoPath, run.TeamID); err != nil {
+				return fmt.Errorf("cross-repo credential validation failed for repo %s: %w", repoPath, err)
+			}
 		}
 	}
 

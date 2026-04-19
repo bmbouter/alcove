@@ -17,12 +17,18 @@ package internal
 
 import "time"
 
+// RepoSpec declares a repository for multi-repo agent sessions.
+type RepoSpec struct {
+	Name string `json:"name,omitempty" yaml:"name,omitempty"`
+	URL  string `json:"url" yaml:"url"`
+	Ref  string `json:"ref,omitempty" yaml:"ref,omitempty"`
+}
+
 // Task represents a unit of work dispatched to a Skiff pod.
 type Task struct {
 	ID       string            `json:"id"`
 	Prompt   string            `json:"prompt"`
-	Repo     string            `json:"repo,omitempty"`
-	Branch   string            `json:"branch,omitempty"`
+	Repos    []RepoSpec        `json:"repos,omitempty"`
 	Provider string            `json:"provider"`
 	Scope    Scope             `json:"scope"`
 	Timeout  time.Duration     `json:"timeout"`
@@ -48,7 +54,7 @@ type Session struct {
 	TaskID         string     `json:"task_id"`
 	Submitter      string     `json:"submitter"`
 	Prompt         string     `json:"prompt"`
-	Repo           string     `json:"repo,omitempty"`
+	Repos          []RepoSpec `json:"repos,omitempty"`
 	Provider       string     `json:"provider"`
 	Scope          Scope      `json:"scope"`
 	Status         string     `json:"status"` // running, completed, timeout, cancelled, error

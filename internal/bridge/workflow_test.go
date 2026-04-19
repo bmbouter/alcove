@@ -492,14 +492,17 @@ name: Cross-Repo Workflow
 workflow:
   - id: implement-plugin
     agent: autonomous-developer
-    repo: pulp/pulp_python
+    repos:
+      - url: pulp/pulp_python
   - id: implement-core
     agent: autonomous-developer
-    repo: pulp/pulpcore
+    repos:
+      - url: pulp/pulpcore
     needs: [implement-plugin]
   - id: integration-test
     agent: test-runner
-    repo: pulp/pulp_integration
+    repos:
+      - url: pulp/pulp_integration
     needs: [implement-core]
 `
 
@@ -516,7 +519,7 @@ workflow:
 		t.Errorf("expected 3 workflow steps, got %d", len(wd.Workflow))
 	}
 
-	// Check each step has the correct repo
+	// Check each step has the correct repos
 	expectedRepos := map[string]string{
 		"implement-plugin": "pulp/pulp_python",
 		"implement-core":   "pulp/pulpcore",
@@ -525,8 +528,12 @@ workflow:
 
 	for _, step := range wd.Workflow {
 		expectedRepo := expectedRepos[step.ID]
-		if step.Repo != expectedRepo {
-			t.Errorf("step '%s': expected repo '%s', got '%s'", step.ID, expectedRepo, step.Repo)
+		if len(step.Repos) != 1 || step.Repos[0].URL != expectedRepo {
+			var got string
+			if len(step.Repos) > 0 {
+				got = step.Repos[0].URL
+			}
+			t.Errorf("step '%s': expected repo URL '%s', got '%s'", step.ID, expectedRepo, got)
 		}
 	}
 

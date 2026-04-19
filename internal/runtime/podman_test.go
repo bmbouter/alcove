@@ -239,9 +239,10 @@ func TestCancelTask_CommandConstruction(t *testing.T) {
 		t.Fatalf("CancelTask() error: %v", err)
 	}
 
-	// Should have 4 calls: stop skiff, rm skiff, stop gate, rm gate.
-	if len(*calls) != 4 {
-		t.Fatalf("expected 4 podman calls, got %d", len(*calls))
+	// Should have 7 calls: stop skiff, rm skiff, stop gate, rm gate,
+	// stop dev, rm dev, volume rm.
+	if len(*calls) != 7 {
+		t.Fatalf("expected 7 podman calls, got %d", len(*calls))
 	}
 
 	// Verify stop calls include --time 10.
@@ -260,6 +261,18 @@ func TestCancelTask_CommandConstruction(t *testing.T) {
 	rmGate := strings.Join((*calls)[3], " ")
 	if !strings.Contains(rmGate, "rm -f gate-task-1") {
 		t.Errorf("expected rm gate call, got: %s", rmGate)
+	}
+	stopDev := strings.Join((*calls)[4], " ")
+	if !strings.Contains(stopDev, "stop --time 10 dev-task-1") {
+		t.Errorf("expected stop dev call, got: %s", stopDev)
+	}
+	rmDev := strings.Join((*calls)[5], " ")
+	if !strings.Contains(rmDev, "rm -f dev-task-1") {
+		t.Errorf("expected rm dev call, got: %s", rmDev)
+	}
+	volRm := strings.Join((*calls)[6], " ")
+	if !strings.Contains(volRm, "volume rm workspace-task-1") {
+		t.Errorf("expected volume rm call, got: %s", volRm)
 	}
 }
 
@@ -743,6 +756,276 @@ func TestCleanupOrphanedContainers_EmptyList(t *testing.T) {
 	// Only the ps call should be made.
 	if len(*calls) != 1 {
 		t.Errorf("expected 1 call (ps only), got %d", len(*calls))
+	}
+}
+
+func TestDevContainerName(t *testing.T) {
+	tests := []struct {
+		taskID        string
+		wantDev       string
+		wantWorkspace string
+	}{
+		{"abc123", "dev-abc123", "workspace-abc123"},
+		{"task-uuid-1234", "dev-task-uuid-1234", "workspace-task-uuid-1234"},
+		{"", "dev-", "workspace-"},
+	}
+
+	for _, tt := range tests {
+		if got := DevContainerName(tt.taskID); got != tt.wantDev {
+			t.Errorf("DevContainerName(%q) = %q, want %q", tt.taskID, got, tt.wantDev)
+		}
+		if got := WorkspaceVolumeName(tt.taskID); got != tt.wantWorkspace {
+			t.Errorf("WorkspaceVolumeName(%q) = %q, want %q", tt.taskID, got, tt.wantWorkspace)
+		}
+	}
+}
+
+func TestRunTask_WithDevContainer(t *testing.T) {
+	execFn, calls := fakeExecCommand(t, "container-id-123\n", 0)
+	p := &PodmanRuntime{
+		PodmanBin:   "podman",
+		ShimBin:     "/host/path/to/shim",
+		execCommand: execFn,
+	}
+
+	spec := TaskSpec{
+		TaskID:            "task-dc",
+		Image:             "quay.io/alcove/skiff:latest",
+		GateImage:         "quay.io/alcove/gate:latest",
+		Env:               map[string]string{"TASK_ID": "task-dc"},
+		GateEnv:           map[string]string{"GATE_SCOPE": "read"},
+		Network:           "test-internal",
+		ExternalNet:       "test-external",
+		DevContainerImage: "quay.io/myorg/devenv:latest",
+		DevContainerEnv:   map[string]string{"SHIM_TOKEN": "tok123"},
+	}
+
+	handle, err := p.RunTask(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("RunTask() error: %v", err)
+	}
+	if handle.ID != "task-dc" {
+		t.Errorf("handle.ID = %q, want %q", handle.ID, "task-dc")
+	}
+
+	// Expect 5 calls: gate start, volume create, dev container start, shim exec, skiff start.
+	if len(*calls) != 4 {
+		t.Fatalf("expected 4 podman calls, got %d", len(*calls))
+	}
+
+	// Call 0: gate start.
+	gateArgs := strings.Join((*calls)[0], " ")
+	if !strings.Contains(gateArgs, "--name gate-task-dc") {
+		t.Errorf("gate call missing --name gate-task-dc: %s", gateArgs)
+	}
+
+	// Call 1: volume create.
+	volArgs := strings.Join((*calls)[1], " ")
+	if !strings.Contains(volArgs, "volume create workspace-task-dc") {
+		t.Errorf("expected volume create, got: %s", volArgs)
+	}
+
+	// Call 2: dev container start — should include shim volume mount and entrypoint override.
+	devArgs := strings.Join((*calls)[2], " ")
+	if !strings.Contains(devArgs, "--name dev-task-dc") {
+		t.Errorf("dev call missing --name dev-task-dc: %s", devArgs)
+	}
+	if !strings.Contains(devArgs, "--network test-internal") {
+		t.Errorf("dev call missing internal network: %s", devArgs)
+	}
+	if strings.Contains(devArgs, "test-external") {
+		t.Errorf("dev call must NOT include external network: %s", devArgs)
+	}
+	if !strings.Contains(devArgs, "workspace-task-dc:/workspace") {
+		t.Errorf("dev call missing workspace volume: %s", devArgs)
+	}
+	if !strings.Contains(devArgs, "/host/path/to/shim:/usr/local/bin/alcove-shim:ro") {
+		t.Errorf("dev call missing shim volume mount: %s", devArgs)
+	}
+	if !strings.Contains(devArgs, "--entrypoint /usr/local/bin/alcove-shim") {
+		t.Errorf("dev call missing entrypoint override: %s", devArgs)
+	}
+	if !strings.Contains(devArgs, "SHIM_TOKEN=tok123") {
+		t.Errorf("dev call missing SHIM_TOKEN env: %s", devArgs)
+	}
+	if !strings.Contains(devArgs, "quay.io/myorg/devenv:latest") {
+		t.Errorf("dev call missing dev container image: %s", devArgs)
+	}
+
+	// Call 3: skiff start — should include workspace volume and NO_PROXY with dev container.
+	skiffArgs := strings.Join((*calls)[3], " ")
+	if !strings.Contains(skiffArgs, "--name skiff-task-dc") {
+		t.Errorf("skiff call missing --name skiff-task-dc: %s", skiffArgs)
+	}
+	if !strings.Contains(skiffArgs, "workspace-task-dc:/workspace") {
+		t.Errorf("skiff call missing workspace volume mount: %s", skiffArgs)
+	}
+	if !strings.Contains(skiffArgs, "dev-task-dc") {
+		t.Errorf("skiff NO_PROXY should include dev container name: %s", skiffArgs)
+	}
+}
+
+func TestRunTask_WithoutDevContainer(t *testing.T) {
+	execFn, calls := fakeExecCommand(t, "container-id-123\n", 0)
+	p := &PodmanRuntime{
+		PodmanBin:   "podman",
+		execCommand: execFn,
+	}
+
+	spec := TaskSpec{
+		TaskID:    "task-nodc",
+		Image:     "quay.io/alcove/skiff:latest",
+		GateImage: "quay.io/alcove/gate:latest",
+		Env:       map[string]string{"TASK_ID": "task-nodc"},
+		GateEnv:   map[string]string{"GATE_SCOPE": "read"},
+		Network:   "test-internal",
+		ExternalNet: "test-external",
+		// DevContainerImage intentionally omitted.
+	}
+
+	_, err := p.RunTask(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("RunTask() error: %v", err)
+	}
+
+	// Expect 2 calls: gate start, skiff start. No volume or dev container.
+	if len(*calls) != 2 {
+		t.Fatalf("expected 2 podman calls, got %d", len(*calls))
+	}
+
+	// Verify no volume or dev container calls.
+	for i, call := range *calls {
+		args := strings.Join(call, " ")
+		if strings.Contains(args, "volume create") {
+			t.Errorf("call %d unexpectedly creates a volume: %s", i, args)
+		}
+		if strings.Contains(args, "--name dev-") {
+			t.Errorf("call %d unexpectedly starts a dev container: %s", i, args)
+		}
+	}
+
+	// Skiff should NOT have workspace volume mount.
+	skiffArgs := strings.Join((*calls)[1], " ")
+	if strings.Contains(skiffArgs, "/workspace") {
+		t.Errorf("skiff call should NOT have workspace volume when no dev container: %s", skiffArgs)
+	}
+}
+
+func TestCancelTask_WithDevContainer(t *testing.T) {
+	execFn, calls := fakeExecCommand(t, "", 0)
+	p := &PodmanRuntime{
+		PodmanBin:   "podman",
+		execCommand: execFn,
+	}
+
+	handle := TaskHandle{ID: "task-dc", PodName: "skiff-task-dc"}
+	err := p.CancelTask(context.Background(), handle)
+	if err != nil {
+		t.Fatalf("CancelTask() error: %v", err)
+	}
+
+	// Should have 7 calls: stop/rm skiff, stop/rm gate, stop/rm dev, volume rm.
+	if len(*calls) != 7 {
+		t.Fatalf("expected 7 podman calls, got %d", len(*calls))
+	}
+
+	// Verify dev container cleanup calls.
+	stopDev := strings.Join((*calls)[4], " ")
+	if !strings.Contains(stopDev, "stop --time 10 dev-task-dc") {
+		t.Errorf("expected stop dev call, got: %s", stopDev)
+	}
+	rmDev := strings.Join((*calls)[5], " ")
+	if !strings.Contains(rmDev, "rm -f dev-task-dc") {
+		t.Errorf("expected rm dev call, got: %s", rmDev)
+	}
+	volRm := strings.Join((*calls)[6], " ")
+	if !strings.Contains(volRm, "volume rm workspace-task-dc") {
+		t.Errorf("expected volume rm call, got: %s", volRm)
+	}
+}
+
+func TestRunTask_WithDevContainerExternalNetwork(t *testing.T) {
+	execFn, calls := fakeExecCommand(t, "container-id-123\n", 0)
+	p := &PodmanRuntime{
+		PodmanBin:   "podman",
+		ShimBin:     "/host/path/to/shim",
+		execCommand: execFn,
+	}
+
+	spec := TaskSpec{
+		TaskID:                    "task-dcext",
+		Image:                     "quay.io/alcove/skiff:latest",
+		GateImage:                 "quay.io/alcove/gate:latest",
+		Env:                       map[string]string{"TASK_ID": "task-dcext"},
+		GateEnv:                   map[string]string{"GATE_SCOPE": "read"},
+		Network:                   "test-internal",
+		ExternalNet:               "test-external",
+		DevContainerImage:         "docker.io/library/golang:1.25",
+		DevContainerEnv:           map[string]string{"SHIM_TOKEN": "tok456"},
+		DevContainerNetworkAccess: "external",
+	}
+
+	handle, err := p.RunTask(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("RunTask() error: %v", err)
+	}
+	if handle.ID != "task-dcext" {
+		t.Errorf("handle.ID = %q, want %q", handle.ID, "task-dcext")
+	}
+
+	// Expect 4 calls: gate start, volume create, dev container start, skiff start.
+	if len(*calls) != 4 {
+		t.Fatalf("expected 4 podman calls, got %d", len(*calls))
+	}
+
+	// Call 2: dev container start — should include BOTH internal and external networks.
+	devArgs := strings.Join((*calls)[2], " ")
+	if !strings.Contains(devArgs, "--name dev-task-dcext") {
+		t.Errorf("dev call missing --name dev-task-dcext: %s", devArgs)
+	}
+	if !strings.Contains(devArgs, "--network test-internal,test-external") {
+		t.Errorf("dev call should include both networks when DevContainerNetworkAccess=external: %s", devArgs)
+	}
+}
+
+func TestRunTask_WithDevContainerInternalNetwork(t *testing.T) {
+	execFn, calls := fakeExecCommand(t, "container-id-123\n", 0)
+	p := &PodmanRuntime{
+		PodmanBin:   "podman",
+		ShimBin:     "/host/path/to/shim",
+		execCommand: execFn,
+	}
+
+	spec := TaskSpec{
+		TaskID:                    "task-dcint",
+		Image:                     "quay.io/alcove/skiff:latest",
+		GateImage:                 "quay.io/alcove/gate:latest",
+		Env:                       map[string]string{"TASK_ID": "task-dcint"},
+		GateEnv:                   map[string]string{"GATE_SCOPE": "read"},
+		Network:                   "test-internal",
+		ExternalNet:               "test-external",
+		DevContainerImage:         "docker.io/library/golang:1.25",
+		DevContainerEnv:           map[string]string{"SHIM_TOKEN": "tok789"},
+		DevContainerNetworkAccess: "internal",
+	}
+
+	_, err := p.RunTask(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("RunTask() error: %v", err)
+	}
+
+	// Expect 4 calls: gate start, volume create, dev container start, skiff start.
+	if len(*calls) != 4 {
+		t.Fatalf("expected 4 podman calls, got %d", len(*calls))
+	}
+
+	// Call 2: dev container start — should include ONLY internal network.
+	devArgs := strings.Join((*calls)[2], " ")
+	if !strings.Contains(devArgs, "--network test-internal") {
+		t.Errorf("dev call missing internal network: %s", devArgs)
+	}
+	if strings.Contains(devArgs, "test-external") {
+		t.Errorf("dev call must NOT include external network when DevContainerNetworkAccess=internal: %s", devArgs)
 	}
 }
 

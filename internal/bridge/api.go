@@ -933,7 +933,7 @@ func (a *API) listSessions(ctx context.Context, status, repo, since, until, team
 		COALESCE(s.task_name, td.name, '') as task_name,
 		COALESCE(s.trigger_type, '') as trigger_type,
 		COALESCE(s.trigger_ref, '') as trigger_ref,
-		COALESCE(s.repo, '') as repo
+		s.repos
 		FROM sessions s
 		LEFT JOIN schedules sc ON s.prompt LIKE '%[' || sc.source_key || ']%' AND sc.source_key IS NOT NULL AND sc.source_key != ''
 		LEFT JOIN agent_definitions td ON sc.source_key = td.source_key` +
@@ -952,15 +952,15 @@ func (a *API) listSessions(ctx context.Context, status, repo, since, until, team
 	var sessions []internal.Session
 	for rows.Next() {
 		var s internal.Session
-		var scopeJSON, artifactsJSON []byte
+		var scopeJSON, artifactsJSON, reposJSON []byte
 		var finishedAt *time.Time
 		var exitCode *int
 		var parentID *string
-		var taskName, triggerType, triggerRef, repo string
+		var taskName, triggerType, triggerRef string
 
 		if err := rows.Scan(&s.ID, &s.TaskID, &s.Submitter, &s.Prompt,
 			&scopeJSON, &s.Provider, &s.Status, &s.StartedAt, &finishedAt,
-			&exitCode, &artifactsJSON, &parentID, &taskName, &triggerType, &triggerRef, &repo); err != nil {
+			&exitCode, &artifactsJSON, &parentID, &taskName, &triggerType, &triggerRef, &reposJSON); err != nil {
 			return nil, 0, err
 		}
 
@@ -982,7 +982,9 @@ func (a *API) listSessions(ctx context.Context, status, repo, since, until, team
 		if parentID != nil {
 			s.ParentID = *parentID
 		}
-		s.Repo = repo
+		if reposJSON != nil {
+			_ = json.Unmarshal(reposJSON, &s.Repos)
+		}
 
 		// Set task name with fallback
 		if taskName != "" {
@@ -1017,25 +1019,25 @@ func (a *API) listSessions(ctx context.Context, status, repo, since, until, team
 
 func (a *API) getSession(ctx context.Context, id string) (*internal.Session, error) {
 	var s internal.Session
-	var scopeJSON, artifactsJSON []byte
+	var scopeJSON, artifactsJSON, reposJSON []byte
 	var finishedAt *time.Time
 	var exitCode *int
 	var parentID *string
-	var taskName, triggerType, triggerRef, repo string
+	var taskName, triggerType, triggerRef string
 
 	err := a.db.QueryRow(ctx,
 		`SELECT s.id, s.task_id, s.submitter, s.prompt, s.scope, s.provider, s.outcome, s.started_at, s.finished_at, s.exit_code, s.artifacts, s.parent_id,
 		COALESCE(s.task_name, td.name, '') as task_name,
 		COALESCE(s.trigger_type, '') as trigger_type,
 		COALESCE(s.trigger_ref, '') as trigger_ref,
-		COALESCE(s.repo, '') as repo
+		s.repos
 		FROM sessions s
 		LEFT JOIN schedules sc ON s.prompt LIKE '%[' || sc.source_key || ']%' AND sc.source_key IS NOT NULL AND sc.source_key != ''
 		LEFT JOIN agent_definitions td ON sc.source_key = td.source_key
 		WHERE s.id = $1`, id,
 	).Scan(&s.ID, &s.TaskID, &s.Submitter, &s.Prompt,
 		&scopeJSON, &s.Provider, &s.Status, &s.StartedAt, &finishedAt,
-		&exitCode, &artifactsJSON, &parentID, &taskName, &triggerType, &triggerRef, &repo)
+		&exitCode, &artifactsJSON, &parentID, &taskName, &triggerType, &triggerRef, &reposJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -1058,7 +1060,9 @@ func (a *API) getSession(ctx context.Context, id string) (*internal.Session, err
 	if parentID != nil {
 		s.ParentID = *parentID
 	}
-	s.Repo = repo
+	if reposJSON != nil {
+		_ = json.Unmarshal(reposJSON, &s.Repos)
+	}
 
 	// Set task name with fallback
 	if taskName != "" {
@@ -1896,7 +1900,7 @@ func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
 
 	// Query schedules with event triggers.
 	rows, queryErr := a.db.Query(ctx, `
-		SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, team_id, debug, trigger_type, event_config
+		SELECT id, name, cron, prompt, repos, provider, scope_preset, timeout, enabled, team_id, debug, trigger_type, event_config
 		FROM schedules
 		WHERE enabled = true
 		  AND COALESCE(trigger_type, 'cron') IN ('event', 'cron-and-event')
@@ -1918,7 +1922,7 @@ func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
 			Name        string
 			Cron        string
 			Prompt      string
-			Repo        string
+			ReposJSON   []byte
 			Provider    string
 			ScopePreset string
 			Timeout     int
@@ -1931,11 +1935,16 @@ func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
 
 		if err := rows.Scan(
 			&sched.ID, &sched.Name, &sched.Cron, &sched.Prompt,
-			&sched.Repo, &sched.Provider, &sched.ScopePreset, &sched.Timeout,
+			&sched.ReposJSON, &sched.Provider, &sched.ScopePreset, &sched.Timeout,
 			&sched.Enabled, &sched.TeamID, &sched.Debug, &sched.TriggerType, &sched.EventConfig,
 		); err != nil {
 			log.Printf("webhook: error scanning schedule: %v", err)
 			continue
+		}
+
+		var schedRepos []internal.RepoSpec
+		if sched.ReposJSON != nil {
+			_ = json.Unmarshal(sched.ReposJSON, &schedRepos)
 		}
 
 		var trigger EventTrigger
@@ -1953,7 +1962,7 @@ func (a *API) handleWebhookGitHub(w http.ResponseWriter, r *http.Request) {
 		// Build TaskRequest with webhook context as env vars.
 		taskReq := TaskRequest{
 			Prompt:      sched.Prompt,
-			Repo:        sched.Repo,
+			Repos:       schedRepos,
 			Provider:    sched.Provider,
 			Timeout:     sched.Timeout,
 			Debug:       sched.Debug,

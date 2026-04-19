@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bmbouter/alcove/internal"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -63,7 +64,7 @@ type pollSchedule struct {
 	ID        string
 	Name      string
 	Prompt    string
-	Repo      string
+	Repos     []internal.RepoSpec
 	Provider  string
 	Timeout   int
 	TeamID    string
@@ -82,7 +83,7 @@ func (p *GitHubPoller) PollAll(ctx context.Context) {
 	}
 
 	rows, err := p.db.Query(ctx, `
-		SELECT id, name, prompt, repo, provider, timeout, team_id, debug, event_config, COALESCE(source_key, '')
+		SELECT id, name, prompt, repos, provider, timeout, team_id, debug, event_config, COALESCE(source_key, '')
 		FROM schedules
 		WHERE enabled = true
 		  AND COALESCE(trigger_type, 'cron') IN ('event', 'cron-and-event')
@@ -103,12 +104,16 @@ func (p *GitHubPoller) PollAll(ctx context.Context) {
 
 	for rows.Next() {
 		var ps pollSchedule
+		var reposJSON []byte
 		var eventConfigJSON []byte
 
-		if err := rows.Scan(&ps.ID, &ps.Name, &ps.Prompt, &ps.Repo,
+		if err := rows.Scan(&ps.ID, &ps.Name, &ps.Prompt, &reposJSON,
 			&ps.Provider, &ps.Timeout, &ps.TeamID, &ps.Debug, &eventConfigJSON, &ps.SourceKey); err != nil {
 			log.Printf("poller: error scanning schedule: %v", err)
 			continue
+		}
+		if reposJSON != nil {
+			_ = json.Unmarshal(reposJSON, &ps.Repos)
 		}
 
 		var trigger EventTrigger
@@ -483,7 +488,7 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, teamID string, schedu
 			// Build session request. Look up agent definition for profiles.
 			taskReq := TaskRequest{
 				Prompt:   sched.Prompt,
-				Repo:     sched.Repo,
+				Repos:    sched.Repos,
 				Provider: sched.Provider,
 				Timeout:  sched.Timeout,
 				Debug:    sched.Debug,
