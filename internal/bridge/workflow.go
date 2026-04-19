@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bmbouter/alcove/internal"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"gopkg.in/yaml.v3"
@@ -46,7 +47,7 @@ type WorkflowStep struct {
 	Agent         string                 `json:"agent,omitempty" yaml:"agent,omitempty"`
 	Type          string                 `json:"type,omitempty" yaml:"type,omitempty"`                     // "agent" (default) or "bridge"
 	Action        string                 `json:"action,omitempty" yaml:"action,omitempty"`                 // Bridge action name (create-pr, await-ci, merge-pr)
-	Repo          string                 `json:"repo,omitempty" yaml:"repo,omitempty"`
+	Repos         []internal.RepoSpec    `json:"repos,omitempty" yaml:"repos,omitempty"`
 	Trigger       *EventTrigger          `json:"trigger,omitempty" yaml:"trigger,omitempty"`
 	Needs         []string               `json:"needs,omitempty" yaml:"needs,omitempty"`
 	Depends       string                 `json:"depends,omitempty" yaml:"depends,omitempty"`               // Enhanced dependency expression

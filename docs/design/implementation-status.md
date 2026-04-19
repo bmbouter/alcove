@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 2026-04-16
+Last updated: 2026-04-18
 
 ## Project Overview
 
@@ -29,10 +29,11 @@ alcove/
 │   ├── bridge/main.go          ✅ Controller: REST API, auth, session dispatch, migration, scheduling, admin settings
 │   ├── gate/main.go            ✅ HTTP proxy with scope enforcement, LLM proxying, SCM proxying (/github/, /gitlab/), token refresh, MCP tool configs
 │   ├── skiff-init/main.go      ✅ PID 1 init: reads session config from env, runs claude, streams output, publishes transcript events to NATS
+│   ├── shim/main.go            ✅ Dev container execution sidecar: GET /healthz + POST /exec with NDJSON streaming, bearer auth, timeout enforcement
 │   ├── hashpw/main.go          ✅ Utility: password hashing tool
 │   └── alcove/main.go          ✅ CLI: 8 subcommands (run, list, logs, status, cancel, login, config, version)
 ├── internal/
-│   ├── types.go                ✅ Shared types (Task, Session, Scope, TranscriptEvent, etc.)
+│   ├── types.go                ✅ Shared types (Task, Session, Scope, TranscriptEvent, RepoSpec, etc.)
 │   ├── runtime/
 │   │   ├── runtime.go          ✅ Runtime interface (RunTask, CancelTask, EnsureService, etc.) with Podman, Docker, and Kubernetes backends (RunTask starts a session)
 │   │   ├── podman.go           ✅ PodmanRuntime implementation (podman CLI wrapper)
@@ -68,7 +69,8 @@ alcove/
 │   │       ├── 027_teams.sql           ✅ Teams, team_members, team_settings tables; owner→team_id migration
 │   │       ├── 028_workflow_graph_v2.sql  ✅ Workflow run steps iteration tracking
 │   │       ├── 029_catalog_items.sql   ✅ Catalog items and team_catalog_items tables
-│   │       └── 030_session_runtime_config.sql  ✅ Session runtime configuration storage
+│   │       ├── 030_session_runtime_config.sql  ✅ Session runtime configuration storage
+│   │       └── 031_multi_repo.sql     ✅ Migrate repo TEXT → repos JSONB on sessions and schedules
 │   ├── gate/
 │   │   ├── proxy.go            ✅ HTTP proxy, CONNECT tunneling, LLM API injection (api_key + bearer + oauth_token), audit logging, 401 token refresh
 │   │   ├── proxy_test.go       ✅ Proxy tests
@@ -97,7 +99,7 @@ alcove/
 │   └── design/
 │       ├── implementation-status.md    ✅ This file
 │       ├── architecture.md             ✅ Full component design
-│       ├── architecture-decisions.md   ✅ 19 resolved decisions
+│       ├── architecture-decisions.md   ✅ 21 resolved decisions
 │       ├── problem-statement.md        ✅ Why ephemeral agents
 │       ├── credential-management.md    ✅ Credential storage and token flow design
 │       ├── auth-backends.md            ✅ Dual auth backend design
@@ -255,7 +257,7 @@ alcove/
 
 20. **YAML Agent Definitions** — Agents defined in `.alcove/tasks/*.yml` in git
     repos. Agent repo registration (system + per-user) via settings API.
-    YAML schema supports name, prompt, repo, provider, model, timeout, budget,
+    YAML schema supports name, prompt, repos, provider, model, timeout, budget,
     profiles, tools, and schedule fields. Auto-sync every 15 minutes. Dashboard
     supports Run Now and View YAML actions. Starter templates available via
     `GET /api/v1/agent-templates`.
@@ -264,13 +266,19 @@ alcove/
     implements the `Runtime` interface using direct client-go API calls (no
     operator needed). Each session runs as a k8s Job with Gate as a native sidecar
     (init container with `restartPolicy: Always`) and Skiff as the main
-    container. Per-task NetworkPolicy creation is disabled due to OVN-Kubernetes
-    DNS resolution failures; a static `alcove-allow-internal` policy provides
-    egress restriction instead. Service hostnames (HAIL_URL, LEDGER_URL) are
-    resolved to IPs at dispatch time to bypass DNS issues in task pods. Compatible
-    with OpenShift restricted-v2 SCC (runs as non-root, drops all capabilities,
-    sets `seccompProfile: RuntimeDefault`). Minimal RBAC: Bridge needs create/delete
-    permissions for Jobs and NetworkPolicies.
+    container. Dev containers are supported as native sidecars with the shim
+    binary copied via an init container (`SHIM_IMAGE`), emptyDir volumes for
+    workspace and shim binary sharing, and `DEV_CONTAINER_HOST` overridden to
+    `localhost:9090` (K8s pod containers share a network namespace).
+    `network_access=external` is logged as a warning since per-container network
+    isolation is not enforceable in a K8s Pod. Per-task NetworkPolicy creation
+    is disabled due to OVN-Kubernetes DNS resolution failures; a static
+    `alcove-allow-internal` policy provides egress restriction instead. Service
+    hostnames (HAIL_URL, LEDGER_URL) are resolved to IPs at dispatch time to
+    bypass DNS issues in task pods. Compatible with OpenShift restricted-v2 SCC
+    (runs as non-root, drops all capabilities, sets `seccompProfile:
+    RuntimeDefault`). Minimal RBAC: Bridge needs create/delete permissions for
+    Jobs and NetworkPolicies.
 
 22. **CI/CD** — GitHub Actions workflows for testing (`ci.yml`) and releasing
     (`release.yml`). Container images published to `ghcr.io/bmbouter`.
@@ -339,6 +347,31 @@ alcove/
     Iteration tracking is stored in `workflow_run_steps` (migration
     `028_workflow_graph_v2.sql`). The old `needs` list syntax remains supported
     for backward compatibility.
+
+29. **Dev Containers** — Optional project-provided containers that run alongside
+    Skiff so agents can build and test code in a project-specific environment.
+    Agent definitions declare `dev_container.image` and optionally
+    `dev_container.network_access` (`internal` default, `external` for internet
+    access) in YAML. Podman creates a shared workspace volume at `/workspace`,
+    starts the dev container with the shim binary (`cmd/shim`) injected as
+    entrypoint, and mounts the volume in both Skiff and dev containers. The
+    shim exposes `GET /healthz` and `POST /exec` with NDJSON streaming,
+    protected by bearer auth (`SHIM_TOKEN`). The dispatcher generates a random
+    `SHIM_TOKEN` and passes `DEV_TOKEN` and `DEV_CONTAINER_HOST` to Skiff.
+    On Kubernetes, the dev container runs as a native sidecar with the shim
+    binary copied via an init container (`SHIM_IMAGE`) and shared emptyDir
+    volumes; `DEV_CONTAINER_HOST` is overridden to `localhost:9090` since K8s
+    pod containers share a network namespace. Docker rejects dev containers
+    with a clear error. The shim binary is built with `CGO_ENABLED=0` for
+    static linking and is uploaded as a release asset.
+
+30. **Multi-Repo Support** — Agent definitions use a `repos:` list (each entry
+    is a `RepoSpec` with `name`, `url`, and optional `ref` fields) instead of
+    a single `repo:` string. Skiff receives a `REPOS` JSON env var containing
+    the list and clones each repo into `/workspace/<name>/`. If `name` is
+    omitted, it is derived from the URL. Database migration
+    `031_multi_repo.sql` replaces the `repo TEXT` column with `repos JSONB`
+    on both `sessions` and `schedules` tables, migrating existing data.
 
 ## How to Run (Developer Workflow)
 
@@ -411,7 +444,7 @@ See the full roadmap in [architecture-decisions.md](architecture-decisions.md#ro
 ## Key Design Documents
 
 - [architecture.md](architecture.md) — full component design, deployment diagrams, network isolation
-- [architecture-decisions.md](architecture-decisions.md) — 19 resolved decisions, CLI design, config format, repo layout, revised roadmap
+- [architecture-decisions.md](architecture-decisions.md) — 21 resolved decisions, CLI design, config format, repo layout, revised roadmap
 - [problem-statement.md](problem-statement.md) — why ephemeral agents (context contamination, credential drift, filesystem poisoning, credential exposure)
 - [credential-management.md](credential-management.md) — credential storage, encryption, OAuth2 token flow, token refresh design
 - [auth-backends.md](auth-backends.md) — auth backend design (memory, postgres, rh-identity)
@@ -458,6 +491,8 @@ See the full roadmap in [architecture-decisions.md](architecture-decisions.md#ro
 | `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Default model for Anthropic provider |
 | `VERTEX_MODEL` | `claude-sonnet-4-20250514` | Default model for Vertex AI provider |
 | `BRIDGE_URL` | `http://alcove-bridge:<port>` | Bridge URL used for Gate token refresh callbacks |
+| `SHIM_BIN_PATH` | `./bin/shim` | Host path to the shim binary (Podman dev containers) |
+| `SHIM_IMAGE` | `ghcr.io/bmbouter/alcove-shim:latest` | Container image for the shim init container (K8s dev containers) |
 
 ### Skiff (injected by Bridge)
 
@@ -466,7 +501,8 @@ See the full roadmap in [architecture-decisions.md](architecture-decisions.md#ro
 | `TASK_ID` | Unique task identifier |
 | `SESSION_ID` | Session identifier for Ledger |
 | `PROMPT` | The Claude Code prompt to execute |
-| `REPO` | Git repository URL to clone (optional) |
+| `REPOS` | JSON array of RepoSpec objects for multi-repo cloning |
+| `REPO` | Git repository URL to clone (legacy; `REPOS` takes precedence) |
 | `CLAUDE_MODEL` | LLM model name |
 | `TASK_BUDGET` | Max spend in USD |
 | `TASK_TIMEOUT` | Timeout in seconds |
@@ -491,6 +527,8 @@ See the full roadmap in [architecture-decisions.md](architecture-decisions.md#ro
 | `GLAB_HOST` | GitLab host for `glab` CLI |
 | `GATE_CREDENTIAL_URL` | Gate endpoint for git credential helper |
 | `GIT_SSH_COMMAND` | Disables SSH git operations (forces HTTPS via Gate) |
+| `DEV_TOKEN` | Bearer token for authenticating with the dev container's shim (set when `dev_container` is configured) |
+| `DEV_CONTAINER_HOST` | Hostname and port of the dev container's shim (e.g., `dev-<taskID>:9090`; overridden to `localhost:9090` on K8s) |
 
 ### Gate (injected by Bridge)
 

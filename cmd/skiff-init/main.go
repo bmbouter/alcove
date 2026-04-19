@@ -69,8 +69,6 @@ func main() {
 	if prompt == "" && os.Getenv("ALCOVE_EXECUTABLE") == "" {
 		log.Fatal("required environment variable PROMPT is not set")
 	}
-	repo := os.Getenv("REPO")
-	branch := os.Getenv("BRANCH")
 	provider := envOrDefault("PROVIDER", "anthropic")
 	model := os.Getenv("CLAUDE_MODEL")
 	budgetStr := os.Getenv("TASK_BUDGET")
@@ -88,18 +86,28 @@ func main() {
 
 	heartbeatTimeout := parseDuration(os.Getenv("HEARTBEAT_TIMEOUT"), defaultHeartbeatTimeout)
 
+	var repos []internal.RepoSpec
+	if reposJSON := os.Getenv("REPOS"); reposJSON != "" {
+		if err := json.Unmarshal([]byte(reposJSON), &repos); err != nil {
+			log.Fatalf("invalid REPOS JSON: %v", err)
+		}
+	}
+
 	task := internal.Task{
 		ID:       taskID,
 		Prompt:   prompt,
-		Repo:     repo,
-		Branch:   branch,
+		Repos:    repos,
 		Provider: provider,
 		Model:    model,
 		Budget:   budget,
 		Timeout:  time.Duration(timeoutSecs) * time.Second,
 	}
 
-	log.Printf("task %s received: prompt=%q repo=%s", task.ID, truncate(task.Prompt, 60), task.Repo)
+	repoDisplay := ""
+	if len(task.Repos) > 0 {
+		repoDisplay = task.Repos[0].URL
+	}
+	log.Printf("task %s received: prompt=%q repo=%s", task.ID, truncate(task.Prompt, 60), repoDisplay)
 
 	// --- Connect to NATS (Hail) for status updates and cancellation ---
 	hailURL := envOrDefault("HAIL_URL", "nats://localhost:4222")
@@ -145,11 +153,29 @@ func main() {
 	// --- Set up environment ---
 	setupEnv(task)
 
-	// --- Clone repo if specified ---
-	if task.Repo != "" {
-		if err := cloneRepo(task.Repo, task.Branch); err != nil {
-			log.Printf("warning: repo clone failed: %v", err)
+	// --- Clone repos if specified ---
+	if len(task.Repos) > 0 {
+		for i, r := range task.Repos {
+			dir := r.Name
+			if dir == "" {
+				dir = repoNameFromURL(r.URL)
+			}
+			// Single repo: clone directly into /workspace.
+			// Multiple repos: clone into /workspace/<name>.
+			var target string
+			if len(task.Repos) == 1 {
+				target = "/workspace"
+			} else {
+				target = filepath.Join("/workspace", dir)
+			}
+			if err := cloneRepoToDir(r.URL, r.Ref, target); err != nil {
+				log.Printf("warning: repo clone failed for %s: %v", r.URL, err)
+				continue
+			}
+			log.Printf("cloned repo %d/%d: %s -> %s", i+1, len(task.Repos), r.URL, target)
 		}
+		// Set CWD: single repo -> /workspace, multi -> /workspace
+		os.Chdir("/workspace")
 	}
 
 	// --- Install lola modules (must run after cloneRepo so cwd is correct) ---
@@ -987,18 +1013,22 @@ func installPlugins() {
 	}
 }
 
-// cloneRepo performs a shallow clone of the given repo.
-func cloneRepo(repo, branch string) error {
-	// Mark /workspace as safe to avoid "dubious ownership" errors when the
+// cloneRepoToDir performs a shallow clone of the given repo into the specified directory.
+func cloneRepoToDir(repo, ref, targetDir string) error {
+	if err := os.MkdirAll(filepath.Dir(targetDir), 0755); err != nil {
+		return fmt.Errorf("creating parent dir for %s: %w", targetDir, err)
+	}
+
+	// Mark the target directory as safe to avoid "dubious ownership" errors when the
 	// directory is owned by a different UID (e.g., root-created in the image).
-	safeDir := exec.Command("git", "config", "--global", "--add", "safe.directory", "/workspace")
+	safeDir := exec.Command("git", "config", "--global", "--add", "safe.directory", targetDir)
 	safeDir.Run()
 
 	args := []string{"clone", "--depth=1"}
-	if branch != "" {
-		args = append(args, "--branch", branch)
+	if ref != "" {
+		args = append(args, "--branch", ref)
 	}
-	args = append(args, repo, "/workspace")
+	args = append(args, repo, targetDir)
 
 	cmd := exec.Command("git", args...)
 	cmd.Stdout = os.Stdout
@@ -1007,7 +1037,14 @@ func cloneRepo(repo, branch string) error {
 		return fmt.Errorf("git clone %s: %w", repo, err)
 	}
 
-	return os.Chdir("/workspace")
+	return nil
+}
+
+// repoNameFromURL derives a short repo name from a URL by taking the
+// basename and stripping any ".git" suffix.
+func repoNameFromURL(rawURL string) string {
+	base := filepath.Base(strings.TrimRight(rawURL, "/"))
+	return strings.TrimSuffix(base, ".git")
 }
 
 // requireEnv returns the value of an environment variable or exits fatally.

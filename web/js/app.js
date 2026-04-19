@@ -714,7 +714,7 @@
     function renderTaskDefCard(d) {
         var name = d.name || 'Unnamed';
         var desc = d.description || '';
-        var repo = d.source_repo || d.repo || '';
+        var repo = d.source_repo || '';
         var id = d.id || '';
         var repoPaused = d.repo_disabled || false;
 
@@ -757,6 +757,17 @@
             tags.push('<span class="agent-def-tag agent-def-tag-repo">' + escapeHtml(shortRepo) + '</span>');
         }
         html += '<div class="agent-def-tags">' + tags.join('') + '</div>';
+
+        // Target repos list
+        if (d.repos && d.repos.length > 0) {
+            html += '<div class="agent-def-repos" style="margin-top:4px;font-size:12px;color:var(--text-muted);">';
+            html += '<span class="agent-def-label">Repos:</span> ';
+            html += d.repos.map(function(r) {
+                var url = r.url || r.URL || '';
+                return escapeHtml(url.replace(/^https?:\/\//, '').replace(/\.git$/, ''));
+            }).join(', ');
+            html += '</div>';
+        }
 
         // Schedule and trigger details
         var details = [];
@@ -824,9 +835,9 @@
         } else {
             tags.push('<span class="agent-def-tag agent-def-tag-manual">manual</span>');
         }
-        if (s.repo) {
-            var shortRepo = s.repo.replace(/^https?:\/\//, '').replace(/\.git$/, '');
-            tags.push('<span class="agent-def-tag agent-def-tag-repo">' + escapeHtml(shortRepo) + '</span>');
+        if (s.repos && s.repos.length > 0) {
+            var repoSummary = formatReposSummary(s.repos);
+            tags.push('<span class="agent-def-tag agent-def-tag-repo">' + escapeHtml(repoSummary) + '</span>');
         }
         html += '<div class="agent-def-tags">' + tags.join('') + '</div>';
 
@@ -1334,6 +1345,15 @@
         show(empty);
     }
 
+    function formatReposSummary(repos) {
+        if (!repos || repos.length === 0) return '';
+        if (repos.length === 1) {
+            var url = repos[0].url || repos[0].URL || '';
+            return url.replace(/^https?:\/\//, '').replace(/\.git$/, '');
+        }
+        return repos.length + ' repos';
+    }
+
     function renderSessionRow(s) {
         var status = s.status || 'unknown';
         var taskName = s.task_name || 'Manual Session';
@@ -1352,9 +1372,15 @@
             durationHtml = escapeHtml(formatDuration(s.started_at, s.finished_at, s.duration));
         }
 
+        var repoLabel = '';
+        var repoSummary = formatReposSummary(s.repos);
+        if (repoSummary) {
+            repoLabel = ' <span style="color:var(--text-muted);font-size:12px;">' + escapeHtml(repoSummary) + '</span>';
+        }
+
         return '<tr class="clickable session-row session-row-' + escapeHtml(status) + '" data-session-id="' + escapeHtml(s.id) + '" tabindex="0" role="link">' +
             '<td><span class="status-dot status-dot-' + escapeHtml(status) + '" title="' + escapeHtml(status) + '"></span></td>' +
-            '<td><span class="agent-type-pill agent-type-' + escapeHtml(taskType.color) + '">' + escapeHtml(taskType.label) + '</span>' + escapeHtml(taskName) + '</td>' +
+            '<td><span class="agent-type-pill agent-type-' + escapeHtml(taskType.color) + '">' + escapeHtml(taskType.label) + '</span>' + escapeHtml(taskName) + repoLabel + '</td>' +
             '<td>' + escapeHtml(submitter) + '</td>' +
             '<td>' + escapeHtml(when) + '</td>' +
             '<td class="mono">' + durationHtml + '</td>' +
@@ -2246,6 +2272,17 @@
             { label: 'Exit Code', value: s.exit_code !== undefined && s.exit_code !== null ? String(s.exit_code) : '-' }
         ];
 
+        if (s.repos && s.repos.length > 0) {
+            var repoNames = s.repos.map(function(r) {
+                var url = r.url || r.URL || '';
+                var name = r.name || r.Name || '';
+                var display = url.replace(/^https?:\/\//, '').replace(/\.git$/, '');
+                if (name) display = name + ' (' + display + ')';
+                return display;
+            });
+            fields.push({ label: 'Repos', value: repoNames.join(', ') });
+        }
+
         if (s.direct_outbound) {
             fields.push({ label: 'Network', value: 'Direct Outbound', badge: false });
         }
@@ -2364,6 +2401,13 @@
         if (config.model) html += '<tr><td>Model</td><td>' + escapeHtml(config.model) + '</td></tr>';
         html += '<tr><td>Network</td><td>' + (config.direct_outbound ? '<span class="badge" style="background:rgba(231,76,60,0.2);color:#e74c3c;">Direct Outbound</span>' : '<span class="badge">Gate Proxied</span>') + '</td></tr>';
         html += '</tbody></table></div>';
+
+        // Dev Container
+        if (config.dev_container && config.dev_container.image) {
+            html += '<div class="rc-section"><h4>Dev Container</h4><table class="data-table"><tbody>';
+            html += '<tr><td>Image</td><td><code>' + escapeHtml(config.dev_container.image) + '</code></td></tr>';
+            html += '</tbody></table></div>';
+        }
 
         // Security Profiles
         if (config.profiles && config.profiles.length > 0) {

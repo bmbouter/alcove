@@ -239,6 +239,16 @@ The five principles work together to create multiple security barriers:
 - Credential separation prevents real token exposure
 - Audit logs detect anomalous behavior
 
+**Dev Container Isolation:**
+- Dev containers default to the internal network only (no external access) via `network_access: internal`
+- When `network_access: external` is set, the dev container gains internet access (e.g., for `pip install`); this trades isolation for build-time convenience and should be used only when needed
+- On Kubernetes, `network_access: external` is logged as a warning because all containers in a Pod share the same network namespace and per-container isolation is not enforceable
+- The shim endpoint is protected by a per-session bearer token (`SHIM_TOKEN`)
+- `SHIM_TOKEN` is redacted in error messages to prevent leaking via logs
+- The shim binary is injected read-only from the host (`:ro,z` mount on Podman) or copied via init container (Kubernetes); dev container images need no Alcove-specific tooling
+- `--security-opt label=disable` is set on the dev container (Podman) to avoid SELinux label conflicts with the shared workspace volume
+- Commands execute inside the dev container's own filesystem and toolchain; the shared `/workspace` volume is the only overlap with Skiff
+
 **Container Escape:**
 - Ephemeral execution limits persistence
 - Network policies prevent external communication

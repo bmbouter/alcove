@@ -348,7 +348,7 @@ func (m *CIGateMonitor) handleCIFailure(ctx context.Context, sessionID, repo str
 	}
 
 	// Fallback: recover key fields from the original session if task def lookup fails.
-	if taskReq.Repo == "" || originalPrompt == "" {
+	if len(taskReq.Repos) == 0 || originalPrompt == "" {
 		var origPrompt, origProvider string
 		_ = m.db.QueryRow(ctx,
 			`SELECT COALESCE(prompt, ''), COALESCE(provider, '') FROM sessions WHERE id = $1`,

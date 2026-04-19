@@ -94,7 +94,7 @@ func (d *DockerRuntime) run(ctx context.Context, args ...string) ([]byte, error)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("docker %s: %w: %s", strings.Join(args, " "), err, stderr.String())
+		return nil, fmt.Errorf("docker %s: %w: %s", redactEnvArgs(args), err, stderr.String())
 	}
 	return stdout.Bytes(), nil
 }
@@ -104,6 +104,10 @@ func (d *DockerRuntime) run(ctx context.Context, args ...string) ([]byte, error)
 // it can proxy traffic to external services. Skiff is attached ONLY to the
 // internal network so it cannot reach the internet directly.
 func (d *DockerRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHandle, error) {
+	if spec.DevContainerImage != "" {
+		return TaskHandle{}, fmt.Errorf("dev containers are not supported on the Docker runtime; use Podman or Kubernetes")
+	}
+
 	skiffName := SkiffContainerName(spec.TaskID)
 	gateName := GateContainerName(spec.TaskID)
 	internalNet := spec.Network

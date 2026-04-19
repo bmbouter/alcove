@@ -448,6 +448,14 @@ Agents that need direct internet access (bypassing Gate's proxy) can opt in
 with `direct_outbound: true` in the agent definition. See
 `docs/configuration.md` for runtime-specific details.
 
+Agents that need to build or test code in a project-specific environment can
+declare a `dev_container.image` in their agent definition. This starts an
+additional container alongside Skiff with a shared `/workspace` volume and an
+execution shim for running commands remotely. Agents can also work across
+multiple repositories using the `repos:` list in their definition -- each
+repo is cloned into `/workspace/<name>/`. See `docs/configuration.md` for
+the full `dev_container` and `repos` field references.
+
 ## GitHub/GitLab/JIRA Integration
 
 Alcove can interact with GitHub, GitLab, and JIRA on behalf of your coding agent.

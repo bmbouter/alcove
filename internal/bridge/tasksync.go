@@ -708,24 +708,29 @@ func (s *AgentRepoSyncer) reconcileSchedule(ctx context.Context, td *TaskDefinit
 	var existingID string
 	err := s.db.QueryRow(ctx, `SELECT id FROM schedules WHERE source_key = $1 AND source = 'yaml'`, td.SourceKey).Scan(&existingID)
 
+	var reposJSON []byte
+	if len(td.Repos) > 0 {
+		reposJSON, _ = json.Marshal(td.Repos)
+	}
+
 	if err != nil {
 		// No existing schedule — create one.
 		now := time.Now().UTC()
 		_, err = s.db.Exec(ctx, `
-			INSERT INTO schedules (id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, next_run, created_at, team_id, debug, source, source_key, trigger_type, event_config)
+			INSERT INTO schedules (id, name, cron, prompt, repos, provider, scope_preset, timeout, enabled, next_run, created_at, team_id, debug, source, source_key, trigger_type, event_config)
 			VALUES ($1, $2, $3, $4, $5, $6, '', $7, $8, $9, $10, $15, $11, 'yaml', $12, $13, $14)
-		`, uuid.New().String(), td.Name, cronExpr, td.Prompt, td.Repo, td.Provider,
+		`, uuid.New().String(), td.Name, cronExpr, td.Prompt, reposJSON, td.Provider,
 			td.Timeout, enabled, nextRun, now, td.Debug, td.SourceKey, triggerType, eventConfigJSON, teamID)
 		return err
 	}
 
 	// Existing schedule — update it.
 	_, err = s.db.Exec(ctx, `
-		UPDATE schedules SET name = $1, cron = $2, prompt = $3, repo = $4, provider = $5,
+		UPDATE schedules SET name = $1, cron = $2, prompt = $3, repos = $4, provider = $5,
 		    timeout = $6, enabled = $7, next_run = $8, debug = $9,
 		    trigger_type = $10, event_config = $11
 		WHERE id = $12 AND source = 'yaml'
-	`, td.Name, cronExpr, td.Prompt, td.Repo, td.Provider,
+	`, td.Name, cronExpr, td.Prompt, reposJSON, td.Provider,
 		td.Timeout, enabled, nextRun, td.Debug, triggerType, eventConfigJSON, existingID)
 	return err
 }
@@ -940,8 +945,8 @@ func (s *AgentRepoSyncer) reconcileWorkflowTrigger(ctx context.Context, wd *Work
 		now := time.Now().UTC()
 		// For workflow triggers, we create a schedule that points to the workflow (not an agent definition)
 		_, err = s.db.Exec(ctx, `
-			INSERT INTO schedules (id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, next_run, created_at, team_id, debug, source, source_key, trigger_type, event_config)
-			VALUES ($1, $2, '', '', '', 'workflow', '', 0, $3, NULL, $4, $5, false, 'yaml', $6, $7, $8)
+			INSERT INTO schedules (id, name, cron, prompt, repos, provider, scope_preset, timeout, enabled, next_run, created_at, team_id, debug, source, source_key, trigger_type, event_config)
+			VALUES ($1, $2, '', '', NULL, 'workflow', '', 0, $3, NULL, $4, $5, false, 'yaml', $6, $7, $8)
 		`, uuid.New().String(), wd.Name, enabled, now, teamID, sourceKey, triggerType, eventConfigJSON)
 		return err
 	}

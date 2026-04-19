@@ -43,7 +43,8 @@ schedules:
   - name: nightly-dependency-audit
     cron: "0 2 * * *"                # 2 AM daily
     prompt: "Audit dependencies in pulp-service for known CVEs. Open a PR if updates are needed."
-    repo: https://github.com/pulp/pulp-service
+    repos:
+      - url: https://github.com/pulp/pulp-service
     scope_preset: security-audit     # predefined scope (clone + read + create_pr_draft)
     provider: vertex-ai
     timeout: 30m
@@ -51,7 +52,8 @@ schedules:
   - name: weekly-docs-sync
     cron: "0 9 * * 1"                # Monday 9 AM
     prompt: "Check if any CLI flags were added in the last week and update the docs."
-    repo: https://github.com/pulp/pulp-service
+    repos:
+      - url: https://github.com/pulp/pulp-service
     scope_preset: docs-update
     provider: vertex-ai
     timeout: 45m
@@ -102,6 +104,17 @@ The Skiff image is built with:
 - A git credential helper that routes authentication through Gate
 - **Puppeteer for wireframe generation** — enables planning agents to create
   UI wireframes as HTML files and capture screenshots for GitHub issue posting
+
+**Dev containers** (optional): Agent definitions can declare a `dev_container.image`
+to run a project-provided container alongside Skiff. A shared volume at
+`/workspace` lets the agent write code in Skiff and build/test it in the dev
+container via the execution shim (`cmd/shim`). The shim binary is injected as
+the dev container's entrypoint and provides `POST /exec` with NDJSON streaming,
+protected by bearer auth. `dev_container.network_access` controls network access
+(`internal` default, `external` for internet access). On Podman, the shim is
+volume-mounted from the host; on Kubernetes, it is copied via an init container
+(`SHIM_IMAGE`). Dev containers support multi-repo workspaces where each repo is
+cloned into `/workspace/<name>/`.
 
 ### Gate — The Authorization Proxy
 
@@ -505,5 +518,6 @@ dispatch time. Skiff containers never hold LLM API keys.
 | Controller | **Bridge** | Deployment | Yes | Coordination, dashboard, API, scheduler |
 | Worker | **Skiff** | Job / `podman run --rm` / `docker run --rm` | No (ephemeral) | Execute Claude Code prompts |
 | Auth Proxy | **Gate** | Sidecar in Skiff pod | No (per-session) | Network sandbox, token swap, LLM proxy |
+| Exec Sidecar | **Shim** | Injected into dev container | No (per-session) | Remote command execution in dev containers |
 | Message Bus | **Hail** | Deployment (NATS) | Yes | Session dispatch, status updates |
 | Session Store | **Ledger** | Deployment + PVC | Yes | Audit trail, session history |

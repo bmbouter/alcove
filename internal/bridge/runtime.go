@@ -21,10 +21,16 @@ import (
 )
 
 // NewRuntime creates a Runtime implementation based on the type string.
-func NewRuntime(runtimeType string) (runtime.Runtime, error) {
+// The optional shimBinPath is used by PodmanRuntime to volume-mount the
+// shim binary into dev containers.
+func NewRuntime(runtimeType string, shimBinPath string) (runtime.Runtime, error) {
 	switch runtimeType {
 	case "podman":
-		return runtime.NewPodmanRuntime(), nil
+		rt := runtime.NewPodmanRuntime()
+		if shimBinPath != "" {
+			rt.ShimBin = shimBinPath
+		}
+		return rt, nil
 	case "docker":
 		return runtime.NewDockerRuntime(), nil
 	case "kubernetes":

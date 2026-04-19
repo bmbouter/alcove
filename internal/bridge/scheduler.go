@@ -25,31 +25,32 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bmbouter/alcove/internal"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Schedule defines a recurring task.
 type Schedule struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	Cron        string     `json:"cron"`          // cron expression (5-field: min hour dom month dow)
-	Prompt      string     `json:"prompt"`
-	Repo        string     `json:"repo,omitempty"`
-	Provider    string     `json:"provider,omitempty"`
-	ScopePreset string     `json:"scope_preset,omitempty"`
-	Timeout     int        `json:"timeout,omitempty"` // seconds
-	Enabled     bool       `json:"enabled"`
-	LastRun     *time.Time `json:"last_run,omitempty"`
-	NextRun     *time.Time `json:"next_run,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	TeamID      string     `json:"team_id,omitempty"`
-	Debug       bool          `json:"debug,omitempty"`
-	Source      string        `json:"source,omitempty"`
-	SourceKey   string        `json:"source_key,omitempty"`
-	TriggerType  string        `json:"trigger_type,omitempty"`
-	EventConfig  *EventTrigger `json:"event_config,omitempty"`
-	RepoDisabled bool          `json:"repo_disabled"`
+	ID          string              `json:"id"`
+	Name        string              `json:"name"`
+	Cron        string              `json:"cron"`          // cron expression (5-field: min hour dom month dow)
+	Prompt      string              `json:"prompt"`
+	Repos       []internal.RepoSpec `json:"repos,omitempty"`
+	Provider    string              `json:"provider,omitempty"`
+	ScopePreset string              `json:"scope_preset,omitempty"`
+	Timeout     int                 `json:"timeout,omitempty"` // seconds
+	Enabled     bool                `json:"enabled"`
+	LastRun     *time.Time          `json:"last_run,omitempty"`
+	NextRun     *time.Time          `json:"next_run,omitempty"`
+	CreatedAt   time.Time           `json:"created_at"`
+	TeamID      string              `json:"team_id,omitempty"`
+	Debug       bool                `json:"debug,omitempty"`
+	Source      string              `json:"source,omitempty"`
+	SourceKey   string              `json:"source_key,omitempty"`
+	TriggerType  string              `json:"trigger_type,omitempty"`
+	EventConfig  *EventTrigger       `json:"event_config,omitempty"`
+	RepoDisabled bool                `json:"repo_disabled"`
 }
 
 // CronExpr represents a parsed 5-field cron expression.
@@ -314,7 +315,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 	now := time.Now().UTC()
 
 	rows, err := s.db.Query(ctx, `
-		SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, team_id, debug, source, source_key, trigger_type, event_config
+		SELECT id, name, cron, prompt, repos, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, team_id, debug, source, source_key, trigger_type, event_config
 		FROM schedules
 		WHERE enabled = true AND next_run <= $1
 		  AND COALESCE(trigger_type, 'cron') IN ('cron', 'cron-and-event')
@@ -328,16 +329,20 @@ func (s *Scheduler) tick(ctx context.Context) {
 	var due []Schedule
 	for rows.Next() {
 		var sched Schedule
+		var reposJSON []byte
 		var source, sourceKey, triggerType *string
 		var eventConfigJSON []byte
 		if err := rows.Scan(
 			&sched.ID, &sched.Name, &sched.Cron, &sched.Prompt,
-			&sched.Repo, &sched.Provider, &sched.ScopePreset, &sched.Timeout,
+			&reposJSON, &sched.Provider, &sched.ScopePreset, &sched.Timeout,
 			&sched.Enabled, &sched.LastRun, &sched.NextRun, &sched.CreatedAt, &sched.TeamID, &sched.Debug,
 			&source, &sourceKey, &triggerType, &eventConfigJSON,
 		); err != nil {
 			log.Printf("scheduler: error scanning schedule row: %v", err)
 			continue
+		}
+		if reposJSON != nil {
+			_ = json.Unmarshal(reposJSON, &sched.Repos)
 		}
 		if source != nil {
 			sched.Source = *source
@@ -366,7 +371,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 
 		req := TaskRequest{
 			Prompt:      sched.Prompt,
-			Repo:        sched.Repo,
+			Repos:       sched.Repos,
 			Provider:    sched.Provider,
 			Timeout:     sched.Timeout,
 			Debug:       sched.Debug,
@@ -445,10 +450,15 @@ func (s *Scheduler) CreateSchedule(ctx context.Context, sched *Schedule, teamID 
 		}
 	}
 
+	var reposJSON []byte
+	if len(sched.Repos) > 0 {
+		reposJSON, _ = json.Marshal(sched.Repos)
+	}
+
 	_, err := s.db.Exec(ctx, `
-		INSERT INTO schedules (id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, next_run, created_at, team_id, debug, source, source_key, trigger_type, event_config)
+		INSERT INTO schedules (id, name, cron, prompt, repos, provider, scope_preset, timeout, enabled, next_run, created_at, team_id, debug, source, source_key, trigger_type, event_config)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-	`, sched.ID, sched.Name, sched.Cron, sched.Prompt, sched.Repo, sched.Provider,
+	`, sched.ID, sched.Name, sched.Cron, sched.Prompt, reposJSON, sched.Provider,
 		sched.ScopePreset, sched.Timeout, sched.Enabled, sched.NextRun, sched.CreatedAt, teamID, sched.Debug,
 		source, nilIfEmptySched(sched.SourceKey), triggerType, eventConfigJSON)
 	if err != nil {
@@ -461,7 +471,7 @@ func (s *Scheduler) CreateSchedule(ctx context.Context, sched *Schedule, teamID 
 // ListSchedules returns schedules from the database.
 // If owner is non-empty, only schedules belonging to that owner are returned.
 func (s *Scheduler) ListSchedules(ctx context.Context, teamID string) ([]Schedule, error) {
-	query := `SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, team_id, debug, source, source_key, trigger_type, event_config
+	query := `SELECT id, name, cron, prompt, repos, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, team_id, debug, source, source_key, trigger_type, event_config
 		FROM schedules`
 	args := []any{}
 	if teamID != "" {
@@ -479,15 +489,19 @@ func (s *Scheduler) ListSchedules(ctx context.Context, teamID string) ([]Schedul
 	var schedules []Schedule
 	for rows.Next() {
 		var sched Schedule
+		var reposJSON []byte
 		var source, sourceKey, triggerType *string
 		var eventConfigJSON []byte
 		if err := rows.Scan(
 			&sched.ID, &sched.Name, &sched.Cron, &sched.Prompt,
-			&sched.Repo, &sched.Provider, &sched.ScopePreset, &sched.Timeout,
+			&reposJSON, &sched.Provider, &sched.ScopePreset, &sched.Timeout,
 			&sched.Enabled, &sched.LastRun, &sched.NextRun, &sched.CreatedAt, &sched.TeamID, &sched.Debug,
 			&source, &sourceKey, &triggerType, &eventConfigJSON,
 		); err != nil {
 			return nil, fmt.Errorf("scanning schedule: %w", err)
+		}
+		if reposJSON != nil {
+			_ = json.Unmarshal(reposJSON, &sched.Repos)
 		}
 		if source != nil {
 			sched.Source = *source
@@ -516,7 +530,7 @@ func (s *Scheduler) ListSchedules(ctx context.Context, teamID string) ([]Schedul
 // GetSchedule retrieves a single schedule by ID.
 // If owner is non-empty, only returns the schedule if it belongs to that owner.
 func (s *Scheduler) GetSchedule(ctx context.Context, id, teamID string) (*Schedule, error) {
-	query := `SELECT id, name, cron, prompt, repo, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, team_id, debug, source, source_key, trigger_type, event_config
+	query := `SELECT id, name, cron, prompt, repos, provider, scope_preset, timeout, enabled, last_run, next_run, created_at, team_id, debug, source, source_key, trigger_type, event_config
 		FROM schedules WHERE id = $1`
 	args := []any{id}
 	if teamID != "" {
@@ -525,16 +539,20 @@ func (s *Scheduler) GetSchedule(ctx context.Context, id, teamID string) (*Schedu
 	}
 
 	var sched Schedule
+	var reposJSON []byte
 	var source, sourceKey, triggerType *string
 	var eventConfigJSON []byte
 	err := s.db.QueryRow(ctx, query, args...).Scan(
 		&sched.ID, &sched.Name, &sched.Cron, &sched.Prompt,
-		&sched.Repo, &sched.Provider, &sched.ScopePreset, &sched.Timeout,
+		&reposJSON, &sched.Provider, &sched.ScopePreset, &sched.Timeout,
 		&sched.Enabled, &sched.LastRun, &sched.NextRun, &sched.CreatedAt, &sched.TeamID, &sched.Debug,
 		&source, &sourceKey, &triggerType, &eventConfigJSON,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("querying schedule %s: %w", id, err)
+	}
+	if reposJSON != nil {
+		_ = json.Unmarshal(reposJSON, &sched.Repos)
 	}
 	if source != nil {
 		sched.Source = *source
@@ -583,12 +601,17 @@ func (s *Scheduler) UpdateSchedule(ctx context.Context, sched *Schedule, teamID 
 		}
 	}
 
+	var reposJSON []byte
+	if len(sched.Repos) > 0 {
+		reposJSON, _ = json.Marshal(sched.Repos)
+	}
+
 	query := `UPDATE schedules
-		SET name = $1, cron = $2, prompt = $3, repo = $4, provider = $5,
+		SET name = $1, cron = $2, prompt = $3, repos = $4, provider = $5,
 		    scope_preset = $6, timeout = $7, enabled = $8, next_run = $9, debug = $10,
 		    trigger_type = $11, event_config = $12
 		WHERE id = $13`
-	args := []any{sched.Name, sched.Cron, sched.Prompt, sched.Repo, sched.Provider,
+	args := []any{sched.Name, sched.Cron, sched.Prompt, reposJSON, sched.Provider,
 		sched.ScopePreset, sched.Timeout, sched.Enabled, sched.NextRun, sched.Debug,
 		triggerType, eventConfigJSON, sched.ID}
 	if teamID != "" {

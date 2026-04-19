@@ -3,6 +3,7 @@ package bridge
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/bmbouter/alcove/internal"
@@ -174,6 +175,165 @@ prompt: "test"
 	}
 }
 
+func TestParseTaskDefinitionWithDevContainer(t *testing.T) {
+	yamlData := `
+name: Test Agent
+prompt: "test"
+dev_container:
+  image: "quay.io/myorg/devenv:latest"
+`
+	td, err := ParseTaskDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if td.DevContainer == nil {
+		t.Fatal("expected DevContainer to be set")
+	}
+	if td.DevContainer.Image != "quay.io/myorg/devenv:latest" {
+		t.Errorf("DevContainer.Image: got %q, want %q", td.DevContainer.Image, "quay.io/myorg/devenv:latest")
+	}
+	if td.DevContainer.NetworkAccess != "internal" {
+		t.Errorf("DevContainer.NetworkAccess: got %q, want %q (default)", td.DevContainer.NetworkAccess, "internal")
+	}
+}
+
+func TestParseTaskDefinitionWithDevContainerNetworkAccess(t *testing.T) {
+	tests := []struct {
+		name          string
+		yaml          string
+		wantAccess    string
+		wantErr       string
+	}{
+		{
+			name: "default to internal",
+			yaml: `
+name: Test Agent
+prompt: "test"
+dev_container:
+  image: "golang:1.25"
+`,
+			wantAccess: "internal",
+		},
+		{
+			name: "explicit internal",
+			yaml: `
+name: Test Agent
+prompt: "test"
+dev_container:
+  image: "golang:1.25"
+  network_access: internal
+`,
+			wantAccess: "internal",
+		},
+		{
+			name: "external",
+			yaml: `
+name: Test Agent
+prompt: "test"
+dev_container:
+  image: "golang:1.25"
+  network_access: external
+`,
+			wantAccess: "external",
+		},
+		{
+			name: "invalid value",
+			yaml: `
+name: Test Agent
+prompt: "test"
+dev_container:
+  image: "golang:1.25"
+  network_access: public
+`,
+			wantErr: `dev_container.network_access must be "internal" or "external", got "public"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			td, err := ParseTaskDefinition([]byte(tt.yaml))
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if err.Error() != tt.wantErr {
+					t.Errorf("error = %q, want %q", err.Error(), tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if td.DevContainer.NetworkAccess != tt.wantAccess {
+				t.Errorf("NetworkAccess = %q, want %q", td.DevContainer.NetworkAccess, tt.wantAccess)
+			}
+		})
+	}
+}
+
+func TestParseTaskDefinitionWithDevContainerEmptyImage(t *testing.T) {
+	yamlData := `
+name: Test Agent
+prompt: "test"
+dev_container:
+  image: ""
+`
+	_, err := ParseTaskDefinition([]byte(yamlData))
+	if err == nil {
+		t.Fatal("expected error for dev_container with empty image")
+	}
+	if err.Error() != "dev_container block present but image is empty" {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestParseTaskDefinitionWithDevContainerNoImage(t *testing.T) {
+	yamlData := `
+name: Test Agent
+prompt: "test"
+dev_container: {}
+`
+	_, err := ParseTaskDefinition([]byte(yamlData))
+	if err == nil {
+		t.Fatal("expected error for dev_container with no image")
+	}
+	if err.Error() != "dev_container block present but image is empty" {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestParseTaskDefinitionWithoutDevContainer(t *testing.T) {
+	yamlData := `
+name: Test Agent
+prompt: "test"
+`
+	td, err := ParseTaskDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if td.DevContainer != nil {
+		t.Error("expected DevContainer to be nil when omitted")
+	}
+}
+
+func TestToTaskRequestIncludesDevContainer(t *testing.T) {
+	def := &TaskDefinition{
+		Name:   "Test Agent",
+		Prompt: "Do something",
+		DevContainer: &DevContainerSpec{
+			Image: "quay.io/myorg/devenv:latest",
+		},
+	}
+
+	req := def.ToTaskRequest()
+	if req.DevContainer == nil {
+		t.Fatal("expected DevContainer to be set in task request")
+	}
+	if req.DevContainer.Image != "quay.io/myorg/devenv:latest" {
+		t.Errorf("DevContainer.Image: got %q, want %q", req.DevContainer.Image, "quay.io/myorg/devenv:latest")
+	}
+}
+
 func TestToTaskRequestIncludesDirectOutbound(t *testing.T) {
 	def := &TaskDefinition{
 		Name:           "Test Agent",
@@ -218,7 +378,7 @@ func TestToTaskRequest_AllFields(t *testing.T) {
 		Description: "An agent with every field set",
 		Prompt:      "Implement the thing",
 		Executable:  &internal.ExecutableSpec{URL: "https://example.com/bin", Args: []string{"--fast"}, Env: map[string]string{"K": "V"}},
-		Repo:        "pulp/pulp_python",
+		Repos:       []internal.RepoSpec{{URL: "https://github.com/pulp/pulp_python", Name: "pulp_python"}},
 		Provider:    "anthropic",
 		Model:       "claude-opus-4-6",
 		Timeout:     600,
@@ -230,6 +390,7 @@ func TestToTaskRequest_AllFields(t *testing.T) {
 		Credentials: map[string]string{"TOKEN": "my-svc"},
 		DirectOutbound: true,
 		CIGate:      &CIGate{MaxRetries: 3, Timeout: 900},
+		DevContainer: &DevContainerSpec{Image: "quay.io/myorg/devenv:latest", NetworkAccess: "external"},
 	}
 
 	req := def.ToTaskRequest()
@@ -241,8 +402,10 @@ func TestToTaskRequest_AllFields(t *testing.T) {
 	if req.Executable == nil || req.Executable.URL != def.Executable.URL {
 		t.Errorf("Executable: got %v, want URL %q", req.Executable, def.Executable.URL)
 	}
-	if req.Repo != def.Repo {
-		t.Errorf("Repo: got %q, want %q", req.Repo, def.Repo)
+	if len(req.Repos) != len(def.Repos) {
+		t.Errorf("Repos length: got %d, want %d", len(req.Repos), len(def.Repos))
+	} else if len(req.Repos) > 0 && req.Repos[0].URL != def.Repos[0].URL {
+		t.Errorf("Repos[0].URL: got %q, want %q", req.Repos[0].URL, def.Repos[0].URL)
 	}
 	if req.Provider != def.Provider {
 		t.Errorf("Provider: got %q, want %q", req.Provider, def.Provider)
@@ -274,6 +437,9 @@ func TestToTaskRequest_AllFields(t *testing.T) {
 	if !req.DirectOutbound {
 		t.Error("DirectOutbound: expected true in TaskRequest")
 	}
+	if req.DevContainer == nil || req.DevContainer.Image != "quay.io/myorg/devenv:latest" {
+		t.Errorf("DevContainer: got %v, want {Image: quay.io/myorg/devenv:latest}", req.DevContainer)
+	}
 
 	// CIGate is intentionally NOT mapped to TaskRequest (it is consumed by Bridge
 	// workflow logic, not sent to Skiff), so verify it is absent.
@@ -298,7 +464,7 @@ func TestGetAgentDefinitionFieldCopyRoundTrip(t *testing.T) {
 			Args: []string{"--flag"},
 			Env:  map[string]string{"KEY": "VAL"},
 		},
-		Repo:     "https://github.com/org/repo",
+		Repos:    []internal.RepoSpec{{URL: "https://github.com/org/repo", Name: "repo"}},
 		Provider: "anthropic",
 		Model:    "claude-opus-4-6",
 		Timeout:  600,
@@ -327,6 +493,10 @@ func TestGetAgentDefinitionFieldCopyRoundTrip(t *testing.T) {
 			Timeout:    900,
 		},
 		DirectOutbound: true,
+		DevContainer: &DevContainerSpec{
+			Image:         "quay.io/myorg/devenv:latest",
+			NetworkAccess: "external",
+		},
 	}
 
 	// Step 2: Marshal to JSON (simulates UpsertAgentDefinition storing parsed JSONB).
@@ -353,7 +523,7 @@ func TestGetAgentDefinitionFieldCopyRoundTrip(t *testing.T) {
 	}
 	td.Prompt = parsed.Prompt
 	td.Executable = parsed.Executable
-	td.Repo = parsed.Repo
+	td.Repos = parsed.Repos
 	td.Provider = parsed.Provider
 	td.Model = parsed.Model
 	td.Timeout = parsed.Timeout
@@ -367,6 +537,7 @@ func TestGetAgentDefinitionFieldCopyRoundTrip(t *testing.T) {
 	td.Credentials = parsed.Credentials
 	td.DirectOutbound = parsed.DirectOutbound
 	td.CIGate = parsed.CIGate
+	td.DevContainer = parsed.DevContainer
 
 	// Step 5: Use reflect to verify every yaml-tagged field matches the
 	// original. Fields with a yaml tag are "parseable" (come from the YAML
@@ -395,10 +566,99 @@ func TestGetAgentDefinitionFieldCopyRoundTrip(t *testing.T) {
 
 	// Sanity check: make sure we actually checked a meaningful number of fields.
 	// Update this count when adding new yaml-tagged fields to TaskDefinition.
-	const expectedYAMLFields = 18
+	const expectedYAMLFields = 19
 	if yamlFieldCount != expectedYAMLFields {
 		t.Errorf("expected %d yaml-tagged fields in TaskDefinition, found %d; "+
 			"update this test and the copy block in GetAgentDefinition",
 			expectedYAMLFields, yamlFieldCount)
+	}
+}
+
+func TestParseTaskDefinitionWithRepos(t *testing.T) {
+	yamlData := `
+name: Multi-Repo Agent
+prompt: "Do something across repos"
+repos:
+  - url: https://github.com/org/repo1.git
+    ref: main
+  - url: https://github.com/org/repo2.git
+    name: custom-name
+`
+	td, err := ParseTaskDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(td.Repos) != 2 {
+		t.Fatalf("expected 2 repos, got %d", len(td.Repos))
+	}
+	// First repo: name derived from URL
+	if td.Repos[0].Name != "repo1" {
+		t.Errorf("Repos[0].Name: got %q, want %q", td.Repos[0].Name, "repo1")
+	}
+	if td.Repos[0].URL != "https://github.com/org/repo1.git" {
+		t.Errorf("Repos[0].URL: got %q, want %q", td.Repos[0].URL, "https://github.com/org/repo1.git")
+	}
+	if td.Repos[0].Ref != "main" {
+		t.Errorf("Repos[0].Ref: got %q, want %q", td.Repos[0].Ref, "main")
+	}
+	// Second repo: explicit name
+	if td.Repos[1].Name != "custom-name" {
+		t.Errorf("Repos[1].Name: got %q, want %q", td.Repos[1].Name, "custom-name")
+	}
+}
+
+func TestParseTaskDefinitionReposDuplicateName(t *testing.T) {
+	yamlData := `
+name: Dup Names Agent
+prompt: "test"
+repos:
+  - url: https://github.com/org/repo1.git
+    name: same-name
+  - url: https://github.com/org/repo2.git
+    name: same-name
+`
+	_, err := ParseTaskDefinition([]byte(yamlData))
+	if err == nil {
+		t.Fatal("expected error for duplicate repo names")
+	}
+	if !strings.Contains(err.Error(), "duplicate repo name") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestParseTaskDefinitionReposNameDerivation(t *testing.T) {
+	yamlData := `
+name: Name Derivation Agent
+prompt: "test"
+repos:
+  - url: https://github.com/org/my-project.git
+  - url: https://gitlab.com/team/another-project
+`
+	td, err := ParseTaskDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if td.Repos[0].Name != "my-project" {
+		t.Errorf("Repos[0].Name: got %q, want %q", td.Repos[0].Name, "my-project")
+	}
+	if td.Repos[1].Name != "another-project" {
+		t.Errorf("Repos[1].Name: got %q, want %q", td.Repos[1].Name, "another-project")
+	}
+}
+
+func TestParseTaskDefinitionReposMissingURL(t *testing.T) {
+	yamlData := `
+name: Missing URL Agent
+prompt: "test"
+repos:
+  - name: some-repo
+  - url: https://github.com/org/valid.git
+`
+	_, err := ParseTaskDefinition([]byte(yamlData))
+	if err == nil {
+		t.Fatal("expected error for repo with empty URL")
+	}
+	if !strings.Contains(err.Error(), "empty URL") {
+		t.Errorf("unexpected error message: %v", err)
 	}
 }

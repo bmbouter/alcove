@@ -277,6 +277,80 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 		},
 	}
 
+	// Dev container support: when a dev container image is specified, override
+	// DEV_CONTAINER_HOST to localhost (containers in a K8s Pod share network
+	// namespace) and add init containers, sidecar, and shared volumes.
+	var devInitContainers []corev1.Container
+	var devVolumes []corev1.Volume
+	var skiffExtraVolumeMounts []corev1.VolumeMount
+
+	if spec.DevContainerImage != "" {
+		// In K8s, all containers in a Pod share localhost — override the
+		// dispatcher-set hostname (dev-{taskID}:9090) with localhost:9090.
+		skiffEnv["DEV_CONTAINER_HOST"] = "localhost:9090"
+		// Rebuild skiffEnvVars after the override.
+		skiffEnvVars = envMapToVars(skiffEnv)
+
+		// Log a warning if the dev container requests external network access.
+		// All containers in a Pod share the same network namespace, so
+		// per-container network isolation is not enforceable on Kubernetes.
+		if spec.DevContainerNetworkAccess == "external" {
+			log.Printf("warning: dev container network_access=external is not enforceable on Kubernetes; all containers in a Pod share the same network namespace")
+		}
+
+		// Shared volumes for workspace and shim binary.
+		devVolumes = []corev1.Volume{
+			{Name: "workspace", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+			{Name: "shim-bin", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+		}
+
+		// shim-init: runs to completion, copies the shim binary to a shared emptyDir.
+		// Must be a regular init container (no restartPolicy) so it completes
+		// before the native sidecars start.
+		shimInitContainer := corev1.Container{
+			Name:            "shim-init",
+			Image:           spec.ShimImage,
+			Command:         []string{"cp", "/usr/local/bin/shim", "/shim-bin/alcove-shim"},
+			SecurityContext: securityContext,
+			VolumeMounts: []corev1.VolumeMount{
+				{Name: "shim-bin", MountPath: "/shim-bin"},
+			},
+		}
+
+		// dev: native sidecar running the dev container image via the copied shim.
+		devContainerEnvVars := envMapToVars(spec.DevContainerEnv)
+		devContainer := corev1.Container{
+			Name:            "dev",
+			Image:           spec.DevContainerImage,
+			Command:         []string{"/shim-bin/alcove-shim"},
+			Env:             devContainerEnvVars,
+			SecurityContext: securityContext,
+			RestartPolicy:   &sidecarRestart,
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("100m"),
+					corev1.ResourceMemory: resource.MustParse("256Mi"),
+				},
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("2"),
+					corev1.ResourceMemory: resource.MustParse("4Gi"),
+				},
+			},
+			VolumeMounts: []corev1.VolumeMount{
+				{Name: "workspace", MountPath: "/workspace"},
+				{Name: "shim-bin", MountPath: "/shim-bin", ReadOnly: true},
+			},
+		}
+
+		// shim-init runs to completion first, then Gate and dev start as sidecars.
+		devInitContainers = []corev1.Container{shimInitContainer, devContainer}
+
+		// Skiff also needs the workspace volume.
+		skiffExtraVolumeMounts = []corev1.VolumeMount{
+			{Name: "workspace", MountPath: "/workspace"},
+		}
+	}
+
 	// Skiff is the main container that runs the actual task.
 	skiffContainer := corev1.Container{
 		Name:            "skiff",
@@ -293,6 +367,20 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 				corev1.ResourceMemory: resource.MustParse("4Gi"),
 			},
 		},
+		VolumeMounts: skiffExtraVolumeMounts,
+	}
+
+	// Build the init container list: shim-init (if present) first, then
+	// Gate sidecar, then dev sidecar (if present).
+	// Order: shim-init (run-to-completion) → Gate (native sidecar) → dev (native sidecar)
+	var initContainers []corev1.Container
+	if len(devInitContainers) > 0 {
+		// shim-init first (runs to completion), then Gate, then dev sidecar.
+		initContainers = append(initContainers, devInitContainers[0]) // shim-init
+		initContainers = append(initContainers, gateContainer)         // Gate sidecar
+		initContainers = append(initContainers, devInitContainers[1]) // dev sidecar
+	} else {
+		initContainers = []corev1.Container{gateContainer}
 	}
 
 	// Build the Job spec.
@@ -310,8 +398,9 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 					Labels: labels,
 				},
 				Spec: corev1.PodSpec{
-					InitContainers: []corev1.Container{gateContainer},
+					InitContainers: initContainers,
 					Containers:     []corev1.Container{skiffContainer},
+					Volumes:        devVolumes,
 					RestartPolicy:  corev1.RestartPolicyNever,
 				},
 			},
