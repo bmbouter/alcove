@@ -342,31 +342,7 @@ fi
 # =====================================================================
 log "Test 6: List enabled agents"
 
-# Verify enabled item appears in catalog with enabled=true
-if [ -n "$FIRST_ITEM_SLUG" ]; then
-  curl -s -X PUT "$BRIDGE_URL/api/v1/teams/$SHARED_ID/catalog/$SOURCE_ID/$FIRST_ITEM_SLUG" \
-    -H "Authorization: Bearer $USER_TOKEN" \
-    -H "Content-Type: application/json" \
-    -d '{"enabled":true}' > /dev/null
-
-  ENABLED_CHECK=$(curl -s "$BRIDGE_URL/api/v1/teams/$SHARED_ID/catalog/$SOURCE_ID/items" \
-    -H "Authorization: Bearer $USER_TOKEN" | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-for item in d.get('items',[]):
-    if item.get('slug') == '$FIRST_ITEM_SLUG':
-        print('yes' if item.get('enabled') else 'no')
-        sys.exit()
-print('not_found')
-")
-  if [ "$ENABLED_CHECK" = "yes" ]; then
-    pass "Enabled item '$FIRST_ITEM_SLUG' shows enabled=true in catalog"
-  else
-    fail "Enabled item '$FIRST_ITEM_SLUG' check returned: $ENABLED_CHECK"
-  fi
-fi
-
-# Disable the item again for cleanup
+# Disable the item for cleanup (toggle already tested above in Test 4)
 if [ -n "$FIRST_ITEM_SLUG" ]; then
   curl -s -X PUT "$BRIDGE_URL/api/v1/teams/$SHARED_ID/catalog/$SOURCE_ID/$FIRST_ITEM_SLUG" \
     -H "Authorization: Bearer $USER_TOKEN" \
