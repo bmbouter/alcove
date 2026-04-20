@@ -700,7 +700,19 @@ curl -s -X PUT "$BRIDGE_URL/api/v1/user/settings/agent-repos" \
 # =====================================================================
 log "Test 11: Agent definition and schedule scoping after sync"
 
-# After the sync above, agent defs should be on personal team only
+# Re-add the repo and sync (Test 10 cleanup removed it)
+curl -s -X PUT "$BRIDGE_URL/api/v1/user/settings/agent-repos" \
+  -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "X-Alcove-Team: $PERSONAL_TEAM_ID" \
+  -d '{"repos":[{"url":"https://github.com/bmbouter/alcove/","ref":"main","name":"alcove"}]}' > /dev/null
+
+curl -s -X POST "$BRIDGE_URL/api/v1/agent-definitions/sync" \
+  -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "X-Alcove-Team: $PERSONAL_TEAM_ID" > /dev/null
+sleep 8
+
+# Agent defs should be on personal team only
 PERSONAL_DEFS=$(curl -s "$BRIDGE_URL/api/v1/agent-definitions" \
   -H "Authorization: Bearer $ALICE_TOKEN" \
   -H "X-Alcove-Team: $PERSONAL_TEAM_ID" | python3 -c "
@@ -737,6 +749,13 @@ if [ "$DEFAULT_SCHEDS" = "$PERSONAL_SCHEDS" ]; then
 else
   fail "No-header schedules ($DEFAULT_SCHEDS) != personal ($PERSONAL_SCHEDS)"
 fi
+
+# Cleanup repos from Test 11
+curl -s -X PUT "$BRIDGE_URL/api/v1/user/settings/agent-repos" \
+  -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "X-Alcove-Team: $PERSONAL_TEAM_ID" \
+  -d '{"repos":[]}' > /dev/null
 
 # =====================================================================
 # Test 12: Cache-Control header on API responses
