@@ -32,6 +32,7 @@ Bridge → Hail (NATS) → Skiff Pod [skiff container + gate sidecar] → Gate �
 - Gate proxies ALL external traffic including LLM API calls (Skiff has no real credentials)
 - Optional dev container runs alongside Skiff with a shared `/workspace` volume, enabling agents to build/test code in project-specific environments; the shim binary is baked into the dev container image via s6-overlay (built with `make build-dev`)
 - On OpenShift, a static `alcove-allow-internal` NetworkPolicy restricts egress (per-task NetworkPolicy is disabled due to OVN-Kubernetes DNS resolution issues); dual-network isolation (`--internal` flag) on podman; no network isolation on Docker (see Key Decisions)
+- k3s is supported for local Kubernetes development (`make k3s-setup && make k3s-up && make k3s-watch`); Bridge runs on the host, NATS+PostgreSQL run as k8s pods with port-forwards, Skiff Jobs are dispatched into the same k3s cluster
 
 ## Design Documents
 
@@ -68,6 +69,14 @@ make dev-infra                # Start only NATS + PostgreSQL on podman
 make dev-up                   # Start full containerized environment
 make dev-down                 # Stop everything
 make dev-reset                # Stop + remove volumes (clean slate)
+
+# k3s (Kubernetes backend) — test k8s runtime locally
+make k3s-setup                # Install k3s, configure kubeconfig + firewalld (run once)
+make k3s-up                   # Build images, deploy NATS+PostgreSQL to k3s, start port-forwards
+make k3s-watch                # Hot-reload Bridge via Air with RUNTIME=kubernetes
+make k3s-down                 # Stop port-forwards, delete k3s namespace
+make k3s-reset                # Full reset (namespace + imported images)
+make k3s-status               # Show pods, port-forwards, and jobs
 
 # Run Bridge locally with Docker (after infrastructure setup)
 LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
@@ -108,6 +117,7 @@ RUNTIME=docker \
 - **Dev containers are optional sidecars** — agent definitions can declare `dev_container.image` to run a project-provided container alongside Skiff; dev container images are built with s6-overlay and the shim binary baked in (`make build-dev` builds the base image from `build/Containerfile.dev`); `Containerfile.dev` is an all-in-one dev container image that includes PostgreSQL 16, NATS, Go 1.25, the shim binary, and s6-overlay for process supervision; s6 manages PostgreSQL, NATS, and the shim as supervised services with proper dependencies; Podman creates a shared workspace volume at `/workspace` and mounts it in both containers; the shim provides bearer-auth-protected `POST /exec` for remote command execution with NDJSON streaming; `dev_container.network_access` controls network access (`internal` default, `external` joins both networks on Podman); on Kubernetes, the dev container runs as a native sidecar with emptyDir workspace volume (`DEV_CONTAINER_HOST=localhost:9090`); Docker rejects dev containers with a clear error; `--security-opt label=disable` handles SELinux compatibility on Podman; see architecture decision #20 in `docs/design/architecture-decisions.md` for the full design
 - **Multi-repo support** — agent definitions use `repos:` (a list of `RepoSpec` with `name`, `url`, `ref` fields) instead of a single `repo:` string; Skiff receives a `REPOS` JSON env var and clones each repo into `/workspace/<name>/`; database migration `031_multi_repo.sql` replaces the `repo TEXT` column with `repos JSONB`; see architecture decision #21 in `docs/design/architecture-decisions.md` for the full design
 - **CLAUDE.md injection** — Claude Code runs with `--bare` which disables native CLAUDE.md discovery; skiff-init reads `CLAUDE.md` from cloned repos and prepends the content to the agent prompt, so project instructions are automatically available to agents without duplicating them in agent prompts; see architecture decision #22 in `docs/design/architecture-decisions.md` for the full design
+- **k3s for local Kubernetes testing** — `make k3s-setup` installs k3s with `--disable=traefik --disable=servicelb --bind-address=127.0.0.1`; `make k3s-up` builds images, imports them via `podman save | sudo k3s ctr images import`, deploys PostgreSQL+NATS as Deployments with PVC, creates a headless `alcove-bridge` Service with manual Endpoints pointing to the host IP; Bridge runs on the host with `RUNTIME=kubernetes` connecting via `~/.kube/k3s-config`; Skiff/Gate pods reach Bridge via the `alcove-bridge` k8s Service; port-forwards expose PostgreSQL (5432) and NATS (4222) to localhost; requires `sudo` for k3s install and image import; `make k3s-down` deletes the namespace but keeps k3s installed; see architecture decision #23 in `docs/design/architecture-decisions.md`
 
 ## Dev Container Usage
 
