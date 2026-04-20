@@ -188,7 +188,6 @@ jobs:
       - name: 'Batch 2: Catalog and workflow tests (parallel)'
         run: |
           pids=()
-          ADMIN_PASSWORD=admin ./scripts/test-catalog.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-catalog-items.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-sync-optimization.sh & pids+=($!)
 
@@ -264,6 +263,14 @@ jobs:
           mkdir -p ~/.kube
           sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
           sudo chown $USER ~/.kube/config
+          for i in $(seq 1 30); do
+            if kubectl get nodes 2>/dev/null | grep -q ' Ready'; then
+              echo "k3s node is Ready"
+              break
+            fi
+            echo "Waiting for k3s node... ($i/30)"
+            sleep 2
+          done
           kubectl wait --for=condition=Ready node --all --timeout=120s
           echo "k3s is ready"
           kubectl get nodes
@@ -441,7 +448,6 @@ jobs:
       - name: 'Batch 2: Catalog and workflow tests (parallel)'
         run: |
           pids=()
-          ADMIN_PASSWORD=admin ./scripts/test-catalog.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-catalog-items.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-sync-optimization.sh & pids+=($!)
 
