@@ -467,6 +467,8 @@ jobs:
       - name: Show logs on failure
         if: failure()
         run: |
+          echo "=== Port-forward status ==="
+          pgrep -fa 'kubectl port-forward' || echo 'WARNING: port-forward processes not running'
           echo "=== Bridge logs ==="
           cat /tmp/alcove-bridge.log || true
           echo "=== Kubernetes pods ==="
