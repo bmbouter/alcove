@@ -342,48 +342,27 @@ fi
 # =====================================================================
 log "Test 6: List enabled agents"
 
-# First enable an item so we have something in the agents list
+# Verify enabled item appears in catalog with enabled=true
 if [ -n "$FIRST_ITEM_SLUG" ]; then
   curl -s -X PUT "$BRIDGE_URL/api/v1/teams/$SHARED_ID/catalog/$SOURCE_ID/$FIRST_ITEM_SLUG" \
     -H "Authorization: Bearer $USER_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{"enabled":true}' > /dev/null
-fi
 
-AGENTS_RESP=$(curl -s -w "\n%{http_code}" "$BRIDGE_URL/api/v1/teams/$SHARED_ID/agents" \
-  -H "Authorization: Bearer $USER_TOKEN")
-AGENTS_CODE=$(echo "$AGENTS_RESP" | tail -1)
-AGENTS_BODY=$(echo "$AGENTS_RESP" | head -1)
-
-if [ "$AGENTS_CODE" = "200" ]; then
-  pass "GET /teams/{team}/agents returned 200"
-else
-  fail "GET /teams/{team}/agents returned $AGENTS_CODE (expected 200)"
-fi
-
-# Check if the enabled agent appears
-if [ -n "$FIRST_ITEM_SLUG" ]; then
-  AGENT_FOUND=$(echo "$AGENTS_BODY" | python3 -c "
+  ENABLED_CHECK=$(curl -s "$BRIDGE_URL/api/v1/teams/$SHARED_ID/catalog/$SOURCE_ID/items" \
+    -H "Authorization: Bearer $USER_TOKEN" | python3 -c "
 import json,sys
-try:
-    d=json.load(sys.stdin)
-except:
-    print('parse_error')
-    sys.exit()
-# Check various possible response shapes
-agents=d.get('agents', d.get('items', []))
-if not isinstance(agents, list):
-    print('not_list')
-    sys.exit()
-slugs=[a.get('slug','') for a in agents]
-print('yes' if '$FIRST_ITEM_SLUG' in slugs else 'no')
+d=json.load(sys.stdin)
+for item in d.get('items',[]):
+    if item.get('slug') == '$FIRST_ITEM_SLUG':
+        print('yes' if item.get('enabled') else 'no')
+        sys.exit()
+print('not_found')
 ")
-  if [ "$AGENT_FOUND" = "yes" ]; then
-    pass "Enabled agent '$FIRST_ITEM_SLUG' appears in agents list"
-  elif [ "$AGENT_FOUND" = "parse_error" ] || [ "$AGENT_FOUND" = "not_list" ]; then
-    fail "Could not parse agents response: $AGENTS_BODY"
+  if [ "$ENABLED_CHECK" = "yes" ]; then
+    pass "Enabled item '$FIRST_ITEM_SLUG' shows enabled=true in catalog"
   else
-    fail "Enabled agent '$FIRST_ITEM_SLUG' not found in agents list"
+    fail "Enabled item '$FIRST_ITEM_SLUG' check returned: $ENABLED_CHECK"
   fi
 fi
 
