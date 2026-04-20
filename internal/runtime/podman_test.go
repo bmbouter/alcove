@@ -808,8 +808,8 @@ func TestRunTask_WithDevContainer(t *testing.T) {
 	}
 
 	// Expect 4 calls: gate start, volume create, dev container start, skiff start.
-	if len(*calls) != 4 {
-		t.Fatalf("expected 4 podman calls, got %d", len(*calls))
+	if len(*calls) != 5 {
+		t.Fatalf("expected 5 podman calls, got %d", len(*calls))
 	}
 
 	// Call 0: gate start.
@@ -845,8 +845,14 @@ func TestRunTask_WithDevContainer(t *testing.T) {
 		t.Errorf("dev call missing dev container image: %s", devArgs)
 	}
 
-	// Call 3: skiff start — should include workspace volume and NO_PROXY with dev container.
-	skiffArgs := strings.Join((*calls)[3], " ")
+	// Call 3: chmod workspace for UID 1001 writability.
+	chmodArgs := strings.Join((*calls)[3], " ")
+	if !strings.Contains(chmodArgs, "exec dev-task-dc chmod 777 /workspace") {
+		t.Errorf("expected chmod on workspace, got: %s", chmodArgs)
+	}
+
+	// Call 4: skiff start — should include workspace volume and NO_PROXY with dev container.
+	skiffArgs := strings.Join((*calls)[4], " ")
 	if !strings.Contains(skiffArgs, "--name skiff-task-dc") {
 		t.Errorf("skiff call missing --name skiff-task-dc: %s", skiffArgs)
 	}
@@ -966,8 +972,8 @@ func TestRunTask_WithDevContainerExternalNetwork(t *testing.T) {
 	}
 
 	// Expect 4 calls: gate start, volume create, dev container start, skiff start.
-	if len(*calls) != 4 {
-		t.Fatalf("expected 4 podman calls, got %d", len(*calls))
+	if len(*calls) != 5 {
+		t.Fatalf("expected 5 podman calls, got %d", len(*calls))
 	}
 
 	// Call 2: dev container start — should include BOTH internal and external networks.
@@ -1006,8 +1012,8 @@ func TestRunTask_WithDevContainerInternalNetwork(t *testing.T) {
 	}
 
 	// Expect 4 calls: gate start, volume create, dev container start, skiff start.
-	if len(*calls) != 4 {
-		t.Fatalf("expected 4 podman calls, got %d", len(*calls))
+	if len(*calls) != 5 {
+		t.Fatalf("expected 5 podman calls, got %d", len(*calls))
 	}
 
 	// Call 2: dev container start — should include ONLY internal network.
