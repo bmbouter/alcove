@@ -74,7 +74,7 @@ make dev-reset                # Stop + remove volumes (clean slate)
 # Requires sudo for k3s install and image import. Stop podman infra first: make down
 make k3s-setup                # Install k3s, configure kubeconfig + firewalld (run once)
 make k3s-up                   # Build images, deploy NATS+PostgreSQL to k3s, start port-forwards
-make k3s-watch                # Hot-reload Bridge with k3s backend (Air)
+make k3s-watch                # Hot-reload Bridge with k8s runtime (Air)
 make k3s-down                 # Stop port-forwards, delete k3s namespace
 make k3s-reset                # Full reset (namespace + imported images)
 make k3s-status               # Show pods, port-forwards, and jobs
