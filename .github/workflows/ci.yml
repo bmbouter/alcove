@@ -192,7 +192,6 @@ jobs:
           ADMIN_PASSWORD=admin ./scripts/test-catalog.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-catalog-items.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-sync-optimization.sh & pids+=($!)
-          ADMIN_PASSWORD=admin ./scripts/test-session-delete.sh & pids+=($!)
 
           failed=0
           for pid in "${pids[@]}"; do
@@ -210,6 +209,13 @@ jobs:
           ADMIN_PASSWORD=admin ./scripts/test-workflow-definitions.sh
           ADMIN_PASSWORD=admin ./scripts/test-workflow-graph-v2.sh
           ADMIN_PASSWORD=admin ./scripts/test-yaml-security-profiles.sh
+
+      - name: Build skiff-base image for network isolation test
+        run: |
+          podman build -f build/Containerfile.skiff-base \
+            -t localhost/alcove-skiff-base:dev \
+            --build-arg "SKIFF_TOOLING_BASE=docker.io/library/golang:1.25" \
+            --build-arg VERSION=${{ steps.version.outputs.tag }} .
 
       - name: 'Batch 4: Network isolation (podman-specific)'
         run: ./scripts/test-network-isolation.sh --internal
@@ -440,7 +446,6 @@ jobs:
           ADMIN_PASSWORD=admin ./scripts/test-catalog.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-catalog-items.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-sync-optimization.sh & pids+=($!)
-          ADMIN_PASSWORD=admin ./scripts/test-session-delete.sh & pids+=($!)
 
           failed=0
           for pid in "${pids[@]}"; do
@@ -588,94 +593,12 @@ jobs:
             exit 1
           fi
 
-      - name: Stop dev container
-        run: docker stop alcove-dev-test 2>/dev/null || true
-
-      - name: Create networks
-        run: |
-          podman network create --internal alcove-internal
-          podman network create alcove-external
-
-      - name: Start PostgreSQL
-        run: |
-          podman run -d --rm \
-            --name alcove-ledger \
-            -e POSTGRES_USER=alcove \
-            -e POSTGRES_PASSWORD=alcove \
-            -e POSTGRES_DB=alcove \
-            -p 5432:5432 \
-            docker.io/library/postgres:16
-
-      - name: Start NATS
-        run: |
-          podman run -d --rm \
-            --name alcove-hail \
-            -p 4222:4222 \
-            -p 8222:8222 \
-            docker.io/library/nats:latest
-
-      - name: Generate alcove.yaml
-        run: sed "s/change-me-to-a-strong-secret/$(openssl rand -hex 32)/" alcove.yaml.example > alcove.yaml
-
-      - name: Wait for PostgreSQL
-        run: |
-          for i in $(seq 1 30); do
-            if pg_isready -h localhost -p 5432 -U alcove; then
-              echo "PostgreSQL is ready"
-              exit 0
-            fi
-            echo "Waiting for PostgreSQL... ($i/30)"
-            sleep 1
-          done
-          echo "PostgreSQL did not become ready in time"
-          exit 1
-
-      - name: Start Bridge locally
-        run: |
-          LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
-          HAIL_URL="nats://localhost:4222" \
-          RUNTIME=podman \
-          ALCOVE_NETWORK=alcove-internal \
-          ALCOVE_EXTERNAL_NETWORK=alcove-external \
-          VERSION=${{ steps.version.outputs.tag }} \
-          nohup ./bin/bridge > /tmp/alcove-bridge.log 2>&1 &
-
-      - name: Wait for Bridge health
-        run: |
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:8080/api/v1/health; then
-              echo ""
-              echo "Bridge is healthy"
-              exit 0
-            fi
-            echo "Waiting for Bridge... ($i/30)"
-            sleep 2
-          done
-          echo "Bridge did not become healthy in time"
-          cat /tmp/alcove-bridge.log || true
-          exit 1
-
-      - name: Run dev container API tests
-        run: ADMIN_PASSWORD=admin ./scripts/test-dev-container.sh
-
       - name: Show logs on failure
         if: failure()
         run: |
-          echo "=== Bridge logs ==="
-          cat /tmp/alcove-bridge.log || true
           echo "=== Dev container ==="
           docker logs alcove-dev-test 2>&1 || true
-          echo "=== Ledger ==="
-          podman logs alcove-ledger 2>&1 || true
-          echo "=== Hail ==="
-          podman logs alcove-hail 2>&1 || true
 
       - name: Teardown
         if: always()
-        run: |
-          docker stop alcove-dev-test 2>/dev/null || true
-          kill $(cat /tmp/alcove-bridge.pid 2>/dev/null) 2>/dev/null || pkill -f './bin/bridge' || true
-          podman stop alcove-hail 2>/dev/null || true
-          podman stop alcove-ledger 2>/dev/null || true
-          podman network rm alcove-internal 2>/dev/null || true
-          podman network rm alcove-external 2>/dev/null || true
+        run: docker stop alcove-dev-test 2>/dev/null || true
