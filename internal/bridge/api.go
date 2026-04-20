@@ -2393,26 +2393,51 @@ func (a *API) handleWorkflows(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleWorkflowRuns(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
-		return
-	}
-
 	teamID := getActiveTeamID(r)
 
-	status := r.URL.Query().Get("status")
+	switch r.Method {
+	case http.MethodGet:
+		status := r.URL.Query().Get("status")
 
-	runs, err := a.workflowEngine.ListWorkflowRuns(r.Context(), status, teamID)
-	if err != nil {
-		log.Printf("error listing workflow runs: %v", err)
-		respondError(w, http.StatusInternalServerError, "failed to list workflow runs")
-		return
+		runs, err := a.workflowEngine.ListWorkflowRuns(r.Context(), status, teamID)
+		if err != nil {
+			log.Printf("error listing workflow runs: %v", err)
+			respondError(w, http.StatusInternalServerError, "failed to list workflow runs")
+			return
+		}
+
+		respondJSON(w, http.StatusOK, map[string]any{
+			"workflow_runs": runs,
+			"count":         len(runs),
+		})
+
+	case http.MethodPost:
+		var req struct {
+			WorkflowID string `json:"workflow_id"`
+			TriggerRef string `json:"trigger_ref"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+			return
+		}
+
+		if req.WorkflowID == "" {
+			respondError(w, http.StatusBadRequest, "workflow_id is required")
+			return
+		}
+
+		run, err := a.workflowEngine.StartWorkflowRun(r.Context(), req.WorkflowID, "manual", req.TriggerRef, teamID)
+		if err != nil {
+			log.Printf("error starting workflow run for workflow %s: %v", req.WorkflowID, err)
+			respondError(w, http.StatusInternalServerError, "failed to start workflow run: "+err.Error())
+			return
+		}
+
+		respondJSON(w, http.StatusCreated, run)
+
+	default:
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
-
-	respondJSON(w, http.StatusOK, map[string]any{
-		"workflow_runs": runs,
-		"count":         len(runs),
-	})
 }
 
 func (a *API) handleWorkflowRunByID(w http.ResponseWriter, r *http.Request) {

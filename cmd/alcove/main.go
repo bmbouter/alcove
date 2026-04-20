@@ -104,6 +104,7 @@ func main() {
 		newCatalogCmd(),
 		newCredentialsCmd(),
 		newAgentsCmd(),
+		newWorkflowsCmd(),
 		newVersionCmd(),
 	)
 
