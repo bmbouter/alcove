@@ -2220,6 +2220,58 @@ curl "http://localhost:8080/api/v1/workflow-runs?status=running" \
   -H "X-Alcove-Team: $TEAM_ID"
 ```
 
+### POST /api/v1/workflow-runs
+
+Trigger a new workflow run manually.
+
+**Request body:**
+
+```json
+{
+  "workflow_id": "b1c2d3e4-f5a6-7890-abcd-ef1234567890",
+  "trigger_ref": ""
+}
+```
+
+| Field          | Type   | Required | Description |
+|----------------|--------|----------|-------------|
+| `workflow_id`  | string | yes      | The workflow definition ID to run |
+| `trigger_ref`  | string | no       | Optional trigger reference (e.g., branch name, PR number) |
+
+**Response (201):**
+
+```json
+{
+  "id": "c2d3e4f5-a6b7-8901-bcde-f12345678901",
+  "workflow_id": "b1c2d3e4-f5a6-7890-abcd-ef1234567890",
+  "status": "running",
+  "trigger_type": "manual",
+  "trigger_ref": "",
+  "step_outputs": {},
+  "started_at": "2026-04-15T14:00:00Z",
+  "team_id": "550e8400-e29b-41d4-a716-446655440000",
+  "created_at": "2026-04-15T14:00:00Z"
+}
+```
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 201  | Workflow run created and started |
+| 400  | Invalid body or missing `workflow_id` |
+| 500  | Failed to start workflow run |
+
+**curl example:**
+
+```bash
+curl -X POST http://localhost:8080/api/v1/workflow-runs \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Alcove-Team: $TEAM_ID" \
+  -H "Content-Type: application/json" \
+  -d '{"workflow_id": "b1c2d3e4-f5a6-7890-abcd-ef1234567890"}'
+```
+
 ### GET /api/v1/workflow-runs/{id}
 
 Get detailed information about a workflow run, including all step executions.

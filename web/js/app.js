@@ -5292,7 +5292,7 @@
                     '<div class="workflow-def-step-count">' + stepCount + ' step' + (stepCount === 1 ? '' : 's') + '</div>' +
                 '</div>' +
                 '<div class="workflow-def-actions">' +
-                    '<button class="btn btn-small btn-outline" disabled>Trigger Manually</button>' +
+                    '<button class="btn btn-small btn-outline workflow-trigger-btn" data-workflow-id="' + escapeHtml(workflow.id) + '">Trigger Manually</button>' +
                 '</div>' +
             '</div>' +
             dag +
@@ -5305,6 +5305,35 @@
             agentWarning;
 
         container.appendChild(card);
+
+        // Attach trigger button handler
+        var triggerBtn = card.querySelector('.workflow-trigger-btn');
+        if (triggerBtn) {
+            triggerBtn.addEventListener('click', async function() {
+                var workflowId = triggerBtn.getAttribute('data-workflow-id');
+                triggerBtn.disabled = true;
+                triggerBtn.textContent = 'Triggering...';
+                try {
+                    var resp = await api('POST', '/api/v1/workflow-runs', { workflow_id: workflowId });
+                    if (!resp.ok) {
+                        var data = await resp.json().catch(function() { return {}; });
+                        alert(data.error || data.message || 'Failed to trigger workflow.');
+                    } else {
+                        var run = await resp.json();
+                        var runId = run.id || '';
+                        // Navigate to the workflow run detail page
+                        navigate('workflow-run/' + runId);
+                        return;
+                    }
+                } catch (err) {
+                    if (err.message !== 'unauthorized' && err.message !== 'rh-identity-auth-error') {
+                        alert('Failed to trigger workflow.');
+                    }
+                }
+                triggerBtn.textContent = 'Trigger Manually';
+                triggerBtn.disabled = false;
+            });
+        }
     }
 
     function workflowStatusBadgeClass(status) {
@@ -5446,7 +5475,7 @@
     }
 
     function buildTriggerInfo(trigger) {
-        if (!trigger) return '🔧 Manual only';
+        if (!trigger) return '🔧 Manual';
 
         var info = [];
         if (trigger.events && trigger.events.length > 0) {
@@ -5462,7 +5491,7 @@
             info.push('⏰ Schedule: ' + trigger.schedule);
         }
 
-        return info.length > 0 ? info.join(' • ') : '🔧 Manual only';
+        return info.length > 0 ? info.join(' • ') : '🔧 Manual';
     }
 
     // Attach filter change handler

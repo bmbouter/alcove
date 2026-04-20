@@ -1720,3 +1720,123 @@ alcove agents repos remove --url https://github.com/org/my-agents.git
 # Remove a repo by name
 alcove agents repos remove --name "My Agents"
 ```
+
+---
+
+## alcove workflows
+
+Manage workflows and workflow runs. Workflows are multi-step execution graphs
+defined in YAML and synced from agent repos.
+
+```
+alcove workflows <subcommand>
+```
+
+### Subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | List all workflow definitions |
+| `run` | Trigger a workflow run by ID or name |
+| `runs` | List workflow runs |
+
+---
+
+## alcove workflows list
+
+List all workflow definitions for the active team.
+
+```
+alcove workflows list
+```
+
+### Flags
+
+No command-specific flags. Supports global `--output json`.
+
+### Description
+
+Displays all workflow definitions in a table. Each row shows the workflow ID,
+name, source repo, last sync time, and any sync errors.
+
+### Examples
+
+```bash
+# List all workflows
+alcove workflows list
+
+# JSON output
+alcove workflows list --output json
+```
+
+---
+
+## alcove workflows run
+
+Trigger a workflow run manually.
+
+```
+alcove workflows run <id-or-name> [flags]
+```
+
+### Flags
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--trigger-ref` | string | Optional trigger reference (e.g., branch name, PR number) |
+
+### Description
+
+Starts a new workflow run by workflow ID or name. If a name is provided, it is
+resolved to a workflow ID by listing all workflows and matching by name. On
+success, prints the workflow run ID to stdout.
+
+### Examples
+
+```bash
+# Trigger by name
+alcove workflows run "Pulp Dependency Upgrade Pipeline"
+
+# Trigger by ID
+alcove workflows run b1c2d3e4-f5a6-7890-abcd-ef1234567890
+
+# With a trigger reference
+alcove workflows run "My Workflow" --trigger-ref "feature/new-api"
+
+# JSON output
+alcove workflows run --output json "My Workflow"
+```
+
+---
+
+## alcove workflows runs
+
+List workflow runs for the active team.
+
+```
+alcove workflows runs [flags]
+```
+
+### Flags
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `--status` | string | Filter by status: `pending`, `running`, `completed`, `failed`, `cancelled`, `awaiting_approval` |
+
+### Description
+
+Displays workflow runs in a table. Each row shows the run ID, workflow ID,
+status, trigger type, current step, and creation time.
+
+### Examples
+
+```bash
+# List all workflow runs
+alcove workflows runs
+
+# Filter by status
+alcove workflows runs --status running
+
+# JSON output
+alcove workflows runs --output json
+```
