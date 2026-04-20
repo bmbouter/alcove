@@ -5,7 +5,7 @@ set -euo pipefail
 
 BASE_URL="${BASE_URL:-http://localhost:8080}"
 TOKEN="${TOKEN:-$(curl -s "$BASE_URL/api/v1/auth/login" -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"admin"}' | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))")}"
+  -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASSWORD:-admin}\"}" | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))")}"
 
 if [ -z "$TOKEN" ]; then
   echo "FAIL: Could not get auth token"

@@ -69,7 +69,7 @@ type CatalogItem struct {
 	Definition  map[string]interface{} `json:"definition,omitempty"`
 	SourceFile  string                 `json:"source_file"`
 	SyncedAt    time.Time              `json:"synced_at"`
-	Enabled     bool                   `json:"enabled,omitempty"` // populated per-team
+	Enabled     bool                   `json:"enabled"` // populated per-team
 }
 
 // CatalogSourceSummary provides a summary of a catalog source with item counts for a team.

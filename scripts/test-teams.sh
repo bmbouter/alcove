@@ -509,36 +509,28 @@ else
   fail "Credential not visible without X-Alcove-Team header"
 fi
 
-# Create a schedule WITHOUT X-Alcove-Team header (should use personal team)
-COMPAT_SCHED_RESULT=$(curl -s -X POST "$BRIDGE_URL/api/v1/schedules" \
+# Schedule creation is YAML-only (POST returns 405)
+SCHED_HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BRIDGE_URL/api/v1/schedules" \
   -H "Authorization: Bearer $ALICE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"compat-schedule","cron":"0 * * * *","prompt":"backward compat test","enabled":false}')
-COMPAT_SCHED_ID=$(echo "$COMPAT_SCHED_RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id','ERROR'))")
-if [ "$COMPAT_SCHED_ID" != "ERROR" ]; then
-  pass "Created schedule without X-Alcove-Team header"
+if [ "$SCHED_HTTP_CODE" = "405" ]; then
+  pass "Schedule creation returns 405 (YAML-only policy)"
 else
-  fail "Failed to create schedule without X-Alcove-Team: $COMPAT_SCHED_RESULT"
+  fail "Schedule creation returned $SCHED_HTTP_CODE (expected 405)"
 fi
 
-# List schedules without X-Alcove-Team — should see the schedule
-COMPAT_SCHED_LIST=$(curl -s "$BRIDGE_URL/api/v1/schedules" \
-  -H "Authorization: Bearer $ALICE_TOKEN" | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-names=[s.get('name','') for s in d.get('schedules',[])]
-print('yes' if 'compat-schedule' in names else 'no')
-")
-if [ "$COMPAT_SCHED_LIST" = "yes" ]; then
-  pass "Schedule visible without X-Alcove-Team header (personal team default)"
+# GET schedules still works without X-Alcove-Team header
+SCHED_LIST_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BRIDGE_URL/api/v1/schedules" \
+  -H "Authorization: Bearer $ALICE_TOKEN")
+if [ "$SCHED_LIST_CODE" = "200" ]; then
+  pass "Schedule listing works without X-Alcove-Team header"
 else
-  fail "Schedule not visible without X-Alcove-Team header"
+  fail "Schedule listing returned $SCHED_LIST_CODE (expected 200)"
 fi
 
 # Cleanup
 curl -s -X DELETE "$BRIDGE_URL/api/v1/credentials/$COMPAT_CRED_ID" \
-  -H "Authorization: Bearer $ALICE_TOKEN" > /dev/null 2>&1
-curl -s -X DELETE "$BRIDGE_URL/api/v1/schedules/$COMPAT_SCHED_ID" \
   -H "Authorization: Bearer $ALICE_TOKEN" > /dev/null 2>&1
 
 # =====================================================================
@@ -708,7 +700,19 @@ curl -s -X PUT "$BRIDGE_URL/api/v1/user/settings/agent-repos" \
 # =====================================================================
 log "Test 11: Agent definition and schedule scoping after sync"
 
-# After the sync above, agent defs should be on personal team only
+# Re-add the repo and sync (Test 10 cleanup removed it)
+curl -s -X PUT "$BRIDGE_URL/api/v1/user/settings/agent-repos" \
+  -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "X-Alcove-Team: $PERSONAL_TEAM_ID" \
+  -d '{"repos":[{"url":"https://github.com/bmbouter/alcove/","ref":"main","name":"alcove"}]}' > /dev/null
+
+curl -s -X POST "$BRIDGE_URL/api/v1/agent-definitions/sync" \
+  -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "X-Alcove-Team: $PERSONAL_TEAM_ID" > /dev/null
+sleep 8
+
+# Agent defs should be on personal team only
 PERSONAL_DEFS=$(curl -s "$BRIDGE_URL/api/v1/agent-definitions" \
   -H "Authorization: Bearer $ALICE_TOKEN" \
   -H "X-Alcove-Team: $PERSONAL_TEAM_ID" | python3 -c "
@@ -745,6 +749,13 @@ if [ "$DEFAULT_SCHEDS" = "$PERSONAL_SCHEDS" ]; then
 else
   fail "No-header schedules ($DEFAULT_SCHEDS) != personal ($PERSONAL_SCHEDS)"
 fi
+
+# Cleanup repos from Test 11
+curl -s -X PUT "$BRIDGE_URL/api/v1/user/settings/agent-repos" \
+  -H "Authorization: Bearer $ALICE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "X-Alcove-Team: $PERSONAL_TEAM_ID" \
+  -d '{"repos":[]}' > /dev/null
 
 # =====================================================================
 # Test 12: Cache-Control header on API responses

@@ -224,7 +224,7 @@ if all_ok:
 else:
     print('STATUS:some_too_short')
 ")
-echo "$PROMPT_LENGTHS" | grep -v "^STATUS:"
+echo "$PROMPT_LENGTHS" | grep -v "^STATUS:" || true
 
 STATUS_LINE=$(echo "$PROMPT_LENGTHS" | grep "^STATUS:" | cut -d: -f2)
 if [ "$STATUS_LINE" = "all_ok" ]; then
@@ -293,7 +293,7 @@ for d_line in details:
     print(f'  {d_line}')
 print(f'SUMMARY:{steps_with_outputs}:{steps_without_outputs}')
 ")
-  echo "$OUTPUT_CHECK" | grep -v "^SUMMARY:"
+  echo "$OUTPUT_CHECK" | grep -v "^SUMMARY:" || true
 
   SUMMARY_LINE=$(echo "$OUTPUT_CHECK" | grep "^SUMMARY:")
   WITH_OUTPUTS=$(echo "$SUMMARY_LINE" | cut -d: -f2)
@@ -377,7 +377,7 @@ if errors:
 else:
     print('RESULT:clean:0')
 ")
-echo "$SYNC_ERRORS" | grep -v "^RESULT:"
+echo "$SYNC_ERRORS" | grep -v "^RESULT:" || true
 
 RESULT_LINE=$(echo "$SYNC_ERRORS" | grep "^RESULT:")
 RESULT_STATUS=$(echo "$RESULT_LINE" | cut -d: -f2)

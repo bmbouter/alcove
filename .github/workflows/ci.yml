@@ -80,7 +80,7 @@ jobs:
           # Basic validation (check if binary was created)
           ls -la "alcove-${{ matrix.os }}-${{ matrix.arch }}$ext"
 
-  functional-tests:
+  functional-tests-podman:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -98,6 +98,7 @@ jobs:
         run: make build
         env:
           VERSION: ${{ steps.version.outputs.tag }}
+          GOPROXY: direct
 
       - name: Create networks
         run: |
@@ -163,27 +164,50 @@ jobs:
           cat /tmp/alcove-bridge.log || true
           exit 1
 
-      - name: Run functional tests (parallel)
+      - name: 'Batch 1: Core API tests (parallel)'
         run: |
           pids=()
           ADMIN_PASSWORD=admin ./scripts/test-credentials.sh & pids+=($!)
-          ADMIN_PASSWORD=admin ./scripts/test-schedules.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-user-isolation.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-ledger-access.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-yaml-only.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-teams.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-generic-secrets.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-profile-builder.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-direct-outbound.sh & pids+=($!)
 
           failed=0
           for pid in "${pids[@]}"; do
             wait "$pid" || failed=1
           done
-
           if [ "$failed" -eq 1 ]; then
             echo "One or more test scripts failed"
             exit 1
           fi
 
-      - name: Run agent repo tests
-        run: ADMIN_PASSWORD=admin ./scripts/test-agent-repos.sh
+      - name: 'Batch 2: Catalog and workflow tests (parallel)'
+        run: |
+          pids=()
+          ADMIN_PASSWORD=admin ./scripts/test-catalog-items.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-sync-optimization.sh & pids+=($!)
+
+          failed=0
+          for pid in "${pids[@]}"; do
+            wait "$pid" || failed=1
+          done
+          if [ "$failed" -eq 1 ]; then
+            echo "One or more test scripts failed"
+            exit 1
+          fi
+
+      - name: 'Batch 3: Agent repo and sync tests (sequential, needs internet)'
+        run: |
+          ADMIN_PASSWORD=admin ./scripts/test-agent-repos.sh
+          ADMIN_PASSWORD=admin ./scripts/test-simplified-agents.sh
+          ADMIN_PASSWORD=admin ./scripts/test-workflow-definitions.sh
+          ADMIN_PASSWORD=admin ./scripts/test-workflow-graph-v2.sh
+          ADMIN_PASSWORD=admin ./scripts/test-yaml-security-profiles.sh
+
 
       - name: Show logs on failure
         if: failure()
@@ -203,3 +227,375 @@ jobs:
           podman stop alcove-ledger 2>/dev/null || true
           podman network rm alcove-internal 2>/dev/null || true
           podman network rm alcove-external 2>/dev/null || true
+
+  functional-tests-k8s:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Detect version
+        id: version
+        run: echo "tag=$(git describe --tags --always --dirty 2>/dev/null || echo dev)" >> "$GITHUB_OUTPUT"
+
+      - name: Build binaries
+        run: make build
+        env:
+          VERSION: ${{ steps.version.outputs.tag }}
+          GOPROXY: direct
+
+      - name: Install k3s
+        run: |
+          curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--disable=traefik --write-kubeconfig-mode=644" sh -
+          mkdir -p ~/.kube
+          sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+          sudo chown $USER ~/.kube/config
+          for i in $(seq 1 30); do
+            if kubectl get nodes 2>/dev/null | grep -q ' Ready'; then
+              echo "k3s node is Ready"
+              break
+            fi
+            echo "Waiting for k3s node... ($i/30)"
+            sleep 2
+          done
+          kubectl wait --for=condition=Ready node --all --timeout=120s
+          echo "k3s is ready"
+          kubectl get nodes
+
+      - name: Build and import container images into k3s
+        run: |
+          docker build -f build/Containerfile.bridge -t localhost/alcove-bridge:dev \
+            --build-arg VERSION=${{ steps.version.outputs.tag }} .
+          docker build -f build/Containerfile.gate -t localhost/alcove-gate:dev \
+            --build-arg VERSION=${{ steps.version.outputs.tag }} .
+          docker build -f build/Containerfile.skiff-base -t localhost/alcove-skiff-base:dev \
+            --build-arg "SKIFF_TOOLING_BASE=docker.io/library/golang:1.25" \
+            --build-arg VERSION=${{ steps.version.outputs.tag }} .
+          docker save localhost/alcove-bridge:dev | sudo k3s ctr images import -
+          docker save localhost/alcove-gate:dev | sudo k3s ctr images import -
+          docker save localhost/alcove-skiff-base:dev | sudo k3s ctr images import -
+          echo "Images imported into k3s:"
+          sudo k3s ctr images ls | grep alcove || true
+
+      - name: Create alcove namespace and deploy infrastructure
+        run: |
+          kubectl create namespace alcove
+
+          kubectl apply -n alcove -f - <<'YAML'
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: alcove-ledger
+            labels:
+              app.kubernetes.io/part-of: alcove
+              app.kubernetes.io/name: ledger
+          spec:
+            containers:
+            - name: postgres
+              image: docker.io/library/postgres:16
+              env:
+              - name: POSTGRES_USER
+                value: alcove
+              - name: POSTGRES_PASSWORD
+                value: alcove
+              - name: POSTGRES_DB
+                value: alcove
+              ports:
+              - containerPort: 5432
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: alcove-ledger
+          spec:
+            selector:
+              app.kubernetes.io/name: ledger
+            ports:
+            - port: 5432
+              targetPort: 5432
+          YAML
+
+          kubectl apply -n alcove -f - <<'YAML'
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: alcove-hail
+            labels:
+              app.kubernetes.io/part-of: alcove
+              app.kubernetes.io/name: hail
+          spec:
+            containers:
+            - name: nats
+              image: docker.io/library/nats:latest
+              ports:
+              - containerPort: 4222
+              - containerPort: 8222
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: alcove-hail
+          spec:
+            selector:
+              app.kubernetes.io/name: hail
+            ports:
+            - name: client
+              port: 4222
+              targetPort: 4222
+            - name: monitoring
+              port: 8222
+              targetPort: 8222
+          YAML
+
+          kubectl wait -n alcove --for=condition=Ready pod/alcove-ledger --timeout=120s
+          kubectl wait -n alcove --for=condition=Ready pod/alcove-hail --timeout=120s
+          echo "Infrastructure pods ready"
+
+      - name: Generate alcove.yaml
+        run: sed "s/change-me-to-a-strong-secret/$(openssl rand -hex 32)/" alcove.yaml.example > alcove.yaml
+
+      - name: Port-forward infrastructure services
+        run: |
+          kubectl port-forward -n alcove svc/alcove-ledger 5432:5432 &
+          kubectl port-forward -n alcove svc/alcove-hail 4222:4222 &
+          sleep 3
+          echo "Port-forwards active"
+
+      - name: Wait for PostgreSQL
+        run: |
+          for i in $(seq 1 30); do
+            if pg_isready -h localhost -p 5432 -U alcove; then
+              echo "PostgreSQL is ready"
+              exit 0
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 1
+          done
+          echo "PostgreSQL did not become ready in time"
+          exit 1
+
+      - name: Start Bridge locally with k8s runtime
+        run: |
+          LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
+          HAIL_URL="nats://localhost:4222" \
+          RUNTIME=kubernetes \
+          ALCOVE_NAMESPACE=alcove \
+          KUBECONFIG=$HOME/.kube/config \
+          SKIFF_IMAGE=localhost/alcove-skiff-base:dev \
+          GATE_IMAGE=localhost/alcove-gate:dev \
+          VERSION=${{ steps.version.outputs.tag }} \
+          nohup ./bin/bridge > /tmp/alcove-bridge.log 2>&1 &
+
+      - name: Wait for Bridge health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/api/v1/health; then
+              echo ""
+              echo "Bridge is healthy"
+              exit 0
+            fi
+            echo "Waiting for Bridge... ($i/30)"
+            sleep 2
+          done
+          echo "Bridge did not become healthy in time"
+          cat /tmp/alcove-bridge.log || true
+          exit 1
+
+      - name: Verify runtime is kubernetes
+        run: |
+          RUNTIME_TYPE=$(curl -s http://localhost:8080/api/v1/health | python3 -c "import sys,json; print(json.load(sys.stdin).get('runtime',''))")
+          if [ "$RUNTIME_TYPE" = "kubernetes" ]; then
+            echo "PASS: Runtime type is kubernetes"
+          else
+            echo "FAIL: Expected kubernetes, got $RUNTIME_TYPE"
+            exit 1
+          fi
+
+      - name: 'Batch 1: Core API tests (parallel)'
+        run: |
+          pids=()
+          ADMIN_PASSWORD=admin ./scripts/test-credentials.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-user-isolation.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-ledger-access.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-yaml-only.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-teams.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-generic-secrets.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-profile-builder.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-direct-outbound.sh & pids+=($!)
+
+          failed=0
+          for pid in "${pids[@]}"; do
+            wait "$pid" || failed=1
+          done
+          if [ "$failed" -eq 1 ]; then
+            echo "One or more test scripts failed"
+            exit 1
+          fi
+
+      - name: 'Batch 2: Catalog and workflow tests (parallel)'
+        run: |
+          pids=()
+          ADMIN_PASSWORD=admin ./scripts/test-catalog-items.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-sync-optimization.sh & pids+=($!)
+
+          failed=0
+          for pid in "${pids[@]}"; do
+            wait "$pid" || failed=1
+          done
+          if [ "$failed" -eq 1 ]; then
+            echo "One or more test scripts failed"
+            exit 1
+          fi
+
+      - name: 'Batch 3: Agent repo and sync tests (sequential, needs internet)'
+        run: |
+          ADMIN_PASSWORD=admin ./scripts/test-agent-repos.sh
+          ADMIN_PASSWORD=admin ./scripts/test-simplified-agents.sh
+          ADMIN_PASSWORD=admin ./scripts/test-workflow-definitions.sh
+          ADMIN_PASSWORD=admin ./scripts/test-workflow-graph-v2.sh
+          ADMIN_PASSWORD=admin ./scripts/test-yaml-security-profiles.sh
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          echo "=== Port-forward status ==="
+          pgrep -fa 'kubectl port-forward' || echo 'WARNING: port-forward processes not running'
+          echo "=== Bridge logs ==="
+          cat /tmp/alcove-bridge.log || true
+          echo "=== Kubernetes pods ==="
+          kubectl get pods -n alcove -o wide || true
+          echo "=== Ledger logs ==="
+          kubectl logs -n alcove alcove-ledger 2>&1 || true
+          echo "=== Hail logs ==="
+          kubectl logs -n alcove alcove-hail 2>&1 || true
+          echo "=== Task jobs ==="
+          kubectl get jobs -n alcove -o wide 2>&1 || true
+          for job in $(kubectl get jobs -n alcove -o name 2>/dev/null); do
+            echo "=== Logs for $job ==="
+            kubectl logs -n alcove "$job" --all-containers 2>&1 || true
+          done
+
+      - name: Teardown
+        if: always()
+        run: |
+          pkill -f './bin/bridge' || true
+          pkill -f 'kubectl port-forward' || true
+          kubectl delete namespace alcove --timeout=60s 2>/dev/null || true
+
+  dev-container-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Detect version
+        id: version
+        run: echo "tag=$(git describe --tags --always --dirty 2>/dev/null || echo dev)" >> "$GITHUB_OUTPUT"
+
+      - name: Build binaries
+        run: make build
+        env:
+          VERSION: ${{ steps.version.outputs.tag }}
+          GOPROXY: direct
+
+      - name: Build dev container image
+        run: |
+          docker build -f build/Containerfile.dev \
+            -t localhost/alcove-dev:dev \
+            --build-arg VERSION=${{ steps.version.outputs.tag }} .
+
+      - name: Start dev container
+        run: |
+          docker run -d --rm \
+            --name alcove-dev-test \
+            -e SHIM_TOKEN=ci-test-token \
+            -p 19090:9090 \
+            localhost/alcove-dev:dev
+
+      - name: Wait for shim health
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:19090/healthz; then
+              echo ""
+              echo "Shim is healthy"
+              exit 0
+            fi
+            echo "Waiting for shim... ($i/60)"
+            sleep 2
+          done
+          echo "Shim did not become healthy in time"
+          docker logs alcove-dev-test || true
+          exit 1
+
+      - name: Test shim exec
+        run: |
+          RESULT=$(curl -s -X POST http://localhost:19090/exec \
+            -H "Authorization: Bearer ci-test-token" \
+            -H "Content-Type: application/json" \
+            -d '{"cmd": "echo hello-ci", "timeout": 10}')
+          echo "Exec result: $RESULT"
+          if echo "$RESULT" | grep -q 'hello-ci'; then
+            echo "PASS: shim exec returned expected output"
+          else
+            echo "FAIL: shim exec did not return expected output"
+            exit 1
+          fi
+
+      - name: Test shim auth rejection
+        run: |
+          HTTP_CODE=$(curl -s -w "%{http_code}" -o /dev/null -X POST http://localhost:19090/exec \
+            -H "Authorization: Bearer wrong-token" \
+            -H "Content-Type: application/json" \
+            -d '{"cmd": "echo fail"}')
+          if [ "$HTTP_CODE" = "401" ]; then
+            echo "PASS: shim rejected bad auth with 401"
+          else
+            echo "FAIL: expected 401, got $HTTP_CODE"
+            exit 1
+          fi
+
+      - name: Test PostgreSQL inside dev container
+        run: |
+          RESULT=$(curl -s -X POST http://localhost:19090/exec \
+            -H "Authorization: Bearer ci-test-token" \
+            -H "Content-Type: application/json" \
+            -d '{"cmd": "pg_isready -h localhost -p 5432", "timeout": 10}')
+          echo "pg_isready result: $RESULT"
+          if echo "$RESULT" | grep -q 'accepting'; then
+            echo "PASS: PostgreSQL is accepting connections"
+          else
+            echo "FAIL: PostgreSQL is not accepting connections"
+            exit 1
+          fi
+
+      - name: Test NATS inside dev container
+        run: |
+          RESULT=$(curl -s -X POST http://localhost:19090/exec \
+            -H "Authorization: Bearer ci-test-token" \
+            -H "Content-Type: application/json" \
+            -d '{"cmd": "curl -s localhost:8222/varz", "timeout": 10}')
+          echo "NATS varz result: $RESULT"
+          if echo "$RESULT" | grep -q 'server_id'; then
+            echo "PASS: NATS is running and responding"
+          else
+            echo "FAIL: NATS is not responding"
+            exit 1
+          fi
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          echo "=== Dev container ==="
+          docker logs alcove-dev-test 2>&1 || true
+
+      - name: Teardown
+        if: always()
+        run: docker stop alcove-dev-test 2>/dev/null || true
