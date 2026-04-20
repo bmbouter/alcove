@@ -197,7 +197,7 @@ for step in steps:
     print(f'  {step_id}: {type_str}{action_str}{agent_str}')
 print('STEP_COUNT:' + str(len(steps)))
 ")
-echo "$STEP_DETAILS" | grep -v "^STEP_COUNT:" | grep -v "^NO_FEATURE_WF"
+echo "$STEP_DETAILS" | grep -v "^STEP_COUNT:" | grep -v "^NO_FEATURE_WF" || true
 
 if [ "$STEP_DETAILS" = "NO_FEATURE_WF" ]; then
   fail "Feature pipeline not found for step type verification"
