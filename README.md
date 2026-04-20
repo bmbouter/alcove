@@ -141,7 +141,7 @@ alcove logs <session-id> --follow
 | [Development Guide](docs/development-guide.md) | Building, testing, adding features |
 | [Architecture](docs/design/architecture.md) | Component design, deployment diagrams, roadmap |
 | [Security Principles](docs/design/security-principles.md) | Five north-star security principles with implementation details |
-| [Architecture Decisions](docs/design/architecture-decisions.md) | Resolved design choices (18 decisions) |
+| [Architecture Decisions](docs/design/architecture-decisions.md) | Resolved design choices (23 decisions) |
 | [Implementation Status](docs/design/implementation-status.md) | Current state, what works, what is next |
 | [Problem Statement](docs/design/problem-statement.md) | Why ephemeral agents |
 | [Credential Management](docs/design/credential-management.md) | How Bridge manages credentials and passes tokens to Gate |

@@ -40,7 +40,7 @@ Read these for full context:
 
 1. `docs/design/implementation-status.md` — **START HERE** — current state, what works, what's next
 2. `docs/design/architecture.md` — component design, deployment diagrams, network isolation, roadmap
-3. `docs/design/architecture-decisions.md` — 22 resolved decisions, CLI design, config format, repo layout
+3. `docs/design/architecture-decisions.md` — 23 resolved decisions, CLI design, config format, repo layout
 4. `docs/design/problem-statement.md` — why ephemeral agents
 5. `docs/design/credential-management.md` — credential storage, encryption, OAuth2 token flow
 6. `docs/design/auth-backends.md` — auth backend design (memory, postgres, rh-identity)
@@ -71,9 +71,10 @@ make dev-down                 # Stop everything
 make dev-reset                # Stop + remove volumes (clean slate)
 
 # k3s (Kubernetes backend) — test k8s runtime locally
+# Requires sudo for k3s install and image import. Stop podman infra first: make down
 make k3s-setup                # Install k3s, configure kubeconfig + firewalld (run once)
 make k3s-up                   # Build images, deploy NATS+PostgreSQL to k3s, start port-forwards
-make k3s-watch                # Hot-reload Bridge via Air with RUNTIME=kubernetes
+make k3s-watch                # Hot-reload Bridge with k3s backend (Air)
 make k3s-down                 # Stop port-forwards, delete k3s namespace
 make k3s-reset                # Full reset (namespace + imported images)
 make k3s-status               # Show pods, port-forwards, and jobs
