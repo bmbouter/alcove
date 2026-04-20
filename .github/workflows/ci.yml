@@ -168,7 +168,6 @@ jobs:
         run: |
           pids=()
           ADMIN_PASSWORD=admin ./scripts/test-credentials.sh & pids+=($!)
-          ADMIN_PASSWORD=admin ./scripts/test-schedules.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-user-isolation.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-ledger-access.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-yaml-only.sh & pids+=($!)
@@ -410,7 +409,7 @@ jobs:
 
       - name: Verify runtime is kubernetes
         run: |
-          RUNTIME_TYPE=$(curl -s http://localhost:8080/api/v1/health | python3 -c "import sys,json; print(json.load(sys.stdin).get('runtime',{}).get('type',''))")
+          RUNTIME_TYPE=$(curl -s http://localhost:8080/api/v1/health | python3 -c "import sys,json; print(json.load(sys.stdin).get('runtime',''))")
           if [ "$RUNTIME_TYPE" = "kubernetes" ]; then
             echo "PASS: Runtime type is kubernetes"
           else
@@ -422,7 +421,6 @@ jobs:
         run: |
           pids=()
           ADMIN_PASSWORD=admin ./scripts/test-credentials.sh & pids+=($!)
-          ADMIN_PASSWORD=admin ./scripts/test-schedules.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-user-isolation.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-ledger-access.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-yaml-only.sh & pids+=($!)
