@@ -178,6 +178,11 @@ func main() {
 		os.Chdir("/workspace")
 	}
 
+	// --- Inject CLAUDE.md from cloned repos ---
+	// Claude Code runs with --bare which disables native CLAUDE.md discovery.
+	// We read it explicitly and prepend it to the prompt.
+	task.Prompt = injectClaudeMD(task.Repos, task.Prompt)
+
 	// --- Install lola modules (must run after cloneRepo so cwd is correct) ---
 	installLolaModules()
 
@@ -1045,6 +1050,45 @@ func cloneRepoToDir(repo, ref, targetDir string) error {
 func repoNameFromURL(rawURL string) string {
 	base := filepath.Base(strings.TrimRight(rawURL, "/"))
 	return strings.TrimSuffix(base, ".git")
+}
+
+// injectClaudeMD reads CLAUDE.md from cloned repos and prepends it to the prompt.
+// For single-repo clones, it reads /workspace/CLAUDE.md.
+// For multi-repo clones, it reads /workspace/<name>/CLAUDE.md from each repo.
+func injectClaudeMD(repos []internal.RepoSpec, prompt string) string {
+	var claudeMDs []string
+
+	if len(repos) == 0 {
+		return prompt
+	}
+
+	if len(repos) == 1 {
+		content, err := os.ReadFile("/workspace/CLAUDE.md")
+		if err == nil && len(content) > 0 {
+			log.Printf("injected CLAUDE.md from /workspace/CLAUDE.md (%d bytes)", len(content))
+			claudeMDs = append(claudeMDs, string(content))
+		}
+	} else {
+		for _, r := range repos {
+			dir := r.Name
+			if dir == "" {
+				dir = repoNameFromURL(r.URL)
+			}
+			path := filepath.Join("/workspace", dir, "CLAUDE.md")
+			content, err := os.ReadFile(path)
+			if err == nil && len(content) > 0 {
+				log.Printf("injected CLAUDE.md from %s (%d bytes)", path, len(content))
+				claudeMDs = append(claudeMDs, string(content))
+			}
+		}
+	}
+
+	if len(claudeMDs) == 0 {
+		return prompt
+	}
+
+	// Prepend CLAUDE.md content to the prompt
+	return strings.Join(claudeMDs, "\n\n---\n\n") + "\n\n---\n\n" + prompt
 }
 
 // requireEnv returns the value of an environment variable or exits fatally.

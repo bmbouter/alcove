@@ -746,13 +746,21 @@ Skiff clones each repo into `/workspace/<name>/`. If a single `repo:` string
 is provided (legacy), it is converted to a single-element `repos` list
 internally. The `REPOS` JSON env var is injected into Skiff with the full list.
 
+**CLAUDE.md injection:** When a repo contains a `CLAUDE.md` file, skiff-init
+automatically reads it and prepends the content to the agent prompt. This means
+dev container usage instructions (e.g., how to build and test via `POST /exec`)
+should be documented in the project's `CLAUDE.md` rather than duplicated in
+agent definition prompts.
+
 **How it works:**
 
 - Podman creates a shared workspace volume and mounts it at `/workspace` in both
   Skiff and the dev container.
 - The shim binary (`cmd/shim`) is baked into the dev container image at build
   time via s6-overlay. The dev container image is built with `make build-dev`
-  from `build/Containerfile.dev`. `--security-opt label=disable` is set on the
+  from `build/Containerfile.dev`. `Containerfile.dev` is an all-in-one image
+  that includes PostgreSQL 16, NATS, Go 1.25, the shim binary, and s6-overlay
+  for process supervision. `--security-opt label=disable` is set on the
   dev container for SELinux compatibility on Podman.
 - The shim exposes `GET /healthz` and `POST /exec` (NDJSON streaming) on port
   9090, protected by bearer auth (`SHIM_TOKEN`).

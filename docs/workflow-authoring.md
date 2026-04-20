@@ -442,6 +442,9 @@ on the task alone:
 
 - **Keep prompts under 100 words.** Shorter prompts produce better results and
   cost less.
+- **Do not duplicate CLAUDE.md content in prompts.** The project's `CLAUDE.md`
+  is automatically injected into the prompt by skiff-init. Put dev container
+  instructions, build commands, and coding conventions there instead.
 - **Focus on what to do, not how to interact with infrastructure.** Bridge
   actions handle PR creation, CI monitoring, and merging.
 - **`$BRANCH` is set by the workflow engine.** Agents push to it automatically.
@@ -474,16 +477,26 @@ with a shared `/workspace` volume. The agent can then build and test code
 inside the dev container via the execution shim. This is configured in the
 agent definition, not in the workflow step itself.
 
+**CLAUDE.md is automatically injected:** skiff-init reads `CLAUDE.md` from
+cloned repos and prepends it to the agent prompt. Dev container usage
+instructions (how to call `POST /exec`, which tools are available) should be
+documented in the project's `CLAUDE.md` rather than duplicated in agent
+definition prompts. This keeps prompts minimal and ensures all agents working
+on the repo receive the same project context.
+
 ```yaml
 # In .alcove/tasks/go-dev.yml
 name: go-dev
 prompt: |
-  Implement the feature, then run `go test ./...` in the dev container.
+  Implement the feature and run tests before pushing.
 repos:
   - url: https://github.com/org/myproject.git
 dev_container:
   image: golang:1.25
 ```
+
+The prompt does not need to explain how to use the dev container -- that
+information comes from the repo's `CLAUDE.md` automatically.
 
 See `docs/configuration.md` for the full `dev_container` field reference and
 runtime support matrix.

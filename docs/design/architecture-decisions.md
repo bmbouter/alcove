@@ -398,6 +398,33 @@ lets agents work across repo boundaries without manual workarounds. The
 `/workspace/<name>/` layout keeps each clone isolated and predictable.
 
 
+### 22. CLAUDE.md Injection into Agent Prompts
+
+**Decision**: skiff-init reads `CLAUDE.md` from cloned repositories and
+prepends the content to the agent prompt before invoking Claude Code.
+
+**How it works**:
+- Claude Code runs with `--bare`, which disables native CLAUDE.md file
+  discovery, hooks, plugins, and keychain access.
+- After cloning repositories, skiff-init checks for `CLAUDE.md` at the
+  workspace root. For single-repo clones, it reads `/workspace/CLAUDE.md`.
+  For multi-repo clones, it reads `/workspace/<name>/CLAUDE.md` from each
+  repo and concatenates them.
+- The CLAUDE.md content is prepended to the agent prompt, so the agent
+  receives project-specific instructions (coding conventions, build
+  commands, dev container usage patterns) automatically.
+- This means dev container instructions, build commands, and project
+  conventions should be documented in `CLAUDE.md` rather than duplicated
+  in agent definition prompts.
+
+**Rationale**: The `--bare` flag is necessary for sandboxed execution (no
+hooks, no plugins, no keychain), but it also disables CLAUDE.md discovery.
+Explicit injection restores project context while maintaining sandbox
+safety. Keeping project instructions in `CLAUDE.md` (which is
+version-controlled with the repo) rather than in agent prompts avoids
+duplication and keeps agent definitions minimal.
+
+
 ## CLI Design
 
 ### Phase 1 Commands
@@ -507,6 +534,7 @@ alcove/
 │   └── auth/           # Authentication, session management
 ├── build/
 │   ├── Containerfile.bridge
+│   ├── Containerfile.dev
 │   ├── Containerfile.gate
 │   ├── Containerfile.skiff-base
 │   └── Containerfile.skiff-example

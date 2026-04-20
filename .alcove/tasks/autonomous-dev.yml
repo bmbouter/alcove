@@ -14,8 +14,6 @@ prompt: |
 
   Follow existing code patterns and conventions. Include tests for new functionality. Update documentation when behavior changes.
 
-  Run `go build ./...` and `go vet ./...` before pushing -- these are non-negotiable.
-
   Use a team of specialist agents working in parallel for independent work streams.
 
   Output: {"summary": "what you implemented"}
@@ -23,6 +21,9 @@ prompt: |
 repos:
   - url: https://github.com/bmbouter/alcove.git
 timeout: 7200
+
+dev_container:
+  image: localhost/alcove-dev:latest
 
 outputs:
   - summary

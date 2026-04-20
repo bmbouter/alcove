@@ -93,13 +93,14 @@ alcove/
 │   ├── Containerfile.bridge    ✅ Multi-stage (golang:1.25 → ubi9/ubi)
 │   ├── Containerfile.gate      ✅ Multi-stage (golang:1.25 → ubi9-minimal)
 │   ├── alcove-credential-helper ✅ Git credential helper binary (used by Skiff for HTTPS git auth via Gate)
-│   └── Containerfile.skiff-base ✅ Multi-stage (golang:1.25 → ubi9/ubi + nodejs + claude-code + gh + glab + credential helper)
+│   ├── Containerfile.skiff-base ✅ Multi-stage (golang:1.25 → ubi9/ubi + nodejs + claude-code + gh + glab + credential helper)
+│   └── Containerfile.dev        ✅ All-in-one dev container (golang:1.25 + PostgreSQL 16 + NATS + shim + s6-overlay)
 ├── docs/
 │   ├── getting-started.md      ✅ 5-minute quick start guide
 │   └── design/
 │       ├── implementation-status.md    ✅ This file
 │       ├── architecture.md             ✅ Full component design
-│       ├── architecture-decisions.md   ✅ 21 resolved decisions
+│       ├── architecture-decisions.md   ✅ 22 resolved decisions
 │       ├── problem-statement.md        ✅ Why ephemeral agents
 │       ├── credential-management.md    ✅ Credential storage and token flow design
 │       ├── auth-backends.md            ✅ Dual auth backend design
@@ -116,6 +117,7 @@ alcove/
 - `localhost/alcove-bridge:dev` ✅ (Bridge controller + dashboard)
 - `localhost/alcove-gate:dev` ✅
 - `localhost/alcove-skiff-base:dev` ✅ (includes Claude Code CLI via npm)
+- `localhost/alcove-dev:dev` ✅ (all-in-one dev container: PostgreSQL 16 + NATS + Go 1.25 + shim + s6-overlay; built with `make build-dev`)
 
 ### Infrastructure Tested
 
@@ -362,7 +364,10 @@ alcove/
     workspace volume; `DEV_CONTAINER_HOST` is overridden to `localhost:9090`
     since K8s pod containers share a network namespace. Docker rejects dev
     containers with a clear error. Dev container images are built with
-    `make build-dev` from `build/Containerfile.dev`.
+    `make build-dev` from `build/Containerfile.dev`. `Containerfile.dev` is an
+    all-in-one image that includes PostgreSQL 16, NATS, Go 1.25, the shim
+    binary, and s6-overlay for process supervision. Project `CLAUDE.md` files
+    are automatically injected into agent prompts by skiff-init (see item 31).
 
 30. **Multi-Repo Support** — Agent definitions use a `repos:` list (each entry
     is a `RepoSpec` with `name`, `url`, and optional `ref` fields) instead of
@@ -371,6 +376,15 @@ alcove/
     omitted, it is derived from the URL. Database migration
     `031_multi_repo.sql` replaces the `repo TEXT` column with `repos JSONB`
     on both `sessions` and `schedules` tables, migrating existing data.
+
+31. **CLAUDE.md Injection** — Claude Code runs with `--bare` which disables
+    native CLAUDE.md file discovery. After cloning repositories, skiff-init
+    reads `CLAUDE.md` from the workspace root (single-repo) or from each
+    `/workspace/<name>/CLAUDE.md` (multi-repo) and prepends the content to
+    the agent prompt. This means project instructions (coding conventions,
+    build commands, dev container usage patterns) are automatically available
+    to agents without duplicating them in agent definition prompts. See
+    architecture decision #22.
 
 ## How to Run (Developer Workflow)
 
@@ -443,7 +457,7 @@ See the full roadmap in [architecture-decisions.md](architecture-decisions.md#ro
 ## Key Design Documents
 
 - [architecture.md](architecture.md) — full component design, deployment diagrams, network isolation
-- [architecture-decisions.md](architecture-decisions.md) — 21 resolved decisions, CLI design, config format, repo layout, revised roadmap
+- [architecture-decisions.md](architecture-decisions.md) — 22 resolved decisions, CLI design, config format, repo layout, revised roadmap
 - [problem-statement.md](problem-statement.md) — why ephemeral agents (context contamination, credential drift, filesystem poisoning, credential exposure)
 - [credential-management.md](credential-management.md) — credential storage, encryption, OAuth2 token flow, token refresh design
 - [auth-backends.md](auth-backends.md) — auth backend design (memory, postgres, rh-identity)
