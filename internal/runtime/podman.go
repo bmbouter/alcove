@@ -219,6 +219,12 @@ func (p *PodmanRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHandle,
 			_, _ = p.run(ctx, "volume", "rm", workspaceVol)
 			return TaskHandle{}, fmt.Errorf("starting dev container: %w", err)
 		}
+
+		// Ensure /workspace is writable by UID 1001 (the skiff user).
+		// The dev container image may have created /workspace with root ownership.
+		if _, err := p.run(ctx, "exec", devName, "chmod", "777", "/workspace"); err != nil {
+			log.Printf("warning: could not chmod /workspace in dev container: %v", err)
+		}
 	}
 
 	// Start the main skiff container on the internal network ONLY.
