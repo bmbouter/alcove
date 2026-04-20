@@ -57,6 +57,7 @@ validation, and per-task NetworkPolicy enforcement on Kubernetes. See
 - **podman** (rootless)
 - **make**
 - An LLM provider (Anthropic API key or Google Vertex AI credentials)
+- **k3s** (optional — for local Kubernetes development)
 
 ## Quick Start
 
@@ -70,6 +71,17 @@ make up
 ```
 
 For the full setup walkthrough, see the [Getting Started](docs/getting-started.md) guide.
+
+### Local Kubernetes Development (k3s)
+
+To develop against a real Kubernetes runtime locally instead of podman:
+
+```bash
+make k3s-setup                # Install k3s (one-time)
+make k3s-up                   # Deploy NATS + PostgreSQL to k3s, start port-forwards
+make k3s-watch                # Hot-reload Bridge with k8s runtime (Air)
+make k3s-down                 # Stop port-forwards and delete namespace
+```
 
 ## CLI Installation
 
