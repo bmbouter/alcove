@@ -39,7 +39,7 @@ Read these for full context:
 
 1. `docs/design/implementation-status.md` — **START HERE** — current state, what works, what's next
 2. `docs/design/architecture.md` — component design, deployment diagrams, network isolation, roadmap
-3. `docs/design/architecture-decisions.md` — 21 resolved decisions, CLI design, config format, repo layout
+3. `docs/design/architecture-decisions.md` — 22 resolved decisions, CLI design, config format, repo layout
 4. `docs/design/problem-statement.md` — why ephemeral agents
 5. `docs/design/credential-management.md` — credential storage, encryption, OAuth2 token flow
 6. `docs/design/auth-backends.md` — auth backend design (memory, postgres, rh-identity)
@@ -105,5 +105,35 @@ RUNTIME=docker \
 - **YAML is the single source of truth for schedules, security profiles, and tools** — no API-based creation, update, or deletion; schedules are defined via `schedule:` in `.alcove/tasks/*.yml`; security profiles in `.alcove/security-profiles/*.yml`; tools come from catalog or builtin definitions; the API provides read-only access to synced data
 - **`alcove.yaml` for infrastructure settings** — config file search order: `ALCOVE_CONFIG_FILE` env var → `./alcove.yaml` → `/etc/alcove/alcove.yaml`; env vars always override; `database_encryption_key` is required (Bridge refuses to start without it); `make up` auto-generates the file for local dev; file is gitignored
 - **`.dev-credentials.yaml` for dev credentials** — single source of truth for local dev LLM provider and GitHub PAT; copy `.dev-credentials.yaml.example`, fill in values; `make dev-config` (run by `make up`) merges LLM settings into `alcove.yaml`; the dev-up process reads it to create API credentials in the database; file is gitignored
-- **Dev containers are optional sidecars** — agent definitions can declare `dev_container.image` to run a project-provided container alongside Skiff; dev container images are built with s6-overlay and the shim binary baked in (`make build-dev` builds the base image from `build/Containerfile.dev`); s6 manages PostgreSQL, NATS, and the shim as supervised services with proper dependencies; Podman creates a shared workspace volume at `/workspace` and mounts it in both containers; the shim provides bearer-auth-protected `POST /exec` for remote command execution with NDJSON streaming; `dev_container.network_access` controls network access (`internal` default, `external` joins both networks on Podman); on Kubernetes, the dev container runs as a native sidecar with emptyDir workspace volume (`DEV_CONTAINER_HOST=localhost:9090`); Docker rejects dev containers with a clear error; `--security-opt label=disable` handles SELinux compatibility on Podman; see architecture decision #20 in `docs/design/architecture-decisions.md` for the full design
+- **Dev containers are optional sidecars** — agent definitions can declare `dev_container.image` to run a project-provided container alongside Skiff; dev container images are built with s6-overlay and the shim binary baked in (`make build-dev` builds the base image from `build/Containerfile.dev`); `Containerfile.dev` is an all-in-one dev container image that includes PostgreSQL 16, NATS, Go 1.25, the shim binary, and s6-overlay for process supervision; s6 manages PostgreSQL, NATS, and the shim as supervised services with proper dependencies; Podman creates a shared workspace volume at `/workspace` and mounts it in both containers; the shim provides bearer-auth-protected `POST /exec` for remote command execution with NDJSON streaming; `dev_container.network_access` controls network access (`internal` default, `external` joins both networks on Podman); on Kubernetes, the dev container runs as a native sidecar with emptyDir workspace volume (`DEV_CONTAINER_HOST=localhost:9090`); Docker rejects dev containers with a clear error; `--security-opt label=disable` handles SELinux compatibility on Podman; see architecture decision #20 in `docs/design/architecture-decisions.md` for the full design
 - **Multi-repo support** — agent definitions use `repos:` (a list of `RepoSpec` with `name`, `url`, `ref` fields) instead of a single `repo:` string; Skiff receives a `REPOS` JSON env var and clones each repo into `/workspace/<name>/`; database migration `031_multi_repo.sql` replaces the `repo TEXT` column with `repos JSONB`; see architecture decision #21 in `docs/design/architecture-decisions.md` for the full design
+- **CLAUDE.md injection** — Claude Code runs with `--bare` which disables native CLAUDE.md discovery; skiff-init reads `CLAUDE.md` from cloned repos and prepends the content to the agent prompt, so project instructions are automatically available to agents without duplicating them in agent prompts; see architecture decision #22 in `docs/design/architecture-decisions.md` for the full design
+
+## Dev Container Usage
+
+When a dev container is available (`$DEV_CONTAINER_HOST` is set), use it for all build, test, and lint commands instead of running them directly. The dev container has the full project toolchain.
+
+```bash
+# Check dev container health
+curl -s http://$DEV_CONTAINER_HOST/healthz
+
+# Run tests
+curl -s -X POST http://$DEV_CONTAINER_HOST/exec \
+  -H "Authorization: Bearer $DEV_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"cmd":"cd /workspace && make test","timeout":300}'
+
+# Build
+curl -s -X POST http://$DEV_CONTAINER_HOST/exec \
+  -H "Authorization: Bearer $DEV_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"cmd":"cd /workspace && go build ./...","timeout":120}'
+
+# Run go vet
+curl -s -X POST http://$DEV_CONTAINER_HOST/exec \
+  -H "Authorization: Bearer $DEV_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"cmd":"cd /workspace && go vet ./...","timeout":120}'
+```
+
+Do not run build/test commands directly when a dev container is available -- always use the dev container via `POST /exec`.

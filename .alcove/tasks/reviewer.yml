@@ -16,6 +16,9 @@ repos:
   - url: https://github.com/bmbouter/alcove.git
 timeout: 1800
 
+dev_container:
+  image: localhost/alcove-dev:latest
+
 outputs:
   - approved
   - comments

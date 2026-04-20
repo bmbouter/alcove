@@ -82,6 +82,30 @@ make build-images     # Fast overlay builds (~30s with pre-built tooling)
 make -j3 build-images
 ```
 
+### Building the dev container image
+
+```bash
+make build-dev
+```
+
+Builds `localhost/alcove-dev:<version>` from `build/Containerfile.dev`. This is
+an all-in-one dev container image that includes PostgreSQL 16, NATS, Go 1.25,
+the shim binary, and s6-overlay for process supervision. Agent definitions that
+declare `dev_container.image` can reference this image (or any project-specific
+image built on top of it). The shim, PostgreSQL, and NATS are managed as s6
+supervised services with proper startup dependencies.
+
+### CLAUDE.md injection
+
+Claude Code runs with `--bare` inside Skiff, which disables native CLAUDE.md
+file discovery. To restore project context, skiff-init reads `CLAUDE.md` from
+cloned repos after checkout and prepends the content to the agent prompt. For
+single-repo sessions it reads `/workspace/CLAUDE.md`; for multi-repo sessions
+it reads `/workspace/<name>/CLAUDE.md` from each repo. This means project
+instructions (coding conventions, build commands, dev container usage patterns)
+are automatically available to agents without duplicating them in agent
+definition prompts.
+
 ### Running tests
 
 ```bash
@@ -841,3 +865,4 @@ All Containerfiles live in `build/`:
 | `Containerfile.bridge` | `alcove-bridge` | Base: `ubi9/ubi` (needs podman for spawning Skiff+Gate) |
 | `Containerfile.gate` | `alcove-gate` | Base: `ubi9-minimal` (lightweight proxy binary) |
 | `Containerfile.skiff-base` | `alcove-skiff-base` | Base: `ubi9/ubi` (Claude Code worker environment; includes `gh`, `glab`, `alcove-credential-helper`, and git config forcing HTTPS) |
+| `Containerfile.dev` | `alcove-dev` | Base: `golang:1.25` (all-in-one dev container with PostgreSQL 16, NATS, shim binary, s6-overlay; built with `make build-dev`) |

@@ -451,7 +451,11 @@ with `direct_outbound: true` in the agent definition. See
 Agents that need to build or test code in a project-specific environment can
 declare a `dev_container.image` in their agent definition. This starts an
 additional container alongside Skiff with a shared `/workspace` volume and an
-execution shim for running commands remotely. Agents can also work across
+execution shim for running commands remotely. Alcove provides
+`build/Containerfile.dev`, an all-in-one dev container image with PostgreSQL,
+NATS, Go, and the shim (built with `make build-dev`). The project's `CLAUDE.md`
+is automatically injected into agent prompts, so dev container instructions do
+not need to be repeated in agent definitions. Agents can also work across
 multiple repositories using the `repos:` list in their definition -- each
 repo is cloned into `/workspace/<name>/`. See `docs/configuration.md` for
 the full `dev_container` and `repos` field references.
