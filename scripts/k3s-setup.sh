@@ -8,6 +8,10 @@ K3S_KUBECONFIG="${K3S_CONFIG_DIR}/k3s-config"
 
 echo "=== Alcove k3s Setup ==="
 
+# --- Acquire sudo early so all subsequent sudo calls succeed ---
+echo "This script requires sudo for k3s installation and configuration."
+sudo -v || { echo "ERROR: sudo access is required. Run this in a terminal: ! make k3s-setup"; exit 1; }
+
 # --- Prerequisite checks ---
 echo "Checking prerequisites..."
 
