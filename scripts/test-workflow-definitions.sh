@@ -296,7 +296,7 @@ for n_line in needs_found:
 for c_line in conditions_found:
     print(f'  {c_line}')
 ")
-echo "$DEPENDS_INFO" | grep "^  "
+echo "$DEPENDS_INFO" | grep "^  " || true
 
 DEPENDS_COUNT=$(echo "$DEPENDS_INFO" | grep "^DEPENDS:" | cut -d: -f2)
 NEEDS_COUNT=$(echo "$DEPENDS_INFO" | grep "^NEEDS:" | cut -d: -f2)
@@ -333,7 +333,7 @@ if enhanced:
 else:
     print('COUNT:0')
 ")
-  echo "$ENHANCED_DEPS" | grep "^  "
+  echo "$ENHANCED_DEPS" | grep "^  " || true
   ENHANCED_COUNT=$(echo "$ENHANCED_DEPS" | grep "^COUNT:" | cut -d: -f2)
   if [ "$ENHANCED_COUNT" -gt 0 ]; then
     pass "Enhanced depends expressions found with operators ($ENHANCED_COUNT steps)"
@@ -355,7 +355,7 @@ for wf in wfs:
         print(f'  ERROR: {wf.get(\"name\",\"\")}: {sync_err}')
 print(f'ERRORS:{errors}')
 ")
-echo "$COND_ERRORS" | grep "^  "
+echo "$COND_ERRORS" | grep "^  " || true
 COND_ERR_COUNT=$(echo "$COND_ERRORS" | grep "^ERRORS:" | cut -d: -f2)
 if [ "$COND_ERR_COUNT" = "0" ]; then
   pass "No sync errors related to conditions or depends expressions"
@@ -386,7 +386,7 @@ if with_max_iter:
 else:
     print('COUNT:0')
 ")
-echo "$MAX_ITER_INFO" | grep "^  "
+echo "$MAX_ITER_INFO" | grep "^  " || true
 MAX_ITER_COUNT=$(echo "$MAX_ITER_INFO" | grep "^COUNT:" | cut -d: -f2)
 
 if [ "$MAX_ITER_COUNT" -gt 0 ]; then
@@ -411,7 +411,7 @@ print('VALID' if all_valid else 'INVALID')
     pass "All max_iterations values are valid positive integers"
   else
     fail "Invalid max_iterations values found"
-    echo "$VALID_ITER" | grep "^INVALID:"
+    echo "$VALID_ITER" | grep "^INVALID:" || true
   fi
 else
   log "  No max_iterations fields found in workflows"
