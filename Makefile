@@ -31,7 +31,8 @@ SKIFF_SOURCES := $(shell find cmd/skiff-init/ -name '*.go' -type f 2>/dev/null) 
 .PHONY: all build build-cli-all build-images build-image-bridge build-image-gate build-image-skiff-base build-skiff build-dev \
         test test-network test-ledger test-isolation test-schedules test-credentials test-security-profiles test-yaml-security-profiles test-gate-real lint clean clean-stamps \
         up down logs watch dev-config dev-up dev-down dev-logs dev-reset dev-infra help \
-        login-registry push pull up-pull build-tooling push-tooling
+        login-registry push pull up-pull build-tooling push-tooling \
+        k3s-setup k3s-up k3s-watch k3s-down k3s-reset k3s-status
 
 all: build
 
@@ -302,6 +303,77 @@ dev-reset: dev-down ## Stop containers and remove all volumes
 	-$(PODMAN) volume rm alcove-ledger-data 2>/dev/null
 	rm -rf $(STAMP_DIR)
 	@echo "Dev environment reset (volumes removed)."
+
+##@ k3s Local Development
+
+K3S_KUBECONFIG := $(HOME)/.kube/k3s-config
+
+k3s-setup: ## Install and configure k3s (run once)
+	@bash scripts/k3s-setup.sh
+
+k3s-up: dev-config build-images ## Deploy infra to k3s, import images, start port-forwards
+	@test -f $(K3S_KUBECONFIG) || (echo "ERROR: Run 'make k3s-setup' first."; exit 1)
+	@for port in 5432 4222 8222; do \
+		if ss -tlnp 2>/dev/null | grep -q ":$${port} "; then \
+			echo "ERROR: Port $${port} is already in use. Run 'make down' first."; \
+			exit 1; \
+		fi; \
+	done
+	@bash scripts/k3s-import-images.sh $(VERSION)
+	@KUBECONFIG=$(K3S_KUBECONFIG) kubectl apply -f deploy/k3s/infra.yaml
+	@echo "Waiting for deployments..."
+	@KUBECONFIG=$(K3S_KUBECONFIG) kubectl -n alcove wait --for=condition=available --timeout=120s deployment/alcove-ledger deployment/alcove-hail
+	@bash scripts/k3s-bridge-endpoint.sh $(K3S_KUBECONFIG)
+	@echo "Starting port-forwards..."
+	@KUBECONFIG=$(K3S_KUBECONFIG) kubectl -n alcove port-forward svc/alcove-ledger 5432:5432 &>/dev/null &
+	@echo "$$!" > /tmp/alcove-k3s-pf-ledger.pid
+	@KUBECONFIG=$(K3S_KUBECONFIG) kubectl -n alcove port-forward svc/alcove-hail 4222:4222 8222:8222 &>/dev/null &
+	@echo "$$!" > /tmp/alcove-k3s-pf-hail.pid
+	@sleep 2
+	@echo ""
+	@echo "=== k3s infrastructure ready ==="
+	@echo "PostgreSQL:  localhost:5432"
+	@echo "NATS:        localhost:4222 (monitoring: localhost:8222)"
+	@echo ""
+	@echo "Start Bridge: make k3s-watch"
+
+k3s-watch: dev-config build-images ## Hot-reload Bridge with k3s backend (Air)
+	@test -f $(K3S_KUBECONFIG) || (echo "ERROR: Run 'make k3s-setup && make k3s-up' first."; exit 1)
+	@bash scripts/k3s-import-images.sh $(VERSION)
+	@bash scripts/k3s-bridge-endpoint.sh $(K3S_KUBECONFIG)
+	KUBECONFIG=$(K3S_KUBECONFIG) \
+	LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
+	HAIL_URL="nats://localhost:4222" \
+	RUNTIME=kubernetes \
+	ALCOVE_NAMESPACE=alcove \
+	SKIFF_IMAGE=localhost/alcove-skiff-base:$(VERSION) \
+	GATE_IMAGE=localhost/alcove-gate:$(VERSION) \
+	air
+
+k3s-down: ## Stop port-forwards and delete k3s alcove namespace
+	@echo "Stopping k3s dev environment..."
+	-@kill $$(cat /tmp/alcove-k3s-pf-ledger.pid 2>/dev/null) 2>/dev/null; rm -f /tmp/alcove-k3s-pf-ledger.pid
+	-@kill $$(cat /tmp/alcove-k3s-pf-hail.pid 2>/dev/null) 2>/dev/null; rm -f /tmp/alcove-k3s-pf-hail.pid
+	-@pkill -f 'kubectl.*port-forward.*alcove' 2>/dev/null || true
+	-@KUBECONFIG=$(K3S_KUBECONFIG) kubectl delete namespace alcove --timeout=60s 2>/dev/null || true
+	@echo "k3s dev environment stopped."
+
+k3s-reset: k3s-down ## Full reset including imported images
+	@echo "Removing images from k3s..."
+	-@for img in bridge gate skiff-base; do \
+		sudo k3s ctr images rm "localhost/alcove-$${img}:$(VERSION)" 2>/dev/null || true; \
+	done
+	@echo "k3s environment reset."
+
+k3s-status: ## Show k3s Alcove pods, port-forwards, and jobs
+	@echo "=== k3s Pods ==="
+	@KUBECONFIG=$(K3S_KUBECONFIG) kubectl -n alcove get pods 2>/dev/null || echo "  Namespace 'alcove' not found."
+	@echo ""
+	@echo "=== Port-Forwards ==="
+	@ps aux | grep '[k]ubectl.*port-forward.*alcove' || echo "  None running."
+	@echo ""
+	@echo "=== Jobs ==="
+	@KUBECONFIG=$(K3S_KUBECONFIG) kubectl -n alcove get jobs 2>/dev/null || true
 
 ##@ Quality
 

@@ -1,0 +1,157 @@
+# Infrastructure for local k3s development.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: alcove
+  labels:
+    app.kubernetes.io/part-of: alcove
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alcove-ledger
+  namespace: alcove
+  labels:
+    app.kubernetes.io/name: ledger
+    app.kubernetes.io/part-of: alcove
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ledger
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ledger
+        app.kubernetes.io/part-of: alcove
+    spec:
+      containers:
+        - name: postgres
+          image: docker.io/library/postgres:16
+          env:
+            - name: POSTGRES_USER
+              value: alcove
+            - name: POSTGRES_PASSWORD
+              value: alcove
+            - name: POSTGRES_DB
+              value: alcove
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: alcove-ledger-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: alcove-ledger-data
+  namespace: alcove
+  labels:
+    app.kubernetes.io/part-of: alcove
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alcove-ledger
+  namespace: alcove
+  labels:
+    app.kubernetes.io/part-of: alcove
+spec:
+  selector:
+    app.kubernetes.io/name: ledger
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alcove-hail
+  namespace: alcove
+  labels:
+    app.kubernetes.io/name: hail
+    app.kubernetes.io/part-of: alcove
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hail
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hail
+        app.kubernetes.io/part-of: alcove
+    spec:
+      containers:
+        - name: nats
+          image: docker.io/library/nats:latest
+          ports:
+            - containerPort: 4222
+            - containerPort: 8222
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alcove-hail
+  namespace: alcove
+  labels:
+    app.kubernetes.io/part-of: alcove
+spec:
+  selector:
+    app.kubernetes.io/name: hail
+  ports:
+    - name: client
+      port: 4222
+      targetPort: 4222
+    - name: monitoring
+      port: 8222
+      targetPort: 8222
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alcove-bridge
+  namespace: alcove
+  labels:
+    app.kubernetes.io/part-of: alcove
+spec:
+  clusterIP: None
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: alcove-allow-internal
+  namespace: alcove
+  labels:
+    app.kubernetes.io/part-of: alcove
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: alcove
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: alcove
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+  egress:
+    - {}

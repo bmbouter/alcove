@@ -424,6 +424,25 @@ safety. Keeping project instructions in `CLAUDE.md` (which is
 version-controlled with the repo) rather than in agent prompts avoids
 duplication and keeps agent definitions minimal.
 
+### 23. k3s for Local Kubernetes Development
+
+**Decision**: Provide `make k3s-setup`, `make k3s-up`, `make k3s-watch`, and `make k3s-down` targets that install k3s on the developer's workstation and run the full Kubernetes runtime path locally.
+
+**How it works**:
+- `make k3s-setup` installs k3s (if not already installed) with `--disable=traefik --disable=servicelb --bind-address=127.0.0.1 --write-kubeconfig-mode=600`. On Fedora, it installs `k3s-selinux` and configures firewalld to allow traffic from the k3s pod CIDR (10.42.0.0/16) and service CIDR (10.43.0.0/16). The kubeconfig is copied to `~/.kube/k3s-config` with user ownership.
+- `make k3s-up` builds container images via podman, imports them into k3s containerd (`podman save | sudo k3s ctr images import`), deploys PostgreSQL (with PVC for data persistence) and NATS as Deployments in the `alcove` namespace, creates a headless `alcove-bridge` Service with manual Endpoints pointing to the k3s node's InternalIP, and starts `kubectl port-forward` background processes for PostgreSQL (5432) and NATS (4222).
+- `make k3s-watch` starts Bridge via Air with `RUNTIME=kubernetes`, `KUBECONFIG=~/.kube/k3s-config`, and `ALCOVE_NAMESPACE=alcove`. Bridge connects to PostgreSQL and NATS via port-forwards on localhost, dispatches Skiff Jobs into k3s, and Skiff/Gate pods reach Bridge via the `alcove-bridge` k8s Service.
+- `make k3s-down` kills port-forward processes and deletes the `alcove` namespace (cascading to all pods, services, jobs, and PVCs). k3s itself stays installed.
+
+**Rationale**: The Kubernetes runtime (`internal/runtime/kubernetes.go`) was only testable in CI (via ephemeral k3s on GitHub Actions) or in production (OpenShift). Developers could not iterate on k8s-specific behavior locally. The `make k3s-*` targets mirror the existing `make watch` / `make up` / `make down` podman workflow, so switching between backends is natural. Bridge runs on the host (not in-cluster) to enable Air hot-reload without image rebuild cycles. The headless `alcove-bridge` Service with manual Endpoints avoids the need to set `BRIDGE_URL` — pods use the same `http://alcove-bridge:8080` default as production. k3s was chosen over k3d/minikube/kind because the CI already uses bare k3s (PR #357), so the local setup matches CI exactly.
+
+**Files**:
+- `scripts/k3s-setup.sh` — k3s installation, kubeconfig, firewalld, SELinux
+- `scripts/k3s-import-images.sh` — podman save → k3s ctr images import
+- `scripts/k3s-bridge-endpoint.sh` — headless Service Endpoints for host Bridge
+- `deploy/k3s/infra.yaml` — Namespace, Deployments, Services, PVC, NetworkPolicy
+- `Makefile` — k3s-setup, k3s-up, k3s-watch, k3s-down, k3s-reset, k3s-status targets
+
 
 ## CLI Design
 
@@ -539,7 +558,8 @@ alcove/
 │   ├── Containerfile.skiff-base
 │   └── Containerfile.skiff-example
 ├── deploy/
-│   ├── k8s/            # Kubernetes manifests (Jobs, Deployments, Services, RBAC)
+│   ├── k3s/            # Local dev k3s manifests (infra, NetworkPolicy)
+│   ├── k8s/            # Production Kubernetes manifests (Jobs, Deployments, Services, RBAC)
 │   └── podman/         # Makefile targets, dev setup
 ├── web/                # Dashboard frontend
 ├── docs/
