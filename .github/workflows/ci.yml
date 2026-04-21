@@ -146,6 +146,8 @@ jobs:
           RUNTIME=podman \
           ALCOVE_NETWORK=alcove-internal \
           ALCOVE_EXTERNAL_NETWORK=alcove-external \
+          SKIFF_IMAGE=localhost/alcove-skiff-base:${{ steps.version.outputs.tag }} \
+          GATE_IMAGE=localhost/alcove-gate:${{ steps.version.outputs.tag }} \
           VERSION=${{ steps.version.outputs.tag }} \
           nohup ./bin/bridge > /tmp/alcove-bridge.log 2>&1 &
 
