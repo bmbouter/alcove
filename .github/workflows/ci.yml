@@ -177,6 +177,11 @@ jobs:
           ADMIN_PASSWORD=admin ./scripts/test-generic-secrets.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-profile-builder.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-direct-outbound.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-api-tokens.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-system-state.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-system-info.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-providers.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-splunk-proxy.sh & pids+=($!)
 
           failed=0
           for pid in "${pids[@]}"; do
@@ -440,6 +445,11 @@ jobs:
           ADMIN_PASSWORD=admin ./scripts/test-generic-secrets.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-profile-builder.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-direct-outbound.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-api-tokens.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-system-state.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-system-info.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-providers.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-splunk-proxy.sh & pids+=($!)
 
           failed=0
           for pid in "${pids[@]}"; do
