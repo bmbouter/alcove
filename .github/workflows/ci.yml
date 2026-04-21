@@ -231,6 +231,10 @@ jobs:
       - name: 'Batch 4: Session lifecycle (needs container runtime)'
         run: ADMIN_PASSWORD=admin ./scripts/test-session-lifecycle.sh
 
+      - name: 'Batch 5: Error handling tests'
+        run: |
+          ADMIN_PASSWORD=admin ./scripts/test-session-timeout.sh
+
       - name: Show logs on failure
         if: failure()
         run: |
@@ -491,6 +495,13 @@ jobs:
 
       - name: 'Batch 4: Session lifecycle (needs container runtime)'
         run: ADMIN_PASSWORD=admin ./scripts/test-session-lifecycle.sh
+
+      - name: 'Batch 5: Error handling tests'
+        run: |
+          ADMIN_PASSWORD=admin ./scripts/test-session-timeout.sh
+
+      - name: 'Batch 6: K8s error detection (k8s-only)'
+        run: ADMIN_PASSWORD=admin ./scripts/test-k8s-error-detection.sh
 
       - name: Show logs on failure
         if: failure()

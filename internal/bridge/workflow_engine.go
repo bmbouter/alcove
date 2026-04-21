@@ -1102,6 +1102,24 @@ func (we *WorkflowEngine) resumeWorkflowRun(ctx context.Context, run *WorkflowRu
 				}
 			}
 		}
+
+		if stepStatus == "running" {
+			var sessionID *string
+			var sessionOutcome string
+			err := we.db.QueryRow(ctx, `
+				SELECT wrs.session_id, COALESCE(s.outcome, 'running')
+				FROM workflow_run_steps wrs
+				LEFT JOIN sessions s ON s.id = wrs.session_id
+				WHERE wrs.run_id = $1 AND wrs.step_id = $2
+			`, run.ID, step.ID).Scan(&sessionID, &sessionOutcome)
+			if err == nil && sessionID != nil && sessionOutcome != "running" {
+				log.Printf("recovery: step %s session %s already in state %s, triggering completion",
+					step.ID, *sessionID, sessionOutcome)
+				if compErr := we.OnStepCompletion(ctx, *sessionID, sessionOutcome, nil); compErr != nil {
+					log.Printf("error completing recovered step %s: %v", step.ID, compErr)
+				}
+			}
+		}
 	}
 
 	// Check if workflow is complete
