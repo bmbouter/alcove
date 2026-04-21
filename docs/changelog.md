@@ -3,6 +3,17 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.30.0
+
+### Features
+- Add release pipeline workflow with changelog generator
+- Add autonomous development, planning, review, and release agents
+- Add security profiles for various development roles (developer, planner, reader, releaser, reviewer, writer)
+- Add feature and release pipeline workflow definitions
+- Add Claude skills for deployment, development restart, and release operations
+- Add comprehensive CI/CD workflow with release automation
+- Add containerization support and development tooling improvements
+
 ## v0.23.0
 
 ### Features
