@@ -216,6 +216,7 @@ jobs:
           ADMIN_PASSWORD=admin ./scripts/test-workflow-definitions.sh
           ADMIN_PASSWORD=admin ./scripts/test-workflow-graph-v2.sh
           ADMIN_PASSWORD=admin ./scripts/test-yaml-security-profiles.sh
+          ADMIN_PASSWORD=admin ./scripts/test-fixture-sync.sh
 
       - name: Build container images for session lifecycle test
         run: |
@@ -486,6 +487,7 @@ jobs:
           ADMIN_PASSWORD=admin ./scripts/test-workflow-definitions.sh
           ADMIN_PASSWORD=admin ./scripts/test-workflow-graph-v2.sh
           ADMIN_PASSWORD=admin ./scripts/test-yaml-security-profiles.sh
+          ADMIN_PASSWORD=admin ./scripts/test-fixture-sync.sh
 
       - name: 'Batch 4: Session lifecycle (needs container runtime)'
         run: ADMIN_PASSWORD=admin ./scripts/test-session-lifecycle.sh
