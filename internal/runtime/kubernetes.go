@@ -525,7 +525,8 @@ func (k *KubernetesRuntime) CancelTask(ctx context.Context, handle TaskHandle) e
 }
 
 // TaskStatus returns the current status of a Skiff task by inspecting its Job.
-// Returns one of: "running", "exited", or "not_found".
+// Returns one of: "running", "exited", "not_found", or "error:<reason>" for
+// container startup failures (e.g., "error:ImagePullBackOff").
 func (k *KubernetesRuntime) TaskStatus(ctx context.Context, handle TaskHandle) (string, error) {
 	name := jobName(handle.ID)
 	job, err := k.clientset.BatchV1().Jobs(k.namespace).Get(ctx, name, metav1.GetOptions{})
@@ -543,6 +544,34 @@ func (k *KubernetesRuntime) TaskStatus(ctx context.Context, handle TaskHandle) (
 		}
 		if cond.Type == batchv1.JobComplete || cond.Type == batchv1.JobFailed {
 			return "exited", nil
+		}
+	}
+
+	// Check pod status for startup failures (init container or main container).
+	pods, podErr := k.clientset.CoreV1().Pods(k.namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("alcove.dev/task-id=%s", handle.ID),
+	})
+	if podErr == nil && len(pods.Items) > 0 {
+		pod := pods.Items[0]
+		// Check init container statuses (Gate and dev container sidecars).
+		for _, cs := range pod.Status.InitContainerStatuses {
+			if cs.State.Waiting != nil {
+				reason := cs.State.Waiting.Reason
+				if reason == "ImagePullBackOff" || reason == "ErrImagePull" ||
+					reason == "CrashLoopBackOff" || reason == "CreateContainerError" {
+					return "error:" + reason, nil
+				}
+			}
+		}
+		// Check main container statuses.
+		for _, cs := range pod.Status.ContainerStatuses {
+			if cs.State.Waiting != nil {
+				reason := cs.State.Waiting.Reason
+				if reason == "ImagePullBackOff" || reason == "ErrImagePull" ||
+					reason == "CrashLoopBackOff" || reason == "CreateContainerError" {
+					return "error:" + reason, nil
+				}
+			}
 		}
 	}
 

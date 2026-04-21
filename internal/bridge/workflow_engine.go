@@ -464,6 +464,14 @@ func (we *WorkflowEngine) OnStepCompletion(ctx context.Context, sessionID string
 		return fmt.Errorf("getting workflow step for session %s: %w", sessionID, err)
 	}
 
+	// Idempotency guard: skip if step is already in a terminal state.
+	// This prevents duplicate dispatches when OnStepCompletion is called
+	// concurrently from both the NATS handler and the reconcile loop.
+	currentStatus, statusErr := we.getStepStatus(ctx, run.ID, step.StepID)
+	if statusErr == nil && (currentStatus == "completed" || currentStatus == "failed" || currentStatus == "skipped") {
+		return nil
+	}
+
 	log.Printf("handling step completion: step=%s run=%s status=%s", step.StepID, run.ID, status)
 
 	// Read step outputs from the session
@@ -1099,6 +1107,24 @@ func (we *WorkflowEngine) resumeWorkflowRun(ctx context.Context, run *WorkflowRu
 			if ready {
 				if err := we.dispatchStep(ctx, run, &step, workflow); err != nil {
 					log.Printf("error dispatching step %s during recovery: %v", step.ID, err)
+				}
+			}
+		}
+
+		if stepStatus == "running" {
+			var sessionID *string
+			var sessionOutcome string
+			err := we.db.QueryRow(ctx, `
+				SELECT wrs.session_id, COALESCE(s.outcome, 'running')
+				FROM workflow_run_steps wrs
+				LEFT JOIN sessions s ON s.id = wrs.session_id
+				WHERE wrs.run_id = $1 AND wrs.step_id = $2
+			`, run.ID, step.ID).Scan(&sessionID, &sessionOutcome)
+			if err == nil && sessionID != nil && sessionOutcome != "running" {
+				log.Printf("recovery: step %s session %s already in state %s, triggering completion",
+					step.ID, *sessionID, sessionOutcome)
+				if compErr := we.OnStepCompletion(ctx, *sessionID, sessionOutcome, nil); compErr != nil {
+					log.Printf("error completing recovered step %s: %v", step.ID, compErr)
 				}
 			}
 		}

@@ -671,6 +671,7 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 	runtimeConfig := map[string]any{
 		"model":           model,
 		"direct_outbound": req.DirectOutbound,
+		"timeout":         timeout,
 	}
 	if len(req.Profiles) > 0 {
 		runtimeConfig["profiles"] = req.Profiles
@@ -743,8 +744,16 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 
 	handle, err := d.rt.RunTask(ctx, spec)
 	if err != nil {
-		// Update session to error state.
+		// Update session to error state and store the startup error detail.
 		d.updateSessionStatus(ctx, sessionID, "error", nil, nil)
+		runtimeConfig["startup_error"] = err.Error()
+		runtimeConfigJSON, _ = json.Marshal(runtimeConfig)
+		d.db.Exec(ctx, `UPDATE sessions SET runtime_config = $1 WHERE id = $2`, runtimeConfigJSON, sessionID)
+		if d.workflowEngine != nil {
+			if wfErr := d.workflowEngine.OnStepCompletion(ctx, sessionID, "error", nil); wfErr != nil {
+				log.Printf("error handling workflow step failure for session %s: %v", sessionID, wfErr)
+			}
+		}
 		return nil, fmt.Errorf("starting skiff pod: %w", err)
 	}
 
@@ -766,6 +775,12 @@ func (d *Dispatcher) CancelSession(ctx context.Context, sessionID string) error 
 		// running). Update DB status to cancelled — the container is already gone.
 		now := time.Now().UTC()
 		d.updateSessionStatus(ctx, sessionID, "cancelled", nil, &now)
+		// Notify workflow engine so workflow steps don't stay stuck in "running".
+		if d.workflowEngine != nil {
+			if err := d.workflowEngine.OnStepCompletion(ctx, sessionID, "cancelled", nil); err != nil {
+				log.Printf("error handling workflow step cancellation for session %s: %v", sessionID, err)
+			}
+		}
 		return nil
 	}
 
@@ -784,6 +799,13 @@ func (d *Dispatcher) CancelSession(ctx context.Context, sessionID string) error 
 	d.mu.Lock()
 	delete(d.handles, sessionID)
 	d.mu.Unlock()
+
+	// Notify workflow engine so workflow steps don't stay stuck in "running".
+	if d.workflowEngine != nil {
+		if err := d.workflowEngine.OnStepCompletion(ctx, sessionID, "cancelled", nil); err != nil {
+			log.Printf("error handling workflow step cancellation for session %s: %v", sessionID, err)
+		}
+	}
 
 	return nil
 }
@@ -922,6 +944,24 @@ func (d *Dispatcher) RecoverHandles(ctx context.Context) {
 		// Check if the container/job still exists via Runtime.
 		handle := runtime.TaskHandle{ID: taskID}
 		status, err := d.rt.TaskStatus(ctx, handle)
+
+		// Check for container startup errors (e.g., ImagePullBackOff, CrashLoopBackOff).
+		if err == nil && strings.HasPrefix(status, "error:") {
+			reason := strings.TrimPrefix(status, "error:")
+			now := time.Now().UTC()
+			d.db.Exec(ctx, `
+				UPDATE sessions SET runtime_config = COALESCE(runtime_config, '{}'::jsonb) || $1::jsonb
+				WHERE id = $2
+			`, func() string { b, _ := json.Marshal(map[string]string{"container_error": reason}); return string(b) }(), sessionID)
+			d.updateSessionStatus(ctx, sessionID, "error", nil, &now)
+			if d.workflowEngine != nil {
+				d.workflowEngine.OnStepCompletion(ctx, sessionID, "error", nil)
+			}
+			orphaned++
+			log.Printf("reconcile: session %s container error: %s", sessionID, reason)
+			continue
+		}
+
 		if err != nil || status == "not_found" {
 			// Container is gone — mark session as completed.
 			now := time.Now().UTC()
@@ -937,6 +977,37 @@ func (d *Dispatcher) RecoverHandles(ctx context.Context) {
 			orphaned++
 			log.Printf("reconcile: marked exited session %s as completed", sessionID)
 			continue
+		}
+
+		// Check if session has exceeded its configured timeout.
+		var startedAt time.Time
+		var runtimeConfigJSON []byte
+		err2 := d.db.QueryRow(ctx,
+			`SELECT started_at, runtime_config FROM sessions WHERE id = $1`, sessionID,
+		).Scan(&startedAt, &runtimeConfigJSON)
+		if err2 == nil && len(runtimeConfigJSON) > 0 {
+			var rc map[string]any
+			if json.Unmarshal(runtimeConfigJSON, &rc) == nil {
+				if tf, ok := rc["timeout"]; ok {
+					var timeoutSeconds float64
+					switch v := tf.(type) {
+					case float64:
+						timeoutSeconds = v
+					case json.Number:
+						timeoutSeconds, _ = v.Float64()
+					}
+					if timeoutSeconds > 0 && time.Since(startedAt) > time.Duration(timeoutSeconds)*time.Second {
+						now := time.Now().UTC()
+						d.updateSessionStatus(ctx, sessionID, "timeout", nil, &now)
+						if d.workflowEngine != nil {
+							d.workflowEngine.OnStepCompletion(ctx, sessionID, "timeout", nil)
+						}
+						orphaned++
+						log.Printf("reconcile: timed out session %s (started %s ago, timeout %0.fs)", sessionID, time.Since(startedAt).Round(time.Second), timeoutSeconds)
+						continue
+					}
+				}
+			}
 		}
 
 		// Container still running — add to handles map.
@@ -956,7 +1027,7 @@ func (d *Dispatcher) RecoverHandles(ctx context.Context) {
 // Bridge restarts or NATS message drops. It also sweeps orphaned Gate
 // sidecar containers whose Skiff containers are gone.
 func (d *Dispatcher) ReconcileLoop(ctx context.Context) {
-	ticker := time.NewTicker(2 * time.Minute)
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
