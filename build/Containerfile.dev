@@ -23,6 +23,7 @@ LABEL io.alcove.init="s6"
 
 ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2
 ENV S6_CMD_WAIT_FOR_SERVICES_MAXTIME=30000
+ENV S6_READ_ONLY_ROOT=1
 
 # Install xz-utils (needed to extract s6-overlay tarballs)
 RUN apt-get update && apt-get install -y --no-install-recommends xz-utils && rm -rf /var/lib/apt/lists/*
@@ -49,21 +50,28 @@ RUN apt-get update && \
 RUN curl -fsSL https://github.com/nats-io/nats-server/releases/download/v2.11.1/nats-server-v2.11.1-linux-amd64.tar.gz \
     | tar xz --strip-components=1 -C /usr/local/bin nats-server-v2.11.1-linux-amd64/nats-server
 
+# Create non-root user for all services
+RUN groupadd -g 1001 alcove && \
+    useradd -u 1001 -g alcove -d /home/alcove -m alcove
+
 # Pre-cache Go modules
 COPY go.mod go.sum /tmp/gomod/
 RUN cd /tmp/gomod && go mod download && rm -rf /tmp/gomod
 
-# Initialize PostgreSQL data directory at build time
+# Initialize PostgreSQL data directory at build time as the alcove user
 # Use listen_addresses='' (Unix socket only) and dynamic_shared_memory_type=posix
 # for compatibility with container build environments.
 RUN mkdir -p /var/lib/postgresql/data /var/run/postgresql && \
-    chown -R postgres:postgres /var/lib/postgresql/data /var/run/postgresql && \
-    su postgres -c "/usr/lib/postgresql/16/bin/initdb -D /var/lib/postgresql/data" && \
+    chown -R 1001:1001 /var/lib/postgresql/data /var/run/postgresql
+
+USER 1001
+RUN /usr/lib/postgresql/16/bin/initdb -D /var/lib/postgresql/data && \
     echo "host all all 0.0.0.0/0 trust" >> /var/lib/postgresql/data/pg_hba.conf && \
     echo "local all all trust" >> /var/lib/postgresql/data/pg_hba.conf && \
-    su postgres -c "/usr/lib/postgresql/16/bin/pg_ctl -D /var/lib/postgresql/data -o '-c listen_addresses=\"\" -c dynamic_shared_memory_type=posix' -w start" && \
-    su postgres -c "/usr/lib/postgresql/16/bin/createdb -h /var/run/postgresql -p 5432 alcove" && \
-    su postgres -c "/usr/lib/postgresql/16/bin/pg_ctl -D /var/lib/postgresql/data -w stop"
+    /usr/lib/postgresql/16/bin/pg_ctl -D /var/lib/postgresql/data -o '-c listen_addresses="" -c dynamic_shared_memory_type=posix' -w start && \
+    /usr/lib/postgresql/16/bin/createdb -h /var/run/postgresql -p 5432 alcove && \
+    /usr/lib/postgresql/16/bin/pg_ctl -D /var/lib/postgresql/data -w stop
+USER root
 
 # Copy s6-rc service definitions
 COPY build/s6-services/postgres /etc/s6-overlay/s6-rc.d/postgres
@@ -74,7 +82,10 @@ COPY build/s6-services/user     /etc/s6-overlay/s6-rc.d/user
 # Copy the compiled shim binary
 COPY --from=builder /out/alcove-shim /usr/local/bin/alcove-shim
 
-# Create workspace directory
-RUN mkdir -p /workspace && chmod 777 /workspace
+# Create workspace directory and set ownership for all runtime dirs
+RUN mkdir -p /workspace && \
+    chown -R 1001:1001 /var/lib/postgresql /var/run/postgresql /workspace
+
+USER 1001
 
 ENTRYPOINT ["/init"]
