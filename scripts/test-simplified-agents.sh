@@ -1,7 +1,7 @@
 #!/bin/bash
 # test-simplified-agents.sh — Tests for simplified agent definitions.
 #
-# Verifies that the agent definitions in .alcove/tasks/ parse and load
+# Verifies that the agent definitions in .alcove/agents/ parse and load
 # correctly via the Bridge API, including expected agents, prompt content,
 # prompt length, and output fields on workflow steps that reference them.
 #

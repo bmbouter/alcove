@@ -73,7 +73,7 @@ plugins:
     ref: v1.0
   - name: marketplace-plugin
 `
-	def, err := ParseTaskDefinition([]byte(yamlData))
+	def, err := ParseAgentDefinition([]byte(yamlData))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -103,7 +103,7 @@ credentials:
   JIRA_TOKEN: jira
   VERTEX_SA_JSON: google-vertex
 `
-	def, err := ParseTaskDefinition([]byte(yamlData))
+	def, err := ParseAgentDefinition([]byte(yamlData))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -131,7 +131,7 @@ credentials:
   SPLUNK_TOKEN: splunk
   JIRA_TOKEN: jira
 `
-	def, err := ParseTaskDefinition([]byte(yamlData))
+	def, err := ParseAgentDefinition([]byte(yamlData))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -146,13 +146,13 @@ credentials:
 	}
 }
 
-func TestParseTaskDefinitionWithDirectOutbound(t *testing.T) {
+func TestParseAgentDefinitionWithDirectOutbound(t *testing.T) {
 	yamlData := `
 name: Test Agent
 prompt: "test"
 direct_outbound: true
 `
-	td, err := ParseTaskDefinition([]byte(yamlData))
+	td, err := ParseAgentDefinition([]byte(yamlData))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -161,12 +161,12 @@ direct_outbound: true
 	}
 }
 
-func TestParseTaskDefinitionWithDirectOutboundFalse(t *testing.T) {
+func TestParseAgentDefinitionWithDirectOutboundFalse(t *testing.T) {
 	yamlData := `
 name: Test Agent
 prompt: "test"
 `
-	td, err := ParseTaskDefinition([]byte(yamlData))
+	td, err := ParseAgentDefinition([]byte(yamlData))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -175,14 +175,14 @@ prompt: "test"
 	}
 }
 
-func TestParseTaskDefinitionWithDevContainer(t *testing.T) {
+func TestParseAgentDefinitionWithDevContainer(t *testing.T) {
 	yamlData := `
 name: Test Agent
 prompt: "test"
 dev_container:
   image: "quay.io/myorg/devenv:latest"
 `
-	td, err := ParseTaskDefinition([]byte(yamlData))
+	td, err := ParseAgentDefinition([]byte(yamlData))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -197,7 +197,7 @@ dev_container:
 	}
 }
 
-func TestParseTaskDefinitionWithDevContainerNetworkAccess(t *testing.T) {
+func TestParseAgentDefinitionWithDevContainerNetworkAccess(t *testing.T) {
 	tests := []struct {
 		name          string
 		yaml          string
@@ -251,7 +251,7 @@ dev_container:
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			td, err := ParseTaskDefinition([]byte(tt.yaml))
+			td, err := ParseAgentDefinition([]byte(tt.yaml))
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Fatalf("expected error, got nil")
@@ -271,14 +271,14 @@ dev_container:
 	}
 }
 
-func TestParseTaskDefinitionWithDevContainerEmptyImage(t *testing.T) {
+func TestParseAgentDefinitionWithDevContainerEmptyImage(t *testing.T) {
 	yamlData := `
 name: Test Agent
 prompt: "test"
 dev_container:
   image: ""
 `
-	_, err := ParseTaskDefinition([]byte(yamlData))
+	_, err := ParseAgentDefinition([]byte(yamlData))
 	if err == nil {
 		t.Fatal("expected error for dev_container with empty image")
 	}
@@ -287,13 +287,13 @@ dev_container:
 	}
 }
 
-func TestParseTaskDefinitionWithDevContainerNoImage(t *testing.T) {
+func TestParseAgentDefinitionWithDevContainerNoImage(t *testing.T) {
 	yamlData := `
 name: Test Agent
 prompt: "test"
 dev_container: {}
 `
-	_, err := ParseTaskDefinition([]byte(yamlData))
+	_, err := ParseAgentDefinition([]byte(yamlData))
 	if err == nil {
 		t.Fatal("expected error for dev_container with no image")
 	}
@@ -302,12 +302,12 @@ dev_container: {}
 	}
 }
 
-func TestParseTaskDefinitionWithoutDevContainer(t *testing.T) {
+func TestParseAgentDefinitionWithoutDevContainer(t *testing.T) {
 	yamlData := `
 name: Test Agent
 prompt: "test"
 `
-	td, err := ParseTaskDefinition([]byte(yamlData))
+	td, err := ParseAgentDefinition([]byte(yamlData))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -317,7 +317,7 @@ prompt: "test"
 }
 
 func TestToTaskRequestIncludesDevContainer(t *testing.T) {
-	def := &TaskDefinition{
+	def := &AgentDefinition{
 		Name:   "Test Agent",
 		Prompt: "Do something",
 		DevContainer: &DevContainerSpec{
@@ -335,7 +335,7 @@ func TestToTaskRequestIncludesDevContainer(t *testing.T) {
 }
 
 func TestToTaskRequestIncludesDirectOutbound(t *testing.T) {
-	def := &TaskDefinition{
+	def := &AgentDefinition{
 		Name:           "Test Agent",
 		Prompt:         "Do something",
 		DirectOutbound: true,
@@ -348,7 +348,7 @@ func TestToTaskRequestIncludesDirectOutbound(t *testing.T) {
 }
 
 func TestToTaskRequestIncludesCredentials(t *testing.T) {
-	def := &TaskDefinition{
+	def := &AgentDefinition{
 		Name:   "Test Agent",
 		Prompt: "Do something",
 		Credentials: map[string]string{
@@ -370,10 +370,10 @@ func TestToTaskRequestIncludesCredentials(t *testing.T) {
 }
 
 // TestToTaskRequest_AllFields verifies that ToTaskRequest maps every relevant
-// TaskDefinition field to the TaskRequest, with special attention to fields
+// AgentDefinition field to the TaskRequest, with special attention to fields
 // (DirectOutbound, CIGate) that were previously dropped.
 func TestToTaskRequest_AllFields(t *testing.T) {
-	def := &TaskDefinition{
+	def := &AgentDefinition{
 		Name:        "Full Agent",
 		Description: "An agent with every field set",
 		Prompt:      "Implement the thing",
@@ -450,12 +450,12 @@ func TestToTaskRequest_AllFields(t *testing.T) {
 // TestGetAgentDefinitionFieldCopyRoundTrip ensures that every parseable field
 // (those with a yaml struct tag) survives the JSON marshal -> unmarshal -> field
 // copy round-trip used by GetAgentDefinition. If a new field with a yaml tag is
-// added to TaskDefinition but not added to the copy block in GetAgentDefinition,
+// added to AgentDefinition but not added to the copy block in GetAgentDefinition,
 // this test will fail.
 func TestGetAgentDefinitionFieldCopyRoundTrip(t *testing.T) {
-	// Step 1: Create a TaskDefinition with ALL yaml-tagged fields set to
+	// Step 1: Create a AgentDefinition with ALL yaml-tagged fields set to
 	// non-zero values. Every parseable field must be populated here.
-	original := TaskDefinition{
+	original := AgentDefinition{
 		Name:        "round-trip-agent",
 		Description: "Tests that all fields survive the copy block",
 		Prompt:      "Do the thing",
@@ -478,7 +478,7 @@ func TestGetAgentDefinitionFieldCopyRoundTrip(t *testing.T) {
 			"github": {Enabled: true, Repos: []string{"org/repo"}, Operations: []string{"read"}},
 		},
 		Credentials: map[string]string{"TOKEN": "my-svc"},
-		Schedule: &TaskDefSchedule{
+		Schedule: &AgentDefSchedule{
 			Cron:    "0 */6 * * *",
 			Enabled: true,
 		},
@@ -506,7 +506,7 @@ func TestGetAgentDefinitionFieldCopyRoundTrip(t *testing.T) {
 	}
 
 	// Step 3: Unmarshal (simulates reading the parsed column back from the DB).
-	var parsed TaskDefinition
+	var parsed AgentDefinition
 	if err := json.Unmarshal(parsedJSON, &parsed); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -517,7 +517,7 @@ func TestGetAgentDefinitionFieldCopyRoundTrip(t *testing.T) {
 	//
 	// Name and Description come from dedicated DB columns (via Scan), not
 	// from the parsed JSONB copy block, so we pre-populate them here.
-	td := TaskDefinition{
+	td := AgentDefinition{
 		Name:        original.Name,
 		Description: original.Description,
 	}
@@ -542,7 +542,7 @@ func TestGetAgentDefinitionFieldCopyRoundTrip(t *testing.T) {
 	// Step 5: Use reflect to verify every yaml-tagged field matches the
 	// original. Fields with a yaml tag are "parseable" (come from the YAML
 	// agent definition, stored in the parsed JSONB column). If a new yaml
-	// field is added to TaskDefinition but forgotten in the copy block above,
+	// field is added to AgentDefinition but forgotten in the copy block above,
 	// it will be zero in td but non-zero in original, and this loop catches it.
 	origVal := reflect.ValueOf(original)
 	tdVal := reflect.ValueOf(td)
@@ -565,16 +565,16 @@ func TestGetAgentDefinitionFieldCopyRoundTrip(t *testing.T) {
 	}
 
 	// Sanity check: make sure we actually checked a meaningful number of fields.
-	// Update this count when adding new yaml-tagged fields to TaskDefinition.
+	// Update this count when adding new yaml-tagged fields to AgentDefinition.
 	const expectedYAMLFields = 19
 	if yamlFieldCount != expectedYAMLFields {
-		t.Errorf("expected %d yaml-tagged fields in TaskDefinition, found %d; "+
+		t.Errorf("expected %d yaml-tagged fields in AgentDefinition, found %d; "+
 			"update this test and the copy block in GetAgentDefinition",
 			expectedYAMLFields, yamlFieldCount)
 	}
 }
 
-func TestParseTaskDefinitionWithRepos(t *testing.T) {
+func TestParseAgentDefinitionWithRepos(t *testing.T) {
 	yamlData := `
 name: Multi-Repo Agent
 prompt: "Do something across repos"
@@ -584,7 +584,7 @@ repos:
   - url: https://github.com/org/repo2.git
     name: custom-name
 `
-	td, err := ParseTaskDefinition([]byte(yamlData))
+	td, err := ParseAgentDefinition([]byte(yamlData))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -607,7 +607,7 @@ repos:
 	}
 }
 
-func TestParseTaskDefinitionReposDuplicateName(t *testing.T) {
+func TestParseAgentDefinitionReposDuplicateName(t *testing.T) {
 	yamlData := `
 name: Dup Names Agent
 prompt: "test"
@@ -617,7 +617,7 @@ repos:
   - url: https://github.com/org/repo2.git
     name: same-name
 `
-	_, err := ParseTaskDefinition([]byte(yamlData))
+	_, err := ParseAgentDefinition([]byte(yamlData))
 	if err == nil {
 		t.Fatal("expected error for duplicate repo names")
 	}
@@ -626,7 +626,7 @@ repos:
 	}
 }
 
-func TestParseTaskDefinitionReposNameDerivation(t *testing.T) {
+func TestParseAgentDefinitionReposNameDerivation(t *testing.T) {
 	yamlData := `
 name: Name Derivation Agent
 prompt: "test"
@@ -634,7 +634,7 @@ repos:
   - url: https://github.com/org/my-project.git
   - url: https://gitlab.com/team/another-project
 `
-	td, err := ParseTaskDefinition([]byte(yamlData))
+	td, err := ParseAgentDefinition([]byte(yamlData))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -646,7 +646,7 @@ repos:
 	}
 }
 
-func TestParseTaskDefinitionReposMissingURL(t *testing.T) {
+func TestParseAgentDefinitionReposMissingURL(t *testing.T) {
 	yamlData := `
 name: Missing URL Agent
 prompt: "test"
@@ -654,7 +654,7 @@ repos:
   - name: some-repo
   - url: https://github.com/org/valid.git
 `
-	_, err := ParseTaskDefinition([]byte(yamlData))
+	_, err := ParseAgentDefinition([]byte(yamlData))
 	if err == nil {
 		t.Fatal("expected error for repo with empty URL")
 	}

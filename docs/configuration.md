@@ -9,7 +9,7 @@ Bridge configuration comes from three sources (highest to lowest priority):
 
 1. **Environment variables** -- always take precedence over config file values
 2. **Config file (`alcove.yaml`)** -- infrastructure settings and system LLM configuration
-3. **YAML files in agent repos** -- schedules (`.alcove/tasks/*.yml`), security profiles (`.alcove/security-profiles/*.yml`), and tools (catalog/builtin). These are the single source of truth and cannot be created, updated, or deleted through the API.
+3. **YAML files in agent repos** -- schedules (`.alcove/agents/*.yml`), security profiles (`.alcove/security-profiles/*.yml`), and tools (catalog/builtin). These are the single source of truth and cannot be created, updated, or deleted through the API.
 4. **Dashboard / API** -- credentials, providers, users, teams, catalog enable/disable
 
 The default admin account is `admin` / `admin`. Change the password in the
@@ -629,7 +629,7 @@ This prevents workflows from silently failing at runtime due to missing agents.
 ## Agent Repos and Agent Definitions
 
 Agent repos are git repositories containing YAML agent definitions in
-`.alcove/tasks/*.yml`. They allow teams to define reusable, version-controlled
+`.alcove/agents/*.yml`. They allow teams to define reusable, version-controlled
 agents that appear in the dashboard. Schedules, security profiles, and tools
 are defined exclusively in these YAML files -- the API provides read-only
 access to synced data.
@@ -868,7 +868,7 @@ view the source YAML. Starter templates are also available via
 ## Security Profiles
 
 Security profiles are defined in YAML files inside agent repos. Profile files
-live in `.alcove/security-profiles/*.yml` (parallel to `.alcove/tasks/`) and
+live in `.alcove/security-profiles/*.yml` (parallel to `.alcove/agents/`) and
 are synced from the same registered agent repos. YAML is the single source of
 truth -- profiles cannot be created, updated, or deleted through the API or
 dashboard.

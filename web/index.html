@@ -56,7 +56,7 @@
             <nav class="top-bar-nav" aria-label="Main navigation">
                 <a href="#task/new" class="nav-tab" data-tab="task/new">New Session</a>
                 <a href="#sessions" class="nav-tab" data-tab="sessions">Sessions</a>
-                <a href="#schedules" class="nav-tab" data-tab="schedules">Schedules</a>
+                <a href="#agents" class="nav-tab" data-tab="agents">Agents</a>
                 <a href="#workflows" class="nav-tab" data-tab="workflows">Workflows</a>
                 <a href="#credentials" class="nav-tab" data-tab="credentials">Credentials</a>
                 <a href="#security" class="nav-tab" data-tab="security">Security</a>
@@ -213,22 +213,22 @@
                 </form>
             </div>
 
-            <!-- Schedules -->
-            <div id="page-schedules" class="page" hidden>
+            <!-- Agents -->
+            <div id="page-agents" class="page" hidden>
                 <div class="page-header">
-                    <h2>Schedules</h2>
+                    <h2>Agents</h2>
                 </div>
                 <div class="yaml-guidance">
-                    <p>Schedules are defined in <code>.alcove/tasks/*.yml</code> files in your agent repos.</p>
+                    <p>Agents are defined in <code>.alcove/agents/*.yml</code> files in your agent repos.</p>
                     <p>See the <a href="/docs/workflow-authoring">workflow authoring guide</a> for details.</p>
                 </div>
                 <div style="display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-bottom:12px;">
                     <button id="sync-task-defs" class="btn btn-small btn-outline">Sync Now</button>
                     <button id="browse-templates" class="btn btn-small btn-primary">Browse Templates</button>
                 </div>
-                <div id="unified-schedules-list"></div>
-                <div id="unified-schedules-empty" class="empty-state" hidden><p>No schedules or agent definitions found.</p></div>
-                <div id="unified-schedules-loading" class="loading-state" hidden><div class="spinner"></div><p>Loading...</p></div>
+                <div id="unified-agents-list"></div>
+                <div id="unified-agents-empty" class="empty-state" hidden><p>No agent definitions found.</p></div>
+                <div id="unified-agents-loading" class="loading-state" hidden><div class="spinner"></div><p>Loading...</p></div>
 
             </div>
 
@@ -331,7 +331,7 @@
                         <h3>Agent Repos</h3>
                         <button id="sync-now-btn" class="btn btn-small btn-outline">Sync Now</button>
                     </div>
-                    <p class="form-help" style="margin-bottom:12px;">Git repositories containing <code>.alcove/tasks/</code> with YAML agent definitions and <code>.alcove/security-profiles/</code> with security profiles.</p>
+                    <p class="form-help" style="margin-bottom:12px;">Git repositories containing <code>.alcove/agents/</code> with YAML agent definitions and <code>.alcove/security-profiles/</code> with security profiles.</p>
                     <div id="task-repos-inline-list"></div>
                     <div class="repo-add-form" style="margin-top:12px;">
                         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
@@ -905,7 +905,7 @@ alcove list</pre>
     <div id="templates-modal" class="modal-overlay" hidden>
         <div class="modal-card modal-card-wide">
             <h3>Starter Templates</h3>
-            <p class="form-help">Copy these YAML templates into your repo's <code>.alcove/tasks/</code> directory to create agent definitions.</p>
+            <p class="form-help">Copy these YAML templates into your repo's <code>.alcove/agents/</code> directory to create agent definitions.</p>
             <div id="templates-list"></div>
             <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;">
                 <button id="templates-close" class="btn btn-outline">Close</button>

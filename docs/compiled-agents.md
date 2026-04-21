@@ -84,9 +84,9 @@ agents should read these at startup.
 | `LEDGER_URL` | Bridge URL for transcript storage |
 | `SESSION_TOKEN` | Bearer token for Bridge auth |
 
-## Task Definition for Compiled Agents
+## Agent Definition for Compiled Agents
 
-Define a compiled agent in a `.alcove/tasks/*.yml` file:
+Define a compiled agent in a `.alcove/agents/*.yml` file:
 
 ```yaml
 name: My Agent

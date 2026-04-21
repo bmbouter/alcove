@@ -47,8 +47,8 @@ type CIGate struct {
 	Timeout    int `json:"timeout" yaml:"timeout"` // seconds to wait for CI, default 900
 }
 
-// TaskDefinition represents an agent definition defined in a YAML file within an agent repo.
-type TaskDefinition struct {
+// AgentDefinition represents an agent definition defined in a YAML file within an agent repo.
+type AgentDefinition struct {
 	ID             string                   `json:"id"`
 	Name           string                   `json:"name" yaml:"name"`
 	Description    string                   `json:"description" yaml:"description"`
@@ -64,7 +64,7 @@ type TaskDefinition struct {
 	Plugins        []PluginSpec             `json:"plugins,omitempty" yaml:"plugins"`
 	Tools          map[string]ToolConfig    `json:"tools,omitempty" yaml:"tools"`
 	Credentials    map[string]string        `json:"credentials,omitempty" yaml:"credentials"`
-	Schedule       *TaskDefSchedule         `json:"schedule,omitempty" yaml:"schedule"`
+	Schedule       *AgentDefSchedule         `json:"schedule,omitempty" yaml:"schedule"`
 	Trigger        *EventTrigger            `json:"trigger,omitempty" yaml:"trigger"`
 	CIGate         *CIGate                  `json:"ci_gate,omitempty" yaml:"ci_gate"`
 	DirectOutbound bool                     `json:"direct_outbound,omitempty" yaml:"direct_outbound"`
@@ -83,16 +83,16 @@ type TaskDefinition struct {
 	RepoDisabled bool       `json:"repo_disabled"`
 }
 
-// TaskDefSchedule defines an optional cron schedule for an agent definition.
-type TaskDefSchedule struct {
+// AgentDefSchedule defines an optional cron schedule for an agent definition.
+type AgentDefSchedule struct {
 	Cron    string `json:"cron" yaml:"cron"`
 	Enabled bool   `json:"enabled" yaml:"enabled"`
 }
 
-// ParseTaskDefinition parses a YAML byte slice into a TaskDefinition and
+// ParseAgentDefinition parses a YAML byte slice into an AgentDefinition and
 // validates required fields.
-func ParseTaskDefinition(data []byte) (*TaskDefinition, error) {
-	var td TaskDefinition
+func ParseAgentDefinition(data []byte) (*AgentDefinition, error) {
+	var td AgentDefinition
 	if err := yaml.Unmarshal(data, &td); err != nil {
 		return nil, fmt.Errorf("parsing YAML: %w", err)
 	}
@@ -160,9 +160,9 @@ func ParseTaskDefinition(data []byte) (*TaskDefinition, error) {
 	return &td, nil
 }
 
-// ToTaskRequest converts a TaskDefinition to a TaskRequest suitable for
+// ToTaskRequest converts an AgentDefinition to a TaskRequest suitable for
 // dispatching via the Dispatcher.
-func (td *TaskDefinition) ToTaskRequest() TaskRequest {
+func (td *AgentDefinition) ToTaskRequest() TaskRequest {
 	return TaskRequest{
 		Prompt:         td.Prompt,
 		Executable:     td.Executable,
@@ -192,7 +192,7 @@ func NewAgentDefStore(db *pgxpool.Pool) *AgentDefStore {
 }
 
 // ListAgentDefinitions returns agent definitions for the given team, with parsed data and schedule info.
-func (s *AgentDefStore) ListAgentDefinitions(ctx context.Context, teamID string) ([]TaskDefinition, error) {
+func (s *AgentDefStore) ListAgentDefinitions(ctx context.Context, teamID string) ([]AgentDefinition, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT td.id, td.name, td.description, td.source_repo, td.source_file, td.source_key,
 		       td.parsed, td.has_schedule, td.sync_error, td.last_synced,
@@ -208,9 +208,9 @@ func (s *AgentDefStore) ListAgentDefinitions(ctx context.Context, teamID string)
 	}
 	defer rows.Close()
 
-	var defs []TaskDefinition
+	var defs []AgentDefinition
 	for rows.Next() {
-		var td TaskDefinition
+		var td AgentDefinition
 		var parsedJSON []byte
 		var hasSchedule bool
 		var syncError *string
@@ -231,7 +231,7 @@ func (s *AgentDefStore) ListAgentDefinitions(ctx context.Context, teamID string)
 
 		// Deserialize parsed JSONB for profiles, schedule, and trigger data.
 		if parsedJSON != nil {
-			var parsed TaskDefinition
+			var parsed AgentDefinition
 			if err := json.Unmarshal(parsedJSON, &parsed); err == nil {
 				td.Prompt = parsed.Prompt
 				td.Executable = parsed.Executable
@@ -260,14 +260,14 @@ func (s *AgentDefStore) ListAgentDefinitions(ctx context.Context, teamID string)
 	}
 
 	if defs == nil {
-		defs = []TaskDefinition{}
+		defs = []AgentDefinition{}
 	}
 	return defs, nil
 }
 
 // GetAgentDefinition retrieves a single agent definition by ID, scoped to the given team.
-func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, teamID string) (*TaskDefinition, error) {
-	var td TaskDefinition
+func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, teamID string) (*AgentDefinition, error) {
+	var td AgentDefinition
 	var parsedJSON []byte
 	var syncError *string
 	var hasSchedule bool
@@ -297,7 +297,7 @@ func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, teamID strin
 
 	// Unmarshal the parsed JSON back into the struct fields.
 	if parsedJSON != nil {
-		var parsed TaskDefinition
+		var parsed AgentDefinition
 		if err := json.Unmarshal(parsedJSON, &parsed); err == nil {
 			td.Prompt = parsed.Prompt
 			td.Executable = parsed.Executable
@@ -323,7 +323,7 @@ func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, teamID strin
 }
 
 // UpsertAgentDefinition inserts or updates a agent definition by source_key.
-func (s *AgentDefStore) UpsertAgentDefinition(ctx context.Context, def *TaskDefinition) error {
+func (s *AgentDefStore) UpsertAgentDefinition(ctx context.Context, def *AgentDefinition) error {
 	if def.ID == "" {
 		def.ID = uuid.New().String()
 	}
@@ -373,7 +373,7 @@ func (s *AgentDefStore) DeleteAgentDefinitionsByRepo(ctx context.Context, repoUR
 }
 
 // ListAgentDefinitionsByRepo returns all agent definitions from a given repo URL and team.
-func (s *AgentDefStore) ListAgentDefinitionsByRepo(ctx context.Context, repoURL, teamID string) ([]TaskDefinition, error) {
+func (s *AgentDefStore) ListAgentDefinitionsByRepo(ctx context.Context, repoURL, teamID string) ([]AgentDefinition, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, name, description, source_repo, source_file, source_key,
 		       has_schedule, sync_error, last_synced, created_at, updated_at, parsed
@@ -385,9 +385,9 @@ func (s *AgentDefStore) ListAgentDefinitionsByRepo(ctx context.Context, repoURL,
 	}
 	defer rows.Close()
 
-	var defs []TaskDefinition
+	var defs []AgentDefinition
 	for rows.Next() {
-		var td TaskDefinition
+		var td AgentDefinition
 		var hasSchedule bool
 		var syncError *string
 		var createdAt, updatedAt time.Time
@@ -405,7 +405,7 @@ func (s *AgentDefStore) ListAgentDefinitionsByRepo(ctx context.Context, repoURL,
 			td.SyncError = *syncError
 		}
 		if parsedJSON != nil {
-			var parsed TaskDefinition
+			var parsed AgentDefinition
 			if err := json.Unmarshal(parsedJSON, &parsed); err == nil {
 				td.Prompt = parsed.Prompt
 				td.Executable = parsed.Executable
@@ -433,7 +433,7 @@ func (s *AgentDefStore) ListAgentDefinitionsByRepo(ctx context.Context, repoURL,
 	}
 
 	if defs == nil {
-		defs = []TaskDefinition{}
+		defs = []AgentDefinition{}
 	}
 	return defs, nil
 }

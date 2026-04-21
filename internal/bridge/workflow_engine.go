@@ -257,8 +257,8 @@ func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, st
 			return fmt.Errorf("agent '%s' is disabled — enable it in the catalog", step.Agent)
 		}
 
-		// Build a TaskDefinition from the catalog item.
-		agentDef = &TaskDefinition{
+		// Build an AgentDefinition from the catalog item.
+		agentDef = &AgentDefinition{
 			ID:          item.ID,
 			Name:        item.Name,
 			Description: item.Description,

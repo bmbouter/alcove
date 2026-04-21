@@ -398,7 +398,7 @@ verbose.
 - **internal/bridge/api.go** — expose bridge action metadata via API
 - **web/js/app.js** — workflow visualization updates for bridge steps and cycles
 - **docs/** — workflow authoring guide, architecture updates
-- **.alcove/tasks/** — simplified agent prompts
+- **.alcove/agents/** — simplified agent prompts
 - **.alcove/workflows/** — updated workflow definitions using bridge actions
 
 ## Components NOT Affected

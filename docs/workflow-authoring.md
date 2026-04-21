@@ -321,7 +321,7 @@ dispatching agents against items that are no longer actionable.
 
 ### Schedule Triggers
 
-Schedules are defined via the `schedule:` field in `.alcove/tasks/*.yml` files.
+Schedules are defined via the `schedule:` field in `.alcove/agents/*.yml` files.
 They cannot be created or modified through the API or dashboard.
 
 ```yaml
@@ -485,7 +485,7 @@ definition prompts. This keeps prompts minimal and ensures all agents working
 on the repo receive the same project context.
 
 ```yaml
-# In .alcove/tasks/go-dev.yml
+# In .alcove/agents/go-dev.yml
 name: go-dev
 prompt: |
   Implement the feature and run tests before pushing.

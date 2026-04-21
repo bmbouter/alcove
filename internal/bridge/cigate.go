@@ -123,7 +123,7 @@ func (m *CIGateMonitor) OnTaskCompleted(ctx context.Context, sessionID string, a
 		return
 	}
 
-	var td TaskDefinition
+	var td AgentDefinition
 	if json.Unmarshal(parsedJSON, &td) != nil || td.CIGate == nil {
 		return
 	}
@@ -339,7 +339,7 @@ func (m *CIGateMonitor) handleCIFailure(ctx context.Context, sessionID, repo str
 			`SELECT parsed FROM agent_definitions WHERE source_key = $1`, sourceKey,
 		).Scan(&parsedJSON)
 		if parsedJSON != nil {
-			var td TaskDefinition
+			var td AgentDefinition
 			if json.Unmarshal(parsedJSON, &td) == nil {
 				taskReq = td.ToTaskRequest()
 				originalPrompt = td.Prompt

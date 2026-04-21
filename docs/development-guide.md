@@ -556,7 +556,7 @@ To add a new runtime:
 
 ### Agent Definition YAML Format
 
-Agent definitions are YAML files in `.alcove/tasks/*.yml` within an agent repo:
+Agent definitions are YAML files in `.alcove/agents/*.yml` within an agent repo:
 
 ```yaml
 name: run-tests
@@ -614,7 +614,7 @@ merging out of LLM prompts and into reliable Bridge code.
 
 To test agent repo syncing locally:
 
-1. Create a test git repo with a `.alcove/tasks/` directory containing YAML
+1. Create a test git repo with a `.alcove/agents/` directory containing YAML
    agent files.
 2. Push it to a Git host or use a local bare repo.
 3. Register the repo via the API or dashboard.

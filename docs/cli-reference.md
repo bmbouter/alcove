@@ -1508,7 +1508,7 @@ alcove credentials delete --output json 12345678-abcd-1234-abcd-123456789012
 ## alcove agents
 
 Manage agent definitions and agent repos. Agent definitions are synced from
-YAML files in registered agent repos (`.alcove/tasks/*.yml`). Use these
+YAML files in registered agent repos (`.alcove/agents/*.yml`). Use these
 commands to list, sync, run agents, and manage the repos they come from.
 
 ```
@@ -1676,7 +1676,7 @@ alcove agents repos add [flags]
 ### Description
 
 Registers a new agent repo for the active team. Bridge will sync agent
-definitions from `.alcove/tasks/*.yml` in the repo on the next sync cycle.
+definitions from `.alcove/agents/*.yml` in the repo on the next sync cycle.
 
 ### Examples
 
