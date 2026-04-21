@@ -749,6 +749,11 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		runtimeConfig["startup_error"] = err.Error()
 		runtimeConfigJSON, _ = json.Marshal(runtimeConfig)
 		d.db.Exec(ctx, `UPDATE sessions SET runtime_config = $1 WHERE id = $2`, runtimeConfigJSON, sessionID)
+		if d.workflowEngine != nil {
+			if wfErr := d.workflowEngine.OnStepCompletion(ctx, sessionID, "error", nil); wfErr != nil {
+				log.Printf("error handling workflow step failure for session %s: %v", sessionID, wfErr)
+			}
+		}
 		return nil, fmt.Errorf("starting skiff pod: %w", err)
 	}
 
@@ -947,7 +952,7 @@ func (d *Dispatcher) RecoverHandles(ctx context.Context) {
 			d.db.Exec(ctx, `
 				UPDATE sessions SET runtime_config = COALESCE(runtime_config, '{}'::jsonb) || $1::jsonb
 				WHERE id = $2
-			`, fmt.Sprintf(`{"container_error":"%s"}`, reason), sessionID)
+			`, func() string { b, _ := json.Marshal(map[string]string{"container_error": reason}); return string(b) }(), sessionID)
 			d.updateSessionStatus(ctx, sessionID, "error", nil, &now)
 			if d.workflowEngine != nil {
 				d.workflowEngine.OnStepCompletion(ctx, sessionID, "error", nil)

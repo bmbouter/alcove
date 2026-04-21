@@ -464,6 +464,14 @@ func (we *WorkflowEngine) OnStepCompletion(ctx context.Context, sessionID string
 		return fmt.Errorf("getting workflow step for session %s: %w", sessionID, err)
 	}
 
+	// Idempotency guard: skip if step is already in a terminal state.
+	// This prevents duplicate dispatches when OnStepCompletion is called
+	// concurrently from both the NATS handler and the reconcile loop.
+	currentStatus, statusErr := we.getStepStatus(ctx, run.ID, step.StepID)
+	if statusErr == nil && (currentStatus == "completed" || currentStatus == "failed" || currentStatus == "skipped") {
+		return nil
+	}
+
 	log.Printf("handling step completion: step=%s run=%s status=%s", step.StepID, run.ID, status)
 
 	// Read step outputs from the session
