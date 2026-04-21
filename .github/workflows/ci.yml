@@ -178,7 +178,6 @@ jobs:
           ADMIN_PASSWORD=admin ./scripts/test-profile-builder.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-direct-outbound.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-api-tokens.sh & pids+=($!)
-          ADMIN_PASSWORD=admin ./scripts/test-system-state.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-system-info.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-providers.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-splunk-proxy.sh & pids+=($!)
@@ -191,6 +190,9 @@ jobs:
             echo "One or more test scripts failed"
             exit 1
           fi
+
+      - name: 'Batch 1b: System state test (sequential, pauses system)'
+        run: ADMIN_PASSWORD=admin ./scripts/test-system-state.sh
 
       - name: 'Batch 2: Catalog and workflow tests (parallel)'
         run: |
@@ -446,7 +448,6 @@ jobs:
           ADMIN_PASSWORD=admin ./scripts/test-profile-builder.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-direct-outbound.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-api-tokens.sh & pids+=($!)
-          ADMIN_PASSWORD=admin ./scripts/test-system-state.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-system-info.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-providers.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-splunk-proxy.sh & pids+=($!)
@@ -459,6 +460,9 @@ jobs:
             echo "One or more test scripts failed"
             exit 1
           fi
+
+      - name: 'Batch 1b: System state test (sequential, pauses system)'
+        run: ADMIN_PASSWORD=admin ./scripts/test-system-state.sh
 
       - name: 'Batch 2: Catalog and workflow tests (parallel)'
         run: |

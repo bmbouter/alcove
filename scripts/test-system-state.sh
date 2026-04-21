@@ -37,10 +37,8 @@ cleanup() {
     -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
     -d '{"mode":"active"}' > /dev/null 2>&1 || true
   # Delete test user
-  if [ -n "${TEST_USER_ID:-}" ]; then
-    curl -s -X DELETE "$BRIDGE_URL/api/v1/users/$TEST_USER_ID" \
-      -H "Authorization: Bearer $ADMIN_TOKEN" > /dev/null 2>&1 || true
-  fi
+  curl -s -X DELETE "$BRIDGE_URL/api/v1/users/systest-user" \
+    -H "Authorization: Bearer $ADMIN_TOKEN" > /dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
