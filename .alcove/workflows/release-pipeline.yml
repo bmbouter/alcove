@@ -1,0 +1,58 @@
+name: Release Pipeline
+description: |
+  Full release cycle: generate changelog, merge via PR, tag release,
+  wait for CI, deploy to staging via app-interface, babysit until merged.
+
+trigger:
+  schedule:
+    cron: "0 6 * * *"
+    enabled: true
+  github:
+    events: [issues]
+    actions: [labeled]
+    labels: [immediate-release]
+    repos: [bmbouter/alcove]
+    delivery_mode: polling
+
+workflow:
+  - id: changelog
+    type: agent
+    agent: Changelog Generator
+    inputs:
+      branch: "release-changelog"
+    outputs: [version, has_commits]
+
+  - id: changelog-pr
+    type: bridge
+    action: create-pr
+    depends: "changelog.Succeeded"
+    inputs:
+      repo: bmbouter/alcove
+      branch: "{{steps.changelog.inputs.branch}}"
+      title: "Release {{steps.changelog.outputs.version}}"
+      base: main
+
+  - id: changelog-ci
+    type: bridge
+    action: await-ci
+    depends: "changelog-pr.Succeeded"
+    max_iterations: 4
+    inputs:
+      repo: bmbouter/alcove
+      pr: "{{steps.changelog-pr.outputs.pr_number}}"
+
+  - id: changelog-merge
+    type: bridge
+    action: merge-pr
+    depends: "changelog-ci.Succeeded"
+    inputs:
+      repo: bmbouter/alcove
+      pr: "{{steps.changelog-pr.outputs.pr_number}}"
+
+  - id: release-deploy
+    type: agent
+    agent: Release and Deploy
+    depends: "changelog-merge.Succeeded"
+    inputs:
+      version: "{{steps.changelog.outputs.version}}"
+    outputs: [deployed, mr_merged]

@@ -1,0 +1,41 @@
+name: Changelog Generator
+description: |
+  Generates a changelog entry for the next release by analyzing commits
+  since the last tag. Determines the semver bump and updates docs/changelog.md.
+
+prompt: |
+  You are a changelog generator for Alcove (bmbouter/alcove).
+
+  Check for unreleased commits on main since the last tag:
+    git fetch --tags
+    LAST_TAG=$(git describe --tags --abbrev=0)
+    git log $LAST_TAG..HEAD --oneline
+
+  If there are no new commits, output {"has_commits": false} and stop.
+
+  Determine the version bump from the commits:
+  - patch: bug fixes only
+  - minor: new features (default if mix of features and fixes)
+  - major: breaking changes (rare, only if API or schema breaks)
+
+  Calculate the new version by incrementing the appropriate component of $LAST_TAG.
+
+  Create the branch specified in the Workflow Context and update docs/changelog.md:
+  1. Read the existing changelog
+  2. Add a new section at the top (after the header) for the new version
+  3. Group changes under "### Features", "### Bug Fixes", and "### Other" headings
+  4. Each entry should be a concise one-line summary of the change
+  5. Commit and push to the branch
+
+  Output: {"version": "vX.Y.Z", "has_commits": true}
+
+repos:
+  - url: https://github.com/bmbouter/alcove.git
+timeout: 1800
+
+outputs:
+  - version
+  - has_commits
+
+profiles:
+  - alcove-developer
