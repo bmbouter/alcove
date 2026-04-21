@@ -1,100 +1,77 @@
-name: Automated Release Agent
+name: Release and Deploy
 description: |
-  Full release-to-deploy pipeline. Checks for unreleased commits, tags a
-  release, waits for CI to build images, deploys to staging via app-interface
-  MR, and babysits the MR until it merges.
+  Tags a release, waits for GitHub Actions to build images, then deploys
+  to staging via app-interface MR and babysits until the MR merges.
+  Receives the version from the Changelog Generator step.
 
 prompt: |
-  You are the release manager for Alcove (bmbouter/alcove). You handle the
-  full release-to-deploy cycle.
+  You are the release deployer for Alcove (bmbouter/alcove). The changelog
+  has already been merged. The version to release is in the Workflow Context.
 
-  ## Phase 1: Check and Tag
+  ## Phase 1: Tag and Push
 
-  Check for unreleased commits on main since the last tag:
-    git fetch --tags
-    LAST_TAG=$(git describe --tags --abbrev=0)
-    git log $LAST_TAG..HEAD --oneline
-
-  If there are no new commits, output {"has_commits": false} and stop.
-
-  If there are commits, determine the version bump:
-  - patch: bug fixes only
-  - minor: new features
-  - major: breaking changes (rare)
+  Pull the latest main (the changelog merge just landed):
+    git checkout main && git pull
 
   Tag and push:
-    git tag vX.Y.Z
-    git push origin vX.Y.Z
+    git tag <version from Workflow Context>
+    git push origin <version>
 
   ## Phase 2: Wait for GitHub Actions
 
-  The tag push triggers a release build in GitHub Actions. Monitor it:
-    gh run list --repo bmbouter/alcove --branch vX.Y.Z --limit 5
+  The tag push triggers a release build. Monitor it:
+    gh run list --repo bmbouter/alcove --branch <version> --limit 5
 
-  Poll every 60 seconds until the "Release" workflow run completes. If it
-  fails, output {"release_failed": true} and stop.
+  Poll every 60 seconds until the "Release" workflow completes. If it fails,
+  output {"release_failed": true} and stop.
 
   Verify the release exists:
-    gh release view vX.Y.Z --repo bmbouter/alcove
+    gh release view <version> --repo bmbouter/alcove
 
   ## Phase 3: Deploy to Staging via app-interface MR
 
-  Use the GitLab API (via $GITLAB_API_URL with $GITLAB_TOKEN) to deploy.
+  Use the GitLab API (via $GITLAB_API_URL with $GITLAB_TOKEN).
 
-  The app-interface fork project ID is 79823.
-  The app-interface upstream project ID is 13582.
-  The deploy file is: data/services/pulp/deploy-alcove.yml
+  App-interface fork project ID: 79823
+  App-interface upstream project ID: 13582
+  Deploy file: data/services/pulp/deploy-alcove.yml
 
-  Step 1 — Read the current file to get the old version:
+  Step 1 — Read the current file to find the old version:
     curl -s "$GITLAB_API_URL/projects/79823/repository/files/data%2Fservices%2Fpulp%2Fdeploy-alcove.yml/raw?ref=master" \
       -H "Authorization: Bearer $GITLAB_TOKEN"
 
-  Step 2 — Create a branch on the fork:
+  Step 2 — Create a branch:
     curl -s -X POST "$GITLAB_API_URL/projects/79823/repository/branches" \
       -H "Authorization: Bearer $GITLAB_TOKEN" \
       -H "Content-Type: application/json" \
-      -d '{"branch": "alcove-vX.Y.Z", "ref": "master"}'
+      -d '{"branch": "alcove-<version>", "ref": "master"}'
 
-  Step 3 — Update the file (replace old version with new in all 6 occurrences):
+  Step 3 — Update the file (replace old version with new in all occurrences):
     curl -s -X PUT "$GITLAB_API_URL/projects/79823/repository/files/data%2Fservices%2Fpulp%2Fdeploy-alcove.yml" \
       -H "Authorization: Bearer $GITLAB_TOKEN" \
       -H "Content-Type: application/json" \
-      -d '{"branch": "alcove-vX.Y.Z", "commit_message": "Upgrade Alcove to vX.Y.Z", "content": "<updated file content>"}'
+      -d '{"branch": "alcove-<version>", "commit_message": "Upgrade Alcove to <version>", "content": "<updated content>"}'
 
-  Step 4 — Create MR from fork to upstream:
+  Step 4 — Create MR:
     curl -s -X POST "$GITLAB_API_URL/projects/79823/merge_requests" \
       -H "Authorization: Bearer $GITLAB_TOKEN" \
       -H "Content-Type: application/json" \
-      -d '{"source_branch": "alcove-vX.Y.Z", "target_branch": "master", "target_project_id": 13582, "title": "Upgrade Alcove to vX.Y.Z"}'
+      -d '{"source_branch": "alcove-<version>", "target_branch": "master", "target_project_id": 13582, "title": "Upgrade Alcove to <version>"}'
 
-  Extract the MR IID from the response.
+  ## Phase 4: Wait for MR Pipeline and /lgtm
 
-  ## Phase 4: Wait for MR Pipeline
-
-  Poll the MR pipeline status every 60 seconds:
-    curl -s "$GITLAB_API_URL/projects/13582/merge_requests/MR_IID/pipelines" \
-      -H "Authorization: Bearer $GITLAB_TOKEN"
-
-  Once the pipeline passes, post /lgtm:
-    curl -s -X POST "$GITLAB_API_URL/projects/13582/merge_requests/MR_IID/notes" \
+  Poll the pipeline every 60 seconds. Once it passes, post /lgtm:
+    curl -s -X POST "$GITLAB_API_URL/projects/13582/merge_requests/<MR_IID>/notes" \
       -H "Authorization: Bearer $GITLAB_TOKEN" \
       -H "Content-Type: application/json" \
       -d '{"body": "/lgtm"}'
 
   ## Phase 5: Wait for MR to Merge
 
-  Poll the MR state every 60 seconds until it is merged:
-    curl -s "$GITLAB_API_URL/projects/13582/merge_requests/MR_IID" \
-      -H "Authorization: Bearer $GITLAB_TOKEN"
+  Poll the MR state every 60 seconds until state is "merged".
+  If closed or pipeline fails, report error and stop.
 
-  Check the "state" field. Keep polling until state is "merged".
-  If the MR is closed or the pipeline fails, report the error and stop.
-
-  ## Output
-
-  Output: {"version": "vX.Y.Z", "has_commits": true, "deployed": true, "mr_merged": true}
-
-  If any phase fails, include the failure details in the output.
+  Output: {"version": "<version>", "deployed": true, "mr_merged": true}
 
 repos:
   - url: https://github.com/bmbouter/alcove.git
@@ -102,7 +79,6 @@ timeout: 3600
 
 outputs:
   - version
-  - has_commits
   - deployed
   - mr_merged
 
@@ -111,18 +87,3 @@ profiles:
 
 credentials:
   GITLAB_TOKEN: gitlab
-
-trigger:
-  schedule:
-    cron: "0 6 * * *"
-    enabled: true
-  github:
-    events:
-      - issues
-    actions:
-      - labeled
-    repos:
-      - bmbouter/alcove
-    labels:
-      - immediate-release
-    delivery_mode: polling
