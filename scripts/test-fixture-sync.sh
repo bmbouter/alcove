@@ -86,7 +86,7 @@ DEFS=$(curl -s "$BRIDGE_URL/api/v1/agent-definitions" \
   -H "Authorization: Bearer $USER_TOKEN" \
   -H "X-Alcove-Team: $TEAM_ID")
 
-echo "$DEFS" | python3 -c "
+_PYTHON_OUTPUT=$(echo "$DEFS" | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 defs = {d['name']: d for d in data.get('agent_definitions', [])}
@@ -146,13 +146,14 @@ else:
 
 for status, msg in results:
     print(f'  {status}: {msg}')
-" 2>&1 | while IFS= read -r line; do
+" 2>&1)
+while IFS= read -r line; do
   if echo "$line" | grep -q "PASS:"; then
     pass "$(echo "$line" | sed 's/.*PASS: //')"
   elif echo "$line" | grep -q "FAIL:"; then
     fail "$(echo "$line" | sed 's/.*FAIL: //')"
   fi
-done
+done <<< "$_PYTHON_OUTPUT"
 
 # =====================================================================
 # Test 3: Verify security profiles
@@ -178,7 +179,7 @@ else
 fi
 
 # Check specific profiles
-echo "$PROFILES" | python3 -c "
+_PYTHON_OUTPUT=$(echo "$PROFILES" | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 profiles = {p['name']: p for p in data.get('profiles', []) if p.get('source') == 'yaml'}
@@ -190,13 +191,14 @@ if 'testing-writer' in profiles:
     print('  PASS: testing-writer profile exists')
 else:
     print('  FAIL: testing-writer profile NOT found')
-" 2>&1 | while IFS= read -r line; do
+" 2>&1)
+while IFS= read -r line; do
   if echo "$line" | grep -q "PASS:"; then
     pass "$(echo "$line" | sed 's/.*PASS: //')"
   elif echo "$line" | grep -q "FAIL:"; then
     fail "$(echo "$line" | sed 's/.*FAIL: //')"
   fi
-done
+done <<< "$_PYTHON_OUTPUT"
 
 # =====================================================================
 # Test 4: Verify workflows
@@ -219,7 +221,7 @@ else
 fi
 
 # Check bridge steps workflow
-echo "$WORKFLOWS" | python3 -c "
+_PYTHON_OUTPUT=$(echo "$WORKFLOWS" | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 wfs = {w['name']: w for w in data.get('workflows', [])}
@@ -233,13 +235,14 @@ if 'Test Bridge Steps Workflow' in wfs:
         print(f'  FAIL: Bridge Steps Workflow has {len(bridge_steps)} bridge steps (expected >= 2)')
 else:
     print('  FAIL: Test Bridge Steps Workflow NOT found')
-" 2>&1 | while IFS= read -r line; do
+" 2>&1)
+while IFS= read -r line; do
   if echo "$line" | grep -q "PASS:"; then
     pass "$(echo "$line" | sed 's/.*PASS: //')"
   elif echo "$line" | grep -q "FAIL:"; then
     fail "$(echo "$line" | sed 's/.*FAIL: //')"
   fi
-done
+done <<< "$_PYTHON_OUTPUT"
 
 # =====================================================================
 # Cleanup
