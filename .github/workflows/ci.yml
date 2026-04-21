@@ -208,6 +208,18 @@ jobs:
           ADMIN_PASSWORD=admin ./scripts/test-workflow-graph-v2.sh
           ADMIN_PASSWORD=admin ./scripts/test-yaml-security-profiles.sh
 
+      - name: Build container images for session lifecycle test
+        run: |
+          podman build -f build/Containerfile.skiff-base \
+            -t localhost/alcove-skiff-base:${{ steps.version.outputs.tag }} \
+            --build-arg "SKIFF_TOOLING_BASE=docker.io/library/golang:1.25" \
+            --build-arg VERSION=${{ steps.version.outputs.tag }} .
+          podman build -f build/Containerfile.gate \
+            -t localhost/alcove-gate:${{ steps.version.outputs.tag }} \
+            --build-arg VERSION=${{ steps.version.outputs.tag }} .
+
+      - name: 'Batch 4: Session lifecycle (needs container runtime)'
+        run: ADMIN_PASSWORD=admin ./scripts/test-session-lifecycle.sh
 
       - name: Show logs on failure
         if: failure()
@@ -458,6 +470,9 @@ jobs:
           ADMIN_PASSWORD=admin ./scripts/test-workflow-definitions.sh
           ADMIN_PASSWORD=admin ./scripts/test-workflow-graph-v2.sh
           ADMIN_PASSWORD=admin ./scripts/test-yaml-security-profiles.sh
+
+      - name: 'Batch 4: Session lifecycle (needs container runtime)'
+        run: ADMIN_PASSWORD=admin ./scripts/test-session-lifecycle.sh
 
       - name: Show logs on failure
         if: failure()
