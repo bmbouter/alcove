@@ -68,7 +68,7 @@ curl -s -X PUT "$BRIDGE_URL/api/v1/user/settings/agent-repos" \
   -H "Authorization: Bearer $ALICE_TOKEN" \
   -H "Content-Type: application/json" \
   -H "X-Alcove-Team: $ALICE_TEAM_ID" \
-  -d '{"repos":[{"url":"https://github.com/bmbouter/alcove/","ref":"main","name":"alcove"}]}' > /dev/null
+  -d "{\"repos\":[{\"url\":\"https://github.com/bmbouter/alcove/\",\"ref\":\"${ALCOVE_TEST_REF:-main}\",\"name\":\"alcove\"},{\"url\":\"https://github.com/bmbouter/alcove-testing.git\",\"ref\":\"main\",\"name\":\"alcove-testing\"}]}" > /dev/null
 
 curl -s -X POST "$BRIDGE_URL/api/v1/agent-definitions/sync" \
   -H "Authorization: Bearer $ALICE_TOKEN" \
@@ -129,7 +129,8 @@ defs=d.get('agent_definitions',[])
 for ad in defs:
     name=ad.get('name','')
     prompt=ad.get('prompt','')
-    if not prompt or len(prompt.strip()) == 0:
+    executable=ad.get('executable')
+    if (not prompt or len(prompt.strip()) == 0) and not executable:
         print('missing:' + name)
         sys.exit()
 print('all_ok')
@@ -216,7 +217,9 @@ for ad in defs:
     length=len(prompt)
     print(f'  {name}: {length} chars')
     # Agent prompts should be present and meaningful (at least 100 chars)
-    if length < 100:
+    # Executable agents may have no prompt — skip them.
+    executable=ad.get('executable')
+    if length < 100 and not executable:
         all_ok=False
 # Print summary
 if all_ok:
@@ -368,8 +371,10 @@ defs=d.get('agent_definitions',[])
 errors=[]
 for ad in defs:
     err=ad.get('sync_error','')
-    if err:
-        errors.append(f\"{ad.get('name','')}: {err}\")
+    name=ad.get('name','')
+    # Missing Profile Task is intentionally misconfigured — skip it.
+    if err and name != 'Missing Profile Task':
+        errors.append(f\"{name}: {err}\")
 if errors:
     for e in errors:
         print(f'  ERROR: {e}')
