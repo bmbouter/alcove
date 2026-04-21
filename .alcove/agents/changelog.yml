@@ -11,7 +11,8 @@ prompt: |
     LAST_TAG=$(git describe --tags --abbrev=0)
     git log $LAST_TAG..HEAD --oneline
 
-  If there are no new commits, output {"has_commits": false} and stop.
+  If there are no new commits, write this to /tmp/alcove-outputs.json and stop:
+    echo '{"has_commits": false}' > /tmp/alcove-outputs.json
 
   Determine the version bump from the commits:
   - patch: bug fixes only
@@ -27,7 +28,9 @@ prompt: |
   4. Each entry should be a concise one-line summary of the change
   5. Commit and push to the branch
 
-  Output: {"version": "vX.Y.Z", "has_commits": true}
+  IMPORTANT: Write your outputs to /tmp/alcove-outputs.json so the next
+  workflow step can use them:
+    echo '{"version": "vX.Y.Z", "has_commits": true}' > /tmp/alcove-outputs.json
 
 repos:
   - url: https://github.com/bmbouter/alcove.git
