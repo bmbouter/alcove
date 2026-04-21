@@ -139,6 +139,16 @@ jobs:
           echo "PostgreSQL did not become ready in time"
           exit 1
 
+      - name: Build container images
+        run: |
+          podman build -f build/Containerfile.skiff-base \
+            -t localhost/alcove-skiff-base:${{ steps.version.outputs.tag }} \
+            --build-arg "SKIFF_TOOLING_BASE=docker.io/library/golang:1.25" \
+            --build-arg VERSION=${{ steps.version.outputs.tag }} .
+          podman build -f build/Containerfile.gate \
+            -t localhost/alcove-gate:${{ steps.version.outputs.tag }} \
+            --build-arg VERSION=${{ steps.version.outputs.tag }} .
+
       - name: Start Bridge locally
         run: |
           LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
@@ -146,6 +156,8 @@ jobs:
           RUNTIME=podman \
           ALCOVE_NETWORK=alcove-internal \
           ALCOVE_EXTERNAL_NETWORK=alcove-external \
+          SKIFF_IMAGE=localhost/alcove-skiff-base:${{ steps.version.outputs.tag }} \
+          GATE_IMAGE=localhost/alcove-gate:${{ steps.version.outputs.tag }} \
           VERSION=${{ steps.version.outputs.tag }} \
           nohup ./bin/bridge > /tmp/alcove-bridge.log 2>&1 &
 
@@ -175,6 +187,10 @@ jobs:
           ADMIN_PASSWORD=admin ./scripts/test-generic-secrets.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-profile-builder.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-direct-outbound.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-api-tokens.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-system-info.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-providers.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-splunk-proxy.sh & pids+=($!)
 
           failed=0
           for pid in "${pids[@]}"; do
@@ -184,6 +200,9 @@ jobs:
             echo "One or more test scripts failed"
             exit 1
           fi
+
+      - name: 'Batch 1b: System state test (sequential, pauses system)'
+        run: ADMIN_PASSWORD=admin ./scripts/test-system-state.sh
 
       - name: 'Batch 2: Catalog and workflow tests (parallel)'
         run: |
@@ -207,7 +226,10 @@ jobs:
           ADMIN_PASSWORD=admin ./scripts/test-workflow-definitions.sh
           ADMIN_PASSWORD=admin ./scripts/test-workflow-graph-v2.sh
           ADMIN_PASSWORD=admin ./scripts/test-yaml-security-profiles.sh
+          ADMIN_PASSWORD=admin ./scripts/test-fixture-sync.sh
 
+      - name: 'Batch 4: Session lifecycle (needs container runtime)'
+        run: ADMIN_PASSWORD=admin ./scripts/test-session-lifecycle.sh
 
       - name: Show logs on failure
         if: failure()
@@ -426,6 +448,10 @@ jobs:
           ADMIN_PASSWORD=admin ./scripts/test-generic-secrets.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-profile-builder.sh & pids+=($!)
           ADMIN_PASSWORD=admin ./scripts/test-direct-outbound.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-api-tokens.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-system-info.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-providers.sh & pids+=($!)
+          ADMIN_PASSWORD=admin ./scripts/test-splunk-proxy.sh & pids+=($!)
 
           failed=0
           for pid in "${pids[@]}"; do
@@ -435,6 +461,9 @@ jobs:
             echo "One or more test scripts failed"
             exit 1
           fi
+
+      - name: 'Batch 1b: System state test (sequential, pauses system)'
+        run: ADMIN_PASSWORD=admin ./scripts/test-system-state.sh
 
       - name: 'Batch 2: Catalog and workflow tests (parallel)'
         run: |
@@ -458,6 +487,10 @@ jobs:
           ADMIN_PASSWORD=admin ./scripts/test-workflow-definitions.sh
           ADMIN_PASSWORD=admin ./scripts/test-workflow-graph-v2.sh
           ADMIN_PASSWORD=admin ./scripts/test-yaml-security-profiles.sh
+          ADMIN_PASSWORD=admin ./scripts/test-fixture-sync.sh
+
+      - name: 'Batch 4: Session lifecycle (needs container runtime)'
+        run: ADMIN_PASSWORD=admin ./scripts/test-session-lifecycle.sh
 
       - name: Show logs on failure
         if: failure()

@@ -20,6 +20,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.Version=${VERSION}" -o /out/debug-env ./cmd/debug-env
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/test-agent ./cmd/test-agent
 
 # Stage 2: Thin overlay on pre-built tooling base
 FROM ${SKIFF_TOOLING_BASE}
@@ -34,6 +37,7 @@ LABEL org.opencontainers.image.title="alcove-skiff-base" \
 
 COPY --from=builder /out/skiff-init /usr/local/bin/skiff-init
 COPY --from=builder /out/debug-env /usr/local/bin/debug-env
+COPY --from=builder /out/test-agent /usr/local/bin/test-agent
 
 # Install the git credential helper for Gate integration
 COPY build/alcove-credential-helper /usr/local/bin/alcove-credential-helper
