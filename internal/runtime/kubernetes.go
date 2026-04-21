@@ -309,6 +309,7 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 		devContainer := corev1.Container{
 			Name:            "dev",
 			Image:           spec.DevContainerImage,
+			ImagePullPolicy: corev1.PullAlways,
 			Env:             devContainerEnvVars,
 			SecurityContext: securityContext,
 			RestartPolicy:   &sidecarRestart,
