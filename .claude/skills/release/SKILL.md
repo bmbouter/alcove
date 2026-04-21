@@ -9,7 +9,7 @@ Trigger the Alcove automated release pipeline. Releases are handled by the Autom
 
 ## How It Works
 
-The release agent (`.alcove/tasks/release.yml`) runs daily at 6 AM UTC and checks for unreleased commits. To trigger an immediate release:
+The release agent (`.alcove/agents/release.yml`) runs daily at 6 AM UTC and checks for unreleased commits. To trigger an immediate release:
 
 ## Steps
 

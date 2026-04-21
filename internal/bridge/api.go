@@ -1686,7 +1686,7 @@ func (a *API) handleAgentTemplates(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		td, err := ParseTaskDefinition(data)
+		td, err := ParseAgentDefinition(data)
 		if err != nil {
 			// Include unparseable templates with filename as name.
 			templates = append(templates, tmpl{

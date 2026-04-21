@@ -257,7 +257,7 @@ alcove/
     provides a browsable collection of available agents. The old skill-repos
     settings API endpoints and dashboard UI have been removed.
 
-20. **YAML Agent Definitions** — Agents defined in `.alcove/tasks/*.yml` in git
+20. **YAML Agent Definitions** — Agents defined in `.alcove/agents/*.yml` in git
     repos. Agent repo registration (system + per-user) via settings API.
     YAML schema supports name, prompt, repos, provider, model, timeout, budget,
     profiles, tools, and schedule fields. Auto-sync every 15 minutes. Dashboard

@@ -499,7 +499,7 @@ func (p *GitHubPoller) pollRepo(ctx context.Context, repo, teamID string, schedu
 					`SELECT parsed FROM agent_definitions WHERE source_key = $1`, sched.SourceKey,
 				).Scan(&parsedJSON)
 				if parsedJSON != nil {
-					var td TaskDefinition
+					var td AgentDefinition
 					if json.Unmarshal(parsedJSON, &td) == nil && len(td.Profiles) > 0 {
 						taskReq.Profiles = td.Profiles
 					}

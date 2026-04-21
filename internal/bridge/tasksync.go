@@ -402,12 +402,12 @@ func (s *AgentRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo, username
 	// Sync security profiles from .alcove/security-profiles/*.yml.
 	s.syncSecurityProfiles(ctx, cloneDir, repo, username, teamID)
 
-	// Read all .alcove/tasks/*.yml files.
-	tasksDir := filepath.Join(cloneDir, ".alcove", "tasks")
+	// Read all .alcove/agents/*.yml files.
+	tasksDir := filepath.Join(cloneDir, ".alcove", "agents")
 	entries, err := os.ReadDir(tasksDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			log.Printf("agent-repo-syncer: no .alcove/tasks/ directory in %s", repo.URL)
+			log.Printf("agent-repo-syncer: no .alcove/agents/ directory in %s", repo.URL)
 			// Remove any previously synced definitions from this repo.
 			return s.defStore.DeleteAgentDefinitionsByRepo(ctx, repo.URL, teamID)
 		}
@@ -432,11 +432,11 @@ func (s *AgentRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo, username
 		sourceKey := fmt.Sprintf("%s::%s::%s", username, repo.URL, entry.Name())
 		seenKeys[sourceKey] = true
 
-		td, err := ParseTaskDefinition(data)
+		td, err := ParseAgentDefinition(data)
 		if err != nil {
 			log.Printf("agent-repo-syncer: parse error in %s/%s: %v", repo.URL, entry.Name(), err)
 			// Store the definition with sync error.
-			errDef := &TaskDefinition{
+			errDef := &AgentDefinition{
 				ID:         uuid.New().String(),
 				Name:       entry.Name(),
 				SourceRepo: repo.URL,
@@ -608,7 +608,7 @@ func (s *AgentRepoSyncer) validateProfileReferences(ctx context.Context, repoURL
 	}
 }
 
-// ValidateRepo clones a repo to a temp directory, checks for .alcove/tasks/*.yml,
+// ValidateRepo clones a repo to a temp directory, checks for .alcove/agents/*.yml,
 // parses each agent definition, and returns the names or an error.
 func (s *AgentRepoSyncer) ValidateRepo(ctx context.Context, repo SkillRepo) ([]string, error) {
 	dir, err := os.MkdirTemp("", "alcove-validate-*")
@@ -628,10 +628,10 @@ func (s *AgentRepoSyncer) ValidateRepo(ctx context.Context, repo SkillRepo) ([]s
 		return nil, fmt.Errorf("cloning: %s", string(out))
 	}
 
-	tasksDir := filepath.Join(dir, ".alcove", "tasks")
+	tasksDir := filepath.Join(dir, ".alcove", "agents")
 	entries, err := os.ReadDir(tasksDir)
 	if err != nil {
-		return nil, fmt.Errorf("no .alcove/tasks/ directory found")
+		return nil, fmt.Errorf("no .alcove/agents/ directory found")
 	}
 
 	var names []string
@@ -643,20 +643,20 @@ func (s *AgentRepoSyncer) ValidateRepo(ctx context.Context, repo SkillRepo) ([]s
 		if err != nil {
 			continue
 		}
-		def, err := ParseTaskDefinition(data)
+		def, err := ParseAgentDefinition(data)
 		if err != nil {
 			return nil, fmt.Errorf("invalid agent definition %s: %w", e.Name(), err)
 		}
 		names = append(names, def.Name)
 	}
 	if len(names) == 0 {
-		return nil, fmt.Errorf("no valid agent definitions found in .alcove/tasks/")
+		return nil, fmt.Errorf("no valid agent definitions found in .alcove/agents/")
 	}
 	return names, nil
 }
 
 // reconcileSchedule creates, updates, or removes a schedule for an agent definition.
-func (s *AgentRepoSyncer) reconcileSchedule(ctx context.Context, td *TaskDefinition, repoURL string, username, teamID string) error {
+func (s *AgentRepoSyncer) reconcileSchedule(ctx context.Context, td *AgentDefinition, repoURL string, username, teamID string) error {
 	hasCron := td.Schedule != nil
 	hasTrigger := td.Trigger != nil
 
@@ -867,7 +867,7 @@ func (s *AgentRepoSyncer) validateWorkflowAgentReferences(ctx context.Context, r
 // validateWorkflowAgentsWithCatalog checks all agent references in a workflow,
 // looking in both agent_definitions and catalog_items. Returns error messages for
 // each unresolved reference.
-func (s *AgentRepoSyncer) validateWorkflowAgentsWithCatalog(ctx context.Context, wd *WorkflowDefinition, agentDefs []TaskDefinition, teamID string) []string {
+func (s *AgentRepoSyncer) validateWorkflowAgentsWithCatalog(ctx context.Context, wd *WorkflowDefinition, agentDefs []AgentDefinition, teamID string) []string {
 	agentNames := make(map[string]bool)
 	for _, def := range agentDefs {
 		agentNames[def.Name] = true

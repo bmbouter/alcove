@@ -1429,7 +1429,7 @@ Get a single profile by name.
 
 ## Agent Repos
 
-Configure git repositories containing YAML agent definitions (`.alcove/tasks/*.yml`). Agent repos are synced automatically every 15 minutes. When a team context is active (via the `X-Alcove-Team` header), agent repos are stored as team settings. Without a team context, they fall back to per-user settings.
+Configure git repositories containing YAML agent definitions (`.alcove/agents/*.yml`). Agent repos are synced automatically every 15 minutes. When a team context is active (via the `X-Alcove-Team` header), agent repos are stored as team settings. Without a team context, they fall back to per-user settings.
 
 ### GET /api/v1/user/settings/agent-repos
 
@@ -1531,7 +1531,7 @@ List all agent definitions from synced agent repos.
       "tools": ["github"],
       "schedule": "0 2 * * *",
       "source_repo": "https://github.com/org/task-definitions.git",
-      "source_file": ".alcove/tasks/run-tests.yml"
+      "source_file": ".alcove/agents/run-tests.yml"
     }
   ]
 }
@@ -1969,7 +1969,7 @@ List all items within a catalog source, with per-team enabled state.
       "name": "Code Reviewer",
       "description": "Reviews pull requests for code quality",
       "item_type": "agent",
-      "source_file": ".alcove/tasks/code-reviewer.yml",
+      "source_file": ".alcove/agents/code-reviewer.yml",
       "synced_at": "2026-04-15T10:00:00Z",
       "enabled": true
     }
@@ -2092,7 +2092,7 @@ List all enabled agents (catalog items with `item_type="agent"`) for the team. U
       "name": "Code Reviewer",
       "description": "Reviews pull requests for code quality",
       "item_type": "agent",
-      "source_file": ".alcove/tasks/code-reviewer.yml",
+      "source_file": ".alcove/agents/code-reviewer.yml",
       "synced_at": "2026-04-15T10:00:00Z",
       "enabled": true
     }
@@ -2126,9 +2126,9 @@ List all workflow definitions for the active team.
       "id": "b1c2d3e4-f5a6-7890-abcd-ef1234567890",
       "name": "review-and-merge",
       "source_repo": "https://github.com/org/task-definitions.git",
-      "source_file": ".alcove/tasks/review-and-merge.yml",
+      "source_file": ".alcove/agents/review-and-merge.yml",
       "team_id": "550e8400-e29b-41d4-a716-446655440000",
-      "source_key": "https://github.com/org/task-definitions.git::.alcove/tasks/review-and-merge.yml",
+      "source_key": "https://github.com/org/task-definitions.git::.alcove/agents/review-and-merge.yml",
       "raw_yaml": "name: review-and-merge\nworkflow:\n  ...",
       "last_synced": "2026-04-15T10:00:00Z",
       "workflow": [

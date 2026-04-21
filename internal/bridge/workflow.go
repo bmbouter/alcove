@@ -722,7 +722,7 @@ func (s *WorkflowStore) ListWorkflows(ctx context.Context, teamID string) ([]Sto
 // ValidateWorkflowAgentReferences checks that all agents referenced in the workflow
 // exist in the given agent definitions. Returns a list of missing agent names.
 // Bridge-type steps are skipped since they don't reference agents.
-func (s *WorkflowStore) ValidateWorkflowAgentReferences(ctx context.Context, wd *WorkflowDefinition, agentDefs []TaskDefinition) []string {
+func (s *WorkflowStore) ValidateWorkflowAgentReferences(ctx context.Context, wd *WorkflowDefinition, agentDefs []AgentDefinition) []string {
 	agentNames := make(map[string]bool)
 	for _, def := range agentDefs {
 		agentNames[def.Name] = true

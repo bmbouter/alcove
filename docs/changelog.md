@@ -613,7 +613,7 @@ All notable changes to Alcove are documented here. This project uses
 - Resource requests/limits on dynamically created Job pods
 
 ### YAML Agent Definitions
-- Define reusable tasks in `.alcove/tasks/*.yml` files in git repos
+- Define reusable agents in `.alcove/agents/*.yml` files in git repos
 - Register agent repos (system-wide or per-user) via API and dashboard
 - Auto-sync every 5 minutes with schedule reconciliation
 - Starter templates: dependency audit, code review, test coverage analysis

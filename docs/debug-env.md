@@ -15,7 +15,7 @@ debug-env --version        # Print version
 
 ## Running as an Agent
 
-Create an agent definition in your repo (`.alcove/tasks/debug-env.yml`)
+Create an agent definition in your repo (`.alcove/agents/debug-env.yml`)
 with the same `credentials:` block as the agent you're debugging:
 
 ```yaml

@@ -302,14 +302,14 @@ alcove catalog disable <source>/<item>
 ### Agent Definitions
 
 Agent definitions are YAML files stored in git repositories under
-`.alcove/tasks/*.yml`. They let you define reusable, version-controlled agents
+`.alcove/agents/*.yml`. They let you define reusable, version-controlled agents
 that appear in the dashboard for one-click execution. Schedules are defined
 via the `schedule:` field in these same YAML files. Security profiles are
 defined in `.alcove/security-profiles/*.yml`. Tools come from the catalog or
 builtin definitions. None of these can be created or modified through the API
 or dashboard -- YAML is the single source of truth.
 
-1. Create a git repo with a `.alcove/tasks/` directory
+1. Create a git repo with a `.alcove/agents/` directory
 2. Add YAML agent files (see `docs/configuration.md` for the schema)
 3. Optionally add security profiles in `.alcove/security-profiles/`
 4. Register the repo in the dashboard under **Agent Repos** (user menu)
@@ -323,7 +323,7 @@ templates are available to help you get started.
 
 If you need to run a pre-built binary instead of Claude Code, see the
 [Compiled Agents Guide](compiled-agents.md) for the environment variable
-contract, Gate proxy integration, and task definition format.
+contract, Gate proxy integration, and agent definition format.
 
 ## Workflow Graph
 

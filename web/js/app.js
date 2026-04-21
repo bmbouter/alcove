@@ -173,7 +173,7 @@
         $('#user-info').textContent = user;
         // Reset loading states to prevent stale spinners after re-login
         hide($('#sessions-loading'));
-        hide($('#unified-schedules-loading'));
+        hide($('#unified-agents-loading'));
         hide($('#credentials-loading'));
         hide($('#tools-loading'));
         hide($('#security-loading'));
@@ -572,9 +572,9 @@
     }
 
     async function loadUnifiedSchedules() {
-        var listEl = $('#unified-schedules-list');
-        var emptyEl = $('#unified-schedules-empty');
-        var loadingEl = $('#unified-schedules-loading');
+        var listEl = $('#unified-agents-list');
+        var emptyEl = $('#unified-agents-empty');
+        var loadingEl = $('#unified-agents-loading');
 
         listEl.innerHTML = '';
         hide(emptyEl);
@@ -638,9 +638,9 @@
                 pausedCount++;
             }
         });
-        var schedulesTab = document.querySelector('.nav-tab[data-tab="schedules"]');
-        if (schedulesTab) {
-            schedulesTab.textContent = pausedCount > 0 ? 'Schedules (' + pausedCount + ' paused)' : 'Schedules';
+        var agentsTab = document.querySelector('.nav-tab[data-tab="agents"]');
+        if (agentsTab) {
+            agentsTab.textContent = pausedCount > 0 ? 'Agents (' + pausedCount + ' paused)' : 'Agents';
         }
 
         var html = '';
@@ -696,7 +696,7 @@
                 var file = btn.getAttribute('data-file') || '';
                 var webUrl = repo.replace(/\.git$/, '');
                 if (webUrl && file) {
-                    window.open(webUrl + '/blob/main/.alcove/tasks/' + file, '_blank');
+                    window.open(webUrl + '/blob/main/.alcove/agents/' + file, '_blank');
                 } else {
                     showYaml(btn.closest('.agent-def-card').querySelector('.agent-def-run').getAttribute('data-id'));
                 }
@@ -1124,12 +1124,13 @@
         stopSSE();
 
         const route = getRoute();
-        const pages = ['sessions', 'task-new', 'schedules', 'repos', 'catalog', 'credentials', 'security', 'tools', 'session-detail', 'users', 'account', 'workflows', 'workflow-detail', 'teams', 'team-detail'];
+        const pages = ['sessions', 'task-new', 'agents', 'repos', 'catalog', 'credentials', 'security', 'tools', 'session-detail', 'users', 'account', 'workflows', 'workflow-detail', 'teams', 'team-detail'];
         pages.forEach((p) => hide($('#page-' + p)));
 
         // Update active nav tab
         var navRoute = route.startsWith('session/') ? 'sessions' : route;
         if (navRoute === 'tools' || navRoute === 'tools-admin') navRoute = 'security';
+        if (navRoute === 'schedules') navRoute = 'agents';
         if (route.startsWith('workflow-run/')) navRoute = 'workflows';
         if (route.startsWith('team/')) navRoute = 'teams';
         $$('.nav-tab').forEach((tab) => {
@@ -1146,8 +1147,9 @@
             hide($('#task-warnings'));
             loadProviders();
             loadTaskProfiles();
-        } else if (route === 'schedules') {
-            show($('#page-schedules'));
+        } else if (route === 'agents' || route === 'schedules') {
+            if (route === 'schedules') { window.location.hash = '#agents'; return; }
+            show($('#page-agents'));
             loadUnifiedSchedules();
         } else if (route === 'repos') {
             show($('#page-repos'));

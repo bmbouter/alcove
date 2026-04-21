@@ -84,8 +84,8 @@ log "Test 2: Creating agent definition with credential references"
 
 # Create a simple agent repository to test parsing
 TEMP_DIR=$(mktemp -d)
-mkdir -p "$TEMP_DIR/.alcove/tasks"
-cat > "$TEMP_DIR/.alcove/tasks/test-with-credentials.yml" << 'YAML_EOF'
+mkdir -p "$TEMP_DIR/.alcove/agents"
+cat > "$TEMP_DIR/.alcove/agents/test-with-credentials.yml" << 'YAML_EOF'
 name: Test Agent with Credentials
 prompt: |
   Test agent that uses custom service credentials.
