@@ -22,10 +22,19 @@ prompt: |
   The tag push triggers a release build. Monitor it:
     gh run list --repo bmbouter/alcove --branch <version> --limit 5
 
-  Poll every 60 seconds until the "Release" workflow completes. If it fails,
-  output {"release_failed": true} and stop.
+  Poll every 60 seconds until the "Release" workflow completes.
 
-  Verify the release exists:
+  If the run FAILS, analyze the failure:
+    gh run view <run_id> --repo bmbouter/alcove --log-failed 2>&1 | tail -20
+
+  Determine if the failure is transient (registry 502, network timeout,
+  rate limit) or a real code/build error:
+  - Transient: re-run with `gh run rerun <run_id> --repo bmbouter/alcove`
+    and continue polling. Retry up to 3 times.
+  - Real error: write outputs and stop:
+    echo '{"release_failed": true, "error": "description"}' > /tmp/alcove-outputs.json
+
+  Once the run succeeds, verify the release:
     gh release view <version> --repo bmbouter/alcove
 
   ## Phase 3: Deploy to Staging via app-interface MR
@@ -66,12 +75,16 @@ prompt: |
       -H "Content-Type: application/json" \
       -d '{"body": "/lgtm"}'
 
+  If the MR pipeline fails, analyze the failure log. If transient, retry
+  by closing and re-opening the MR (which re-triggers the pipeline).
+
   ## Phase 5: Wait for MR to Merge
 
   Poll the MR state every 60 seconds until state is "merged".
-  If closed or pipeline fails, report error and stop.
+  If closed or pipeline fails after retries, report error and stop.
 
-  Output: {"version": "<version>", "deployed": true, "mr_merged": true}
+  IMPORTANT: Write your outputs to /tmp/alcove-outputs.json:
+    echo '{"version": "<version>", "deployed": true, "mr_merged": true}' > /tmp/alcove-outputs.json
 
 repos:
   - url: https://github.com/bmbouter/alcove.git
