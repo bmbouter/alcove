@@ -1,6 +1,6 @@
 name: alcove-releaser
 display_name: Alcove Releaser
-description: Create releases and manage git tags on bmbouter/alcove
+description: Create releases and push git tags on bmbouter/alcove
 tools:
   github:
     rules:
@@ -8,6 +8,10 @@ tools:
         operations:
           - clone
           - read_contents
+          - read_commits
+          - read_branches
+          - read_git
           - read_releases
+          - push_branch
           - write_releases
           - write_git
