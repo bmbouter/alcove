@@ -112,6 +112,7 @@ jobs:
         run: |
           podman run -d --rm \
             --name alcove-ledger \
+            --network alcove-external \
             -e POSTGRES_USER=alcove \
             -e POSTGRES_PASSWORD=alcove \
             -e POSTGRES_DB=alcove \
@@ -122,6 +123,7 @@ jobs:
         run: |
           podman run -d --rm \
             --name alcove-hail \
+            --network alcove-external,alcove-internal \
             -p 4222:4222 \
             -p 8222:8222 \
             docker.io/library/nats:latest
@@ -151,18 +153,37 @@ jobs:
           podman build -f build/Containerfile.gate \
             -t localhost/alcove-gate:${{ steps.version.outputs.tag }} \
             --build-arg VERSION=${{ steps.version.outputs.tag }} .
+          podman build -f build/Containerfile.bridge \
+            -t localhost/alcove-bridge:${{ steps.version.outputs.tag }} \
+            --build-arg VERSION=${{ steps.version.outputs.tag }} .
 
-      - name: Start Bridge locally
+      - name: Start podman API service
         run: |
-          LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
-          HAIL_URL="nats://localhost:4222" \
-          RUNTIME=podman \
-          ALCOVE_NETWORK=alcove-internal \
-          ALCOVE_EXTERNAL_NETWORK=alcove-external \
-          SKIFF_IMAGE=localhost/alcove-skiff-base:${{ steps.version.outputs.tag }} \
-          GATE_IMAGE=localhost/alcove-gate:${{ steps.version.outputs.tag }} \
-          VERSION=${{ steps.version.outputs.tag }} \
-          nohup ./bin/bridge > /tmp/alcove-bridge.log 2>&1 &
+          podman system service --time=0 &
+          sleep 1
+          PODMAN_SOCK="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
+          ls -la "$PODMAN_SOCK"
+          echo "PODMAN_SOCK=$PODMAN_SOCK" >> "$GITHUB_ENV"
+
+      - name: Start Bridge
+        run: |
+          podman run -d --rm \
+            --name alcove-bridge \
+            --network alcove-external,alcove-internal \
+            -p 8080:8080 \
+            --user 0 --security-opt label=disable \
+            -v ${{ env.PODMAN_SOCK }}:/run/podman/podman.sock \
+            -v ${{ github.workspace }}/alcove.yaml:/etc/alcove/alcove.yaml:ro \
+            -v /tmp:/tmp \
+            -e CONTAINER_HOST=unix:///run/podman/podman.sock \
+            -e LEDGER_DATABASE_URL=postgres://alcove:alcove@alcove-ledger:5432/alcove?sslmode=disable \
+            -e HAIL_URL=nats://alcove-hail:4222 \
+            -e RUNTIME=podman \
+            -e ALCOVE_NETWORK=alcove-internal \
+            -e ALCOVE_EXTERNAL_NETWORK=alcove-external \
+            -e SKIFF_IMAGE=localhost/alcove-skiff-base:${{ steps.version.outputs.tag }} \
+            -e GATE_IMAGE=localhost/alcove-gate:${{ steps.version.outputs.tag }} \
+            localhost/alcove-bridge:${{ steps.version.outputs.tag }}
 
       - name: Wait for Bridge health
         run: |
@@ -176,7 +197,7 @@ jobs:
             sleep 2
           done
           echo "Bridge did not become healthy in time"
-          cat /tmp/alcove-bridge.log || true
+          podman logs alcove-bridge 2>&1 || true
           exit 1
 
       - name: 'Batch 1: Core API tests (parallel)'
@@ -234,6 +255,7 @@ jobs:
       - name: 'Batch 4: Session lifecycle (needs container runtime)'
         run: |
           ADMIN_PASSWORD=admin ./scripts/test-session-lifecycle.sh
+          ADMIN_PASSWORD=admin ./scripts/test-executable-transcript.sh
 
       - name: 'Batch 5: Error handling tests'
         run: |
@@ -243,7 +265,7 @@ jobs:
         if: failure()
         run: |
           echo "=== Bridge logs ==="
-          cat /tmp/alcove-bridge.log || true
+          podman logs alcove-bridge 2>&1 || true
           echo "=== Ledger ==="
           podman logs alcove-ledger 2>&1 || true
           echo "=== Hail ==="
@@ -252,7 +274,7 @@ jobs:
       - name: Teardown
         if: always()
         run: |
-          kill $(cat /tmp/alcove-bridge.pid 2>/dev/null) 2>/dev/null || pkill -f './bin/bridge' || true
+          podman stop alcove-bridge 2>/dev/null || true
           podman stop alcove-hail 2>/dev/null || true
           podman stop alcove-ledger 2>/dev/null || true
           podman network rm alcove-internal 2>/dev/null || true
