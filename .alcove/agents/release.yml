@@ -19,10 +19,12 @@ prompt: |
 
   ## Phase 2: Wait for GitHub Actions
 
-  The tag push triggers a release build. Monitor it:
+  The tag push triggers a release build that takes 7-10 minutes. You MUST
+  wait for it. Do NOT exit early. Monitor it:
     gh run list --repo bmbouter/alcove --branch <version> --limit 5
 
-  Poll every 60 seconds until the "Release" workflow completes.
+  Poll every 60 seconds. Keep polling until the status is "completed".
+  This will take at least 7 minutes — that is normal. Do NOT give up.
 
   If the run FAILS, analyze the failure:
     gh run view <run_id> --repo bmbouter/alcove --log-failed 2>&1 | tail -20
@@ -83,8 +85,9 @@ prompt: |
   Poll the MR state every 60 seconds until state is "merged".
   If closed or pipeline fails after retries, report error and stop.
 
-  IMPORTANT: Write your outputs to /tmp/alcove-outputs.json:
+  CRITICAL — YOUR VERY LAST ACTION must be writing outputs:
     echo '{"version": "<version>", "deployed": true, "mr_merged": true}' > /tmp/alcove-outputs.json
+  Do NOT skip this step.
 
 repos:
   - url: https://github.com/bmbouter/alcove.git

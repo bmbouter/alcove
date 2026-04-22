@@ -28,9 +28,10 @@ prompt: |
   4. Each entry should be a concise one-line summary of the change
   5. Commit and push to the branch
 
-  IMPORTANT: Write your outputs to /tmp/alcove-outputs.json so the next
-  workflow step can use them:
+  CRITICAL — YOUR VERY LAST ACTION must be writing outputs. The next
+  workflow step WILL FAIL if you skip this. Run this command:
     echo '{"version": "vX.Y.Z", "has_commits": true}' > /tmp/alcove-outputs.json
+  Replace vX.Y.Z with the actual version you determined. Do NOT skip this step.
 
 repos:
   - url: https://github.com/bmbouter/alcove.git
