@@ -3,6 +3,11 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.32.0
+
+### Features
+- Improve agents page trigger and workflow visibility
+
 ## v0.30.1
 
 ### Bug Fixes
