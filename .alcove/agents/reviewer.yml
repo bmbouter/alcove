@@ -17,7 +17,7 @@ repos:
 timeout: 1800
 
 dev_container:
-  image: ghcr.io/bmbouter/alcove-dev:0.33.3
+  image: ghcr.io/bmbouter/alcove-dev:latest
 
 outputs:
   - approved
