@@ -662,3 +662,24 @@ repos:
 		t.Errorf("unexpected error message: %v", err)
 	}
 }
+
+func TestParseAgentDefinition_YAMLSyntaxError(t *testing.T) {
+	yamlData := `
+name: Test Agent
+prompt: "test"
+invalid yaml:
+  - this is: bad
+    syntax
+`
+	_, err := ParseAgentDefinition([]byte(yamlData))
+	if err == nil {
+		t.Fatal("expected error for invalid YAML syntax")
+	}
+	if !strings.Contains(err.Error(), "YAML syntax error") {
+		t.Errorf("expected 'YAML syntax error' in error message, got: %v", err)
+	}
+	// The error should also contain details about the YAML issue
+	if !strings.Contains(err.Error(), "yaml:") {
+		t.Errorf("expected detailed YAML error in message, got: %v", err)
+	}
+}

@@ -73,7 +73,7 @@ type WorkflowTrigger struct {
 func ParseWorkflowDefinition(data []byte) (*WorkflowDefinition, error) {
 	var wd WorkflowDefinition
 	if err := yaml.Unmarshal(data, &wd); err != nil {
-		return nil, fmt.Errorf("parsing YAML: %w", err)
+		return nil, fmt.Errorf("YAML syntax error: %w", err)
 	}
 
 	if wd.Name == "" {

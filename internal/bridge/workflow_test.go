@@ -1018,3 +1018,50 @@ func TestValidateConditionSyntax_Enhanced(t *testing.T) {
 		})
 	}
 }
+
+// TestParseWorkflowDefinition_YAMLSyntaxError tests that workflow YAML syntax errors
+// include helpful error messages.
+func TestParseWorkflowDefinition_YAMLSyntaxError(t *testing.T) {
+	yamlData := `
+name: Bad Workflow
+workflow:
+  - id: test
+    invalid yaml:
+      - this is: bad
+        syntax
+`
+	_, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err == nil {
+		t.Fatal("expected error for invalid YAML syntax")
+	}
+	if !strings.Contains(err.Error(), "YAML syntax error") {
+		t.Errorf("expected 'YAML syntax error' in error message, got: %v", err)
+	}
+	// The error should also contain details about the YAML issue
+	if !strings.Contains(err.Error(), "yaml:") {
+		t.Errorf("expected detailed YAML error in message, got: %v", err)
+	}
+}
+
+// TestParseSecurityProfile_YAMLSyntaxError tests that security profile YAML syntax errors
+// include helpful error messages.
+func TestParseSecurityProfile_YAMLSyntaxError(t *testing.T) {
+	yamlData := `
+name: Bad Profile
+tools:
+  invalid yaml:
+    - this is: bad
+      syntax
+`
+	_, err := ParseSecurityProfile([]byte(yamlData))
+	if err == nil {
+		t.Fatal("expected error for invalid YAML syntax")
+	}
+	if !strings.Contains(err.Error(), "YAML syntax error") {
+		t.Errorf("expected 'YAML syntax error' in error message, got: %v", err)
+	}
+	// The error should also contain details about the YAML issue
+	if !strings.Contains(err.Error(), "yaml:") {
+		t.Errorf("expected detailed YAML error in message, got: %v", err)
+	}
+}
