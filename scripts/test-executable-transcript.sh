@@ -74,7 +74,7 @@ timeout: 120
 YAML
 
 # Initialize a bare git repo so Bridge can clone it via file:// URL
-(cd "$REPO_DIR" && git init -b main && git add -A && git commit -m "Add executable agent definition" --quiet)
+(cd "$REPO_DIR" && git init -b main && git config user.email "test@test.com" && git config user.name "Test" && git add -A && git commit -m "Add executable agent definition" --quiet)
 
 REPO_URL="file://$REPO_DIR"
 log "  Local repo: $REPO_URL"
