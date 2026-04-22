@@ -1,8 +1,20 @@
 #!/bin/sh
 set -e
 
-# Start PostgreSQL in the background
-/usr/lib/postgresql/16/bin/pg_ctl -D /var/lib/postgresql/data \
+PGDATA=/var/lib/postgresql/data
+
+# Initialize PostgreSQL if not already done.
+# Running initdb at startup (not build time) ensures the data directory
+# is owned by the current UID, which is required by PostgreSQL and
+# varies on OpenShift (random UID assignment).
+if [ ! -f "$PGDATA/PG_VERSION" ]; then
+  /usr/lib/postgresql/16/bin/initdb -D "$PGDATA"
+  echo "host all all 0.0.0.0/0 trust" >> "$PGDATA/pg_hba.conf"
+  echo "local all all trust" >> "$PGDATA/pg_hba.conf"
+fi
+
+# Start PostgreSQL
+/usr/lib/postgresql/16/bin/pg_ctl -D "$PGDATA" \
   -o "-c listen_addresses=localhost -c dynamic_shared_memory_type=posix" \
   -l /tmp/postgresql.log start
 
