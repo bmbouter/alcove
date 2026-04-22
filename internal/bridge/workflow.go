@@ -100,9 +100,20 @@ func ParseWorkflowDefinition(data []byte) (*WorkflowDefinition, error) {
 
 // validBridgeActions lists the allowed bridge action names.
 var validBridgeActions = map[string]bool{
+	// GitHub-specific aliases.
 	"create-pr": true,
 	"await-ci":  true,
 	"merge-pr":  true,
+	// Unified actions.
+	"create-merge-request": true,
+	"await-checks":         true,
+	"merge":                true,
+	"comment":              true,
+	// GitLab-specific aliases.
+	"create-mr":      true,
+	"await-pipeline": true,
+	"merge-mr":       true,
+	"post-note":      true,
 }
 
 // validateWorkflowSteps performs comprehensive validation on workflow steps.
@@ -133,7 +144,11 @@ func validateWorkflowSteps(steps []WorkflowStep) error {
 				return fmt.Errorf("workflow step '%s' of type 'bridge' missing required field: action", step.ID)
 			}
 			if !validBridgeActions[step.Action] {
-				return fmt.Errorf("workflow step '%s' has invalid bridge action '%s' (must be one of: create-pr, await-ci, merge-pr)", step.ID, step.Action)
+				var valid []string
+				for k := range validBridgeActions {
+					valid = append(valid, k)
+				}
+				return fmt.Errorf("workflow step '%s' has invalid bridge action '%s' (valid actions: %s)", step.ID, step.Action, strings.Join(valid, ", "))
 			}
 		default:
 			return fmt.Errorf("workflow step '%s' has invalid type '%s' (must be 'agent' or 'bridge')", step.ID, step.Type)
@@ -404,11 +419,7 @@ func validateInputsTemplateSyntax(inputs map[string]interface{}) error {
 		if str, ok := value.(string); ok {
 			// Check for template syntax like "{{steps.implement.outputs.summary}}" or "{{trigger.issue_number}}"
 			if strings.Contains(str, "{{") && strings.Contains(str, "}}") {
-				if !strings.Contains(str, "steps.") &&
-				   !strings.Contains(str, "trigger.issue_number") &&
-				   !strings.Contains(str, "trigger.issue_title") &&
-				   !strings.Contains(str, "trigger.issue_body") &&
-				   !strings.Contains(str, "trigger.issue_url") {
+				if !strings.Contains(str, "steps.") && !strings.Contains(str, "trigger.") {
 					return fmt.Errorf("input '%s' contains invalid template syntax: %s", key, str)
 				}
 			}

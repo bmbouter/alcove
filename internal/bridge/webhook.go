@@ -22,6 +22,66 @@ import (
 // EventTrigger defines when a task should be triggered by external events.
 type EventTrigger struct {
 	GitHub *GitHubTrigger `json:"github,omitempty" yaml:"github"`
+	Jira   *JiraTrigger   `json:"jira,omitempty" yaml:"jira"`
+}
+
+// JiraTrigger defines JIRA issue matching criteria for workflow triggers.
+type JiraTrigger struct {
+	Projects   []string `json:"projects" yaml:"projects"`                       // JIRA project keys (e.g., "RHCLOUD", "AAP")
+	Components []string `json:"components,omitempty" yaml:"components,omitempty"` // component filters (empty = all)
+	Labels     []string `json:"labels,omitempty" yaml:"labels,omitempty"`         // label filters (empty = all)
+}
+
+// Matches checks if a JIRA issue matches this trigger config.
+func (t *JiraTrigger) Matches(issueProject string, issueComponents, issueLabels []string) bool {
+	if t == nil {
+		return false
+	}
+
+	// Issue project must be in t.Projects.
+	if !stringInSlice(issueProject, t.Projects) {
+		return false
+	}
+
+	// If t.Components is non-empty, at least one must match.
+	if len(t.Components) > 0 {
+		matched := false
+		for _, required := range t.Components {
+			for _, have := range issueComponents {
+				if strings.EqualFold(required, have) {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+
+	// If t.Labels is non-empty, at least one must match.
+	if len(t.Labels) > 0 {
+		matched := false
+		for _, required := range t.Labels {
+			for _, have := range issueLabels {
+				if strings.EqualFold(required, have) {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+
+	return true
 }
 
 // GitHubTrigger defines GitHub webhook event matching criteria.

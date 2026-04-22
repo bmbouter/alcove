@@ -865,8 +865,9 @@ func (we *WorkflowEngine) processInputValue(value interface{}, stepOutputs map[s
 }
 
 // expandTemplate expands template variables in a string.
-// Supports {{steps.stepName.outputs.outputName}}, {{trigger.issue_number}},
-// {{trigger.issue_title}}, {{trigger.issue_body}}, and {{trigger.issue_url}}.
+// Supports {{steps.stepName.outputs.outputName}} and {{trigger.FIELD}} where
+// FIELD is any key stored in _trigger_context. The special field
+// {{trigger.issue_number}} is also extracted from triggerRef ("owner/repo#42").
 func (we *WorkflowEngine) expandTemplateWithContext(template string, stepOutputs map[string]interface{}, triggerRef string) (string, error) {
 	result := template
 
@@ -879,28 +880,22 @@ func (we *WorkflowEngine) expandTemplateWithContext(template string, stepOutputs
 		result = strings.ReplaceAll(result, "{{trigger.issue_number}}", issueNumber)
 	}
 
-	// Pattern: {{trigger.issue_title}}, {{trigger.issue_body}}, {{trigger.issue_url}}
-	// These are extracted from the workflow run context rather than the triggerRef string.
-	// When a workflow is triggered by a GitHub issue event, these values are available
-	// in the workflow run's trigger context and should be passed through the execution chain.
-	// For now, we retrieve them from the workflow run's step outputs where they are stored
-	// when the workflow is initiated by the GitHub event handler.
-	if strings.Contains(result, "{{trigger.issue_title}}") ||
-	   strings.Contains(result, "{{trigger.issue_body}}") ||
-	   strings.Contains(result, "{{trigger.issue_url}}") {
-
-		// Look for trigger context in step outputs under a special "_trigger_context" key
+	// Generic {{trigger.FIELD}} resolution — resolve any field from _trigger_context.
+	triggerPattern := regexp.MustCompile(`\{\{trigger\.([\w_]+)\}\}`)
+	if triggerPattern.MatchString(result) {
 		if triggerContext, exists := stepOutputs["_trigger_context"]; exists {
 			if contextMap, ok := triggerContext.(map[string]interface{}); ok {
-				if issueTitle, ok := contextMap["issue_title"].(string); ok {
-					result = strings.ReplaceAll(result, "{{trigger.issue_title}}", issueTitle)
-				}
-				if issueBody, ok := contextMap["issue_body"].(string); ok {
-					result = strings.ReplaceAll(result, "{{trigger.issue_body}}", issueBody)
-				}
-				if issueURL, ok := contextMap["issue_url"].(string); ok {
-					result = strings.ReplaceAll(result, "{{trigger.issue_url}}", issueURL)
-				}
+				result = triggerPattern.ReplaceAllStringFunc(result, func(match string) string {
+					sub := triggerPattern.FindStringSubmatch(match)
+					if len(sub) < 2 {
+						return match
+					}
+					field := sub[1]
+					if val, ok := contextMap[field]; ok {
+						return fmt.Sprintf("%v", val)
+					}
+					return match // leave unresolved
+				})
 			}
 		}
 	}

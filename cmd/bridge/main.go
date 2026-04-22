@@ -219,6 +219,11 @@ func main() {
 	}
 	log.Println("workflow engine initialized")
 
+	// Start JIRA poller for JIRA-triggered workflows.
+	jiraPoller := bridge.NewJiraPoller(dbpool, credStore, workflowEngine, defStore)
+	go jiraPoller.Start(context.Background())
+	log.Println("JIRA poller started")
+
 	// Create and start the scheduler.
 	scheduler := bridge.NewScheduler(dbpool, dispatcher, cfg, credStore, defStore, settingsStore)
 	scheduler.SetWorkflowEngine(workflowEngine)

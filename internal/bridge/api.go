@@ -2419,8 +2419,10 @@ func (a *API) handleWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPost:
 		var req struct {
-			WorkflowID string `json:"workflow_id"`
-			TriggerRef string `json:"trigger_ref"`
+			WorkflowID     string                 `json:"workflow_id"`
+			TriggerType    string                 `json:"trigger_type"`
+			TriggerRef     string                 `json:"trigger_ref"`
+			TriggerContext map[string]interface{} `json:"trigger_context"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
@@ -2432,7 +2434,12 @@ func (a *API) handleWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		run, err := a.workflowEngine.StartWorkflowRun(r.Context(), req.WorkflowID, "manual", req.TriggerRef, teamID)
+		triggerType := req.TriggerType
+		if triggerType == "" {
+			triggerType = "manual"
+		}
+
+		run, err := a.workflowEngine.StartWorkflowRun(r.Context(), req.WorkflowID, triggerType, req.TriggerRef, teamID, req.TriggerContext)
 		if err != nil {
 			log.Printf("error starting workflow run for workflow %s: %v", req.WorkflowID, err)
 			respondError(w, http.StatusInternalServerError, "failed to start workflow run: "+err.Error())
