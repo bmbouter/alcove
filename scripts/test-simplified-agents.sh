@@ -104,7 +104,7 @@ DEFS_RESPONSE=$(curl -s "$BRIDGE_URL/api/v1/agent-definitions" \
 log "Test 1: Agent definition listing"
 
 # Verify the response includes expected agents
-EXPECTED_AGENTS=("Autonomous Developer" "PR Reviewer" "Automated Release Agent" "Implementation Planner")
+EXPECTED_AGENTS=("Autonomous Developer" "PR Reviewer" "Release and Deploy" "Implementation Planner")
 
 for AGENT_NAME in "${EXPECTED_AGENTS[@]}"; do
   HAS_AGENT=$(echo "$DEFS_RESPONSE" | python3 -c "

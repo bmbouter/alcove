@@ -1285,25 +1285,6 @@ select.input {
     cursor: pointer;
 }
 
-/* Trigger badge */
-.trigger-badge {
-    font-size: 11px;
-    padding: 2px 6px;
-    border-radius: 4px;
-    background: var(--bg-tertiary, rgba(255,255,255,0.06));
-    color: var(--text-muted);
-}
-
-.trigger-badge-event {
-    background: rgba(46, 204, 113, 0.15);
-    color: var(--status-completed);
-}
-
-.trigger-badge-both {
-    background: rgba(52, 152, 219, 0.15);
-    color: var(--status-running);
-}
-
 /* Webhook setup */
 .webhook-setup h4 {
     color: var(--text);
@@ -1853,7 +1834,7 @@ select.input {
 }
 
 .agent-def-label {
-    color: var(--text-secondary);
+    color: var(--text-secondary, var(--text-muted));
     font-weight: 600;
     text-transform: uppercase;
     font-size: 10px;
@@ -1872,6 +1853,181 @@ select.input {
     padding: 6px 10px;
     background: rgba(231, 76, 60, 0.1);
     border-radius: 4px;
+}
+
+/* Agent Trigger Section */
+.agent-def-triggers {
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.trigger-block {
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+}
+
+.trigger-block-schedule {
+    background: rgba(52, 152, 219, 0.08);
+    border: 1px solid rgba(52, 152, 219, 0.2);
+}
+
+.trigger-block-github {
+    background: rgba(46, 204, 113, 0.08);
+    border: 1px solid rgba(46, 204, 113, 0.2);
+}
+
+.trigger-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+}
+
+.trigger-pill-schedule {
+    background: rgba(52, 152, 219, 0.2);
+    color: #3498db;
+}
+
+.trigger-pill-github {
+    background: rgba(46, 204, 113, 0.2);
+    color: #2ecc71;
+}
+
+.trigger-pill-manual {
+    background: rgba(127, 127, 127, 0.15);
+    color: #999;
+}
+
+.trigger-pill-status {
+    font-size: 10px;
+    font-weight: 400;
+    text-transform: lowercase;
+    margin-left: 4px;
+}
+
+.trigger-pill-disabled {
+    color: #e67e22;
+}
+
+.trigger-pill-mode {
+    font-size: 10px;
+    font-weight: 400;
+    text-transform: lowercase;
+    margin-left: 4px;
+    opacity: 0.7;
+}
+
+.trigger-block-details {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    color: var(--text-muted);
+}
+
+.trigger-detail-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.trigger-detail-item code {
+    background: var(--bg-input);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+.trigger-detail-human {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.trigger-detail-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.trigger-detail-label {
+    color: var(--text-secondary, var(--text-muted));
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.3px;
+    min-width: 52px;
+    padding-top: 2px;
+    flex-shrink: 0;
+}
+
+.trigger-detail-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.trigger-detail-value {
+    font-size: 12px;
+    color: var(--text-muted);
+    padding-top: 1px;
+}
+
+.trigger-event-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    background: rgba(46, 204, 113, 0.15);
+    color: #2ecc71;
+    font-family: var(--font-mono);
+}
+
+.trigger-action-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    background: rgba(52, 152, 219, 0.15);
+    color: #5dade2;
+    font-family: var(--font-mono);
+}
+
+.trigger-label-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    background: rgba(243, 156, 18, 0.15);
+    color: #f39c12;
+    font-family: var(--font-mono);
+}
+
+/* Dev container info line */
+.agent-def-devcontainer {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.agent-def-devcontainer code {
+    background: var(--bg-input);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+/* Workflow membership line */
+.agent-def-workflow-membership {
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
 }
 
 /* Template Cards */

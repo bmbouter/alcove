@@ -81,33 +81,6 @@
         return div.innerHTML;
     }
 
-    // Format relative time for last accessed timestamps
-    function formatRelativeTime(timestamp) {
-        if (!timestamp) {
-            return 'Never';
-        }
-
-        const now = new Date();
-        const then = new Date(timestamp);
-        const diffMs = now.getTime() - then.getTime();
-        const diffMinutes = Math.floor(diffMs / (1000 * 60));
-        const diffHours = Math.floor(diffMinutes / 60);
-        const diffDays = Math.floor(diffHours / 24);
-        const diffMonths = Math.floor(diffDays / 30);
-
-        if (diffMinutes < 1) {
-            return 'just now';
-        } else if (diffMinutes < 60) {
-            return `${diffMinutes} minute${diffMinutes === 1 ? '' : 's'} ago`;
-        } else if (diffHours < 24) {
-            return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
-        } else if (diffDays < 30) {
-            return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
-        } else {
-            return `${diffMonths} month${diffMonths === 1 ? '' : 's'} ago`;
-        }
-    }
-
     // ---------------------
     // State
     // ---------------------
@@ -582,10 +555,14 @@
 
         var allItems = [];
 
+        // workflowMap: agent name -> list of workflow names that reference it
+        var workflowMap = {};
+
         try {
             var results = await Promise.allSettled([
                 api('GET', '/api/v1/agent-definitions'),
-                api('GET', '/api/v1/schedules')
+                api('GET', '/api/v1/schedules'),
+                api('GET', '/api/v1/workflows')
             ]);
 
             // Process agent definitions
@@ -605,6 +582,26 @@
                     // Skip YAML-sourced schedules — they're already shown as agent definition cards.
                     if (s.source === 'yaml') return;
                     allItems.push({ _type: 'schedule', _name: (s.name || '').toLowerCase(), data: s });
+                });
+            }
+
+            // Process workflows to build agent -> workflow membership map
+            if (results[2].status === 'fulfilled' && results[2].value.ok) {
+                var data3 = await results[2].value.json();
+                var workflows = Array.isArray(data3) ? data3 : (data3.workflows || data3.definitions || []);
+                workflows.forEach(function(wf) {
+                    var wfName = wf.name || 'Unnamed Workflow';
+                    var steps = wf.workflow || [];
+                    steps.forEach(function(step) {
+                        if (step.agent) {
+                            // Agent references may be "source/item" or just "name"
+                            var agentName = step.agent;
+                            if (!workflowMap[agentName]) workflowMap[agentName] = [];
+                            if (workflowMap[agentName].indexOf(wfName) === -1) {
+                                workflowMap[agentName].push(wfName);
+                            }
+                        }
+                    });
                 });
             }
         } catch (err) {
@@ -647,7 +644,7 @@
         for (var i = 0; i < allItems.length; i++) {
             var item = allItems[i];
             if (item._type === 'task-def') {
-                html += renderTaskDefCard(item.data);
+                html += renderTaskDefCard(item.data, workflowMap);
             } else {
                 html += renderScheduleCard(item.data);
             }
@@ -711,7 +708,7 @@
         });
     }
 
-    function renderTaskDefCard(d) {
+    function renderTaskDefCard(d, workflowMap) {
         var name = d.name || 'Unnamed';
         var desc = d.description || '';
         var repo = d.source_repo || '';
@@ -744,7 +741,7 @@
             html += '<div class="agent-def-desc">' + escapeHtml(desc) + '</div>';
         }
 
-        // Tags row: yaml tag, profiles, repo
+        // Tags row: yaml tag, profiles, source repo
         var tags = [];
         tags.push('<span class="agent-def-tag agent-def-tag-yaml">yaml</span>');
         if (d.profiles && d.profiles.length > 0) {
@@ -761,36 +758,156 @@
         // Target repos list
         if (d.repos && d.repos.length > 0) {
             html += '<div class="agent-def-repos" style="margin-top:4px;font-size:12px;color:var(--text-muted);">';
-            html += '<span class="agent-def-label">Repos:</span> ';
+            html += '<span class="agent-def-label">Clones:</span> ';
             html += d.repos.map(function(r) {
                 var url = r.url || r.URL || '';
-                return escapeHtml(url.replace(/^https?:\/\//, '').replace(/\.git$/, ''));
+                var ref = r.ref || '';
+                var display = escapeHtml(url.replace(/^https?:\/\//, '').replace(/\.git$/, ''));
+                if (ref) display += ' <span class="agent-def-dim">(' + escapeHtml(ref) + ')</span>';
+                return display;
             }).join(', ');
             html += '</div>';
         }
 
-        // Schedule and trigger details
-        var details = [];
+        // --- Triggers section ---
+        var hasTriggers = (d.schedule && d.schedule.cron) || (d.trigger && d.trigger.github);
+        html += '<div class="agent-def-triggers">';
+
+        if (!hasTriggers) {
+            // Manual-only agent
+            html += '<span class="trigger-pill trigger-pill-manual">Manual only</span>';
+        }
+
+        // Schedule trigger
         if (d.schedule && d.schedule.cron) {
-            var schedParts = ['<code>' + escapeHtml(d.schedule.cron) + '</code>'];
+            html += '<div class="trigger-block trigger-block-schedule">';
+            html += '<span class="trigger-pill trigger-pill-schedule">';
+            html += 'Schedule';
             if (!d.schedule.enabled) {
-                schedParts.push('<span class="agent-def-dim">disabled</span>');
-            } else if (d.next_run) {
-                schedParts.push('next ' + formatRelativeTime(d.next_run));
+                html += ' <span class="trigger-pill-status trigger-pill-disabled">disabled</span>';
+            }
+            html += '</span>';
+            html += '<div class="trigger-block-details">';
+            var cronHuman = describeCron(d.schedule.cron);
+            html += '<span class="trigger-detail-item"><code>' + escapeHtml(d.schedule.cron) + '</code>';
+            if (cronHuman !== d.schedule.cron) {
+                html += ' <span class="trigger-detail-human">' + escapeHtml(cronHuman) + '</span>';
+            }
+            html += '</span>';
+            if (d.schedule.enabled && d.next_run) {
+                html += '<span class="trigger-detail-item">Next: ' + formatRelativeTime(d.next_run) + '</span>';
             }
             if (d.last_run) {
-                schedParts.push('last ran ' + formatRelativeTime(d.last_run));
+                html += '<span class="trigger-detail-item">Last: ' + formatRelativeTime(d.last_run) + '</span>';
             }
-            details.push('<span class="agent-def-detail-item"><span class="agent-def-label">Schedule</span> ' + schedParts.join(' &middot; ') + '</span>');
+            html += '</div>';
+            html += '</div>';
         }
+
+        // GitHub event trigger
         if (d.trigger && d.trigger.github) {
             var gh = d.trigger.github;
-            var evts = (gh.events || []).join(', ');
-            var acts = (gh.actions || []).length > 0 ? ' (' + gh.actions.join(', ') + ')' : '';
-            details.push('<span class="agent-def-detail-item"><span class="agent-def-label">Trigger</span> ' + escapeHtml(evts + acts) + '</span>');
+            html += '<div class="trigger-block trigger-block-github">';
+            html += '<span class="trigger-pill trigger-pill-github">GitHub';
+            var deliveryMode = gh.delivery_mode || 'polling';
+            html += ' <span class="trigger-pill-mode">' + escapeHtml(deliveryMode) + '</span>';
+            html += '</span>';
+            html += '<div class="trigger-block-details">';
+
+            // Events + actions
+            if (gh.events && gh.events.length > 0) {
+                var eventParts = gh.events.map(function(evt) {
+                    return '<span class="trigger-event-badge">' + escapeHtml(evt) + '</span>';
+                });
+                html += '<div class="trigger-detail-row">';
+                html += '<span class="trigger-detail-label">Events</span>';
+                html += '<span class="trigger-detail-badges">' + eventParts.join(' ') + '</span>';
+                html += '</div>';
+            }
+
+            if (gh.actions && gh.actions.length > 0) {
+                var actionParts = gh.actions.map(function(act) {
+                    return '<span class="trigger-action-badge">' + escapeHtml(act) + '</span>';
+                });
+                html += '<div class="trigger-detail-row">';
+                html += '<span class="trigger-detail-label">Actions</span>';
+                html += '<span class="trigger-detail-badges">' + actionParts.join(' ') + '</span>';
+                html += '</div>';
+            }
+
+            // Labels
+            if (gh.labels && gh.labels.length > 0) {
+                var labelParts = gh.labels.map(function(lbl) {
+                    return '<span class="trigger-label-badge">' + escapeHtml(lbl) + '</span>';
+                });
+                html += '<div class="trigger-detail-row">';
+                html += '<span class="trigger-detail-label">Labels</span>';
+                html += '<span class="trigger-detail-badges">' + labelParts.join(' ') + '</span>';
+                html += '</div>';
+            }
+
+            // Repos filter
+            if (gh.repos && gh.repos.length > 0) {
+                html += '<div class="trigger-detail-row">';
+                html += '<span class="trigger-detail-label">Repos</span>';
+                html += '<span class="trigger-detail-value">' + gh.repos.map(function(r) { return escapeHtml(r); }).join(', ') + '</span>';
+                html += '</div>';
+            }
+
+            // Branches filter
+            if (gh.branches && gh.branches.length > 0) {
+                html += '<div class="trigger-detail-row">';
+                html += '<span class="trigger-detail-label">Branches</span>';
+                html += '<span class="trigger-detail-value">' + gh.branches.map(function(b) { return escapeHtml(b); }).join(', ') + '</span>';
+                html += '</div>';
+            }
+
+            // Users filter
+            if (gh.users && gh.users.length > 0) {
+                html += '<div class="trigger-detail-row">';
+                html += '<span class="trigger-detail-label">Users</span>';
+                html += '<span class="trigger-detail-value">' + gh.users.map(function(u) { return escapeHtml(u); }).join(', ') + '</span>';
+                html += '</div>';
+            }
+
+            html += '</div>';
+            html += '</div>';
         }
-        if (details.length > 0) {
-            html += '<div class="agent-def-details">' + details.join('') + '</div>';
+
+        html += '</div>'; // end agent-def-triggers
+
+        // Dev container info
+        if (d.dev_container && d.dev_container.image) {
+            html += '<div class="agent-def-devcontainer">';
+            html += '<span class="agent-def-label">Dev Container</span> ';
+            html += '<code>' + escapeHtml(d.dev_container.image) + '</code>';
+            if (d.dev_container.network_access) {
+                html += ' <span class="agent-def-dim">(' + escapeHtml(d.dev_container.network_access) + ')</span>';
+            }
+            html += '</div>';
+        }
+
+        // Workflow membership
+        if (workflowMap) {
+            // Check both the raw name and potential source_key-based references
+            var wfNames = (workflowMap[name] || []).slice();
+            // Also check source_key style references (e.g., "source/agent-name")
+            if (d.source_key) {
+                var keyRef = d.source_key;
+                if (workflowMap[keyRef] && workflowMap[keyRef].length > 0) {
+                    workflowMap[keyRef].forEach(function(wn) {
+                        if (wfNames.indexOf(wn) === -1) wfNames.push(wn);
+                    });
+                }
+            }
+            if (wfNames.length > 0) {
+                html += '<div class="agent-def-workflow-membership">';
+                html += '<span class="agent-def-label">Part of</span> ';
+                html += wfNames.map(function(wn) {
+                    return '<a href="#workflows" class="trigger-link">' + escapeHtml(wn) + '</a>';
+                }).join(', ');
+                html += '</div>';
+            }
         }
 
         // Sync error
@@ -4868,7 +4985,7 @@
             associations.forEach(assoc => {
                 const row = document.createElement('tr');
                 const createdDate = new Date(assoc.created_at).toLocaleDateString();
-                const lastActive = formatRelativeTime(assoc.last_accessed_at);
+                const lastActive = formatRelativeTime(assoc.last_accessed_at) || 'Never';
 
                 row.innerHTML = `
                     <td>${escapeHtml(assoc.tbr_org_id)}</td>
