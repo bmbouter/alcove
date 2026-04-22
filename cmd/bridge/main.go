@@ -260,8 +260,9 @@ func main() {
 		})
 	}
 
-	// Wrap with auth middleware.
+	// Wrap with middlewares: request logging first, then auth.
 	handler := auth.AuthMiddleware(store, mgr, dbpool)(mux)
+	handler = bridge.RequestLoggingMiddleware()(handler)
 
 	server := &http.Server{
 		Addr:         ":" + cfg.Port,
