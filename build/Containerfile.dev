@@ -23,7 +23,6 @@ LABEL io.alcove.init="s6"
 
 ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2
 ENV S6_CMD_WAIT_FOR_SERVICES_MAXTIME=30000
-ENV S6_READ_ONLY_ROOT=1
 
 # Install xz-utils (needed to extract s6-overlay tarballs)
 RUN apt-get update && apt-get install -y --no-install-recommends xz-utils && rm -rf /var/lib/apt/lists/*
