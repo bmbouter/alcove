@@ -23,7 +23,7 @@ workflow:
 
   - id: create-pr
     type: bridge
-    action: create-pr
+    action: create-merge-request
     depends: "implement.Succeeded"
     inputs:
       repo: bmbouter/alcove
@@ -33,7 +33,7 @@ workflow:
 
   - id: await-ci
     type: bridge
-    action: await-ci
+    action: await-checks
     depends: "create-pr.Succeeded || ci-fix.Succeeded"
     max_iterations: 4
     inputs:
@@ -91,7 +91,7 @@ workflow:
 
   - id: merge
     type: bridge
-    action: merge-pr
+    action: merge
     depends: "code-review.Succeeded && security-review.Succeeded"
     inputs:
       repo: bmbouter/alcove
