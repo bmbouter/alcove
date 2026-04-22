@@ -169,9 +169,12 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 			}
 		}
 	}
-	if _, ok := skiffEnv["GH_HOST"]; ok {
-		skiffEnv["GH_HOST"] = "localhost:8443"
-	}
+	// Remove GH_HOST on k8s — the gh CLI uses it to identify the GitHub server,
+	// not as a proxy URL. Setting it to localhost:8443 causes gh to reject git
+	// remotes pointing to github.com. The HTTP_PROXY already routes traffic
+	// through Gate correctly.
+	delete(skiffEnv, "GH_HOST")
+	delete(skiffEnv, "GH_PROTOCOL")
 	if _, ok := skiffEnv["GLAB_HOST"]; ok {
 		skiffEnv["GLAB_HOST"] = "http://localhost:8443/gitlab"
 	}
