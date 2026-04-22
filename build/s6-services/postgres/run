@@ -1,2 +1,0 @@
-#!/bin/sh
-exec /usr/lib/postgresql/16/bin/postgres -D /var/lib/postgresql/data
