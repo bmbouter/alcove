@@ -674,22 +674,27 @@ func flushBatch(lc *ledger.Client, sessionID string, batch *[]json.RawMessage) {
 // readOutputArtifact checks for an outputs file written by the agent.
 // Agents write JSON to /tmp/alcove-outputs.json to report structured outputs.
 func readOutputArtifact() map[string]string {
-	data, err := os.ReadFile("/tmp/alcove-outputs.json")
+	path := "/tmp/alcove-outputs.json"
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil // No outputs file — normal for most tasks.
+		log.Printf("outputs: %s not found (normal for most tasks)", path)
+		return nil
 	}
+
+	log.Printf("outputs: read %d bytes from %s: %s", len(data), path, string(data))
 
 	var outputs map[string]string
 	if err := json.Unmarshal(data, &outputs); err != nil {
-		log.Printf("warning: invalid /tmp/alcove-outputs.json: %v", err)
+		log.Printf("warning: invalid %s: %v (raw: %s)", path, err, string(data))
 		return nil
 	}
 
 	if len(outputs) == 0 {
+		log.Printf("outputs: file exists but empty map")
 		return nil
 	}
 
-	log.Printf("outputs detected: %d field(s)", len(outputs))
+	log.Printf("outputs detected: %d field(s): %v", len(outputs), outputs)
 	return outputs
 }
 

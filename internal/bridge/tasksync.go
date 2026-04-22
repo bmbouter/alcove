@@ -402,89 +402,102 @@ func (s *AgentRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo, username
 	// Sync security profiles from .alcove/security-profiles/*.yml.
 	s.syncSecurityProfiles(ctx, cloneDir, repo, username, teamID)
 
-	// Read all .alcove/agents/*.yml files.
-	tasksDir := filepath.Join(cloneDir, ".alcove", "agents")
-	entries, err := os.ReadDir(tasksDir)
+	// Read all .alcove/agents/*.yml files. Fall back to .alcove/tasks/ for
+	// backward compatibility with repos that haven't been updated yet.
+	agentsDir := filepath.Join(cloneDir, ".alcove", "agents")
+	entries, err := os.ReadDir(agentsDir)
+	if err != nil && os.IsNotExist(err) {
+		// Try legacy .alcove/tasks/ directory.
+		legacyDir := filepath.Join(cloneDir, ".alcove", "tasks")
+		if legacyEntries, legacyErr := os.ReadDir(legacyDir); legacyErr == nil {
+			log.Printf("agent-repo-syncer: using legacy .alcove/tasks/ directory in %s (rename to .alcove/agents/)", repo.URL)
+			agentsDir = legacyDir
+			entries = legacyEntries
+			err = nil
+		}
+	}
 	if err != nil {
 		if os.IsNotExist(err) {
 			log.Printf("agent-repo-syncer: no .alcove/agents/ directory in %s", repo.URL)
 			// Remove any previously synced definitions from this repo.
-			return s.defStore.DeleteAgentDefinitionsByRepo(ctx, repo.URL, teamID)
+			_ = s.defStore.DeleteAgentDefinitionsByRepo(ctx, repo.URL, teamID)
+		} else {
+			log.Printf("agent-repo-syncer: error reading agent definitions dir in %s: %v", repo.URL, err)
 		}
-		return fmt.Errorf("reading agent definitions dir: %w", err)
-	}
+		// Continue to sync workflows even if there are no agent definitions.
+	} else {
+		// Track which source_keys we see in this sync.
+		seenKeys := make(map[string]bool)
 
-	// Track which source_keys we see in this sync.
-	seenKeys := make(map[string]bool)
+		for _, entry := range entries {
+			if entry.IsDir() || (!strings.HasSuffix(entry.Name(), ".yml") && !strings.HasSuffix(entry.Name(), ".yaml")) {
+				continue
+			}
 
-	for _, entry := range entries {
-		if entry.IsDir() || (!strings.HasSuffix(entry.Name(), ".yml") && !strings.HasSuffix(entry.Name(), ".yaml")) {
-			continue
+			filePath := filepath.Join(agentsDir, entry.Name())
+			data, err := os.ReadFile(filePath)
+			if err != nil {
+				log.Printf("agent-repo-syncer: error reading %s: %v", filePath, err)
+				continue
+			}
+
+			sourceKey := fmt.Sprintf("%s::%s::%s", username, repo.URL, entry.Name())
+			seenKeys[sourceKey] = true
+
+			td, err := ParseAgentDefinition(data)
+			if err != nil {
+				log.Printf("agent-repo-syncer: parse error in %s/%s: %v", repo.URL, entry.Name(), err)
+				// Store the definition with sync error.
+				errDef := &AgentDefinition{
+					ID:         uuid.New().String(),
+					Name:       entry.Name(),
+					SourceRepo: repo.URL,
+					SourceFile: entry.Name(),
+					SourceKey:  sourceKey,
+					RawYAML:    string(data),
+					SyncError:  err.Error(),
+					TeamID:      teamID,
+				}
+				_ = s.defStore.UpsertAgentDefinition(ctx, errDef)
+				continue
+			}
+
+			td.SourceRepo = repo.URL
+			td.SourceFile = entry.Name()
+			td.SourceKey = sourceKey
+			td.RawYAML = string(data)
+			td.TeamID = teamID
+
+			if err := s.defStore.UpsertAgentDefinition(ctx, td); err != nil {
+				log.Printf("agent-repo-syncer: upsert error for %s: %v", sourceKey, err)
+				continue
+			}
+
+			// Reconcile schedule.
+			if err := s.reconcileSchedule(ctx, td, repo.URL, username, teamID); err != nil {
+				log.Printf("agent-repo-syncer: schedule reconcile error for %s: %v", sourceKey, err)
+			}
 		}
 
-		filePath := filepath.Join(tasksDir, entry.Name())
-		data, err := os.ReadFile(filePath)
+		// Delete definitions that no longer exist in the repo.
+		existing, err := s.defStore.ListAgentDefinitionsByRepo(ctx, repo.URL, teamID)
 		if err != nil {
-			log.Printf("agent-repo-syncer: error reading %s: %v", filePath, err)
-			continue
+			return fmt.Errorf("listing existing definitions: %w", err)
 		}
-
-		sourceKey := fmt.Sprintf("%s::%s::%s", username, repo.URL, entry.Name())
-		seenKeys[sourceKey] = true
-
-		td, err := ParseAgentDefinition(data)
-		if err != nil {
-			log.Printf("agent-repo-syncer: parse error in %s/%s: %v", repo.URL, entry.Name(), err)
-			// Store the definition with sync error.
-			errDef := &AgentDefinition{
-				ID:         uuid.New().String(),
-				Name:       entry.Name(),
-				SourceRepo: repo.URL,
-				SourceFile: entry.Name(),
-				SourceKey:  sourceKey,
-				RawYAML:    string(data),
-				SyncError:  err.Error(),
-				TeamID:      teamID,
-			}
-			_ = s.defStore.UpsertAgentDefinition(ctx, errDef)
-			continue
-		}
-
-		td.SourceRepo = repo.URL
-		td.SourceFile = entry.Name()
-		td.SourceKey = sourceKey
-		td.RawYAML = string(data)
-		td.TeamID = teamID
-
-		if err := s.defStore.UpsertAgentDefinition(ctx, td); err != nil {
-			log.Printf("agent-repo-syncer: upsert error for %s: %v", sourceKey, err)
-			continue
-		}
-
-		// Reconcile schedule.
-		if err := s.reconcileSchedule(ctx, td, repo.URL, username, teamID); err != nil {
-			log.Printf("agent-repo-syncer: schedule reconcile error for %s: %v", sourceKey, err)
-		}
-	}
-
-	// Delete definitions that no longer exist in the repo.
-	existing, err := s.defStore.ListAgentDefinitionsByRepo(ctx, repo.URL, teamID)
-	if err != nil {
-		return fmt.Errorf("listing existing definitions: %w", err)
-	}
-	for _, def := range existing {
-		if !seenKeys[def.SourceKey] {
-			// Remove the definition and its schedule.
-			if _, err := s.db.Exec(ctx, `DELETE FROM agent_definitions WHERE source_key = $1`, def.SourceKey); err != nil {
-				log.Printf("agent-repo-syncer: error deleting stale definition %s: %v", def.SourceKey, err)
-			}
-			if _, err := s.db.Exec(ctx, `DELETE FROM schedules WHERE source_key = $1`, def.SourceKey); err != nil {
-				log.Printf("agent-repo-syncer: error deleting stale schedule for %s: %v", def.SourceKey, err)
+		for _, def := range existing {
+			if !seenKeys[def.SourceKey] {
+				// Remove the definition and its schedule.
+				if _, err := s.db.Exec(ctx, `DELETE FROM agent_definitions WHERE source_key = $1`, def.SourceKey); err != nil {
+					log.Printf("agent-repo-syncer: error deleting stale definition %s: %v", def.SourceKey, err)
+				}
+				if _, err := s.db.Exec(ctx, `DELETE FROM schedules WHERE source_key = $1`, def.SourceKey); err != nil {
+					log.Printf("agent-repo-syncer: error deleting stale schedule for %s: %v", def.SourceKey, err)
+				}
 			}
 		}
-	}
 
-	log.Printf("agent-repo-syncer: synced %d agent definition(s) from %s", len(seenKeys), repo.URL)
+		log.Printf("agent-repo-syncer: synced %d agent definition(s) from %s", len(seenKeys), repo.URL)
+	}
 
 	// Sync workflow definitions from .alcove/workflows/*.yml.
 	if err := s.syncWorkflowDefinitions(ctx, cloneDir, repo, username, teamID); err != nil {
@@ -628,10 +641,17 @@ func (s *AgentRepoSyncer) ValidateRepo(ctx context.Context, repo SkillRepo) ([]s
 		return nil, fmt.Errorf("cloning: %s", string(out))
 	}
 
-	tasksDir := filepath.Join(dir, ".alcove", "agents")
-	entries, err := os.ReadDir(tasksDir)
+	// Check .alcove/agents/ first, fall back to legacy .alcove/tasks/.
+	agentsDir := filepath.Join(dir, ".alcove", "agents")
+	entries, err := os.ReadDir(agentsDir)
 	if err != nil {
-		return nil, fmt.Errorf("no .alcove/agents/ directory found")
+		legacyDir := filepath.Join(dir, ".alcove", "tasks")
+		if legacyEntries, legacyErr := os.ReadDir(legacyDir); legacyErr == nil {
+			agentsDir = legacyDir
+			entries = legacyEntries
+		} else {
+			return nil, fmt.Errorf("no .alcove/agents/ directory found")
+		}
 	}
 
 	var names []string
@@ -639,7 +659,7 @@ func (s *AgentRepoSyncer) ValidateRepo(ctx context.Context, repo SkillRepo) ([]s
 		if e.IsDir() || (!strings.HasSuffix(e.Name(), ".yml") && !strings.HasSuffix(e.Name(), ".yaml")) {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(tasksDir, e.Name()))
+		data, err := os.ReadFile(filepath.Join(agentsDir, e.Name()))
 		if err != nil {
 			continue
 		}
