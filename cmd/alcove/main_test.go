@@ -562,3 +562,66 @@ func TestSaveConfigCreatesDirectory(t *testing.T) {
 		t.Errorf("server: got %q, want %q", loaded.Server, "https://test.example.com")
 	}
 }
+
+func TestVersionFlag(t *testing.T) {
+	// Create the root command to test version flag
+	root := &cobra.Command{
+		Use:           "alcove",
+		Version:       "test-version",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
+
+	// Test --version flag
+	root.SetArgs([]string{"--version"})
+	output := captureOutput(t, func() {
+		if err := root.Execute(); err != nil {
+			t.Fatalf("command execution failed: %v", err)
+		}
+	})
+
+	expected := "alcove version test-version"
+	if output != expected {
+		t.Errorf("--version output: got %q, want %q", output, expected)
+	}
+
+	// Test -v flag (short version)
+	root.SetArgs([]string{"-v"})
+	output = captureOutput(t, func() {
+		if err := root.Execute(); err != nil {
+			t.Fatalf("command execution failed: %v", err)
+		}
+	})
+
+	if output != expected {
+		t.Errorf("-v output: got %q, want %q", output, expected)
+	}
+}
+
+func captureOutput(t *testing.T, fn func()) string {
+	t.Helper()
+
+	// Create a pipe to capture output
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+
+	// Save original stdout
+	oldStdout := os.Stdout
+	os.Stdout = w
+
+	// Run the function
+	fn()
+
+	// Restore stdout
+	os.Stdout = oldStdout
+	w.Close()
+
+	// Read captured output
+	output := make([]byte, 1024)
+	n, _ := r.Read(output)
+	r.Close()
+
+	return string(output[:n])
+}

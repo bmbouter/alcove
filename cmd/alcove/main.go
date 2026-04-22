@@ -77,6 +77,7 @@ func main() {
 		Use:           "alcove",
 		Short:         "Alcove — sandboxed AI coding agents",
 		Long:          "Alcove CLI for dispatching and managing AI coding sessions via the Bridge API.",
+		Version:       Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
