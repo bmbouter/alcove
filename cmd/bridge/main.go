@@ -65,7 +65,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("connecting to hail (NATS) at %s: %v", cfg.HailURL, err)
 	}
-	defer nc.Close()
+	defer func() {
+		log.Println("shutting down NATS connection...")
+		nc.Close()
+		log.Println("NATS connection closed")
+	}()
 	log.Printf("connected to hail at %s", cfg.HailURL)
 
 	// Connect to PostgreSQL (Ledger).
@@ -73,7 +77,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("connecting to ledger (PostgreSQL): %v", err)
 	}
-	defer dbpool.Close()
+	defer func() {
+		log.Println("shutting down database connection pool...")
+		dbpool.Close()
+		log.Println("database connection pool closed")
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	if err := dbpool.Ping(ctx); err != nil {
@@ -215,12 +223,20 @@ func main() {
 	scheduler := bridge.NewScheduler(dbpool, dispatcher, cfg, credStore, defStore, settingsStore)
 	scheduler.SetWorkflowEngine(workflowEngine)
 	scheduler.Start(context.Background())
-	defer scheduler.Stop()
+	defer func() {
+		log.Println("shutting down scheduler...")
+		scheduler.Stop()
+		log.Println("scheduler stopped")
+	}()
 
 	// Create agent repo syncer.
 	syncer := bridge.NewAgentRepoSyncer(dbpool, settingsStore, scheduler, defStore, dispatcher, profileStore, workflowStore)
 	syncer.Start(context.Background())
-	defer syncer.Stop()
+	defer func() {
+		log.Println("shutting down agent repo syncer...")
+		syncer.Stop()
+		log.Println("agent repo syncer stopped")
+	}()
 	log.Println("agent repo syncer started")
 
 	teamStore := bridge.NewTeamStore(dbpool)
@@ -283,16 +299,19 @@ func main() {
 	}()
 
 	<-sigCh
-	log.Println("shutting down...")
+	log.Println("received shutdown signal, beginning graceful shutdown...")
 
+	// Shutdown HTTP server
+	log.Println("shutting down HTTP server...")
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("shutdown error: %v", err)
+		log.Printf("HTTP server shutdown error: %v", err)
+	} else {
+		log.Println("HTTP server shut down successfully")
 	}
 
-	nc.Drain()
-	log.Println("shutdown complete")
+	log.Println("graceful shutdown complete")
 }
 
 func envOrDefault(key, fallback string) string {
