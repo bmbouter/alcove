@@ -3304,6 +3304,11 @@ details[open] > .tx-tool-expand-toggle::before {
     margin-top: 4px;
 }
 .tx-exec-line { color: var(--text-muted); padding: 1px 0; white-space: pre; }
+.tx-exec-line-stderr {
+    border-left: 3px solid var(--status-error, #e74c3c);
+    padding-left: 8px;
+    background: rgba(231, 76, 60, 0.06);
+}
 .tx-exec-blank { height: 8px; }
 .tx-exec-badge {
     display: inline-block;

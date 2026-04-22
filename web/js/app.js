@@ -2717,7 +2717,7 @@
                 continue;
             }
             if (type === 'text' && ev.source === 'executable') {
-                lines.push(ev.content || '');
+                lines.push({content: ev.content || '', stream: ev.stream || ''});
             }
         }
         if (lines.length > 0) {
@@ -2736,7 +2736,9 @@
         container.appendChild(div);
     }
 
-    function renderExecutableLine(line) {
+    function renderExecutableLine(lineObj) {
+        var line = typeof lineObj === 'string' ? lineObj : lineObj.content;
+        var stream = typeof lineObj === 'string' ? '' : (lineObj.stream || '');
         var escaped = escapeHtml(line);
 
         // Section headers: === Category Name ===
@@ -2763,7 +2765,8 @@
         escaped = escaped.replace(/\[OK\]\s*/g, '<span class="tx-exec-ok">[OK]</span> ');
         escaped = escaped.replace(/\[MISS\]/g, '<span class="tx-exec-miss">[MISS]</span>');
 
-        return '<div class="tx-exec-line">' + escaped + '</div>';
+        var cls = stream === 'stderr' ? 'tx-exec-line tx-exec-line-stderr' : 'tx-exec-line';
+        return '<div class="' + cls + '">' + escaped + '</div>';
     }
 
     // Simple markdown-like rendering (no library needed)

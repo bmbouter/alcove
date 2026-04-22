@@ -232,7 +232,9 @@ jobs:
           ADMIN_PASSWORD=admin ./scripts/test-fixture-sync.sh
 
       - name: 'Batch 4: Session lifecycle (needs container runtime)'
-        run: ADMIN_PASSWORD=admin ./scripts/test-session-lifecycle.sh
+        run: |
+          ADMIN_PASSWORD=admin ./scripts/test-session-lifecycle.sh
+          ADMIN_PASSWORD=admin ./scripts/test-executable-transcript.sh
 
       - name: 'Batch 5: Error handling tests'
         run: |
@@ -497,7 +499,9 @@ jobs:
           ADMIN_PASSWORD=admin ./scripts/test-fixture-sync.sh
 
       - name: 'Batch 4: Session lifecycle (needs container runtime)'
-        run: ADMIN_PASSWORD=admin ./scripts/test-session-lifecycle.sh
+        run: |
+          ADMIN_PASSWORD=admin ./scripts/test-session-lifecycle.sh
+          ADMIN_PASSWORD=admin ./scripts/test-executable-transcript.sh
 
       - name: 'Batch 5: Error handling tests'
         run: |

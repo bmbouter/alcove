@@ -29,6 +29,16 @@ func main() {
 		fmt.Println(string(b))
 	}
 
+	// Write to stderr so transcript captures both streams
+	stderrEvents := []map[string]any{
+		{"type": "text", "content": "test-agent: stderr-line-1", "timestamp": time.Now().UTC().Format(time.RFC3339)},
+		{"type": "text", "content": "test-agent: STDERR_MARKER", "timestamp": time.Now().UTC().Format(time.RFC3339)},
+	}
+	for _, e := range stderrEvents {
+		b, _ := json.Marshal(e)
+		fmt.Fprintln(os.Stderr, string(b))
+	}
+
 	outputs := map[string]string{"test_status": "passed", "agent_version": "1.0.0"}
 	data, _ := json.Marshal(outputs)
 	_ = os.WriteFile("/tmp/alcove-outputs.json", data, 0644)
