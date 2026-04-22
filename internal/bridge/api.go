@@ -2441,13 +2441,30 @@ func (a *API) handleWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleWorkflowRunByID(w http.ResponseWriter, r *http.Request) {
-	// Parse: /api/v1/workflow-runs/{id} or /api/v1/workflow-runs/{id}/approve/{step_id} or /api/v1/workflow-runs/{id}/reject/{step_id}
+	// Parse: /api/v1/workflow-runs/{id} or /api/v1/workflow-runs/{id}/approve/{step_id} or /api/v1/workflow-runs/{id}/reject/{step_id} or /api/v1/workflow-runs/{id}/cancel
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/workflow-runs/")
 	parts := strings.SplitN(path, "/", 3)
 	runID := parts[0]
 
 	if runID == "" {
 		respondError(w, http.StatusBadRequest, "workflow run id required")
+		return
+	}
+
+	// Handle cancel action: POST /api/v1/workflow-runs/{id}/cancel or DELETE /api/v1/workflow-runs/{id}
+	if (len(parts) == 2 && parts[1] == "cancel" && r.Method == http.MethodPost) ||
+		(len(parts) == 1 && r.Method == http.MethodDelete) {
+
+		if err := a.workflowEngine.CancelWorkflowRun(r.Context(), runID); err != nil {
+			log.Printf("error cancelling workflow run %s: %v", runID, err)
+			respondError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		respondJSON(w, http.StatusOK, map[string]string{
+			"status": "cancelled",
+			"run_id": runID,
+		})
 		return
 	}
 

@@ -72,6 +72,7 @@ func newWorkflowsCmd() *cobra.Command {
 		newWorkflowsListCmd(),
 		newWorkflowsRunCmd(),
 		newWorkflowsRunsCmd(),
+		newWorkflowsCancelCmd(),
 	)
 	return cmd
 }
@@ -289,4 +290,44 @@ func runWorkflowsRuns(cmd *cobra.Command, _ []string) error {
 			run.ID, run.WorkflowID, run.Status, trigger, run.CurrentStep, created)
 	}
 	return w.Flush()
+}
+
+// ---------- workflows cancel ----------
+
+func newWorkflowsCancelCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "cancel <run-id>",
+		Short: "Cancel a workflow run",
+		Long:  "Cancel a workflow run and all its pending/running steps. Only workflow runs in pending, running, or awaiting_approval status can be cancelled.",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runWorkflowsCancel,
+	}
+}
+
+func runWorkflowsCancel(cmd *cobra.Command, args []string) error {
+	runID := args[0]
+
+	// Use DELETE method to cancel the workflow run
+	resp, err := apiRequest(cmd, http.MethodDelete, "/api/v1/workflow-runs/"+runID, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("decoding response: %w", err)
+	}
+
+	if isJSONOutput(cmd) {
+		return outputJSON(result)
+	}
+
+	fmt.Fprintf(os.Stderr, "Workflow run %s has been cancelled\n", runID)
+	return nil
 }
