@@ -23,7 +23,6 @@ LABEL io.alcove.init="s6"
 
 ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2
 ENV S6_CMD_WAIT_FOR_SERVICES_MAXTIME=30000
-ENV S6_RUNTIME_DIR=/s6-run
 
 # Install xz-utils (needed to extract s6-overlay tarballs)
 RUN apt-get update && apt-get install -y --no-install-recommends xz-utils && rm -rf /var/lib/apt/lists/*
@@ -85,11 +84,14 @@ COPY --from=builder /out/alcove-shim /usr/local/bin/alcove-shim
 # Create workspace directory and set permissions for all runtime dirs.
 # OpenShift assigns random UIDs from the namespace range (e.g., 1000830000),
 # so we use chmod 777 for dirs that must be writable at any UID.
-# S6_RUNTIME_DIR=/s6-run avoids touching /run (which is root-owned on OpenShift
-# and s6-overlay is very particular about its ownership/permissions).
-RUN mkdir -p /workspace /s6-run && \
-    chmod -R 777 /workspace /s6-run /var/lib/postgresql /var/run/postgresql
+RUN mkdir -p /workspace && \
+    chmod -R 777 /workspace /var/lib/postgresql /var/run/postgresql
+
+# s6-overlay's preinit unconditionally checks /run permissions before
+# container runs with a random UID + GID 0. The entrypoint wrapper
+# fixes /run ownership before invoking s6's /init.
+COPY build/dev-entrypoint.sh /dev-entrypoint.sh
 
 USER 1001
 
-ENTRYPOINT ["/init"]
+ENTRYPOINT ["/dev-entrypoint.sh"]
