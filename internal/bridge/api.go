@@ -219,6 +219,7 @@ func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
 		status := query.Get("status")
 		repo := query.Get("repo")
+		agent := query.Get("agent")
 		since := query.Get("since")
 		until := query.Get("until")
 		teamID := getActiveTeamID(r)
@@ -235,7 +236,7 @@ func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
 			perPage = pp
 		}
 
-		sessions, total, err := a.listSessions(r.Context(), status, repo, since, until, teamID, page, perPage)
+		sessions, total, err := a.listSessions(r.Context(), status, repo, agent, since, until, teamID, page, perPage)
 		if err != nil {
 			log.Printf("error: listing sessions: %v", err)
 			respondError(w, http.StatusInternalServerError, "failed to list sessions")
@@ -875,7 +876,7 @@ func parseEventContext(prompt string) string {
 	return "Manual"
 }
 
-func (a *API) listSessions(ctx context.Context, status, repo, since, until, teamID string, page, perPage int) ([]internal.Session, int, error) {
+func (a *API) listSessions(ctx context.Context, status, repo, agent, since, until, teamID string, page, perPage int) ([]internal.Session, int, error) {
 	whereClause := " WHERE 1=1"
 	args := []any{}
 	argN := 1
@@ -904,6 +905,11 @@ func (a *API) listSessions(ctx context.Context, status, repo, since, until, team
 	if repo != "" {
 		whereClause += fmt.Sprintf(" AND s.prompt ILIKE '%%' || $%d || '%%'", argN)
 		args = append(args, repo)
+		argN++
+	}
+	if agent != "" {
+		whereClause += fmt.Sprintf(" AND s.task_name ILIKE '%%' || $%d || '%%'", argN)
+		args = append(args, agent)
 		argN++
 	}
 	if since != "" {
