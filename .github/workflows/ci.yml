@@ -174,7 +174,7 @@ jobs:
             --user 0 --security-opt label=disable \
             -v ${{ env.PODMAN_SOCK }}:/run/podman/podman.sock \
             -v ${{ github.workspace }}/alcove.yaml:/etc/alcove/alcove.yaml:ro \
-            -v /tmp:/tmp:ro \
+            -v /tmp:/tmp \
             -e CONTAINER_HOST=unix:///run/podman/podman.sock \
             -e LEDGER_DATABASE_URL=postgres://alcove:alcove@alcove-ledger:5432/alcove?sslmode=disable \
             -e HAIL_URL=nats://alcove-hail:4222 \
