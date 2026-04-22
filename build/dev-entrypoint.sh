@@ -8,6 +8,8 @@ PGDATA=/var/lib/postgresql/data
 # is owned by the current UID, which is required by PostgreSQL and
 # varies on OpenShift (random UID assignment).
 if [ ! -f "$PGDATA/PG_VERSION" ]; then
+  # PostgreSQL requires the data directory to be mode 0700.
+  chmod 700 "$PGDATA" 2>/dev/null || true
   /usr/lib/postgresql/16/bin/initdb -D "$PGDATA"
   echo "host all all 0.0.0.0/0 trust" >> "$PGDATA/pg_hba.conf"
   echo "local all all trust" >> "$PGDATA/pg_hba.conf"
