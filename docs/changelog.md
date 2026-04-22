@@ -3,6 +3,11 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.32.1
+
+### Bug Fixes
+- Strengthen release agent prompts for outputs and CI patience
+
 ## v0.32.0
 
 ### Features
