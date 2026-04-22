@@ -1,2 +1,0 @@
-#!/bin/sh
-exec nats-server -p 4222 -m 8222
