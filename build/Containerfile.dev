@@ -83,10 +83,11 @@ COPY build/s6-services/user     /etc/s6-overlay/s6-rc.d/user
 COPY --from=builder /out/alcove-shim /usr/local/bin/alcove-shim
 
 # Create workspace directory and set ownership for all runtime dirs.
-# /run/s6 is needed by s6-overlay at startup — it must be writable by the
-# non-root user since the container runs as USER 1001.
-RUN mkdir -p /workspace /run/s6 && \
-    chown -R 1001:1001 /var/lib/postgresql /var/run/postgresql /workspace /run/s6
+# /run must be writable by the non-root user — s6-overlay's preinit writes
+# to /run at startup (e.g., /run/test, /run/s6, /run/s6-rc). This ensures
+# the image works on OpenShift and any runtime without special volume mounts.
+RUN mkdir -p /workspace && \
+    chown -R 1001:1001 /var/lib/postgresql /var/run/postgresql /workspace /run
 
 USER 1001
 
