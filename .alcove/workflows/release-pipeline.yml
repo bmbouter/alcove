@@ -24,7 +24,7 @@ workflow:
 
   - id: changelog-pr
     type: bridge
-    action: create-pr
+    action: create-merge-request
     depends: "changelog.Succeeded"
     inputs:
       repo: bmbouter/alcove
@@ -34,7 +34,7 @@ workflow:
 
   - id: changelog-ci
     type: bridge
-    action: await-ci
+    action: await-checks
     depends: "changelog-pr.Succeeded"
     max_iterations: 4
     inputs:
@@ -43,7 +43,7 @@ workflow:
 
   - id: changelog-merge
     type: bridge
-    action: merge-pr
+    action: merge
     depends: "changelog-ci.Succeeded"
     inputs:
       repo: bmbouter/alcove
