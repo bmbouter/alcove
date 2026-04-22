@@ -280,13 +280,16 @@ func runExecutable(
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
 	}
 
-	// Capture stderr to a buffer so we can log it
-	var stderrBuf bytes.Buffer
-	cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
-
+	// Create pipes for both stdout and stderr
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		log.Printf("error creating stdout pipe: %v", err)
+		return 1, "error", nil, nil
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		log.Printf("error creating stderr pipe: %v", err)
 		return 1, "error", nil, nil
 	}
 
@@ -307,9 +310,43 @@ func runExecutable(
 		}
 	}()
 
-	// Read stdout line-by-line
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // 1MB line buffer
+	// Shared channel for stdout and stderr lines
+	type outputLine struct {
+		text   string
+		stream string // "stdout" or "stderr"
+	}
+	ch := make(chan outputLine, 256)
+
+	// Scan stdout and stderr in separate goroutines, both feeding ch
+	var scanWg sync.WaitGroup
+	scanWg.Add(2)
+
+	go func() {
+		defer scanWg.Done()
+		scanner := bufio.NewScanner(stdout)
+		scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // 1MB line buffer
+		for scanner.Scan() {
+			ch <- outputLine{text: scanner.Text(), stream: "stdout"}
+		}
+	}()
+
+	go func() {
+		defer scanWg.Done()
+		scanner := bufio.NewScanner(stderr)
+		scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // 1MB line buffer
+		for scanner.Scan() {
+			line := scanner.Text()
+			// Echo stderr to os.Stderr for container-level debugging (oc logs)
+			fmt.Fprintln(os.Stderr, line)
+			ch <- outputLine{text: line, stream: "stderr"}
+		}
+	}()
+
+	// Close ch when both scanners are done
+	go func() {
+		scanWg.Wait()
+		close(ch)
+	}()
 
 	var (
 		batch      []json.RawMessage
@@ -355,18 +392,21 @@ func runExecutable(
 		}
 	}()
 
-	// Process output lines - convert raw text to transcript format
-	for scanner.Scan() {
-		line := scanner.Text()
+	// Process output lines from both stdout and stderr
+	for ol := range ch {
 		lastEvent = time.Now()
 		lineNumber++
 
 		// Create transcript event for this line
 		transcriptEvent := map[string]any{
 			"type":      "text",
-			"content":   line,
+			"content":   ol.text,
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 			"source":    "executable",
+		}
+		// Add stream field only for stderr (backward compatibility)
+		if ol.stream == "stderr" {
+			transcriptEvent["stream"] = "stderr"
 		}
 
 		eventJSON, err := json.Marshal(transcriptEvent)
@@ -420,9 +460,6 @@ func runExecutable(
 		}
 	}
 
-	if stderrStr := stderrBuf.String(); stderrStr != "" {
-		log.Printf("executable stderr:\n%s", stderrStr)
-	}
 	log.Printf("executable completed: exit=%d lines=%d", exitCode, lineNumber)
 
 	// Determine outcome from exit code
