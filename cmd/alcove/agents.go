@@ -181,6 +181,7 @@ func newAgentsReposCmd() *cobra.Command {
 		Short: "List configured agent repos",
 		RunE:  runAgentsRepos,
 	}
+	cmd.Flags().Bool("json", false, "Output JSON instead of table format")
 	cmd.AddCommand(
 		newAgentsReposAddCmd(),
 		newAgentsReposRemoveCmd(),
@@ -194,7 +195,9 @@ func runAgentsRepos(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	if isJSONOutput(cmd) {
+	// Check for --json flag or global --output json
+	jsonFlag, _ := cmd.Flags().GetBool("json")
+	if jsonFlag || isJSONOutput(cmd) {
 		return outputJSON(repos)
 	}
 

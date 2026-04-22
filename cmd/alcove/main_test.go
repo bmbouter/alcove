@@ -625,3 +625,65 @@ func TestSessionSummaryHasAgentField(t *testing.T) {
 		t.Errorf("sessionSummary.Agent = %q, expected %q", session.Agent, "test-agent")
 	}
 }
+
+func TestAgentsReposJsonFlag(t *testing.T) {
+	// Test that the agents repos command has a --json flag
+	cmd := newAgentsReposCmd()
+
+	// Check that the --json flag exists
+	jsonFlag := cmd.Flags().Lookup("json")
+	if jsonFlag == nil {
+		t.Fatal("--json flag should exist on agents repos command")
+	}
+
+	// Check flag type and default value
+	if jsonFlag.Value.Type() != "bool" {
+		t.Errorf("--json flag type = %q, expected %q", jsonFlag.Value.Type(), "bool")
+	}
+
+	if jsonFlag.DefValue != "false" {
+		t.Errorf("--json flag default value = %q, expected %q", jsonFlag.DefValue, "false")
+	}
+
+	// Check flag usage
+	expectedUsage := "Output JSON instead of table format"
+	if jsonFlag.Usage != expectedUsage {
+		t.Errorf("--json flag usage = %q, expected %q", jsonFlag.Usage, expectedUsage)
+	}
+}
+
+func TestAgentsReposJsonFlagParsing(t *testing.T) {
+	// Test that the --json flag can be parsed correctly
+	cmd := newAgentsReposCmd()
+
+	// Test with --json flag set
+	err := cmd.ParseFlags([]string{"--json"})
+	if err != nil {
+		t.Fatalf("Failed to parse --json flag: %v", err)
+	}
+
+	jsonFlag, err := cmd.Flags().GetBool("json")
+	if err != nil {
+		t.Fatalf("Failed to get --json flag value: %v", err)
+	}
+
+	if !jsonFlag {
+		t.Error("--json flag should be true when set")
+	}
+
+	// Test without --json flag (default case)
+	cmd2 := newAgentsReposCmd()
+	err = cmd2.ParseFlags([]string{})
+	if err != nil {
+		t.Fatalf("Failed to parse flags without --json: %v", err)
+	}
+
+	jsonFlag2, err := cmd2.Flags().GetBool("json")
+	if err != nil {
+		t.Fatalf("Failed to get --json flag value: %v", err)
+	}
+
+	if jsonFlag2 {
+		t.Error("--json flag should be false by default")
+	}
+}
