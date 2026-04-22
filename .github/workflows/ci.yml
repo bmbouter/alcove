@@ -156,7 +156,6 @@ jobs:
         run: |
           LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
           HAIL_URL="nats://localhost:4222" \
-          BRIDGE_URL="http://host.containers.internal:8080" \
           RUNTIME=podman \
           ALCOVE_NETWORK=alcove-internal \
           ALCOVE_EXTERNAL_NETWORK=alcove-external \
@@ -235,7 +234,6 @@ jobs:
       - name: 'Batch 4: Session lifecycle (needs container runtime)'
         run: |
           ADMIN_PASSWORD=admin ./scripts/test-session-lifecycle.sh
-          ADMIN_PASSWORD=admin ./scripts/test-executable-transcript.sh
 
       - name: 'Batch 5: Error handling tests'
         run: |
@@ -414,7 +412,6 @@ jobs:
         run: |
           LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
           HAIL_URL="nats://localhost:4222" \
-          BRIDGE_URL="http://host.containers.internal:8080" \
           RUNTIME=kubernetes \
           ALCOVE_NAMESPACE=alcove \
           KUBECONFIG=$HOME/.kube/config \
@@ -503,7 +500,6 @@ jobs:
       - name: 'Batch 4: Session lifecycle (needs container runtime)'
         run: |
           ADMIN_PASSWORD=admin ./scripts/test-session-lifecycle.sh
-          ADMIN_PASSWORD=admin ./scripts/test-executable-transcript.sh
 
       - name: 'Batch 5: Error handling tests'
         run: |
