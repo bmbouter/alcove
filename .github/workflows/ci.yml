@@ -156,6 +156,7 @@ jobs:
         run: |
           LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
           HAIL_URL="nats://localhost:4222" \
+          BRIDGE_URL="http://host.containers.internal:8080" \
           RUNTIME=podman \
           ALCOVE_NETWORK=alcove-internal \
           ALCOVE_EXTERNAL_NETWORK=alcove-external \
@@ -413,6 +414,7 @@ jobs:
         run: |
           LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable" \
           HAIL_URL="nats://localhost:4222" \
+          BRIDGE_URL="http://host.containers.internal:8080" \
           RUNTIME=kubernetes \
           ALCOVE_NAMESPACE=alcove \
           KUBECONFIG=$HOME/.kube/config \

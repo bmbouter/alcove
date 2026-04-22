@@ -221,9 +221,6 @@ else
   fail "Session did not reach terminal state within 120s (last status: $STATUS)"
 fi
 
-# Wait for transcript flush to complete (batch flush interval is 5s)
-sleep 8
-
 # =====================================================================
 # Test 6: Verify transcript contains stdout content
 # =====================================================================
