@@ -672,6 +672,7 @@ func newListCmd() *cobra.Command {
 	}
 	cmd.Flags().String("status", "", "Filter by status (running, completed, error, cancelled, timeout)")
 	cmd.Flags().String("repo", "", "Filter by repository")
+	cmd.Flags().String("agent", "", "Filter by agent definition name")
 	cmd.Flags().Duration("since", 0, "Show sessions from the last duration (e.g., 24h, 7d)")
 	return cmd
 }
@@ -689,6 +690,7 @@ type sessionSummary struct {
 	StartedAt string `json:"started_at"`
 	Duration  string `json:"duration,omitempty"`
 	ExitCode  *int   `json:"exit_code,omitempty"`
+	Agent     string `json:"agent,omitempty"`
 }
 
 func runList(cmd *cobra.Command, _ []string) error {
@@ -698,6 +700,9 @@ func runList(cmd *cobra.Command, _ []string) error {
 	}
 	if r, _ := cmd.Flags().GetString("repo"); r != "" {
 		params = append(params, "repo="+r)
+	}
+	if a, _ := cmd.Flags().GetString("agent"); a != "" {
+		params = append(params, "agent="+a)
 	}
 	if d, _ := cmd.Flags().GetDuration("since"); d > 0 {
 		since := time.Now().Add(-d).Format(time.RFC3339)
@@ -735,14 +740,14 @@ func runList(cmd *cobra.Command, _ []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tSTATUS\tREPO\tPROVIDER\tDURATION\tPROMPT")
+	fmt.Fprintln(w, "ID\tSTATUS\tREPO\tPROVIDER\tAGENT\tDURATION\tPROMPT")
 	for _, s := range result.Sessions {
 		prompt := s.Prompt
-		if len(prompt) > 60 {
-			prompt = prompt[:57] + "..."
+		if len(prompt) > 50 {
+			prompt = prompt[:47] + "..."
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			s.ID, s.Status, s.Repo, s.Provider, s.Duration, prompt)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			s.ID, s.Status, s.Repo, s.Provider, s.Agent, s.Duration, prompt)
 	}
 	return w.Flush()
 }

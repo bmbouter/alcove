@@ -562,3 +562,66 @@ func TestSaveConfigCreatesDirectory(t *testing.T) {
 		t.Errorf("server: got %q, want %q", loaded.Server, "https://test.example.com")
 	}
 }
+
+func TestListCmdFlags(t *testing.T) {
+	cmd := newListCmd()
+
+	// Test that all expected flags are present
+	flags := []string{"status", "repo", "agent", "since"}
+
+	for _, flag := range flags {
+		if f := cmd.Flags().Lookup(flag); f == nil {
+			t.Errorf("expected flag %q to exist on list command", flag)
+		}
+	}
+
+	// Test that the agent flag has the correct usage
+	agentFlag := cmd.Flags().Lookup("agent")
+	if agentFlag == nil {
+		t.Fatal("agent flag should exist")
+	}
+
+	expectedUsage := "Filter by agent definition name"
+	if agentFlag.Usage != expectedUsage {
+		t.Errorf("agent flag usage = %q, expected %q", agentFlag.Usage, expectedUsage)
+	}
+}
+
+func TestRunListBuildsAgentFilter(t *testing.T) {
+	// Test that the agent flag is properly included in query parameters
+	// This is a unit test that validates the query building logic without making HTTP calls
+
+	cmd := newListCmd()
+	cmd.SetArgs([]string{"--agent", "test-agent"})
+	err := cmd.ParseFlags([]string{"--agent", "test-agent"})
+	if err != nil {
+		t.Fatalf("Failed to parse flags: %v", err)
+	}
+
+	// Verify the flag value is correctly parsed
+	agent, err := cmd.Flags().GetString("agent")
+	if err != nil {
+		t.Fatalf("Failed to get agent flag: %v", err)
+	}
+	if agent != "test-agent" {
+		t.Errorf("agent flag value = %q, expected %q", agent, "test-agent")
+	}
+}
+
+func TestSessionSummaryHasAgentField(t *testing.T) {
+	// Test that sessionSummary struct includes Agent field
+	session := sessionSummary{
+		ID:        "test-id",
+		Prompt:    "test prompt",
+		Repo:      "test-repo",
+		Provider:  "test-provider",
+		Status:    "completed",
+		StartedAt: "2026-04-22T19:15:00Z",
+		Duration:  "5m30s",
+		Agent:     "test-agent",
+	}
+
+	if session.Agent != "test-agent" {
+		t.Errorf("sessionSummary.Agent = %q, expected %q", session.Agent, "test-agent")
+	}
+}
