@@ -1638,7 +1638,11 @@ alcove agents repos
 
 ### Flags
 
-No command-specific flags. Supports global `--output json`.
+| Flag | Type | Description |
+|------|------|-------------|
+| `--json` | bool | Output JSON instead of table format |
+
+Also supports global `--output json`.
 
 ### Description
 
@@ -1651,7 +1655,10 @@ team. Each row shows the repo name, URL, and ref (branch/tag).
 # List agent repos
 alcove agents repos
 
-# JSON output
+# JSON output using dedicated flag
+alcove agents repos --json
+
+# JSON output using global flag
 alcove agents repos --output json
 ```
 
