@@ -94,7 +94,7 @@ type AgentDefSchedule struct {
 func ParseAgentDefinition(data []byte) (*AgentDefinition, error) {
 	var td AgentDefinition
 	if err := yaml.Unmarshal(data, &td); err != nil {
-		return nil, fmt.Errorf("parsing YAML: %w", err)
+		return nil, fmt.Errorf("YAML syntax error: %w", err)
 	}
 
 	if td.Name == "" {

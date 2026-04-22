@@ -307,7 +307,7 @@ func scanProfileRow(row interface{ Scan(dest ...any) error }) (*SecurityProfile,
 func ParseSecurityProfile(data []byte) (*SecurityProfile, error) {
 	var p SecurityProfile
 	if err := yaml.Unmarshal(data, &p); err != nil {
-		return nil, fmt.Errorf("parsing YAML: %w", err)
+		return nil, fmt.Errorf("YAML syntax error: %w", err)
 	}
 	if p.Name == "" {
 		return nil, fmt.Errorf("security profile missing required field: name")

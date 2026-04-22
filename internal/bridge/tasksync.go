@@ -446,7 +446,9 @@ func (s *AgentRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo, username
 
 			td, err := ParseAgentDefinition(data)
 			if err != nil {
-				log.Printf("agent-repo-syncer: parse error in %s/%s: %v", repo.URL, entry.Name(), err)
+				// Create a more helpful error message that includes the file context
+				contextualErr := fmt.Sprintf("Failed to parse agent definition in file %s: %v", entry.Name(), err)
+				log.Printf("agent-repo-syncer: parse error in %s/%s: %v", repo.URL, entry.Name(), contextualErr)
 				// Store the definition with sync error.
 				errDef := &AgentDefinition{
 					ID:         uuid.New().String(),
@@ -455,7 +457,7 @@ func (s *AgentRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo, username
 					SourceFile: entry.Name(),
 					SourceKey:  sourceKey,
 					RawYAML:    string(data),
-					SyncError:  err.Error(),
+					SyncError:  contextualErr,
 					TeamID:      teamID,
 				}
 				_ = s.defStore.UpsertAgentDefinition(ctx, errDef)
@@ -542,7 +544,8 @@ func (s *AgentRepoSyncer) syncSecurityProfiles(ctx context.Context, cloneDir str
 
 		profile, err := ParseSecurityProfile(data)
 		if err != nil {
-			log.Printf("agent-repo-syncer: profile parse error in %s/%s: %v", repo.URL, entry.Name(), err)
+			contextualErr := fmt.Sprintf("Failed to parse security profile in file %s: %v", entry.Name(), err)
+			log.Printf("agent-repo-syncer: profile parse error in %s/%s: %v", repo.URL, entry.Name(), contextualErr)
 			continue
 		}
 
@@ -788,7 +791,9 @@ func (s *AgentRepoSyncer) syncWorkflowDefinitions(ctx context.Context, cloneDir 
 
 		wd, err := ParseWorkflowDefinition(data)
 		if err != nil {
-			log.Printf("agent-repo-syncer: workflow parse error in %s/%s: %v", repo.URL, entry.Name(), err)
+			// Create a more helpful error message that includes the file context
+			contextualErr := fmt.Sprintf("Failed to parse workflow definition in file %s: %v", entry.Name(), err)
+			log.Printf("agent-repo-syncer: workflow parse error in %s/%s: %v", repo.URL, entry.Name(), contextualErr)
 			// Store the workflow with sync error.
 			errWorkflow := &WorkflowDefinition{
 				Name:       entry.Name(),
@@ -796,7 +801,7 @@ func (s *AgentRepoSyncer) syncWorkflowDefinitions(ctx context.Context, cloneDir 
 				SourceFile: entry.Name(),
 				TeamID:      teamID,
 			}
-			_ = s.workflowStore.UpsertWorkflow(ctx, errWorkflow, sourceKey, string(data), err.Error())
+			_ = s.workflowStore.UpsertWorkflow(ctx, errWorkflow, sourceKey, string(data), contextualErr)
 			continue
 		}
 
