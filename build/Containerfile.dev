@@ -36,16 +36,9 @@ RUN curl -fsSL https://github.com/nats-io/nats-server/releases/download/v2.11.1/
 COPY go.mod go.sum /tmp/gomod/
 RUN cd /tmp/gomod && go mod download && rm -rf /tmp/gomod
 
-# Initialize PostgreSQL data directory
+# Prepare PostgreSQL directories (initialization happens at runtime in
+# the entrypoint, so it runs as whatever UID OpenShift assigns).
 RUN mkdir -p /var/lib/postgresql/data /var/run/postgresql && \
-    chmod 777 /var/lib/postgresql/data /var/run/postgresql && \
-    chown -R postgres:postgres /var/lib/postgresql/data /var/run/postgresql && \
-    su postgres -c "/usr/lib/postgresql/16/bin/initdb -D /var/lib/postgresql/data" && \
-    echo "host all all 0.0.0.0/0 trust" >> /var/lib/postgresql/data/pg_hba.conf && \
-    echo "local all all trust" >> /var/lib/postgresql/data/pg_hba.conf && \
-    su postgres -c "/usr/lib/postgresql/16/bin/pg_ctl -D /var/lib/postgresql/data -o '-c listen_addresses=\"\" -c dynamic_shared_memory_type=posix' -w start" && \
-    su postgres -c "/usr/lib/postgresql/16/bin/createdb -h /var/run/postgresql alcove" && \
-    su postgres -c "/usr/lib/postgresql/16/bin/pg_ctl -D /var/lib/postgresql/data -w stop" && \
     chmod -R 777 /var/lib/postgresql/data /var/run/postgresql
 
 # Copy the shim binary
