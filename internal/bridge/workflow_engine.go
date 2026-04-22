@@ -1216,6 +1216,58 @@ func (we *WorkflowEngine) RejectStep(ctx context.Context, runID, stepID string) 
 	return nil
 }
 
+// CancelWorkflowRun marks a workflow run and all its pending/running steps as cancelled.
+// It also attempts to cancel any associated sessions.
+func (we *WorkflowEngine) CancelWorkflowRun(ctx context.Context, runID string) error {
+	// First, get the workflow run to verify it exists and check current status
+	run, err := we.GetWorkflowRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("getting workflow run: %w", err)
+	}
+
+	// Only allow cancellation of running, pending, or awaiting_approval workflow runs
+	if run.Status == "completed" || run.Status == "failed" || run.Status == "cancelled" {
+		return fmt.Errorf("workflow run %s is already in final state: %s", runID, run.Status)
+	}
+
+	// Get all steps for this workflow run
+	steps, err := we.getWorkflowRunSteps(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("getting workflow run steps: %w", err)
+	}
+
+	now := time.Now().UTC()
+
+	// Cancel all pending, running, or awaiting_approval steps
+	for _, step := range steps {
+		if step.Status == "pending" || step.Status == "running" || step.Status == "awaiting_approval" {
+			// Cancel the step
+			if err := we.updateStepStatus(ctx, runID, step.StepID, "cancelled", &now, nil); err != nil {
+				log.Printf("error cancelling step %s in run %s: %v", step.StepID, runID, err)
+				continue
+			}
+
+			// If there's an associated session, attempt to cancel it
+			if step.SessionID != "" {
+				if err := we.dispatcher.CancelSession(ctx, step.SessionID); err != nil {
+					log.Printf("error cancelling session %s for step %s: %v", step.SessionID, step.StepID, err)
+					// Continue with cancellation even if session cancellation fails
+				}
+			}
+
+			log.Printf("cancelled step %s (session: %s) in workflow run %s", step.StepID, step.SessionID, runID)
+		}
+	}
+
+	// Mark the workflow run as cancelled
+	if err := we.updateWorkflowRunStatus(ctx, runID, "cancelled", nil, &now); err != nil {
+		return fmt.Errorf("updating workflow run status: %w", err)
+	}
+
+	log.Printf("workflow run %s has been cancelled", runID)
+	return nil
+}
+
 // GetWorkflowRun retrieves a workflow run by ID.
 func (we *WorkflowEngine) GetWorkflowRun(ctx context.Context, runID string) (*WorkflowRun, error) {
 	row := we.db.QueryRow(ctx, `

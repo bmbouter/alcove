@@ -1739,6 +1739,7 @@ alcove workflows <subcommand>
 | `list` | List all workflow definitions |
 | `run` | Trigger a workflow run by ID or name |
 | `runs` | List workflow runs |
+| `cancel` | Cancel a workflow run |
 
 ---
 
@@ -1839,4 +1840,33 @@ alcove workflows runs --status running
 
 # JSON output
 alcove workflows runs --output json
+```
+
+----
+
+## alcove workflows cancel
+
+Cancel a workflow run and all its pending/running steps.
+
+```
+alcove workflows cancel <run-id>
+```
+
+### Description
+
+Cancels a workflow run by setting its status to "cancelled" and cancelling all 
+pending, running, or awaiting approval steps. Any active sessions associated 
+with the workflow run will also be cancelled. Only workflow runs in `pending`, 
+`running`, or `awaiting_approval` status can be cancelled.
+
+On success, confirms that the workflow run has been cancelled.
+
+### Examples
+
+```bash
+# Cancel a workflow run
+alcove workflows cancel c2d3e4f5-a6b7-8901-bcde-f12345678901
+
+# JSON output
+alcove workflows cancel --output json c2d3e4f5-a6b7-8901-bcde-f12345678901
 ```

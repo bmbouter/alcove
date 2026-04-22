@@ -2392,6 +2392,60 @@ curl -X POST http://localhost:8080/api/v1/workflow-runs/$RUN_ID/reject/deploy \
   -H "Authorization: Bearer $TOKEN"
 ```
 
+### DELETE /api/v1/workflow-runs/{id}
+
+Cancel a workflow run and all its pending/running steps. The run and any associated sessions will be marked as cancelled. Only workflow runs in `pending`, `running`, or `awaiting_approval` status can be cancelled.
+
+**Response (200):**
+
+```json
+{
+  "status": "cancelled",
+  "run_id": "c2d3e4f5-a6b7-8901-bcde-f12345678901"
+}
+```
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200  | Workflow run cancelled successfully |
+| 400  | Workflow run is already in final state or other validation error |
+| 404  | Workflow run not found |
+
+### POST /api/v1/workflow-runs/{id}/cancel
+
+Alternative endpoint to cancel a workflow run. Same functionality as `DELETE /api/v1/workflow-runs/{id}`.
+
+**Response (200):**
+
+```json
+{
+  "status": "cancelled",
+  "run_id": "c2d3e4f5-a6b7-8901-bcde-f12345678901"
+}
+```
+
+**Status codes:**
+
+| Code | Meaning |
+|------|---------|
+| 200  | Workflow run cancelled successfully |
+| 400  | Workflow run is already in final state or other validation error |
+| 404  | Workflow run not found |
+
+**curl examples:**
+
+```bash
+# Cancel using DELETE
+curl -X DELETE http://localhost:8080/api/v1/workflow-runs/$RUN_ID \
+  -H "Authorization: Bearer $TOKEN"
+
+# Cancel using POST
+curl -X POST http://localhost:8080/api/v1/workflow-runs/$RUN_ID/cancel \
+  -H "Authorization: Bearer $TOKEN"
+```
+
 ---
 
 ## Bridge Actions
