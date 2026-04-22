@@ -75,7 +75,8 @@ func TestFormatDuration(t *testing.T) {
 func TestFormatDurationForDisplay(t *testing.T) {
 	now := time.Now()
 	past := now.Add(-30 * time.Minute)
-	pastFormatted := past.Format(time.RFC3339)
+	pastRFC3339 := past.Format(time.RFC3339)
+	pastRFC3339Nano := past.Format(time.RFC3339Nano)
 
 	tests := []struct {
 		name      string
@@ -103,10 +104,17 @@ func TestFormatDurationForDisplay(t *testing.T) {
 			expected: "30s",
 		},
 		{
-			name:      "running session",
+			name:      "running session with RFC3339 timestamp",
 			duration:  "",
 			status:    "running",
-			startedAt: pastFormatted,
+			startedAt: pastRFC3339,
+			expected:  "30m*", // approximate, depends on timing
+		},
+		{
+			name:      "running session with RFC3339Nano timestamp",
+			duration:  "",
+			status:    "running",
+			startedAt: pastRFC3339Nano,
 			expected:  "30m*", // approximate, depends on timing
 		},
 		{
@@ -121,19 +129,33 @@ func TestFormatDurationForDisplay(t *testing.T) {
 			status:   "completed",
 			expected: "invalid",
 		},
+		{
+			name:      "running session with invalid timestamp",
+			duration:  "",
+			status:    "running",
+			startedAt: "invalid-timestamp",
+			expected:  "-",
+		},
+		{
+			name:      "running session with empty timestamp",
+			duration:  "",
+			status:    "running",
+			startedAt: "",
+			expected:  "-",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := formatDurationForDisplay(tt.duration, tt.status, tt.startedAt)
-			
+
 			// For running sessions, we can't predict exact timing, so check pattern
-			if tt.status == "running" && tt.duration == "" {
+			if tt.status == "running" && tt.duration == "" && tt.startedAt != "" && tt.startedAt != "invalid-timestamp" {
 				if len(result) == 0 || result[len(result)-1] != '*' {
 					t.Errorf("formatDurationForDisplay() for running session should end with '*', got %q", result)
 				}
 			} else if result != tt.expected {
-				t.Errorf("formatDurationForDisplay(%q, %q, %q) = %q, want %q", 
+				t.Errorf("formatDurationForDisplay(%q, %q, %q) = %q, want %q",
 					tt.duration, tt.status, tt.startedAt, result, tt.expected)
 			}
 		})

@@ -27,12 +27,28 @@ For sessions that are still running, the CLI now:
 - Running: "1h15m*" (running for about 1 hour 15 minutes)
 - No data: "-" (session has no duration information)
 
+### 4. Example Output
+
+Before enhancement:
+```
+ID                                   STATUS     REPO        PROVIDER   DURATION             PROMPT
+12345678-abcd-1234-abcd-123456789012 completed  org/repo    anthropic  2h30m15.123456789s   Fix the login bug
+87654321-dcba-4321-dcba-210987654321 running    org/repo    anthropic                       Update documentation
+```
+
+After enhancement:
+```
+ID                                   STATUS     REPO        PROVIDER   DURATION   PROMPT
+12345678-abcd-1234-abcd-123456789012 completed  org/repo    anthropic  2h30m      Fix the login bug
+87654321-dcba-4321-dcba-210987654321 running    org/repo    anthropic  45m*       Update documentation
+```
+
 ## Testing
 
 Added comprehensive unit tests for:
 - Duration formatting in various time ranges
-- Running session handling
-- Edge cases like invalid duration formats
+- Running session handling with multiple timestamp formats (RFC3339, RFC3339Nano, etc.)
+- Edge cases like invalid duration formats and malformed timestamps
 
 ## Backward Compatibility
 

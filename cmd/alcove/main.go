@@ -558,10 +558,20 @@ func formatDurationForDisplay(duration, status, startedAt string) string {
 	}
 
 	// For running sessions, calculate elapsed time
-	if status == "running" {
-		if startTime, err := time.Parse(time.RFC3339, startedAt); err == nil {
-			elapsed := time.Since(startTime)
-			return formatDuration(elapsed) + "*"
+	if status == "running" && startedAt != "" {
+		// Try multiple time formats that the Bridge API might use
+		timeFormats := []string{
+			time.RFC3339,
+			time.RFC3339Nano,
+			"2006-01-02T15:04:05Z",
+			"2006-01-02T15:04:05.000Z",
+		}
+
+		for _, format := range timeFormats {
+			if startTime, err := time.Parse(format, startedAt); err == nil {
+				elapsed := time.Since(startTime)
+				return formatDuration(elapsed) + "*"
+			}
 		}
 	}
 
