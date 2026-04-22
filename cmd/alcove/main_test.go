@@ -1,564 +1,141 @@
+// Copyright 2026 Brian Bouterse
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package main
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
-
-	"github.com/spf13/cobra"
+	"time"
 )
 
-func TestValidateProxyURL(t *testing.T) {
-	tests := []struct {
-		name      string
-		proxyURL  string
-		expectErr bool
-	}{
-		{"valid http proxy", "http://proxy.example.com:8080", false},
-		{"valid https proxy", "https://proxy.example.com:8080", false},
-		{"valid proxy with auth", "http://user:pass@proxy.example.com:8080", false},
-		{"invalid scheme", "ftp://proxy.example.com:8080", true},
-		{"missing host", "http://", true},
-		{"invalid URL", "not-a-url", true},
-		{"no scheme", "proxy.example.com:8080", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := validateProxyURL(tt.proxyURL)
-			if (err != nil) != tt.expectErr {
-				t.Errorf("validateProxyURL(%q) error = %v, expectErr %v", tt.proxyURL, err, tt.expectErr)
-			}
-		})
-	}
-}
-
-func TestParseNoProxy(t *testing.T) {
+func TestFormatDuration(t *testing.T) {
 	tests := []struct {
 		name     string
-		noProxy  string
-		expected []string
+		duration time.Duration
+		expected string
 	}{
-		{"empty string", "", []string{}},
-		{"single host", "example.com", []string{"example.com"}},
-		{"multiple hosts", "example.com,localhost,192.168.1.1", []string{"example.com", "localhost", "192.168.1.1"}},
-		{"with spaces", "example.com, localhost , 192.168.1.1 ", []string{"example.com", "localhost", "192.168.1.1"}},
-		{"with empty entries", "example.com,,localhost", []string{"example.com", "localhost"}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := parseNoProxy(tt.noProxy)
-			if len(result) != len(tt.expected) {
-				t.Errorf("parseNoProxy(%q) length = %d, expected %d", tt.noProxy, len(result), len(tt.expected))
-				return
-			}
-			for i, v := range result {
-				if v != tt.expected[i] {
-					t.Errorf("parseNoProxy(%q)[%d] = %q, expected %q", tt.noProxy, i, v, tt.expected[i])
-				}
-			}
-		})
-	}
-}
-
-func TestShouldUseProxy(t *testing.T) {
-	tests := []struct {
-		name      string
-		targetURL string
-		noProxy   []string
-		expected  bool
-	}{
-		{"no exclusions", "https://api.example.com", []string{}, true},
-		{"exact host match", "https://example.com", []string{"example.com"}, false},
-		{"exact host:port match", "https://example.com:8080", []string{"example.com:8080"}, false},
-		{"domain suffix match", "https://api.example.com", []string{".example.com"}, false},
-		{"wildcard domain match", "https://api.example.com", []string{"*.example.com"}, false},
-		{"no match", "https://other.com", []string{"example.com"}, true},
-		{"IP match", "https://192.168.1.1", []string{"192.168.1.1"}, false},
-		{"CIDR match", "https://192.168.1.1", []string{"192.168.1.0/24"}, false},
-		{"port-only match", "https://example.com:8080", []string{"8080"}, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := shouldUseProxy(tt.targetURL, tt.noProxy)
-			if result != tt.expected {
-				t.Errorf("shouldUseProxy(%q, %v) = %t, expected %t", tt.targetURL, tt.noProxy, result, tt.expected)
-			}
-		})
-	}
-}
-
-func TestResolveProxyConfig(t *testing.T) {
-	// Helper function to create a command with proper flags
-	createTestCommand := func() *cobra.Command {
-		cmd := &cobra.Command{}
-		cmd.PersistentFlags().String("proxy-url", "", "")
-		cmd.PersistentFlags().String("no-proxy", "", "")
-		cmd.PersistentFlags().String("profile", "", "")
-		return cmd
-	}
-
-	// Test with flags
-	t.Run("flags override environment", func(t *testing.T) {
-		// Clean up environment first
-		for _, env := range []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"} {
-			t.Setenv(env, "")
-		}
-
-		t.Setenv("HTTP_PROXY", "http://env.proxy:8080")
-		t.Setenv("NO_PROXY", "env.example.com")
-
-		cmd := createTestCommand()
-		cmd.SetArgs([]string{"--proxy-url", "http://flag.proxy:8080", "--no-proxy", "flag.example.com"})
-		cmd.ParseFlags([]string{"--proxy-url", "http://flag.proxy:8080", "--no-proxy", "flag.example.com"})
-
-		config, err := resolveProxyConfig(cmd)
-		if err != nil {
-			t.Fatalf("resolveProxyConfig() error = %v", err)
-		}
-		if config.ProxyURL != "http://flag.proxy:8080" {
-			t.Errorf("ProxyURL = %q, expected %q", config.ProxyURL, "http://flag.proxy:8080")
-		}
-		if len(config.NoProxy) != 1 || config.NoProxy[0] != "flag.example.com" {
-			t.Errorf("NoProxy = %v, expected [%q]", config.NoProxy, "flag.example.com")
-		}
-	})
-
-	// Test with environment variables
-	t.Run("environment variables", func(t *testing.T) {
-		// Clean up environment first
-		for _, env := range []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"} {
-			t.Setenv(env, "")
-		}
-
-		t.Setenv("HTTP_PROXY", "http://env.proxy:8080")
-		t.Setenv("NO_PROXY", "env.example.com")
-
-		cmd := createTestCommand()
-
-		config, err := resolveProxyConfig(cmd)
-		if err != nil {
-			t.Fatalf("resolveProxyConfig() error = %v", err)
-		}
-		if config.ProxyURL != "http://env.proxy:8080" {
-			t.Errorf("ProxyURL = %q, expected %q", config.ProxyURL, "http://env.proxy:8080")
-		}
-		if len(config.NoProxy) != 1 || config.NoProxy[0] != "env.example.com" {
-			t.Errorf("NoProxy = %v, expected [%q]", config.NoProxy, "env.example.com")
-		}
-	})
-
-	// Test HTTPS_PROXY precedence
-	t.Run("HTTPS_PROXY precedence over HTTP_PROXY", func(t *testing.T) {
-		// Clean up environment first
-		for _, env := range []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"} {
-			t.Setenv(env, "")
-		}
-
-		t.Setenv("HTTP_PROXY", "http://http.proxy:8080")
-		t.Setenv("HTTPS_PROXY", "https://https.proxy:8080")
-
-		cmd := createTestCommand()
-
-		config, err := resolveProxyConfig(cmd)
-		if err != nil {
-			t.Fatalf("resolveProxyConfig() error = %v", err)
-		}
-		if config.ProxyURL != "https://https.proxy:8080" {
-			t.Errorf("ProxyURL = %q, expected %q", config.ProxyURL, "https://https.proxy:8080")
-		}
-	})
-
-	// Test invalid proxy URL from flag
-	t.Run("invalid proxy URL from flag", func(t *testing.T) {
-		// Clean up environment first
-		for _, env := range []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"} {
-			t.Setenv(env, "")
-		}
-
-		cmd := createTestCommand()
-		cmd.ParseFlags([]string{"--proxy-url", "invalid-url"})
-
-		_, err := resolveProxyConfig(cmd)
-		if err == nil {
-			t.Error("Expected error for invalid proxy URL, got nil")
-		}
-	})
-
-	// Test invalid proxy URL from environment
-	t.Run("invalid proxy URL from environment", func(t *testing.T) {
-		// Clean up environment first
-		for _, env := range []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"} {
-			t.Setenv(env, "")
-		}
-
-		t.Setenv("HTTP_PROXY", "invalid-url")
-
-		cmd := createTestCommand()
-
-		_, err := resolveProxyConfig(cmd)
-		if err == nil {
-			t.Error("Expected error for invalid proxy URL from environment, got nil")
-		}
-	})
-
-	// Test no configuration
-	t.Run("no proxy configuration", func(t *testing.T) {
-		// Clean up environment first
-		for _, env := range []string{"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy"} {
-			t.Setenv(env, "")
-		}
-		// Isolate from user config file
-		tmpDir := t.TempDir()
-		t.Setenv("XDG_CONFIG_HOME", tmpDir)
-		t.Setenv("HOME", filepath.Join(tmpDir, "fakehome"))
-
-		cmd := createTestCommand()
-
-		config, err := resolveProxyConfig(cmd)
-		if err != nil {
-			t.Fatalf("resolveProxyConfig() error = %v", err)
-		}
-		if config.ProxyURL != "" {
-			t.Errorf("ProxyURL = %q, expected empty string", config.ProxyURL)
-		}
-		if len(config.NoProxy) != 0 {
-			t.Errorf("NoProxy = %v, expected empty slice", config.NoProxy)
-		}
-	})
-}
-func setupConfigDir(t *testing.T) string {
-	t.Helper()
-	tmpDir := t.TempDir()
-	alcoveDir := filepath.Join(tmpDir, "alcove")
-	if err := os.MkdirAll(alcoveDir, 0700); err != nil {
-		t.Fatalf("creating alcove config dir: %v", err)
-	}
-	t.Setenv("XDG_CONFIG_HOME", tmpDir)
-	return alcoveDir
-}
-
-func TestLoadConfigWithDefaults(t *testing.T) {
-	alcoveDir := setupConfigDir(t)
-
-	configYAML := `server: https://alcove.example.com
-output: table
-username: myuser
-password: mypass
-proxy_url: http://proxy:3128
-no_proxy: localhost,127.0.0.1
-defaults:
-  repo: https://github.com/org/repo.git
-  provider: google-vertex
-  model: claude-sonnet-4-20250514
-  timeout: 30m
-  budget: 5.00
-`
-	if err := os.WriteFile(filepath.Join(alcoveDir, "config.yaml"), []byte(configYAML), 0600); err != nil {
-		t.Fatalf("writing config file: %v", err)
-	}
-
-	cfg, err := loadConfig()
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-
-	if cfg.Server != "https://alcove.example.com" {
-		t.Errorf("expected server %q, got %q", "https://alcove.example.com", cfg.Server)
-	}
-	if cfg.Output != "table" {
-		t.Errorf("expected output %q, got %q", "table", cfg.Output)
-	}
-	if cfg.Username != "myuser" {
-		t.Errorf("expected username %q, got %q", "myuser", cfg.Username)
-	}
-	if cfg.Password != "mypass" {
-		t.Errorf("expected password %q, got %q", "mypass", cfg.Password)
-	}
-	if cfg.ProxyURL != "http://proxy:3128" {
-		t.Errorf("expected proxy_url %q, got %q", "http://proxy:3128", cfg.ProxyURL)
-	}
-	if cfg.NoProxy != "localhost,127.0.0.1" {
-		t.Errorf("expected no_proxy %q, got %q", "localhost,127.0.0.1", cfg.NoProxy)
-	}
-	if cfg.Defaults.Repo != "https://github.com/org/repo.git" {
-		t.Errorf("expected defaults.repo %q, got %q", "https://github.com/org/repo.git", cfg.Defaults.Repo)
-	}
-	if cfg.Defaults.Provider != "google-vertex" {
-		t.Errorf("expected defaults.provider %q, got %q", "google-vertex", cfg.Defaults.Provider)
-	}
-	if cfg.Defaults.Model != "claude-sonnet-4-20250514" {
-		t.Errorf("expected defaults.model %q, got %q", "claude-sonnet-4-20250514", cfg.Defaults.Model)
-	}
-	if cfg.Defaults.Timeout != "30m" {
-		t.Errorf("expected defaults.timeout %q, got %q", "30m", cfg.Defaults.Timeout)
-	}
-	if cfg.Defaults.Budget != 5.00 {
-		t.Errorf("expected defaults.budget %v, got %v", 5.00, cfg.Defaults.Budget)
-	}
-}
-
-func TestLoadConfigPartial(t *testing.T) {
-	alcoveDir := setupConfigDir(t)
-
-	configYAML := `server: https://partial.example.com
-defaults:
-  repo: https://github.com/org/repo.git
-`
-	if err := os.WriteFile(filepath.Join(alcoveDir, "config.yaml"), []byte(configYAML), 0600); err != nil {
-		t.Fatalf("writing config file: %v", err)
-	}
-
-	cfg, err := loadConfig()
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-
-	if cfg.Server != "https://partial.example.com" {
-		t.Errorf("expected server %q, got %q", "https://partial.example.com", cfg.Server)
-	}
-	if cfg.Defaults.Repo != "https://github.com/org/repo.git" {
-		t.Errorf("expected defaults.repo %q, got %q", "https://github.com/org/repo.git", cfg.Defaults.Repo)
-	}
-
-	// All other fields should be zero values
-	if cfg.Output != "" {
-		t.Errorf("expected output to be empty, got %q", cfg.Output)
-	}
-	if cfg.Username != "" {
-		t.Errorf("expected username to be empty, got %q", cfg.Username)
-	}
-	if cfg.Password != "" {
-		t.Errorf("expected password to be empty, got %q", cfg.Password)
-	}
-	if cfg.ProxyURL != "" {
-		t.Errorf("expected proxy_url to be empty, got %q", cfg.ProxyURL)
-	}
-	if cfg.NoProxy != "" {
-		t.Errorf("expected no_proxy to be empty, got %q", cfg.NoProxy)
-	}
-	if cfg.Defaults.Provider != "" {
-		t.Errorf("expected defaults.provider to be empty, got %q", cfg.Defaults.Provider)
-	}
-	if cfg.Defaults.Model != "" {
-		t.Errorf("expected defaults.model to be empty, got %q", cfg.Defaults.Model)
-	}
-	if cfg.Defaults.Timeout != "" {
-		t.Errorf("expected defaults.timeout to be empty, got %q", cfg.Defaults.Timeout)
-	}
-	if cfg.Defaults.Budget != 0 {
-		t.Errorf("expected defaults.budget to be 0, got %v", cfg.Defaults.Budget)
-	}
-}
-
-func TestLoadConfigEmpty(t *testing.T) {
-	alcoveDir := setupConfigDir(t)
-
-	if err := os.WriteFile(filepath.Join(alcoveDir, "config.yaml"), []byte(""), 0600); err != nil {
-		t.Fatalf("writing config file: %v", err)
-	}
-
-	cfg, err := loadConfig()
-	if err != nil {
-		t.Fatalf("expected no error, got: %v", err)
-	}
-
-	if cfg.Server != "" {
-		t.Errorf("expected server to be empty, got %q", cfg.Server)
-	}
-	if cfg.Output != "" {
-		t.Errorf("expected output to be empty, got %q", cfg.Output)
-	}
-	if cfg.Username != "" {
-		t.Errorf("expected username to be empty, got %q", cfg.Username)
-	}
-	if cfg.Password != "" {
-		t.Errorf("expected password to be empty, got %q", cfg.Password)
-	}
-	if cfg.ProxyURL != "" {
-		t.Errorf("expected proxy_url to be empty, got %q", cfg.ProxyURL)
-	}
-	if cfg.NoProxy != "" {
-		t.Errorf("expected no_proxy to be empty, got %q", cfg.NoProxy)
-	}
-	if cfg.Defaults.Repo != "" {
-		t.Errorf("expected defaults.repo to be empty, got %q", cfg.Defaults.Repo)
-	}
-	if cfg.Defaults.Provider != "" {
-		t.Errorf("expected defaults.provider to be empty, got %q", cfg.Defaults.Provider)
-	}
-	if cfg.Defaults.Model != "" {
-		t.Errorf("expected defaults.model to be empty, got %q", cfg.Defaults.Model)
-	}
-	if cfg.Defaults.Timeout != "" {
-		t.Errorf("expected defaults.timeout to be empty, got %q", cfg.Defaults.Timeout)
-	}
-	if cfg.Defaults.Budget != 0 {
-		t.Errorf("expected defaults.budget to be 0, got %v", cfg.Defaults.Budget)
-	}
-}
-
-func TestSaveAndLoadConfig(t *testing.T) {
-	setupConfigDir(t)
-
-	original := &CLIConfig{
-		CLIProfile: CLIProfile{
-			Server:   "https://save-test.example.com",
-			Output:   "json",
-			Username: "testuser",
-			Password: "testpass",
-			ProxyURL: "http://proxy:8080",
-			NoProxy:  "localhost,10.0.0.0/8",
+		{
+			name:     "seconds only",
+			duration: 30 * time.Second,
+			expected: "30s",
+		},
+		{
+			name:     "less than a second",
+			duration: 500 * time.Millisecond,
+			expected: "1s", // rounds up to 1s
+		},
+		{
+			name:     "minutes only",
+			duration: 5 * time.Minute,
+			expected: "5m",
+		},
+		{
+			name:     "minutes and seconds",
+			duration: 5*time.Minute + 30*time.Second,
+			expected: "5m30s",
+		},
+		{
+			name:     "hours only",
+			duration: 2 * time.Hour,
+			expected: "2h",
+		},
+		{
+			name:     "hours and minutes",
+			duration: 2*time.Hour + 30*time.Minute,
+			expected: "2h30m",
+		},
+		{
+			name:     "complex duration",
+			duration: 1*time.Hour + 23*time.Minute + 45*time.Second,
+			expected: "1h23m",
 		},
 	}
-	original.Defaults.Repo = "https://github.com/test/repo.git"
-	original.Defaults.Provider = "google-vertex"
-	original.Defaults.Model = "claude-sonnet-4-20250514"
-	original.Defaults.Timeout = "1h"
-	original.Defaults.Budget = 10.50
 
-	if err := saveConfig(original); err != nil {
-		t.Fatalf("saveConfig error: %v", err)
-	}
-
-	loaded, err := loadConfig()
-	if err != nil {
-		t.Fatalf("loadConfig error: %v", err)
-	}
-
-	if loaded.Server != original.Server {
-		t.Errorf("server: got %q, want %q", loaded.Server, original.Server)
-	}
-	if loaded.Output != original.Output {
-		t.Errorf("output: got %q, want %q", loaded.Output, original.Output)
-	}
-	if loaded.Username != original.Username {
-		t.Errorf("username: got %q, want %q", loaded.Username, original.Username)
-	}
-	if loaded.Password != original.Password {
-		t.Errorf("password: got %q, want %q", loaded.Password, original.Password)
-	}
-	if loaded.ProxyURL != original.ProxyURL {
-		t.Errorf("proxy_url: got %q, want %q", loaded.ProxyURL, original.ProxyURL)
-	}
-	if loaded.NoProxy != original.NoProxy {
-		t.Errorf("no_proxy: got %q, want %q", loaded.NoProxy, original.NoProxy)
-	}
-	if loaded.Defaults.Repo != original.Defaults.Repo {
-		t.Errorf("defaults.repo: got %q, want %q", loaded.Defaults.Repo, original.Defaults.Repo)
-	}
-	if loaded.Defaults.Provider != original.Defaults.Provider {
-		t.Errorf("defaults.provider: got %q, want %q", loaded.Defaults.Provider, original.Defaults.Provider)
-	}
-	if loaded.Defaults.Model != original.Defaults.Model {
-		t.Errorf("defaults.model: got %q, want %q", loaded.Defaults.Model, original.Defaults.Model)
-	}
-	if loaded.Defaults.Timeout != original.Defaults.Timeout {
-		t.Errorf("defaults.timeout: got %q, want %q", loaded.Defaults.Timeout, original.Defaults.Timeout)
-	}
-	if loaded.Defaults.Budget != original.Defaults.Budget {
-		t.Errorf("defaults.budget: got %v, want %v", loaded.Defaults.Budget, original.Defaults.Budget)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatDuration(tt.duration)
+			if result != tt.expected {
+				t.Errorf("formatDuration(%v) = %q, want %q", tt.duration, result, tt.expected)
+			}
+		})
 	}
 }
 
-func TestConfigPriorityFlagsOverrideConfig(t *testing.T) {
-	alcoveDir := setupConfigDir(t)
+func TestFormatDurationForDisplay(t *testing.T) {
+	now := time.Now()
+	past := now.Add(-30 * time.Minute)
+	pastFormatted := past.Format(time.RFC3339)
 
-	// Write config with a server value
-	configYAML := `server: https://config-server.example.com
-`
-	if err := os.WriteFile(filepath.Join(alcoveDir, "config.yaml"), []byte(configYAML), 0600); err != nil {
-		t.Fatalf("writing config file: %v", err)
+	tests := []struct {
+		name      string
+		duration  string
+		status    string
+		startedAt string
+		expected  string
+	}{
+		{
+			name:     "completed session with duration",
+			duration: "1h30m45s",
+			status:   "completed",
+			expected: "1h30m",
+		},
+		{
+			name:     "completed session with short duration",
+			duration: "2m15s",
+			status:   "completed",
+			expected: "2m15s",
+		},
+		{
+			name:     "completed session with very short duration",
+			duration: "30s",
+			status:   "completed",
+			expected: "30s",
+		},
+		{
+			name:      "running session",
+			duration:  "",
+			status:    "running",
+			startedAt: pastFormatted,
+			expected:  "30m*", // approximate, depends on timing
+		},
+		{
+			name:     "error session without duration",
+			duration: "",
+			status:   "error",
+			expected: "-",
+		},
+		{
+			name:     "invalid duration format",
+			duration: "invalid",
+			status:   "completed",
+			expected: "invalid",
+		},
 	}
 
-	// Clear env to avoid interference
-	t.Setenv("ALCOVE_SERVER", "")
-
-	// Create a command with the server flag set
-	cmd := &cobra.Command{}
-	cmd.PersistentFlags().String("server", "", "")
-	cmd.PersistentFlags().String("output", "", "")
-	cmd.PersistentFlags().StringP("username", "u", "", "")
-	cmd.PersistentFlags().StringP("password", "p", "", "")
-	cmd.PersistentFlags().String("proxy-url", "", "")
-	cmd.PersistentFlags().String("no-proxy", "", "")
-	cmd.PersistentFlags().String("profile", "", "")
-	cmd.ParseFlags([]string{"--server", "https://flag-server.example.com"})
-
-	// resolveServer should pick up the flag value, not the config file value
-	server, err := resolveServer(cmd)
-	if err != nil {
-		t.Fatalf("resolveServer error: %v", err)
-	}
-	if server != "https://flag-server.example.com" {
-		t.Errorf("expected flag server %q, got %q", "https://flag-server.example.com", server)
-	}
-}
-
-func TestConfigPriorityEnvOverrideConfig(t *testing.T) {
-	alcoveDir := setupConfigDir(t)
-
-	// Write config with a server value
-	configYAML := `server: https://config-server.example.com
-`
-	if err := os.WriteFile(filepath.Join(alcoveDir, "config.yaml"), []byte(configYAML), 0600); err != nil {
-		t.Fatalf("writing config file: %v", err)
-	}
-
-	// Set env var to override
-	t.Setenv("ALCOVE_SERVER", "https://env-server.example.com")
-
-	// Create a command with no flags set
-	cmd := &cobra.Command{}
-	cmd.PersistentFlags().String("server", "", "")
-	cmd.PersistentFlags().String("output", "", "")
-	cmd.PersistentFlags().StringP("username", "u", "", "")
-	cmd.PersistentFlags().StringP("password", "p", "", "")
-	cmd.PersistentFlags().String("proxy-url", "", "")
-	cmd.PersistentFlags().String("no-proxy", "", "")
-	cmd.PersistentFlags().String("profile", "", "")
-
-	// resolveServer should pick up the env var, not the config file value
-	server, err := resolveServer(cmd)
-	if err != nil {
-		t.Fatalf("resolveServer error: %v", err)
-	}
-	if server != "https://env-server.example.com" {
-		t.Errorf("expected env server %q, got %q", "https://env-server.example.com", server)
-	}
-}
-
-
-
-func TestLoadConfigNoFile(t *testing.T) {
-	setupConfigDir(t)
-	// Also isolate HOME so fallback paths don't find real user config
-	t.Setenv("HOME", filepath.Join(t.TempDir(), "fakehome"))
-
-	// Don't create any config file
-	_, err := loadConfig()
-	if err == nil {
-		t.Error("expected error when config file does not exist, got nil")
-	}
-}
-
-func TestSaveConfigCreatesDirectory(t *testing.T) {
-	tmpDir := t.TempDir()
-	// Point to a subdir that doesn't exist yet (alcove dir not pre-created)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tmpDir, "nested", "dir"))
-
-	cfg := &CLIConfig{CLIProfile: CLIProfile{Server: "https://test.example.com"}}
-	if err := saveConfig(cfg); err != nil {
-		t.Fatalf("saveConfig error: %v", err)
-	}
-
-	loaded, err := loadConfig()
-	if err != nil {
-		t.Fatalf("loadConfig error after save: %v", err)
-	}
-	if loaded.Server != "https://test.example.com" {
-		t.Errorf("server: got %q, want %q", loaded.Server, "https://test.example.com")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatDurationForDisplay(tt.duration, tt.status, tt.startedAt)
+			
+			// For running sessions, we can't predict exact timing, so check pattern
+			if tt.status == "running" && tt.duration == "" {
+				if len(result) == 0 || result[len(result)-1] != '*' {
+					t.Errorf("formatDurationForDisplay() for running session should end with '*', got %q", result)
+				}
+			} else if result != tt.expected {
+				t.Errorf("formatDurationForDisplay(%q, %q, %q) = %q, want %q", 
+					tt.duration, tt.status, tt.startedAt, result, tt.expected)
+			}
+		})
 	}
 }

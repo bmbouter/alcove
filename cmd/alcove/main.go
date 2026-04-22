@@ -546,7 +546,49 @@ func outputJSON(v interface{}) error {
 	return enc.Encode(v)
 }
 
-func isJSONOutput(cmd *cobra.Command) bool {
+// formatDurationForDisplay formats session duration for better readability in list output
+func formatDurationForDisplay(duration, status, startedAt string) string {
+	if duration != "" {
+		// Parse the Go duration string and format it nicely
+		if d, err := time.ParseDuration(duration); err == nil {
+			return formatDuration(d)
+		}
+		// Fall back to original duration if parsing fails
+		return duration
+	}
+
+	// For running sessions, calculate elapsed time
+	if status == "running" {
+		if startTime, err := time.Parse(time.RFC3339, startedAt); err == nil {
+			elapsed := time.Since(startTime)
+			return formatDuration(elapsed) + "*"
+		}
+	}
+
+	return "-"
+}
+
+// formatDuration formats a time.Duration for human readability
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%.0fs", d.Seconds())
+	} else if d < time.Hour {
+		minutes := int(d.Minutes())
+		seconds := int(d.Seconds()) % 60
+		if seconds == 0 {
+			return fmt.Sprintf("%dm", minutes)
+		}
+		return fmt.Sprintf("%dm%ds", minutes, seconds)
+	} else {
+		hours := int(d.Hours())
+		minutes := int(d.Minutes()) % 60
+		if minutes == 0 {
+			return fmt.Sprintf("%dh", hours)
+		}
+		return fmt.Sprintf("%dh%dm", hours, minutes)
+	}
+}
+
 	if f, _ := cmd.Flags().GetString("output"); f == "json" {
 		return true
 	}
@@ -741,8 +783,12 @@ func runList(cmd *cobra.Command, _ []string) error {
 		if len(prompt) > 60 {
 			prompt = prompt[:57] + "..."
 		}
+
+		// Format duration for better readability
+		duration := formatDurationForDisplay(s.Duration, s.Status, s.StartedAt)
+
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			s.ID, s.Status, s.Repo, s.Provider, s.Duration, prompt)
+			s.ID, s.Status, s.Repo, s.Provider, duration, prompt)
 	}
 	return w.Flush()
 }
