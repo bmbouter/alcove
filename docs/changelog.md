@@ -3,6 +3,21 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.37.0
+
+### Features
+- MITM TLS re-encrypt proxy for Gate service domains — replaces boutique `/github/`, `/gitlab/`, `/jira/` handlers with a general-purpose proxy that intercepts CONNECT tunnels, injects credentials, and enforces scope. Any tool using HTTP_PROXY now works transparently.
+- Enforcement monitor mode (`enforcement_mode: monitor`) — log proxy traffic without blocking, enabling iterative security policy development
+- `agent_definition` field in `POST /api/v1/sessions` — dispatch sessions by agent name with full config resolution (executable, credentials, profiles)
+
+### Bug Fixes
+- Fix `gh` CLI GraphQL access — CONNECT tunnels to `api.github.com` are now MITM-intercepted instead of blocked
+- Fix executable agents dispatched via sessions API running as Claude Code instead of the binary
+
+### Other
+- Speed up CI: single fast check job for PRs, heavy functional tests only on main
+- Remove Docker runtime backend
+
 ## v0.32.1
 
 ### Bug Fixes
