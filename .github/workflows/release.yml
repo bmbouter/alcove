@@ -35,10 +35,12 @@ jobs:
           echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Download Go modules
+        run: go mod download
+
       - name: Build Go binaries
         env:
           VERSION: ${{ steps.version.outputs.version }}
-          GOPROXY: direct
         run: |
           mkdir -p dist
 
