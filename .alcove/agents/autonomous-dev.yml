@@ -21,15 +21,13 @@ prompt: |
 repos:
   - url: https://github.com/bmbouter/alcove.git
 timeout: 7200
+enforcement_mode: monitor
 
 dev_container:
   image: ghcr.io/bmbouter/alcove-dev:latest
 
 outputs:
   - summary
-
-profiles:
-  - alcove-developer
 
 plugins:
   - name: sdlc-go

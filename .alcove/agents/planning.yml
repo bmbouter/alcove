@@ -90,9 +90,6 @@ repos:
 timeout: 900
 enforcement_mode: monitor
 
-profiles:
-  - alcove-planner
-
 trigger:
   github:
     events:
