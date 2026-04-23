@@ -188,14 +188,12 @@ func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		var req TaskRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
-			return
+		var body struct {
+			TaskRequest
+			AgentDefinition string `json:"agent_definition,omitempty"`
 		}
-
-		if req.Prompt == "" {
-			respondError(w, http.StatusBadRequest, "prompt is required")
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 			return
 		}
 
@@ -203,10 +201,34 @@ func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
 		if submitter == "" {
 			submitter = "anonymous"
 		}
+		teamID := getActiveTeamID(r)
+
+		var req TaskRequest
+		if body.AgentDefinition != "" {
+			def, err := a.defStore.GetAgentDefinition(r.Context(), body.AgentDefinition, teamID)
+			if err != nil {
+				respondError(w, http.StatusNotFound, "agent definition not found: "+body.AgentDefinition)
+				return
+			}
+			if def.SyncError != "" {
+				respondError(w, http.StatusBadRequest, "agent definition has sync error: "+def.SyncError)
+				return
+			}
+			req = def.ToTaskRequest()
+			req.TaskName = def.Name
+			if body.Prompt != "" {
+				req.Prompt = body.Prompt
+			}
+		} else {
+			req = body.TaskRequest
+			if req.Prompt == "" && req.Executable == nil {
+				respondError(w, http.StatusBadRequest, "prompt or agent_definition is required")
+				return
+			}
+		}
 
 		req.TriggerType = "manual"
 
-		teamID := getActiveTeamID(r)
 		session, err := a.dispatcher.DispatchTask(r.Context(), req, submitter, teamID)
 		if err != nil {
 			log.Printf("error: dispatch failed: %v", err)
