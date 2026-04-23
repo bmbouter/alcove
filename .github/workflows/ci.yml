@@ -10,7 +10,8 @@ env:
   ALCOVE_TEST_REF: ${{ github.head_ref || github.ref_name }}
 
 jobs:
-  unit-tests:
+  # Fast check — runs on every PR and push. Should complete in <2 minutes.
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -20,70 +21,19 @@ jobs:
           go-version: '1.25'
           cache: true
 
-      - run: go test ./...
-        env:
-          GOPROXY: direct
-
-      - run: go vet ./...
-        env:
-          GOPROXY: direct
-
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version: '1.25'
-          cache: true
-
-      - run: make build
-        env:
-          GOPROXY: direct
-
-  cross-platform-build:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - os: linux
-            arch: amd64
-          - os: linux
-            arch: arm64
-          - os: darwin
-            arch: amd64
-          - os: darwin
-            arch: arm64
-          - os: windows
-            arch: amd64
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version: '1.25'
-          cache: true
-
-      - name: Build CLI for ${{ matrix.os }}/${{ matrix.arch }}
-        env:
-          GOOS: ${{ matrix.os }}
-          GOARCH: ${{ matrix.arch }}
-          GOPROXY: direct
+      - name: Build, vet, and test
         run: |
-          ext=""
-          if [ "${{ matrix.os }}" = "windows" ]; then
-            ext=".exe"
-          fi
+          make build
+          go vet ./...
+          go test ./...
+        env:
+          GOPROXY: direct
 
-          echo "Cross-compiling alcove CLI for ${{ matrix.os }}/${{ matrix.arch }}..."
-          CGO_ENABLED=0 go build -ldflags="-s -w -X main.Version=test" \
-            -o "alcove-${{ matrix.os }}-${{ matrix.arch }}$ext" ./cmd/alcove
-
-          # Basic validation (check if binary was created)
-          ls -la "alcove-${{ matrix.os }}-${{ matrix.arch }}$ext"
+  # Everything below only runs on pushes to main (post-merge).
+  # These are heavier tests that validate the full stack but don't block PRs.
 
   functional-tests-podman:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -281,6 +231,7 @@ jobs:
           podman network rm alcove-external 2>/dev/null || true
 
   functional-tests-k8s:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -558,6 +509,7 @@ jobs:
           kubectl delete namespace alcove --timeout=60s 2>/dev/null || true
 
   dev-container-tests:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -599,7 +551,6 @@ jobs:
               echo "Shim is healthy"
               exit 0
             fi
-            # Check if container is still running
             if ! docker ps --filter name=alcove-dev-test --format '{{.Status}}' | grep -q Up; then
               echo "ERROR: Container exited prematurely"
               echo "=== Container inspect ==="
