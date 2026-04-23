@@ -25,8 +25,6 @@ func NewRuntime(runtimeType string) (runtime.Runtime, error) {
 	switch runtimeType {
 	case "podman":
 		return runtime.NewPodmanRuntime(), nil
-	case "docker":
-		return runtime.NewDockerRuntime(), nil
 	case "kubernetes":
 		return runtime.NewKubernetesRuntime()
 	default:

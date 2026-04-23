@@ -17,7 +17,7 @@ auth_backend: postgres
 # HTTP listen port.
 port: "8080"
 
-# Container runtime: "podman", "docker", or "kubernetes".
+# Container runtime: "podman" or "kubernetes".
 runtime: podman
 
 # System LLM — powers AI features (security profile builder).

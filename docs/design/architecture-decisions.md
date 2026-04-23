@@ -60,15 +60,14 @@ provider endpoint over TLS.
 2-30s for LLM calls). This prevents prompt injection attacks from exfiltrating
 LLM credentials, which could be used for expensive unauthorized API usage.
 
-### 4. Skiff Lifecycle: Kubernetes Jobs + `podman run --rm` + `docker run --rm`
+### 4. Skiff Lifecycle: Kubernetes Jobs + `podman run --rm`
 
-**Decision**: Use Kubernetes Jobs on OpenShift, `podman run --rm` or `docker run --rm` on laptop/server.
+**Decision**: Use Kubernetes Jobs on OpenShift, `podman run --rm` on laptop/server.
 
 | Environment | Primitive | Creation | Cleanup |
 |---|---|---|---|
 | Kubernetes/OpenShift | `batch/v1 Job` with `ttlSecondsAfterFinished: 300` | Bridge creates via k8s API | Automatic TTL |
 | Podman (laptop) | `podman run --rm` | Bridge calls podman CLI | Automatic via `--rm` |
-| Docker | `docker run --rm` | Bridge calls Docker CLI | Automatic via `--rm` |
 
 **Rationale** (Platform): Jobs provide the exact semantic model needed — run one
 session, exit, report success/failure. Exit code 0 = success, non-zero = failure.
@@ -132,7 +131,7 @@ the Skiff pod.
 
 ### 7. Container Runtime Abstraction
 
-**Decision**: Go `Runtime` interface with `KubeRuntime`, `PodmanRuntime`, and `DockerRuntime` backends.
+**Decision**: Go `Runtime` interface with `KubeRuntime` and `PodmanRuntime` backends.
 
 ```go
 type Runtime interface {
@@ -152,14 +151,6 @@ containers are attached only to `alcove-internal` (created with `--internal`,
 no gateway, no internet route). Gate and infrastructure services are attached
 to both `alcove-internal` and `alcove-external`. This provides kernel-level
 isolation — Skiff cannot reach the internet even if `HTTP_PROXY` is bypassed.
-
-**Network isolation on Docker**: Docker does not support the `--internal` flag
-on network create, so Skiff containers have unrestricted network access. A
-warning is logged at startup. Credential security is maintained (dummy tokens,
-Gate injection), but adversarial prompt injection could bypass Gate. The Docker
-runtime is intended for environments where Podman is unavailable (e.g., NAS
-devices, some CI systems). Acceptable for personal/trusted deployments; use
-Podman or Kubernetes for production/shared deployments.
 
 ### 8. Claude Code Invocation
 
@@ -246,10 +237,6 @@ alcove-external network (normal, internet access)
 
 `make dev-up` starts the infrastructure. Bridge dynamically creates Skiff pods on
 the same network when tasks are dispatched.
-
-On Docker, the same topology applies but without the `--internal` flag — all
-containers share a single network with internet access. See Decision 7 for the
-security implications.
 
 ### 14. Auth Model: Argon2id + Rate Limiting
 
@@ -359,7 +346,6 @@ to run a project-provided container alongside Skiff. A shared volume at
   an init container using the `SHIM_IMAGE` container image and shared
   emptyDir volumes. `DEV_CONTAINER_HOST` is overridden to `localhost:9090`
   since K8s pod containers share a network namespace.
-- Docker rejects dev containers with a clear error (`RUNTIME=docker`).
 - The shim binary is built with `CGO_ENABLED=0` for static linking and
   `SHIM_BIN_PATH` tells Bridge where to find it on the host (Podman).
   `SHIM_IMAGE` tells Bridge which container image to use for the shim init
@@ -481,8 +467,8 @@ The CLI stores its Bridge URL in `~/.config/alcove/config.yaml` (set by
 
 ### Phase 1: Foundation
 - Go monorepo with `cmd/bridge`, `cmd/gate`, `cmd/skiff-init`
-- `KubeRuntime`, `PodmanRuntime`, and `DockerRuntime` backends
-- Skiff pods as Jobs (k8s) / `podman run --rm` / `docker run --rm`
+- `KubeRuntime` and `PodmanRuntime` backends
+- Skiff pods as Jobs (k8s) / `podman run --rm`
 - Gate as sidecar with HTTP_PROXY + git credential helper + LLM API proxy
 - NATS (core, no persistence) for Hail
 - PostgreSQL for Ledger (append-only writes)
@@ -545,7 +531,7 @@ alcove/
 │   ├── shim/           # Dev container execution sidecar binary
 │   └── skiff-init/     # Skiff init process binary
 ├── internal/
-│   ├── runtime/        # KubeRuntime + PodmanRuntime + DockerRuntime
+│   ├── runtime/        # KubeRuntime + PodmanRuntime
 │   ├── hail/           # NATS client wrapper
 │   ├── ledger/         # PostgreSQL client
 │   ├── gate/           # Proxy logic, scope enforcement, token swap, LLM proxy

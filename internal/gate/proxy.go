@@ -46,7 +46,6 @@ var DomainAllowlist = []string{
 	"sum.golang.org",
 	"storage.googleapis.com",
 	"dl-cdn.alpinelinux.org",
-	"download.docker.com",
 	"rubygems.org",
 	"repo.maven.apache.org",
 }

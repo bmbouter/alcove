@@ -149,8 +149,8 @@ credentials:
   API_KEY: my-api-secret
 ```
 
-This gives the Skiff container direct internet access on all runtimes (Podman,
-Docker, and Kubernetes). The agent can make HTTP/HTTPS calls without routing
+This gives the Skiff container direct internet access on all runtimes (Podman
+and Kubernetes). The agent can make HTTP/HTTPS calls without routing
 through Gate. The Gate sidecar still runs for LLM and SCM proxy if needed.
 
 On Kubernetes, direct outbound adds an `alcove.dev/direct-outbound: "true"` pod

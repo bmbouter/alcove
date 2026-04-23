@@ -4,8 +4,8 @@
 # NOTE: No "set -e" — we want the shim to start even if PostgreSQL or NATS
 # fail. The CI health check only needs the shim's /healthz endpoint; PG and
 # NATS are tested separately. Using set -e caused the container to exit
-# silently on Docker (GHA) whenever a non-critical command failed, and with
-# --rm the logs were lost.
+# silently whenever a non-critical command failed, and with --rm the logs
+# were lost.
 
 echo "[entrypoint] starting dev container (pid $$, uid $(id -u))"
 
