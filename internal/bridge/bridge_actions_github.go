@@ -75,6 +75,29 @@ func bridgeActionCreatePR(ctx context.Context, inputs map[string]interface{}, cr
 	url := fmt.Sprintf("%s/repos/%s/pulls", apiHost, repo)
 	respBody, err := githubRequest(ctx, token, "POST", url, bodyJSON)
 	if err != nil {
+		// Check if a PR already exists for this branch
+		if strings.Contains(err.Error(), "422") || strings.Contains(err.Error(), "already exists") {
+			// Find the existing PR
+			existingURL := fmt.Sprintf("%s/repos/%s/pulls?head=%s:%s&state=open", apiHost, repo, strings.Split(repo, "/")[0], branch)
+			existingBody, findErr := githubRequest(ctx, token, "GET", existingURL, nil)
+			if findErr == nil {
+				var existingPRs []struct {
+					Number  int    `json:"number"`
+					HTMLURL string `json:"html_url"`
+				}
+				if json.Unmarshal(existingBody, &existingPRs) == nil && len(existingPRs) > 0 {
+					log.Printf("bridge-action create-pr: PR already exists for branch %s: #%d", branch, existingPRs[0].Number)
+					return &BridgeActionResult{
+						Status: "succeeded",
+						Outputs: map[string]interface{}{
+							"pr_number": existingPRs[0].Number,
+							"pr_url":    existingPRs[0].HTMLURL,
+							"reused":    true,
+						},
+					}, nil
+				}
+			}
+		}
 		return &BridgeActionResult{
 			Status: "failed",
 			Error:  fmt.Sprintf("GitHub API error creating PR: %v", err),

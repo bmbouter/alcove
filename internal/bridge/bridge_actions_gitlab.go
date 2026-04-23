@@ -22,6 +22,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -62,6 +63,27 @@ func bridgeActionCreateMR(ctx context.Context, inputs map[string]interface{}, cr
 
 	respBody, err := gitlabRequest(ctx, token, "POST", apiURL, bodyJSON)
 	if err != nil {
+		if strings.Contains(err.Error(), "409") || strings.Contains(err.Error(), "already exists") {
+			existingURL := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests?source_branch=%s&state=opened", apiHost, encodedProject, url.QueryEscape(sourceBranch))
+			existingBody, findErr := gitlabRequest(ctx, token, "GET", existingURL, nil)
+			if findErr == nil {
+				var existingMRs []struct {
+					IID    int    `json:"iid"`
+					WebURL string `json:"web_url"`
+				}
+				if json.Unmarshal(existingBody, &existingMRs) == nil && len(existingMRs) > 0 {
+					log.Printf("bridge-action create-mr: MR already exists for branch %s: !%d", sourceBranch, existingMRs[0].IID)
+					return &BridgeActionResult{
+						Status: "succeeded",
+						Outputs: map[string]interface{}{
+							"mr_iid": existingMRs[0].IID,
+							"mr_url": existingMRs[0].WebURL,
+							"reused": true,
+						},
+					}, nil
+				}
+			}
+		}
 		return &BridgeActionResult{Status: "failed", Error: fmt.Sprintf("GitLab API error creating MR: %v", err)}, nil
 	}
 
