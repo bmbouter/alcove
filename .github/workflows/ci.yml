@@ -585,7 +585,7 @@ jobs:
 
       - name: Start dev container
         run: |
-          docker run -d --rm \
+          docker run -d \
             --name alcove-dev-test \
             -e SHIM_TOKEN=ci-test-token \
             -p 19090:9090 \
@@ -599,11 +599,20 @@ jobs:
               echo "Shim is healthy"
               exit 0
             fi
+            # Check if container is still running
+            if ! docker ps --filter name=alcove-dev-test --format '{{.Status}}' | grep -q Up; then
+              echo "ERROR: Container exited prematurely"
+              echo "=== Container inspect ==="
+              docker inspect alcove-dev-test --format '{{.State.Status}} exit={{.State.ExitCode}}' 2>&1 || true
+              echo "=== Container logs ==="
+              docker logs alcove-dev-test 2>&1 || true
+              exit 1
+            fi
             echo "Waiting for shim... ($i/60)"
             sleep 2
           done
           echo "Shim did not become healthy in time"
-          docker logs alcove-dev-test || true
+          docker logs alcove-dev-test 2>&1 || true
           exit 1
 
       - name: Test shim exec
@@ -664,9 +673,13 @@ jobs:
       - name: Show logs on failure
         if: failure()
         run: |
-          echo "=== Dev container ==="
+          echo "=== Dev container status ==="
+          docker inspect alcove-dev-test --format '{{.State.Status}} exit={{.State.ExitCode}}' 2>&1 || true
+          echo "=== Dev container logs ==="
           docker logs alcove-dev-test 2>&1 || true
 
       - name: Teardown
         if: always()
-        run: docker stop alcove-dev-test 2>/dev/null || true
+        run: |
+          docker stop alcove-dev-test 2>/dev/null || true
+          docker rm alcove-dev-test 2>/dev/null || true

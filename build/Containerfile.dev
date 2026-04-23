@@ -41,6 +41,11 @@ RUN cd /tmp/gomod && go mod download && rm -rf /tmp/gomod
 RUN mkdir -p /var/lib/postgresql/data /var/run/postgresql && \
     chmod -R 777 /var/lib/postgresql/data /var/run/postgresql
 
+# Create alcove user so initdb can look up the UID in /etc/passwd.
+# Docker requires this; Podman auto-creates passwd entries.
+RUN groupadd -g 1001 alcove && \
+    useradd -u 1001 -g alcove -d /home/alcove -m alcove
+
 # Copy the shim binary
 COPY --from=builder /out/alcove-shim /usr/local/bin/alcove-shim
 
