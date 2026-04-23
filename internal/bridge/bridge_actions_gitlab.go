@@ -22,6 +22,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -63,7 +64,7 @@ func bridgeActionCreateMR(ctx context.Context, inputs map[string]interface{}, cr
 	respBody, err := gitlabRequest(ctx, token, "POST", apiURL, bodyJSON)
 	if err != nil {
 		if strings.Contains(err.Error(), "409") || strings.Contains(err.Error(), "already exists") {
-			existingURL := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests?source_branch=%s&state=opened", apiHost, encodedProject, sourceBranch)
+			existingURL := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests?source_branch=%s&state=opened", apiHost, encodedProject, url.QueryEscape(sourceBranch))
 			existingBody, findErr := gitlabRequest(ctx, token, "GET", existingURL, nil)
 			if findErr == nil {
 				var existingMRs []struct {
