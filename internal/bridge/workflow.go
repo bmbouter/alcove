@@ -101,9 +101,10 @@ func ParseWorkflowDefinition(data []byte) (*WorkflowDefinition, error) {
 // validBridgeActions lists the allowed bridge action names.
 var validBridgeActions = map[string]bool{
 	// GitHub-specific aliases.
-	"create-pr": true,
-	"await-ci":  true,
-	"merge-pr":  true,
+	"create-pr":     true,
+	"await-ci":      true,
+	"merge-pr":      true,
+	"await-release": true,
 	// Unified actions.
 	"create-merge-request": true,
 	"await-checks":         true,

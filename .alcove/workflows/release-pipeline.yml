@@ -49,10 +49,28 @@ workflow:
       repo: bmbouter/alcove
       pr: "{{steps.changelog-pr.outputs.pr_number}}"
 
-  - id: release-deploy
+  - id: tag-release
     type: agent
-    agent: Release and Deploy
+    agent: Tag Release
     depends: "changelog-merge.Succeeded"
     inputs:
       version: "{{steps.changelog.outputs.version}}"
+    outputs: [version]
+
+  - id: await-release
+    type: bridge
+    action: await-release
+    depends: "tag-release.Succeeded"
+    inputs:
+      repo: bmbouter/alcove
+      tag: "{{steps.changelog.outputs.version}}"
+      timeout: 900
+
+  - id: deploy-staging
+    type: agent
+    agent: Deploy to Staging
+    depends: "await-release.Succeeded"
+    inputs:
+      version: "{{steps.changelog.outputs.version}}"
+      release_url: "{{steps.await-release.outputs.release_url}}"
     outputs: [deployed, mr_merged]
