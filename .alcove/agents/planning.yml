@@ -91,3 +91,17 @@ timeout: 900
 
 profiles:
   - alcove-planner
+
+trigger:
+  github:
+    events:
+      - issues
+      - issue_comment
+    actions:
+      - labeled
+      - created
+    repos:
+      - bmbouter/alcove
+    labels:
+      - needs-planning
+    delivery_mode: polling
