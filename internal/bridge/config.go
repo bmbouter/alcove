@@ -246,8 +246,8 @@ func (c *Config) parseConfigFile(path string) error {
 }
 
 func (c *Config) validate() error {
-	if c.RuntimeType != "podman" && c.RuntimeType != "docker" && c.RuntimeType != "kubernetes" {
-		return fmt.Errorf("invalid runtime %q: must be \"podman\", \"docker\", or \"kubernetes\"", c.RuntimeType)
+	if c.RuntimeType != "podman" && c.RuntimeType != "kubernetes" {
+		return fmt.Errorf("invalid runtime %q: must be \"podman\" or \"kubernetes\"", c.RuntimeType)
 	}
 	if c.AuthBackend != "memory" && c.AuthBackend != "postgres" && c.AuthBackend != "rh-identity" {
 		return fmt.Errorf("invalid AUTH_BACKEND %q: must be \"memory\", \"postgres\", or \"rh-identity\"", c.AuthBackend)

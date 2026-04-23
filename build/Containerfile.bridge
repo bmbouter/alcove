@@ -15,7 +15,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 # Stage 2: Runtime
 # Use ubi9 (not ubi9-minimal) because we need container CLIs for management.
-# Bridge creates Skiff+Gate containers via the podman or docker CLI.
+# Bridge creates Skiff+Gate containers via the podman CLI.
 FROM registry.access.redhat.com/ubi9/ubi:latest
 
 ARG VERSION=dev
@@ -31,11 +31,9 @@ COPY --from=builder /out/bridge /usr/local/bin/bridge
 # Copy dashboard static files
 COPY web/ /web/
 
-# Install podman and docker CLIs for container management (Bridge creates
+# Install podman CLI for container management (Bridge creates
 # Skiff+Gate containers via whichever runtime is configured).
 RUN dnf install -y podman git && \
-    curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz | \
-    tar xz --strip-components=1 -C /usr/local/bin docker/docker && \
     useradd -m -u 1001 -s /sbin/nologin alcove && \
     mkdir -p /tmp/podman-config /tmp/podman-data && \
     chmod 777 /tmp/podman-config /tmp/podman-data && \

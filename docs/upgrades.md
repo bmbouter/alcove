@@ -35,7 +35,7 @@ replaces Bridge while sessions continue:
 # Running sessions are unaffected
 ```
 
-### Local Development (Podman/Docker)
+### Local Development (Podman)
 
 ```bash
 make build-images

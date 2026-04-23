@@ -148,7 +148,7 @@ can also be set in `alcove.yaml` (see [alcove.yaml](#alcoveyaml) above).
 | `HAIL_URL` | string | `nats://localhost:4222` | NATS server URL for the Hail message bus. |
 | `LEDGER_DATABASE_URL` | string | `postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable` | PostgreSQL connection string for the Ledger session store. |
 | `BRIDGE_PORT` | string | `8080` | HTTP listen port for the Bridge API and dashboard. |
-| `RUNTIME` | string | `podman` | Container runtime. Must be `podman`, `docker`, or `kubernetes`. |
+| `RUNTIME` | string | `podman` | Container runtime. Must be `podman` or `kubernetes`. |
 | `AUTH_BACKEND` | string | `memory` | Authentication backend. Must be `memory`, `postgres`, or `rh-identity`. See [Auth Backend Selection](#auth-backend-selection). |
 | `RH_IDENTITY_ADMINS` | string | _(unset)_ | Comma-separated list of usernames (emails) to bootstrap as admins when using `rh-identity` backend. |
 | `ALCOVE_DATABASE_ENCRYPTION_KEY` | string | _(required)_ | Encryption key for the credential store. **Bridge refuses to start without this.** For local dev, `make up` generates it automatically. |
@@ -701,7 +701,6 @@ runtime:
 | Runtime | Behavior |
 |---------|----------|
 | **Podman** | Skiff is attached to the external network in addition to the internal network. `HTTP_PROXY` and `HTTPS_PROXY` are not set. |
-| **Docker** | Same as Podman. Skiff is attached to the external network. `HTTP_PROXY` and `HTTPS_PROXY` are not set. |
 | **Kubernetes** | `HTTP_PROXY` and `HTTPS_PROXY` env vars are not set on the Skiff container. The pod receives an `alcove.dev/direct-outbound: "true"` label. A static NetworkPolicy named `alcove-allow-direct-outbound` must be deployed in the namespace to grant full egress to pods with that label. |
 
 On Kubernetes, the cluster administrator must deploy the
@@ -775,7 +774,6 @@ agent definition prompts.
 | Runtime | Behavior |
 |---------|----------|
 | **Podman** | Full support. Workspace volume, shim baked into image, `network_access` controls network. |
-| **Docker** | Not supported. Bridge returns an error if `dev_container` is set. |
 | **Kubernetes** | Full support. Dev container as native sidecar, shim baked into image, emptyDir volumes, `DEV_CONTAINER_HOST=localhost:9090`. `network_access=external` is logged as a warning since all containers in a Pod share the same network namespace. |
 
 ### Event Delivery Mode

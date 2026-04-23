@@ -63,7 +63,7 @@ HAS_RUNTIME=$(echo "$INFO_BODY" | python3 -c "import json,sys; d=json.load(sys.s
 if [ "$HAS_RUNTIME" = "yes" ]; then
   RUNTIME=$(echo "$INFO_BODY" | python3 -c "import json,sys; print(json.load(sys.stdin)['runtime'])")
   # Verify runtime is one of the expected values
-  if [ "$RUNTIME" = "podman" ] || [ "$RUNTIME" = "docker" ] || [ "$RUNTIME" = "kubernetes" ]; then
+  if [ "$RUNTIME" = "podman" ] || [ "$RUNTIME" = "kubernetes" ]; then
     pass "Response has runtime field (value: $RUNTIME)"
   else
     pass "Response has runtime field (value: $RUNTIME — unexpected but present)"

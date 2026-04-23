@@ -84,6 +84,6 @@ type Runtime interface {
 
 // RuntimeInfo describes the container runtime.
 type RuntimeInfo struct {
-	Type    string // "kubernetes", "podman", or "docker"
+	Type    string // "kubernetes" or "podman"
 	Version string
 }

@@ -25,7 +25,7 @@ alcove/
     gate/            Gate proxy, scope enforcement, domain allowlist
     hail/            NATS messaging helpers
     ledger/          PostgreSQL session store helpers
-    runtime/         Runtime interface and implementations (podman, docker, kubernetes)
+    runtime/         Runtime interface and implementations (podman, kubernetes)
     types.go         Shared types (Session, Scope, TranscriptEvent, etc.)
   build/
     alcove-credential-helper  Git credential helper binary (installed in Skiff image)
@@ -229,7 +229,7 @@ Bridge reads these environment variables:
 |----------|---------|---------|
 | `LEDGER_DATABASE_URL` | PostgreSQL connection string | `postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable` |
 | `HAIL_URL` | NATS server URL | `nats://localhost:4222` |
-| `RUNTIME` | Container runtime to use | `podman`, `docker`, or `kubernetes` |
+| `RUNTIME` | Container runtime to use | `podman` or `kubernetes` |
 | `SKIFF_IMAGE` | Skiff container image | `ghcr.io/bmbouter/alcove-skiff-base:latest` |
 | `GATE_IMAGE` | Gate container image | `ghcr.io/bmbouter/alcove-gate:latest` |
 | `ALCOVE_WEB_DIR` | Path to dashboard static files | `/web` or `./web` |
@@ -484,20 +484,17 @@ parallelism 4, 32-byte key.
 ## Runtime Backends
 
 The `Runtime` interface in `internal/runtime/runtime.go` abstracts over
-container runtimes. There are three implementations:
+container runtimes. There are two implementations:
 
 - **PodmanRuntime** (`podman.go`) -- creates Skiff and Gate as separate
   containers on dual podman networks (`--internal` for isolation)
-- **DockerRuntime** (`docker.go`) -- same as Podman but without `--internal`
-  network flag support. Skiff containers have unrestricted network access.
-  Intended for environments where Podman is unavailable.
 - **KubernetesRuntime** (`kubernetes.go`) -- creates a k8s Job with Gate as a
   native sidecar (init container with `restartPolicy: Always`) and Skiff as the
   main container. Uses a static `alcove-allow-internal` NetworkPolicy for
   egress restriction (per-task NetworkPolicy is disabled due to OVN-Kubernetes
   DNS issues).
 
-Set `RUNTIME=podman`, `RUNTIME=docker`, or `RUNTIME=kubernetes` to select the backend.
+Set `RUNTIME=podman` or `RUNTIME=kubernetes` to select the backend.
 
 ### Kubernetes Runtime Details
 
