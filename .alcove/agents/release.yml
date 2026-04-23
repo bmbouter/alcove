@@ -1,14 +1,14 @@
-name: Release and Deploy
+name: Tag Release
 description: |
-  Tags a release, waits for GitHub Actions to build images, then deploys
-  to staging via app-interface MR and babysits until the MR merges.
-  Receives the version from the Changelog Generator step.
+  Tags the merge commit with the release version and pushes the tag.
+  The changelog has already been merged to main. The version comes from
+  Workflow Context.
 
 prompt: |
-  You are the release deployer for Alcove (bmbouter/alcove). The changelog
+  You are the release tagger for Alcove (bmbouter/alcove). The changelog
   has already been merged. The version to release is in the Workflow Context.
 
-  ## Phase 1: Tag and Push
+  ## Tag and Push
 
   Pull the latest main (the changelog merge just landed):
     git checkout main && git pull
@@ -17,89 +17,19 @@ prompt: |
     git tag <version from Workflow Context>
     git push origin <version>
 
-  ## Phase 2: Wait for GitHub Actions
-
-  The tag push triggers a release build that takes 7-10 minutes. You MUST
-  wait for it. Do NOT exit early. Monitor it:
-    gh run list --repo bmbouter/alcove --branch <version> --limit 5
-
-  Poll every 60 seconds. Keep polling until the status is "completed".
-  This will take at least 7 minutes — that is normal. Do NOT give up.
-
-  If the run FAILS, analyze the failure:
-    gh run view <run_id> --repo bmbouter/alcove --log-failed 2>&1 | tail -20
-
-  Determine if the failure is transient (registry 502, network timeout,
-  rate limit) or a real code/build error:
-  - Transient: re-run with `gh run rerun <run_id> --repo bmbouter/alcove`
-    and continue polling. Retry up to 3 times.
-  - Real error: write outputs and stop:
-    echo '{"release_failed": true, "error": "description"}' > /tmp/alcove-outputs.json
-
-  Once the run succeeds, verify the release:
-    gh release view <version> --repo bmbouter/alcove
-
-  ## Phase 3: Deploy to Staging via app-interface MR
-
-  Use the GitLab API (via $GITLAB_API_URL with $GITLAB_TOKEN).
-
-  App-interface fork project ID: 79823
-  App-interface upstream project ID: 13582
-  Deploy file: data/services/pulp/deploy-alcove.yml
-
-  Step 1 — Read the current file to find the old version:
-    curl -s "$GITLAB_API_URL/projects/79823/repository/files/data%2Fservices%2Fpulp%2Fdeploy-alcove.yml/raw?ref=master" \
-      -H "Authorization: Bearer $GITLAB_TOKEN"
-
-  Step 2 — Create a branch:
-    curl -s -X POST "$GITLAB_API_URL/projects/79823/repository/branches" \
-      -H "Authorization: Bearer $GITLAB_TOKEN" \
-      -H "Content-Type: application/json" \
-      -d '{"branch": "alcove-<version>", "ref": "master"}'
-
-  Step 3 — Update the file (replace old version with new in all occurrences):
-    curl -s -X PUT "$GITLAB_API_URL/projects/79823/repository/files/data%2Fservices%2Fpulp%2Fdeploy-alcove.yml" \
-      -H "Authorization: Bearer $GITLAB_TOKEN" \
-      -H "Content-Type: application/json" \
-      -d '{"branch": "alcove-<version>", "commit_message": "Upgrade Alcove to <version>", "content": "<updated content>"}'
-
-  Step 4 — Create MR:
-    curl -s -X POST "$GITLAB_API_URL/projects/79823/merge_requests" \
-      -H "Authorization: Bearer $GITLAB_TOKEN" \
-      -H "Content-Type: application/json" \
-      -d '{"source_branch": "alcove-<version>", "target_branch": "master", "target_project_id": 13582, "title": "Upgrade Alcove to <version>"}'
-
-  ## Phase 4: Wait for MR Pipeline and /lgtm
-
-  Poll the pipeline every 60 seconds. Once it passes, post /lgtm:
-    curl -s -X POST "$GITLAB_API_URL/projects/13582/merge_requests/<MR_IID>/notes" \
-      -H "Authorization: Bearer $GITLAB_TOKEN" \
-      -H "Content-Type: application/json" \
-      -d '{"body": "/lgtm"}'
-
-  If the MR pipeline fails, analyze the failure log. If transient, retry
-  by closing and re-opening the MR (which re-triggers the pipeline).
-
-  ## Phase 5: Wait for MR to Merge
-
-  Poll the MR state every 60 seconds until state is "merged".
-  If closed or pipeline fails after retries, report error and stop.
+  Verify the tag exists on the remote:
+    git ls-remote --tags origin <version>
 
   CRITICAL — YOUR VERY LAST ACTION must be writing outputs:
-    echo '{"version": "<version>", "deployed": true, "mr_merged": true}' > /tmp/alcove-outputs.json
+    echo '{"version": "<version>"}' > /tmp/alcove-outputs.json
   Do NOT skip this step.
 
 repos:
   - url: https://github.com/bmbouter/alcove.git
-timeout: 3600
+timeout: 300
 
 outputs:
   - version
-  - deployed
-  - mr_merged
 
 profiles:
   - alcove-releaser
-
-credentials:
-  GITLAB_TOKEN: gitlab

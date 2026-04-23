@@ -416,6 +416,93 @@ func bridgeActionMergePR(ctx context.Context, inputs map[string]interface{}, cre
 	}, nil
 }
 
+// bridgeActionAwaitRelease polls GitHub for a release to exist by tag.
+func bridgeActionAwaitRelease(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
+	repo := getStringInput(inputs, "repo")
+	tag := getStringInput(inputs, "tag")
+	timeout := getIntInput(inputs, "timeout")
+
+	if repo == "" || tag == "" {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  "missing required inputs: repo, tag",
+		}, nil
+	}
+
+	if timeout <= 0 {
+		timeout = 900 // 15 minutes default
+	}
+
+	token, apiHost, err := credStore.AcquireSCMTokenForOwner(ctx, "github", teamID)
+	if err != nil {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  fmt.Sprintf("failed to acquire GitHub token: %v", err),
+		}, nil
+	}
+
+	if apiHost == "" {
+		apiHost = "https://api.github.com"
+	}
+
+	deadline := time.Now().Add(time.Duration(timeout) * time.Second)
+	pollInterval := 30 * time.Second
+
+	for time.Now().Before(deadline) {
+		// Check for context cancellation.
+		select {
+		case <-ctx.Done():
+			return &BridgeActionResult{
+				Status: "failed",
+				Error:  "context cancelled",
+			}, nil
+		default:
+		}
+
+		releaseURL := fmt.Sprintf("%s/repos/%s/releases/tags/%s", apiHost, repo, tag)
+		respBody, err := githubRequest(ctx, token, "GET", releaseURL, nil)
+		if err != nil {
+			// 404 means the release doesn't exist yet — keep polling.
+			if strings.Contains(err.Error(), "HTTP 404") {
+				log.Printf("bridge-action await-release: release %s not found yet for %s, polling...", tag, repo)
+				time.Sleep(pollInterval)
+				continue
+			}
+			// Other errors — log and retry.
+			log.Printf("bridge-action await-release: error checking release %s for %s: %v", tag, repo, err)
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		// Release exists — parse the response.
+		var release struct {
+			HTMLURL string `json:"html_url"`
+			TagName string `json:"tag_name"`
+		}
+		if err := json.Unmarshal(respBody, &release); err != nil {
+			return &BridgeActionResult{
+				Status: "failed",
+				Error:  fmt.Sprintf("failed to parse release response: %v", err),
+			}, nil
+		}
+
+		log.Printf("bridge-action await-release: release %s found for %s at %s", tag, repo, release.HTMLURL)
+		return &BridgeActionResult{
+			Status: "succeeded",
+			Outputs: map[string]interface{}{
+				"release_url": release.HTMLURL,
+			},
+		}, nil
+	}
+
+	// Timeout.
+	log.Printf("bridge-action await-release: timed out waiting for release %s on %s", tag, repo)
+	return &BridgeActionResult{
+		Status: "failed",
+		Error:  fmt.Sprintf("timed out after %d seconds waiting for release %s", timeout, tag),
+	}, nil
+}
+
 // githubRequest performs an authenticated HTTP request to the GitHub API.
 func githubRequest(ctx context.Context, token, method, url string, body []byte) ([]byte, error) {
 	var reqBody io.Reader

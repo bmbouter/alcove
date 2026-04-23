@@ -49,9 +49,10 @@ func RegisterBridgeActions() map[string]BridgeActionHandler {
 		"comment":              bridgeActionUnifiedComment,
 
 		// GitHub-specific aliases.
-		"create-pr": bridgeActionCreatePR,
-		"await-ci":  bridgeActionAwaitCI,
-		"merge-pr":  bridgeActionMergePR,
+		"create-pr":      bridgeActionCreatePR,
+		"await-ci":       bridgeActionAwaitCI,
+		"merge-pr":       bridgeActionMergePR,
+		"await-release":  bridgeActionAwaitRelease,
 
 		// GitLab-specific aliases.
 		"create-mr":      bridgeActionCreateMR,
@@ -173,6 +174,18 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 			},
 			Outputs: map[string]string{
 				"merge_sha": "string - The SHA of the merge commit",
+			},
+		},
+		{
+			Name:        "await-release",
+			Description: "Wait for a GitHub release to exist by tag",
+			Inputs: map[string]string{
+				"repo":    "string (required) - Repository in owner/repo format",
+				"tag":     "string (required) - Release tag (e.g. v0.35.5)",
+				"timeout": "int (optional) - Timeout in seconds (default 900)",
+			},
+			Outputs: map[string]string{
+				"release_url": "string - The HTML URL of the release",
 			},
 		},
 	}
