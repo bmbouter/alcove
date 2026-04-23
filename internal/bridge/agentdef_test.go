@@ -492,7 +492,8 @@ func TestGetAgentDefinitionFieldCopyRoundTrip(t *testing.T) {
 			MaxRetries: 3,
 			Timeout:    900,
 		},
-		DirectOutbound: true,
+		DirectOutbound:  true,
+		EnforcementMode: "monitor",
 		DevContainer: &DevContainerSpec{
 			Image:         "quay.io/myorg/devenv:latest",
 			NetworkAccess: "external",
@@ -536,6 +537,7 @@ func TestGetAgentDefinitionFieldCopyRoundTrip(t *testing.T) {
 	td.Plugins = parsed.Plugins
 	td.Credentials = parsed.Credentials
 	td.DirectOutbound = parsed.DirectOutbound
+	td.EnforcementMode = parsed.EnforcementMode
 	td.CIGate = parsed.CIGate
 	td.DevContainer = parsed.DevContainer
 
@@ -566,7 +568,7 @@ func TestGetAgentDefinitionFieldCopyRoundTrip(t *testing.T) {
 
 	// Sanity check: make sure we actually checked a meaningful number of fields.
 	// Update this count when adding new yaml-tagged fields to AgentDefinition.
-	const expectedYAMLFields = 19
+	const expectedYAMLFields = 20
 	if yamlFieldCount != expectedYAMLFields {
 		t.Errorf("expected %d yaml-tagged fields in AgentDefinition, found %d; "+
 			"update this test and the copy block in GetAgentDefinition",

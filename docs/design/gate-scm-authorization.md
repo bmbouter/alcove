@@ -9,6 +9,8 @@ Phase 6 (alias expansion).
 
 This document describes how Gate handles GitHub, GitLab, and JIRA operations with
 operation-level authorization, credential injection, and dummy-token isolation.
+Gate uses MITM TLS interception of CONNECT tunnels to service domains, replacing
+the previous `/github/`, `/gitlab/`, `/jira/` path-prefix proxy endpoints.
 
 ---
 
@@ -87,7 +89,7 @@ grouped into tiers to simplify common configurations.
 
 **JIRA/Atlassian operations** (matched against `*.atlassian.net` hosts):
 
-Gate proxies JIRA REST API requests via the `/jira/` endpoint. The scope uses
+Gate intercepts JIRA REST API requests via MITM TLS. The scope uses
 service name `"jira"` (also accepts `"atlassian"` for backward compatibility).
 The `repos` field specifies allowed JIRA project keys (e.g., `["PROJ"]` or
 `["*"]` for all). Project keys are extracted from issue keys in the URL path
@@ -151,100 +153,44 @@ the credential and sends it as `Authorization: Basic <encoded>`.
 
 ## 2. Gate Proxy Changes
 
-### 2.1 API proxy endpoints (new)
+### 2.1 MITM TLS re-encrypt proxy
 
-Gate adds two new reverse-proxy route prefixes to its mux. These handle GitHub
-and GitLab API calls when the Skiff container is configured to use Gate as the
-API base URL (see Section 4).
+Gate intercepts CONNECT tunnels to known service domains using MITM TLS. This
+replaces the previous `/github/`, `/gitlab/`, `/jira/` path-prefix reverse
+proxy endpoints. Tools like `gh`, `glab`, and `curl` connect to their standard
+upstream URLs via HTTP_PROXY; Gate transparently intercepts the encrypted tunnel.
 
-```
-/github/   -->  https://api.github.com/
-/gitlab/   -->  https://gitlab.com/    (or self-hosted, from GATE_GITLAB_HOST)
-/jira/     -->  https://<instance>.atlassian.net/
-```
+**How it works:**
 
-These work identically to the existing `/v1/` LLM proxy pattern:
+1. Skiff sets `HTTP_PROXY=http://gate-<taskID>:8443`.
+2. The `gh` CLI (or any HTTP client) sends a CONNECT request to
+   `api.github.com:443` through the proxy.
+3. Gate accepts the CONNECT tunnel and checks if the target host is a known
+   service domain.
+4. For known domains, Gate performs MITM TLS interception:
+   a. Generates a leaf certificate for the target domain, signed by the
+      session's ephemeral CA.
+   b. Performs a TLS handshake with the client using the leaf cert.
+   c. Reads the plaintext HTTP request from the client.
+   d. Calls `CheckAccess(method, url, scope)` to classify the operation.
+   e. If denied, returns 403 with the reason.
+   f. If allowed, injects real credentials and forwards to the upstream over
+      real TLS.
+5. For unknown domains, Gate either passes through (if allowed by scope) or
+   blocks the tunnel.
 
-1. Skiff sets `GITHUB_API_URL=http://gate-<taskID>:8443/github` (plain HTTP).
-2. The `gh` CLI, GitHub MCP server, and any HTTP client send requests to Gate
-   over plain HTTP.
-3. Gate receives the request, sees the `/github/` prefix, and:
-   a. Strips the prefix to get the real API path.
-   b. Calls `CheckAccess(method, path, scope)` to classify the operation.
-   c. If denied, returns 403 with the reason.
-   d. If allowed, injects real credentials and reverse-proxies to the real API
-      over HTTPS.
+**Ephemeral CA trust chain:**
 
-**File: `internal/gate/proxy.go`**
-
-New handler registrations in `Handler()`:
-
-```go
-mux.HandleFunc("/github/", func(w http.ResponseWriter, r *http.Request) {
-    p.handleSCMProxy(w, r, "github")
-})
-
-mux.HandleFunc("/gitlab/", func(w http.ResponseWriter, r *http.Request) {
-    p.handleSCMProxy(w, r, "gitlab")
-})
-```
-
-New method:
-
-```go
-func (p *Proxy) handleSCMProxy(w http.ResponseWriter, r *http.Request, service string) {
-    // 1. Strip the /<service>/ prefix to get the real API path
-    prefix := "/" + service + "/"
-    apiPath := strings.TrimPrefix(r.URL.Path, prefix)
-    if apiPath == "" {
-        apiPath = "/"
-    }
-
-    // 2. Reconstruct the full URL as if it were the real API
-    var targetHost string
-    switch service {
-    case "github":
-        targetHost = "api.github.com"
-    case "gitlab":
-        targetHost = p.config.GitLabHost // defaults to "gitlab.com"
-        if targetHost == "" {
-            targetHost = "gitlab.com"
-        }
-    }
-
-    fakeURL := fmt.Sprintf("https://%s/%s", targetHost, apiPath)
-    if r.URL.RawQuery != "" {
-        fakeURL += "?" + r.URL.RawQuery
-    }
-
-    // 3. Check access against scope
-    result := CheckAccess(r.Method, fakeURL, p.config.Scope)
-    if !result.Allowed {
-        http.Error(w, "Forbidden: "+result.Reason, http.StatusForbidden)
-        p.logEntry(r.Method, fakeURL, result.Service, result.Operation, "deny", http.StatusForbidden)
-        return
-    }
-
-    // 4. Build real target URL
-    targetURL, _ := url.Parse(fmt.Sprintf("https://%s/%s", targetHost, apiPath))
-    if r.URL.RawQuery != "" {
-        targetURL.RawQuery = r.URL.RawQuery
-    }
-
-    // 5. Reverse proxy with credential injection
-    proxy := &httputil.ReverseProxy{
-        Director: func(req *http.Request) {
-            req.URL = targetURL
-            req.Host = targetHost
-            p.injectServiceCredential(req, service)
-            // Strip the dummy token that the client sent
-            req.Header.Del("X-Session-Token")
-        },
-    }
-    proxy.ServeHTTP(w, r)
-    p.logEntry(r.Method, fakeURL, result.Service, result.Operation, "allow", http.StatusOK)
-}
-```
+- Bridge generates an ephemeral CA key pair (RSA 2048) per session at
+  dispatch time, with 24-hour validity.
+- The CA cert PEM is passed to Skiff as `ALCOVE_CA_CERT_PEM`. skiff-init
+  writes it to a file and sets `SSL_CERT_FILE` and `NODE_EXTRA_CA_CERTS`
+  to make it trusted by Go, Node.js, Python, and system tools.
+- The CA cert and key PEM are passed to Gate as `GATE_CA_CERT_PEM` and
+  `GATE_CA_KEY_PEM` env vars.
+- Gate generates leaf certs on-the-fly for each intercepted domain, signed
+  by the session CA. Leaf certs have 1-hour validity.
+- The CA private key exists only in Gate's memory.
 
 ### 2.2 Dummy token validation
 
@@ -308,29 +254,17 @@ p.logEntry("POST", fmt.Sprintf("git-credential://%s/%s", host, repoPath),
     service, "git_credential", "allow", http.StatusOK)
 ```
 
-### 2.4 CONNECT tunnel changes
+### 2.4 CONNECT tunnel handling
 
-The implementation blocks CONNECT tunnels only to `api.github.com`. CONNECT
-tunnels to `github.com` and `gitlab.com` (used for git transport) are still
-allowed through the existing `tunnelToService` method, which checks that the
-service is in scope.
+CONNECT tunnels to known service domains (including `api.github.com`,
+`github.com`, `gitlab.com`, and `*.atlassian.net`) are intercepted via MITM
+TLS. Gate terminates the tunnel, generates a leaf cert for the target domain,
+reads the plaintext request, performs scope checking and credential injection,
+and re-encrypts to the upstream.
 
-In `handleConnect`, `api.github.com` is handled as a special case before
-`isServiceHost`:
-
-```go
-case hostname == "api.github.com":
-    // Block CONNECT tunnels to api.github.com -- API operations must go
-    // through the /github/ proxy endpoint for operation-level enforcement.
-    http.Error(w, "Forbidden: use /github/ proxy endpoint for API calls", http.StatusForbidden)
-    p.logEntry("CONNECT", host, "github", "", "deny", http.StatusForbidden)
-```
-
-All other service hosts (including `github.com`, `gitlab.com`) pass through
-`tunnelToService`, which validates that the service is in scope and then
-creates a direct TCP tunnel. Git transport uses the credential helper
-(`credential.helper`) to obtain credentials from Gate's `/git-credential`
-endpoint, so the tunnel itself carries no Gate-managed secrets.
+Git transport to `github.com` and `gitlab.com` continues to use the credential
+helper (`credential.helper`) for authentication. The MITM path handles API
+calls (e.g., `gh` CLI GraphQL requests to `api.github.com:443`).
 
 ### 2.5 Config changes
 
@@ -342,18 +276,22 @@ Add to `Config`:
 type Config struct {
     // ... existing fields ...
     GitLabHost string // self-hosted GitLab hostname (default: "gitlab.com")
+    CACertPEM  string // ephemeral CA certificate PEM (from GATE_CA_CERT_PEM)
+    CAKeyPEM   string // ephemeral CA private key PEM (from GATE_CA_KEY_PEM)
 }
 ```
 
 **File: `cmd/gate/main.go`**
 
-Add env var:
+Add env vars:
 
 ```go
 gitlabHost := os.Getenv("GATE_GITLAB_HOST")
 if gitlabHost == "" {
     gitlabHost = "gitlab.com"
 }
+caCertPEM := os.Getenv("GATE_CA_CERT_PEM")
+caKeyPEM := os.Getenv("GATE_CA_KEY_PEM")
 ```
 
 ---
@@ -429,6 +367,12 @@ In `DispatchTask`, after building `gateEnv`, SCM credential resolution sets
 the following environment variables:
 
 ```go
+// Generate ephemeral CA for MITM TLS interception.
+caCert, caKey, err := generateEphemeralCA()
+gateEnv["GATE_CA_CERT_PEM"] = caCert
+gateEnv["GATE_CA_KEY_PEM"] = caKey
+skiffEnv["ALCOVE_CA_CERT_PEM"] = caCert
+
 // Resolve SCM credentials for services in scope.
 scmCredentials := make(map[string]string)
 scmDummyTokens := make(map[string]string)
@@ -451,31 +395,27 @@ if len(scmCredentials) > 0 {
     gateEnv["GATE_CREDENTIALS"] = string(credJSON)
 }
 
-// Set SCM environment for Skiff tools (dummy tokens + Gate proxy URLs).
+// Set SCM environment for Skiff tools (dummy tokens only, no per-tool API URLs).
+// Tools connect to standard upstream URLs; Gate intercepts via MITM TLS.
 if token, ok := scmDummyTokens["github"]; ok {
     skiffEnv["GITHUB_TOKEN"] = token
     skiffEnv["GH_TOKEN"] = token
     skiffEnv["GITHUB_PERSONAL_ACCESS_TOKEN"] = token
-    skiffEnv["GITHUB_API_URL"] = fmt.Sprintf("http://%s:8443/github", gateName)
-    skiffEnv["GH_HOST"] = fmt.Sprintf("%s:8443", gateName)
     skiffEnv["GH_PROMPT_DISABLED"] = "1"
     skiffEnv["GH_NO_UPDATE_NOTIFIER"] = "1"
 }
 if token, ok := scmDummyTokens["gitlab"]; ok {
     skiffEnv["GITLAB_TOKEN"] = token
     skiffEnv["GITLAB_PERSONAL_ACCESS_TOKEN"] = token
-    skiffEnv["GITLAB_API_URL"] = fmt.Sprintf("http://%s:8443/gitlab/api/v4", gateName)
-    skiffEnv["GLAB_HOST"] = fmt.Sprintf("http://%s:8443/gitlab", gateName)
 }
 ```
 
-Notable differences from the original design:
-- `GH_PROTOCOL` is not set (not needed; `GH_HOST` includes the port).
-- `GL_TOKEN` and `CI_API_V4_URL` are not set.
-- `GITHUB_PERSONAL_ACCESS_TOKEN`, `GH_PROMPT_DISABLED`, and
-  `GH_NO_UPDATE_NOTIFIER` are set for GitHub.
-- `GITLAB_PERSONAL_ACCESS_TOKEN` and `GLAB_HOST` are set for GitLab.
-- `GITLAB_API_URL` points to `/gitlab/api/v4` (not `/gitlab`).
+Notable differences from the previous prefix-proxy design:
+- `GITHUB_API_URL`, `GH_HOST`, `GITLAB_API_URL`, `GLAB_HOST`, and
+  `JIRA_API_URL` are no longer set. Tools connect to standard upstream URLs.
+- Gate intercepts CONNECT tunnels to service domains via MITM TLS.
+- `GATE_CA_CERT_PEM`, `GATE_CA_KEY_PEM`, and `ALCOVE_CA_CERT_PEM` are new
+  env vars for the ephemeral CA trust chain.
 
 ### 3.4 Dummy token properties
 
@@ -505,20 +445,16 @@ GIT_TERMINAL_PROMPT=0
 GATE_CREDENTIAL_URL=http://gate-<taskID>:8443   # derived from ANTHROPIC_BASE_URL
 GIT_SSH_COMMAND="echo 'SSH disabled — use HTTPS' && exit 1"
 
-# GitHub -- dummy token + API routed through Gate (set by Bridge dispatcher)
+# GitHub -- dummy token (set by Bridge dispatcher)
 GITHUB_TOKEN=alcove-session-<uuid>
 GH_TOKEN=alcove-session-<uuid>
 GITHUB_PERSONAL_ACCESS_TOKEN=alcove-session-<uuid>
-GITHUB_API_URL=http://gate-<taskID>:8443/github
-GH_HOST=gate-<taskID>:8443
 GH_PROMPT_DISABLED=1
 GH_NO_UPDATE_NOTIFIER=1
 
-# GitLab -- dummy token + API routed through Gate (set by Bridge dispatcher)
+# GitLab -- dummy token (set by Bridge dispatcher)
 GITLAB_TOKEN=alcove-session-<uuid>
 GITLAB_PERSONAL_ACCESS_TOKEN=alcove-session-<uuid>
-GITLAB_API_URL=http://gate-<taskID>:8443/gitlab/api/v4
-GLAB_HOST=http://gate-<taskID>:8443/gitlab
 
 # LLM (existing)
 ANTHROPIC_BASE_URL=http://gate-<taskID>:8443
@@ -528,12 +464,23 @@ ANTHROPIC_API_KEY=sk-placeholder-routed-through-gate
 HTTP_PROXY=http://gate-<taskID>:8443
 HTTPS_PROXY=http://gate-<taskID>:8443
 NO_PROXY=localhost,127.0.0.1,gate-<taskID>
+
+# Ephemeral CA trust store (set by Bridge, written by skiff-init)
+ALCOVE_CA_CERT_PEM=<base64-encoded PEM CA certificate>
+SSL_CERT_FILE=/etc/alcove-tls/ca-bundle.pem
+NODE_EXTRA_CA_CERTS=/etc/alcove-tls/ca-bundle.pem
 ```
 
 `GATE_CREDENTIAL_URL` is set by `skiff-init`'s `setupEnv()` function, derived
 from `ANTHROPIC_BASE_URL` (which already points to the Gate sidecar).
 `GIT_SSH_COMMAND` blocks SSH git transport to force HTTPS through Gate's
 credential helper.
+
+Tools like `gh` and `glab` connect to their standard upstream URLs
+(`api.github.com`, `gitlab.com`). Gate intercepts these connections
+transparently via MITM TLS through the HTTP_PROXY. No per-tool API URL
+env vars (`GITHUB_API_URL`, `GH_HOST`, `GITLAB_API_URL`, `GLAB_HOST`,
+`JIRA_API_URL`) are needed.
 
 ### 4.2 Git credential helper script
 
@@ -577,21 +524,23 @@ The credential helper reads `GATE_CREDENTIAL_URL` (set by `skiff-init` from
 URL. Git is configured system-wide to use this helper via
 `git config --system credential.helper` in the Containerfile.
 
-### 4.3 MCP server configuration
+### 4.3 CLI tool compatibility
 
-Claude Code's MCP servers (GitHub MCP, GitLab MCP) read their configuration
-from environment variables. The key insight is that these MCP servers use the
-same environment variables we set:
+With MITM TLS interception, CLI tools work natively through HTTP_PROXY
+without any per-tool configuration:
 
-- **GitHub MCP server:** reads `GITHUB_TOKEN` and `GITHUB_API_URL`. Since we
-  set `GITHUB_API_URL` to Gate's endpoint, the MCP server sends all API calls
-  through Gate. The dummy `GITHUB_TOKEN` is passed in the Authorization header,
-  and Gate replaces it with the real token.
+- **`gh` CLI:** connects to `api.github.com:443` via CONNECT tunnel. Gate
+  intercepts via MITM TLS, inspects the request, injects real credentials,
+  and forwards to GitHub. No `GITHUB_API_URL` or `GH_HOST` env vars needed.
 
-- **GitLab MCP server:** reads `GITLAB_TOKEN` and `GITLAB_API_URL`. Same
-  pattern.
+- **`glab` CLI:** connects to `gitlab.com:443` via CONNECT tunnel. Same
+  MITM interception pattern. No `GITLAB_API_URL` or `GLAB_HOST` env vars needed.
 
-No special MCP configuration is needed beyond the environment variables.
+- **`curl` / arbitrary HTTP:** any tool using HTTP_PROXY is intercepted for
+  known service domains. Unknown domains pass through or are blocked per scope.
+
+The GitHub MCP server is no longer needed -- `gh` CLI works directly through
+the MITM proxy for all GitHub API operations including GraphQL.
 
 ---
 
@@ -768,10 +717,9 @@ the Gate sidecar (same pod, localhost) and allowed package registries.
 `api.github.com` and `gitlab.com` API endpoints are not in the egress allowlist.
 
 **Mitigation (podman):** `HTTP_PROXY`/`HTTPS_PROXY` is set to Gate, and
-iptables rules block direct egress from the Skiff container to external hosts.
-Git transport to `github.com:443` is allowed through CONNECT tunnels (Gate
-validates the service is in scope), but API calls must go through the
-`/github/` or `/gitlab/` proxy endpoints.
+the `--internal` podman network blocks direct egress from the Skiff container
+to external hosts. All CONNECT tunnels to service domains are intercepted
+via MITM TLS, allowing Gate to inspect and authorize every request.
 
 ### Threat: Skiff sends unauthorized operations through Gate
 
@@ -804,6 +752,25 @@ within the Gate sidecar of a single, ephemeral Skiff pod.
 messages, or any output visible to Skiff. Error messages reference the service
 name and operation, never the credential value.
 
+### Enforcement Modes
+
+Agent definitions support an `enforcement_mode` field:
+
+- `enforce` (default) -- Gate checks scope and denies unauthorized requests with 403
+- `monitor` -- Gate logs all requests but allows them regardless of scope, enabling iterative policy development
+
+In monitor mode, the proxy log records every request with its would-be decision, allowing operators to:
+1. Deploy an agent with `enforcement_mode: monitor`
+2. Run the workload
+3. Review the proxy log to see what operations the agent performed
+4. Build a security profile from the observed traffic
+5. Switch to `enforcement_mode: enforce`
+
+The enforcement mode is set in the agent definition YAML and passed to Gate as the
+`GATE_ENFORCEMENT_MODE` environment variable. It cannot be set via the API
+(`json:"-"` on the TaskRequest field), ensuring that only version-controlled
+agent definitions control the enforcement policy.
+
 ---
 
 ## 8. Implementation Plan
@@ -812,12 +779,11 @@ Ordered list of tasks with file paths. Each task is independently testable.
 
 ### Phase 1: Core SCM Proxy (MVP) -- IMPLEMENTED
 
-**Task 1.1: Add SCM proxy endpoints to Gate**
+**Task 1.1: Add MITM TLS proxy to Gate**
 - File: `internal/gate/proxy.go`
-- Add `handleSCMProxy()` method
-- Add `/github/` and `/gitlab/` route registrations in `Handler()`
-- Add `GitLabHost` to `Config`
-- Block CONNECT tunnels to `api.github.com` (but allow `github.com` for git)
+- Add MITM TLS interception for CONNECT tunnels to service domains
+- Add ephemeral leaf cert generation from session CA
+- Add `GitLabHost`, `CACertPEM`, `CAKeyPEM` to `Config`
 - Tests: `internal/gate/proxy_test.go`
 
 **Task 1.2: Enhance scope checker for SCM operations**
@@ -837,13 +803,13 @@ Ordered list of tasks with file paths. Each task is independently testable.
 - File: `internal/bridge/dispatcher.go`
 - Resolve SCM credentials from CredentialStore
 - Generate dummy tokens
-- Set Skiff env vars (`GITHUB_TOKEN`, `GITHUB_API_URL`, etc.)
-- Set Gate env vars (`GATE_CREDENTIALS` with real tokens)
+- Set Skiff env vars (`GITHUB_TOKEN`, `ALCOVE_CA_CERT_PEM`, etc.)
+- Set Gate env vars (`GATE_CREDENTIALS`, `GATE_CA_CERT_PEM`, `GATE_CA_KEY_PEM`)
 - Tests: integration test with mock runtime
 
 **Task 1.5: Gate env var loading for SCM config**
 - File: `cmd/gate/main.go`
-- Load `GATE_GITLAB_HOST` env var
+- Load `GATE_GITLAB_HOST`, `GATE_CA_CERT_PEM`, `GATE_CA_KEY_PEM` env vars
 - Tests: unit test for `loadConfig()`
 
 ### Phase 2: Git Transport -- IMPLEMENTED

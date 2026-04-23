@@ -52,6 +52,7 @@ RUN git config --system credential.helper '/usr/local/bin/alcove-credential-help
     git config --system url."https://gitlab.com/".insteadOf "ssh://git@gitlab.com/"
 
 RUN mkdir -p /workspace && chmod 777 /workspace
+RUN mkdir -p /etc/alcove-tls && chmod 777 /etc/alcove-tls
 
 USER 1001
 WORKDIR /home/skiff

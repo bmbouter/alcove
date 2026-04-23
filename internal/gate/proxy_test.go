@@ -15,8 +15,13 @@
 package gate
 
 import (
+	"bufio"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -30,7 +35,7 @@ import (
 // --------------------------------------------------------------------
 
 // newTestProxy creates a Gate proxy configured with the given scope and
-// credentials.  It returns the proxy and a test HTTP server bound to it.
+// credentials. It returns the proxy and a test HTTP server bound to it.
 func newTestProxy(t *testing.T, scope internal.Scope, creds map[string]string) (*Proxy, *httptest.Server) {
 	t.Helper()
 	cfg := Config{
@@ -47,6 +52,31 @@ func newTestProxy(t *testing.T, scope internal.Scope, creds map[string]string) (
 	ts := httptest.NewServer(p.Handler())
 	t.Cleanup(func() { ts.Close(); p.Stop() })
 	return p, ts
+}
+
+// newTestProxyWithMITM creates a Gate proxy with MITM enabled.
+func newTestProxyWithMITM(t *testing.T, scope internal.Scope, creds map[string]string) (*Proxy, *httptest.Server, []byte) {
+	t.Helper()
+	certPEM, keyPEM, err := GenerateTestCA()
+	if err != nil {
+		t.Fatalf("generating test CA: %v", err)
+	}
+	cfg := Config{
+		SessionID:    "test-session",
+		Scope:        scope,
+		Credentials:  creds,
+		ToolConfigs:  map[string]ToolConfig{},
+		SessionToken: "session-tok",
+		LLMToken:     "llm-secret-key",
+		LLMProvider:  "anthropic",
+		LLMTokenType: "api_key",
+		CACertPEM:    certPEM,
+		CAKeyPEM:     keyPEM,
+	}
+	p := NewProxy(cfg)
+	ts := httptest.NewServer(p.Handler())
+	t.Cleanup(func() { ts.Close(); p.Stop() })
+	return p, ts, certPEM
 }
 
 // doRequest sends a request to the test server and returns the status code
@@ -73,8 +103,58 @@ func doRequest(t *testing.T, method, url string, body string) (int, string) {
 	return resp.StatusCode, string(respBody)
 }
 
+// doMITMRequest sends a request through the MITM proxy via CONNECT tunnel.
+// Returns the HTTP response status code, response body, and any error.
+func doMITMRequest(t *testing.T, proxyAddr string, caCertPEM []byte, method, targetHost, path string) (int, string) {
+	t.Helper()
+
+	conn, err := net.Dial("tcp", proxyAddr)
+	if err != nil {
+		t.Fatalf("connecting to gate: %v", err)
+	}
+	defer conn.Close()
+
+	fmt.Fprintf(conn, "CONNECT %s:443 HTTP/1.1\r\nHost: %s:443\r\n\r\n", targetHost, targetHost)
+
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		t.Fatalf("reading CONNECT response: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from CONNECT, got %d", resp.StatusCode)
+	}
+
+	caPool := x509.NewCertPool()
+	caPool.AppendCertsFromPEM(caCertPEM)
+
+	tlsConn := tls.Client(conn, &tls.Config{
+		ServerName: targetHost,
+		RootCAs:    caPool,
+		NextProtos: []string{"http/1.1"},
+	})
+	if err := tlsConn.Handshake(); err != nil {
+		t.Fatalf("TLS handshake: %v", err)
+	}
+
+	req, _ := http.NewRequest(method, "https://"+targetHost+path, nil)
+	if err := req.Write(tlsConn); err != nil {
+		t.Fatalf("writing request: %v", err)
+	}
+
+	mitmReader := bufio.NewReader(tlsConn)
+	mitmResp, err := http.ReadResponse(mitmReader, req)
+	if err != nil {
+		t.Fatalf("reading MITM response: %v", err)
+	}
+	defer mitmResp.Body.Close()
+
+	body, _ := io.ReadAll(mitmResp.Body)
+	return mitmResp.StatusCode, string(body)
+}
+
 // --------------------------------------------------------------------
-// Category 1: Scope enforcement — GitHub
+// Category 1: Scope enforcement — GitHub (via CheckAccess)
 // --------------------------------------------------------------------
 
 // githubScope returns a scope allowing github with the specified repos and operations.
@@ -91,28 +171,27 @@ func TestGitHubScopeEnforcement_AllowedOperations(t *testing.T) {
 		[]string{"pulp/pulpcore"},
 		[]string{"read_prs", "create_pr_draft", "read_contents", "read_issues", "read_commits"},
 	)
-	_, ts := newTestProxy(t, scope, map[string]string{"github": "ghp_real_token"})
 
 	tests := []struct {
 		name   string
 		method string
-		path   string
+		url    string
 	}{
-		{"read PRs", "GET", "/github/repos/pulp/pulpcore/pulls"},
-		{"read single PR", "GET", "/github/repos/pulp/pulpcore/pulls/42"},
-		{"create draft PR", "POST", "/github/repos/pulp/pulpcore/pulls"},
-		{"read file contents", "GET", "/github/repos/pulp/pulpcore/contents/README.md"},
-		{"read nested contents", "GET", "/github/repos/pulp/pulpcore/contents/src/main.go"},
-		{"read issues", "GET", "/github/repos/pulp/pulpcore/issues"},
-		{"read single issue", "GET", "/github/repos/pulp/pulpcore/issues/7"},
-		{"read commits", "GET", "/github/repos/pulp/pulpcore/commits"},
+		{"read PRs", "GET", "https://api.github.com/repos/pulp/pulpcore/pulls"},
+		{"read single PR", "GET", "https://api.github.com/repos/pulp/pulpcore/pulls/42"},
+		{"create draft PR", "POST", "https://api.github.com/repos/pulp/pulpcore/pulls"},
+		{"read file contents", "GET", "https://api.github.com/repos/pulp/pulpcore/contents/README.md"},
+		{"read nested contents", "GET", "https://api.github.com/repos/pulp/pulpcore/contents/src/main.go"},
+		{"read issues", "GET", "https://api.github.com/repos/pulp/pulpcore/issues"},
+		{"read single issue", "GET", "https://api.github.com/repos/pulp/pulpcore/issues/7"},
+		{"read commits", "GET", "https://api.github.com/repos/pulp/pulpcore/commits"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			code, body := doRequest(t, tt.method, ts.URL+tt.path, "")
-			if code == http.StatusForbidden {
-				t.Errorf("expected allowed (non-403) but got 403: %s", body)
+			result := CheckAccess(tt.method, tt.url, scope)
+			if !result.Allowed {
+				t.Errorf("expected allowed but got denied: %s", result.Reason)
 			}
 		})
 	}
@@ -123,28 +202,27 @@ func TestGitHubScopeEnforcement_DeniedOperations(t *testing.T) {
 		[]string{"pulp/pulpcore"},
 		[]string{"read_prs", "create_pr_draft", "read_contents"},
 	)
-	_, ts := newTestProxy(t, scope, map[string]string{"github": "ghp_real_token"})
 
 	tests := []struct {
 		name   string
 		method string
-		path   string
+		url    string
 	}{
-		{"merge PR - op not in scope", "PUT", "/github/repos/pulp/pulpcore/pulls/1/merge"},
-		{"delete branch - op not in scope", "DELETE", "/github/repos/pulp/pulpcore/git/refs/heads/my-branch"},
-		{"create issue - op not in scope", "POST", "/github/repos/pulp/pulpcore/issues"},
-		{"update PR - op not in scope", "PATCH", "/github/repos/pulp/pulpcore/pulls/5"},
-		{"write contents - op not in scope", "PUT", "/github/repos/pulp/pulpcore/contents/file.txt"},
-		{"create review - op not in scope", "POST", "/github/repos/pulp/pulpcore/pulls/3/reviews"},
-		{"create comment - op not in scope", "POST", "/github/repos/pulp/pulpcore/issues/1/comments"},
-		{"write actions - op not in scope", "POST", "/github/repos/pulp/pulpcore/actions/workflows/ci.yml/dispatches"},
+		{"merge PR - op not in scope", "PUT", "https://api.github.com/repos/pulp/pulpcore/pulls/1/merge"},
+		{"delete branch - op not in scope", "DELETE", "https://api.github.com/repos/pulp/pulpcore/git/refs/heads/my-branch"},
+		{"create issue - op not in scope", "POST", "https://api.github.com/repos/pulp/pulpcore/issues"},
+		{"update PR - op not in scope", "PATCH", "https://api.github.com/repos/pulp/pulpcore/pulls/5"},
+		{"write contents - op not in scope", "PUT", "https://api.github.com/repos/pulp/pulpcore/contents/file.txt"},
+		{"create review - op not in scope", "POST", "https://api.github.com/repos/pulp/pulpcore/pulls/3/reviews"},
+		{"create comment - op not in scope", "POST", "https://api.github.com/repos/pulp/pulpcore/issues/1/comments"},
+		{"write actions - op not in scope", "POST", "https://api.github.com/repos/pulp/pulpcore/actions/workflows/ci.yml/dispatches"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			code, _ := doRequest(t, tt.method, ts.URL+tt.path, "")
-			if code != http.StatusForbidden {
-				t.Errorf("expected 403 Forbidden but got %d", code)
+			result := CheckAccess(tt.method, tt.url, scope)
+			if result.Allowed {
+				t.Errorf("expected denied but got allowed")
 			}
 		})
 	}
@@ -155,26 +233,24 @@ func TestGitHubScopeEnforcement_RepoNotInScope(t *testing.T) {
 		[]string{"pulp/pulpcore"},
 		[]string{"read_prs", "read_contents", "read_issues", "create_pr_draft"},
 	)
-	_, ts := newTestProxy(t, scope, map[string]string{"github": "ghp_real_token"})
 
-	// Every operation on a repo NOT in scope should be denied, even read operations.
 	tests := []struct {
 		name   string
 		method string
-		path   string
+		url    string
 	}{
-		{"read PRs - wrong repo", "GET", "/github/repos/other/repo/pulls"},
-		{"read contents - wrong repo", "GET", "/github/repos/other/repo/contents/README.md"},
-		{"create PR - wrong repo", "POST", "/github/repos/other/repo/pulls"},
-		{"read issues - wrong repo", "GET", "/github/repos/evil/exfiltrate/issues"},
-		{"read PRs - wrong org", "GET", "/github/repos/notpulp/pulpcore/pulls"},
+		{"read PRs - wrong repo", "GET", "https://api.github.com/repos/other/repo/pulls"},
+		{"read contents - wrong repo", "GET", "https://api.github.com/repos/other/repo/contents/README.md"},
+		{"create PR - wrong repo", "POST", "https://api.github.com/repos/other/repo/pulls"},
+		{"read issues - wrong repo", "GET", "https://api.github.com/repos/evil/exfiltrate/issues"},
+		{"read PRs - wrong org", "GET", "https://api.github.com/repos/notpulp/pulpcore/pulls"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			code, _ := doRequest(t, tt.method, ts.URL+tt.path, "")
-			if code != http.StatusForbidden {
-				t.Errorf("expected 403 Forbidden but got %d", code)
+			result := CheckAccess(tt.method, tt.url, scope)
+			if result.Allowed {
+				t.Errorf("expected denied but got allowed")
 			}
 		})
 	}
@@ -185,23 +261,20 @@ func TestGitHubScopeEnforcement_OrgWildcard(t *testing.T) {
 		[]string{"pulp/*"},
 		[]string{"read_prs", "read_contents"},
 	)
-	_, ts := newTestProxy(t, scope, map[string]string{"github": "ghp_real_token"})
 
-	// Allowed: any repo under pulp/
-	code, _ := doRequest(t, "GET", ts.URL+"/github/repos/pulp/pulpcore/pulls", "")
-	if code == http.StatusForbidden {
-		t.Errorf("expected allowed for pulp/pulpcore with pulp/* wildcard, got 403")
+	result := CheckAccess("GET", "https://api.github.com/repos/pulp/pulpcore/pulls", scope)
+	if !result.Allowed {
+		t.Errorf("expected allowed for pulp/pulpcore with pulp/* wildcard")
 	}
 
-	code, _ = doRequest(t, "GET", ts.URL+"/github/repos/pulp/other-repo/pulls", "")
-	if code == http.StatusForbidden {
-		t.Errorf("expected allowed for pulp/other-repo with pulp/* wildcard, got 403")
+	result = CheckAccess("GET", "https://api.github.com/repos/pulp/other-repo/pulls", scope)
+	if !result.Allowed {
+		t.Errorf("expected allowed for pulp/other-repo with pulp/* wildcard")
 	}
 
-	// Denied: repo under a different org
-	code, _ = doRequest(t, "GET", ts.URL+"/github/repos/evil/repo/pulls", "")
-	if code != http.StatusForbidden {
-		t.Errorf("expected 403 for evil/repo with pulp/* wildcard, got %d", code)
+	result = CheckAccess("GET", "https://api.github.com/repos/evil/repo/pulls", scope)
+	if result.Allowed {
+		t.Errorf("expected denied for evil/repo with pulp/* wildcard")
 	}
 }
 
@@ -210,18 +283,15 @@ func TestGitHubScopeEnforcement_RepoWildcard(t *testing.T) {
 		[]string{"*"},
 		[]string{"read_prs"},
 	)
-	_, ts := newTestProxy(t, scope, map[string]string{"github": "ghp_real_token"})
 
-	// "*" wildcard should allow any repo
-	code, _ := doRequest(t, "GET", ts.URL+"/github/repos/any/repo/pulls", "")
-	if code == http.StatusForbidden {
-		t.Errorf("expected allowed for any/repo with * wildcard, got 403")
+	result := CheckAccess("GET", "https://api.github.com/repos/any/repo/pulls", scope)
+	if !result.Allowed {
+		t.Errorf("expected allowed for any/repo with * wildcard")
 	}
 
-	// But operations not in scope should still be denied
-	code, _ = doRequest(t, "PUT", ts.URL+"/github/repos/any/repo/pulls/1/merge", "")
-	if code != http.StatusForbidden {
-		t.Errorf("expected 403 for merge_pr not in scope, got %d", code)
+	result = CheckAccess("PUT", "https://api.github.com/repos/any/repo/pulls/1/merge", scope)
+	if result.Allowed {
+		t.Errorf("expected denied for merge_pr not in scope")
 	}
 }
 
@@ -230,64 +300,58 @@ func TestGitHubScopeEnforcement_OperationWildcard(t *testing.T) {
 		[]string{"pulp/pulpcore"},
 		[]string{"*"},
 	)
-	_, ts := newTestProxy(t, scope, map[string]string{"github": "ghp_real_token"})
 
-	// "*" operation wildcard should allow everything on the allowed repo
 	tests := []struct {
 		name   string
 		method string
-		path   string
+		url    string
 	}{
-		{"read PRs", "GET", "/github/repos/pulp/pulpcore/pulls"},
-		{"merge PR", "PUT", "/github/repos/pulp/pulpcore/pulls/1/merge"},
-		{"delete branch", "DELETE", "/github/repos/pulp/pulpcore/git/refs/heads/branch"},
-		{"create issue", "POST", "/github/repos/pulp/pulpcore/issues"},
+		{"read PRs", "GET", "https://api.github.com/repos/pulp/pulpcore/pulls"},
+		{"merge PR", "PUT", "https://api.github.com/repos/pulp/pulpcore/pulls/1/merge"},
+		{"delete branch", "DELETE", "https://api.github.com/repos/pulp/pulpcore/git/refs/heads/branch"},
+		{"create issue", "POST", "https://api.github.com/repos/pulp/pulpcore/issues"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			code, body := doRequest(t, tt.method, ts.URL+tt.path, "")
-			if code == http.StatusForbidden {
-				t.Errorf("expected allowed with * operation wildcard but got 403: %s", body)
+			result := CheckAccess(tt.method, tt.url, scope)
+			if !result.Allowed {
+				t.Errorf("expected allowed with * operation wildcard: %s", result.Reason)
 			}
 		})
 	}
 
 	// Still denied on wrong repo
-	code, _ := doRequest(t, "GET", ts.URL+"/github/repos/evil/repo/pulls", "")
-	if code != http.StatusForbidden {
-		t.Errorf("expected 403 for wrong repo even with * operations, got %d", code)
+	result := CheckAccess("GET", "https://api.github.com/repos/evil/repo/pulls", scope)
+	if result.Allowed {
+		t.Errorf("expected denied for wrong repo even with * operations")
 	}
 }
 
 func TestGitHubScopeEnforcement_ServiceNotInScope(t *testing.T) {
-	// Scope has gitlab but NOT github
 	scope := internal.Scope{
 		Services: map[string]internal.ServiceScope{
 			"gitlab": {Repos: []string{"*"}, Operations: []string{"*"}},
 		},
 	}
-	_, ts := newTestProxy(t, scope, map[string]string{"gitlab": "glpat_token"})
 
-	code, body := doRequest(t, "GET", ts.URL+"/github/repos/pulp/pulpcore/pulls", "")
-	if code != http.StatusForbidden {
-		t.Errorf("expected 403 when github not in scope, got %d: %s", code, body)
+	result := CheckAccess("GET", "https://api.github.com/repos/pulp/pulpcore/pulls", scope)
+	if result.Allowed {
+		t.Errorf("expected denied when github not in scope")
 	}
 }
 
 func TestGitHubScopeEnforcement_EmptyRepoList(t *testing.T) {
-	// Operations are allowed but no repos specified
 	scope := githubScope([]string{}, []string{"read_prs", "read_contents"})
-	_, ts := newTestProxy(t, scope, map[string]string{"github": "ghp_real_token"})
 
-	code, _ := doRequest(t, "GET", ts.URL+"/github/repos/pulp/pulpcore/pulls", "")
-	if code != http.StatusForbidden {
-		t.Errorf("expected 403 with empty repo list, got %d", code)
+	result := CheckAccess("GET", "https://api.github.com/repos/pulp/pulpcore/pulls", scope)
+	if result.Allowed {
+		t.Errorf("expected denied with empty repo list")
 	}
 }
 
 // --------------------------------------------------------------------
-// Category 1: Scope enforcement — GitLab
+// Category 1: Scope enforcement — GitLab (via CheckAccess)
 // --------------------------------------------------------------------
 
 func gitlabScope(repos, ops []string) internal.Scope {
@@ -299,31 +363,28 @@ func gitlabScope(repos, ops []string) internal.Scope {
 }
 
 func TestGitLabScopeEnforcement_AllowedOperations(t *testing.T) {
-	// Use numeric project IDs to avoid %2F encoding issues where url.Parse
-	// decodes the slash, splitting the path segment and breaking project lookup.
 	scope := gitlabScope(
 		[]string{"12345"},
 		[]string{"read_prs", "create_pr_draft", "read_contents"},
 	)
-	_, ts := newTestProxy(t, scope, map[string]string{"gitlab": "glpat_real_token"})
 
 	tests := []struct {
 		name   string
 		method string
-		path   string
+		url    string
 	}{
-		{"read MRs", "GET", "/gitlab/api/v4/projects/12345/merge_requests"},
-		{"read single MR", "GET", "/gitlab/api/v4/projects/12345/merge_requests/1"},
-		{"create MR", "POST", "/gitlab/api/v4/projects/12345/merge_requests"},
-		{"read repo tree", "GET", "/gitlab/api/v4/projects/12345/repository/tree"},
-		{"read repo file", "GET", "/gitlab/api/v4/projects/12345/repository/files/README.md"},
+		{"read MRs", "GET", "https://gitlab.com/api/v4/projects/12345/merge_requests"},
+		{"read single MR", "GET", "https://gitlab.com/api/v4/projects/12345/merge_requests/1"},
+		{"create MR", "POST", "https://gitlab.com/api/v4/projects/12345/merge_requests"},
+		{"read repo tree", "GET", "https://gitlab.com/api/v4/projects/12345/repository/tree"},
+		{"read repo file", "GET", "https://gitlab.com/api/v4/projects/12345/repository/files/README.md"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			code, body := doRequest(t, tt.method, ts.URL+tt.path, "")
-			if code == http.StatusForbidden {
-				t.Errorf("expected allowed (non-403) but got 403: %s", body)
+			result := CheckAccess(tt.method, tt.url, scope)
+			if !result.Allowed {
+				t.Errorf("expected allowed but got denied: %s", result.Reason)
 			}
 		})
 	}
@@ -334,24 +395,23 @@ func TestGitLabScopeEnforcement_DeniedOperations(t *testing.T) {
 		[]string{"12345"},
 		[]string{"read_prs", "read_contents"},
 	)
-	_, ts := newTestProxy(t, scope, map[string]string{"gitlab": "glpat_real_token"})
 
 	tests := []struct {
 		name   string
 		method string
-		path   string
+		url    string
 	}{
-		{"merge MR - not in scope", "PUT", "/gitlab/api/v4/projects/12345/merge_requests/1/merge"},
-		{"create MR - not in scope", "POST", "/gitlab/api/v4/projects/12345/merge_requests"},
-		{"delete branch - not in scope", "DELETE", "/gitlab/api/v4/projects/12345/repository/branches/feature"},
-		{"write file - not in scope", "POST", "/gitlab/api/v4/projects/12345/repository/files/new.txt"},
+		{"merge MR - not in scope", "PUT", "https://gitlab.com/api/v4/projects/12345/merge_requests/1/merge"},
+		{"create MR - not in scope", "POST", "https://gitlab.com/api/v4/projects/12345/merge_requests"},
+		{"delete branch - not in scope", "DELETE", "https://gitlab.com/api/v4/projects/12345/repository/branches/feature"},
+		{"write file - not in scope", "POST", "https://gitlab.com/api/v4/projects/12345/repository/files/new.txt"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			code, _ := doRequest(t, tt.method, ts.URL+tt.path, "")
-			if code != http.StatusForbidden {
-				t.Errorf("expected 403 Forbidden but got %d", code)
+			result := CheckAccess(tt.method, tt.url, scope)
+			if result.Allowed {
+				t.Errorf("expected denied but got allowed")
 			}
 		})
 	}
@@ -362,21 +422,20 @@ func TestGitLabScopeEnforcement_ProjectNotInScope(t *testing.T) {
 		[]string{"mygroup/myproject"},
 		[]string{"read_prs", "read_contents", "create_pr_draft"},
 	)
-	_, ts := newTestProxy(t, scope, map[string]string{"gitlab": "glpat_real_token"})
 
 	tests := []struct {
 		name string
-		path string
+		url  string
 	}{
-		{"wrong project (encoded)", "/gitlab/api/v4/projects/evil%2Fproject/merge_requests"},
-		{"wrong project (numeric)", "/gitlab/api/v4/projects/99999/merge_requests"},
+		{"wrong project (encoded)", "https://gitlab.com/api/v4/projects/evil%2Fproject/merge_requests"},
+		{"wrong project (numeric)", "https://gitlab.com/api/v4/projects/99999/merge_requests"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			code, _ := doRequest(t, "GET", ts.URL+tt.path, "")
-			if code != http.StatusForbidden {
-				t.Errorf("expected 403 Forbidden but got %d", code)
+			result := CheckAccess("GET", tt.url, scope)
+			if result.Allowed {
+				t.Errorf("expected denied but got allowed")
 			}
 		})
 	}
@@ -387,7 +446,6 @@ func TestGitLabScopeEnforcement_ProjectNotInScope(t *testing.T) {
 // --------------------------------------------------------------------
 
 func TestCredentialInjection_BearerFormat(t *testing.T) {
-	// Test that injectToolCredential correctly sets bearer-format auth headers.
 	p := &Proxy{config: Config{
 		Credentials: map[string]string{"github": "ghp_real_secret_123"},
 	}}
@@ -404,7 +462,6 @@ func TestCredentialInjection_BearerFormat(t *testing.T) {
 }
 
 func TestCredentialInjection_HeaderFormat(t *testing.T) {
-	// Test that injectToolCredential correctly sets header-format auth (e.g., GitLab PRIVATE-TOKEN).
 	p := &Proxy{config: Config{
 		Credentials: map[string]string{"gitlab": "glpat_secret_456"},
 	}}
@@ -434,8 +491,6 @@ func TestCredentialInjection_BasicFormat(t *testing.T) {
 }
 
 func TestCredentialInjection_DummyTokenNotForwarded(t *testing.T) {
-	// When credentials exist, the real credential should REPLACE the dummy token.
-	// The dummy token should never reach the upstream.
 	p := &Proxy{config: Config{
 		Credentials: map[string]string{"github": "ghp_real"},
 	}}
@@ -455,10 +510,8 @@ func TestCredentialInjection_DummyTokenNotForwarded(t *testing.T) {
 }
 
 func TestCredentialInjection_MissingCredentialNoOp(t *testing.T) {
-	// When no credential exists for a service, injectToolCredential should not
-	// add or modify auth headers.
 	p := &Proxy{config: Config{
-		Credentials: map[string]string{}, // no credentials
+		Credentials: map[string]string{},
 	}}
 
 	req := httptest.NewRequest("GET", "https://api.github.com/repos/org/repo", nil)
@@ -466,65 +519,16 @@ func TestCredentialInjection_MissingCredentialNoOp(t *testing.T) {
 
 	p.injectToolCredential(req, "github", "Authorization", "bearer")
 
-	// Original header should be unchanged since there's no credential to inject
 	got := req.Header.Get("Authorization")
 	if got != "Bearer original" {
 		t.Errorf("expected original header unchanged, got %q", got)
 	}
 }
 
-func TestCredentialIsolation_DeniedRequestDoesNotForwardCredential(t *testing.T) {
-	// Start a fake upstream that should NEVER be reached
-	upstreamCalled := false
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		upstreamCalled = true
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer upstream.Close()
-
-	scope := githubScope(
-		[]string{"pulp/pulpcore"},
-		[]string{"read_prs"}, // only read_prs allowed
-	)
-	_, ts := newTestProxy(t, scope, map[string]string{"github": "ghp_real_secret"})
-
-	// Attempt a denied operation
-	code, _ := doRequest(t, "PUT", ts.URL+"/github/repos/pulp/pulpcore/pulls/1/merge", "")
-	if code != http.StatusForbidden {
-		t.Errorf("expected 403, got %d", code)
-	}
-
-	// The upstream should NOT have been called at all for a denied request
-	// (Gate returns 403 before proxying). Note: in this test the upstream
-	// is the real api.github.com which won't be reached, but the key
-	// verification is that Gate returned 403 without forwarding.
-	_ = upstreamCalled
-}
-
-func TestCredentialIsolation_CrossServiceNoLeak(t *testing.T) {
-	// Scope only allows github, NOT gitlab
-	scope := internal.Scope{
-		Services: map[string]internal.ServiceScope{
-			"github": {Repos: []string{"*"}, Operations: []string{"*"}},
-		},
-	}
-	_, ts := newTestProxy(t, scope, map[string]string{
-		"github": "ghp_github_secret",
-		"gitlab": "glpat_gitlab_secret",
-	})
-
-	// GitLab request should be denied even though credentials exist
-	code, _ := doRequest(t, "GET", ts.URL+"/gitlab/api/v4/projects/group%2Fproject/merge_requests", "")
-	if code != http.StatusForbidden {
-		t.Errorf("expected 403 for gitlab (not in scope), got %d", code)
-	}
-}
-
 func TestCredentialInjection_LegacyFallback_GitHub(t *testing.T) {
-	// Test the legacy injectServiceCredential path (no ToolConfig).
 	p := &Proxy{config: Config{
 		Credentials: map[string]string{"github": "ghp_secret_123"},
-		ToolConfigs: map[string]ToolConfig{}, // empty — triggers legacy fallback
+		ToolConfigs: map[string]ToolConfig{},
 	}}
 
 	req := httptest.NewRequest("GET", "https://api.github.com/repos/org/repo", nil)
@@ -560,12 +564,10 @@ func TestScopeEnforcement_CaseInsensitiveRepo(t *testing.T) {
 		[]string{"Pulp/PulpCore"},
 		[]string{"read_prs"},
 	)
-	_, ts := newTestProxy(t, scope, map[string]string{"github": "ghp_real_token"})
 
-	// Lowercase request should match uppercase scope entry
-	code, _ := doRequest(t, "GET", ts.URL+"/github/repos/pulp/pulpcore/pulls", "")
-	if code == http.StatusForbidden {
-		t.Errorf("expected case-insensitive repo match to succeed, got 403")
+	result := CheckAccess("GET", "https://api.github.com/repos/pulp/pulpcore/pulls", scope)
+	if !result.Allowed {
+		t.Errorf("expected case-insensitive repo match to succeed")
 	}
 }
 
@@ -574,23 +576,19 @@ func TestScopeEnforcement_NonRepoGitHubEndpoint(t *testing.T) {
 		[]string{"pulp/pulpcore"},
 		[]string{"read"},
 	)
-	_, ts := newTestProxy(t, scope, map[string]string{"github": "ghp_real_token"})
 
-	// Non-repo endpoints like /user use the "read" / "write" general mapping
-	code, _ := doRequest(t, "GET", ts.URL+"/github/user", "")
-	if code == http.StatusForbidden {
-		t.Errorf("expected /user GET with 'read' op to be allowed, got 403")
+	result := CheckAccess("GET", "https://api.github.com/user", scope)
+	if !result.Allowed {
+		t.Errorf("expected /user GET with 'read' op to be allowed")
 	}
 
-	// POST to /user should require "write" op which is not in scope
-	code, _ = doRequest(t, "POST", ts.URL+"/github/user", "")
-	if code != http.StatusForbidden {
-		t.Errorf("expected 403 for POST /user without 'write' op, got %d", code)
+	result = CheckAccess("POST", "https://api.github.com/user", scope)
+	if result.Allowed {
+		t.Errorf("expected /user POST without 'write' op to be denied")
 	}
 }
 
 func TestScopeEnforcement_HealthzAlwaysAllowed(t *testing.T) {
-	// Even with an empty scope, healthz should work
 	scope := internal.Scope{Services: map[string]internal.ServiceScope{}}
 	_, ts := newTestProxy(t, scope, map[string]string{})
 
@@ -639,7 +637,6 @@ func TestGitCredential_DeniedRepo(t *testing.T) {
 }
 
 func TestGitCredential_ServiceNotInScope(t *testing.T) {
-	// Only gitlab in scope, git-credential for github should fail
 	scope := gitlabScope([]string{"*"}, []string{"*"})
 	_, ts := newTestProxy(t, scope, map[string]string{
 		"gitlab": "glpat_token",
@@ -674,47 +671,40 @@ func TestGitCredential_UnknownHost(t *testing.T) {
 // Category 1: Proxy log entries (audit trail)
 // --------------------------------------------------------------------
 
-func TestProxyLog_AllowedRequestLogged(t *testing.T) {
-	scope := githubScope([]string{"pulp/pulpcore"}, []string{"read_prs"})
-	p, ts := newTestProxy(t, scope, map[string]string{"github": "ghp_real_token"})
+func TestProxyLog_DeniedConnectLogged(t *testing.T) {
+	scope := internal.Scope{Services: map[string]internal.ServiceScope{}}
+	p, ts := newTestProxy(t, scope, map[string]string{})
 
-	doRequest(t, "GET", ts.URL+"/github/repos/pulp/pulpcore/pulls", "")
+	// CONNECT to an unknown host should be denied and logged
+	conn, err := net.Dial("tcp", strings.TrimPrefix(ts.URL, "http://"))
+	if err != nil {
+		t.Fatalf("connecting: %v", err)
+	}
+	defer conn.Close()
+
+	fmt.Fprintf(conn, "CONNECT unknown.example.com:443 HTTP/1.1\r\nHost: unknown.example.com:443\r\n\r\n")
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		t.Fatalf("reading response: %v", err)
+	}
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 for unknown host CONNECT, got %d", resp.StatusCode)
+	}
 
 	entries := p.FlushLogs()
 	if len(entries) == 0 {
-		t.Fatal("expected at least one log entry for allowed request")
+		t.Fatal("expected at least one log entry for denied CONNECT")
 	}
 	found := false
 	for _, e := range entries {
-		if e.Service == "github" && e.Operation == "read_prs" && e.Decision == "allow" {
+		if e.Decision == "deny" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected log entry with service=github, operation=read_prs, decision=allow; got: %+v", entries)
-	}
-}
-
-func TestProxyLog_DeniedRequestLogged(t *testing.T) {
-	scope := githubScope([]string{"pulp/pulpcore"}, []string{"read_prs"})
-	p, ts := newTestProxy(t, scope, map[string]string{"github": "ghp_real_token"})
-
-	doRequest(t, "PUT", ts.URL+"/github/repos/pulp/pulpcore/pulls/1/merge", "")
-
-	entries := p.FlushLogs()
-	if len(entries) == 0 {
-		t.Fatal("expected at least one log entry for denied request")
-	}
-	found := false
-	for _, e := range entries {
-		if e.Service == "github" && e.Operation == "merge_pr" && e.Decision == "deny" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("expected log entry with service=github, operation=merge_pr, decision=deny; got: %+v", entries)
+		t.Errorf("expected log entry with decision=deny; got: %+v", entries)
 	}
 }
 
@@ -723,7 +713,6 @@ func TestProxyLog_DeniedRequestLogged(t *testing.T) {
 // --------------------------------------------------------------------
 
 func TestGitHubOperationMapping(t *testing.T) {
-	// Verify that each operation is correctly mapped from method+path
 	tests := []struct {
 		method   string
 		subpath  string
@@ -817,34 +806,29 @@ func TestMultiServiceScope(t *testing.T) {
 			"gitlab": {Repos: []string{"*"}, Operations: []string{"read_contents"}},
 		},
 	}
-	_, ts := newTestProxy(t, scope, map[string]string{
-		"github": "ghp_token",
-		"gitlab": "glpat_token",
-	})
 
 	// GitHub: allowed operation
-	code, _ := doRequest(t, "GET", ts.URL+"/github/repos/pulp/pulpcore/pulls", "")
-	if code == http.StatusForbidden {
+	result := CheckAccess("GET", "https://api.github.com/repos/pulp/pulpcore/pulls", scope)
+	if !result.Allowed {
 		t.Errorf("github read_prs should be allowed")
 	}
 
 	// GitHub: denied operation (read_contents not in github's ops)
-	// Note: read_contents IS in gitlab's ops but should not bleed over
-	code, _ = doRequest(t, "GET", ts.URL+"/github/repos/pulp/pulpcore/contents/README.md", "")
-	if code != http.StatusForbidden {
-		t.Errorf("github read_contents should be denied (not in github ops), got %d", code)
+	result = CheckAccess("GET", "https://api.github.com/repos/pulp/pulpcore/contents/README.md", scope)
+	if result.Allowed {
+		t.Errorf("github read_contents should be denied (not in github ops)")
 	}
 
-	// GitLab: allowed operation (use numeric project ID to avoid %2F encoding issues)
-	code, _ = doRequest(t, "GET", ts.URL+"/gitlab/api/v4/projects/12345/repository/tree", "")
-	if code == http.StatusForbidden {
+	// GitLab: allowed operation
+	result = CheckAccess("GET", "https://gitlab.com/api/v4/projects/12345/repository/tree", scope)
+	if !result.Allowed {
 		t.Errorf("gitlab read_contents should be allowed")
 	}
 
-	// GitLab: denied operation (read_prs not in gitlab's ops)
-	code, _ = doRequest(t, "GET", ts.URL+"/gitlab/api/v4/projects/12345/merge_requests", "")
-	if code != http.StatusForbidden {
-		t.Errorf("gitlab read_prs should be denied (not in gitlab ops), got %d", code)
+	// GitLab: denied operation
+	result = CheckAccess("GET", "https://gitlab.com/api/v4/projects/12345/merge_requests", scope)
+	if result.Allowed {
+		t.Errorf("gitlab read_prs should be denied (not in gitlab ops)")
 	}
 }
 
@@ -852,7 +836,6 @@ func TestMultiServiceScope(t *testing.T) {
 // JIRA / Atlassian tests
 // --------------------------------------------------------------------
 
-// jiraScope returns a scope allowing jira with the specified operations.
 func jiraScope(ops []string) internal.Scope {
 	return internal.Scope{
 		Services: map[string]internal.ServiceScope{
@@ -860,37 +843,6 @@ func jiraScope(ops []string) internal.Scope {
 		},
 	}
 }
-
-// newJiraTestProxy creates a Gate proxy configured for JIRA with the given scope
-// and optional credential override. It registers a "jira" ToolConfig so that
-// the /jira/ prefix is routed correctly.
-func newJiraTestProxy(t *testing.T, scope internal.Scope, creds map[string]string) (*Proxy, *httptest.Server) {
-	t.Helper()
-	cfg := Config{
-		SessionID:   "test-session",
-		Scope:       scope,
-		Credentials: creds,
-		ToolConfigs: map[string]ToolConfig{
-			"jira": {
-				APIHost:    "company.atlassian.net",
-				AuthHeader: "Authorization",
-				AuthFormat: "basic",
-			},
-		},
-		SessionToken: "session-tok",
-		LLMToken:     "llm-secret-key",
-		LLMProvider:  "anthropic",
-		LLMTokenType: "api_key",
-	}
-	p := NewProxy(cfg)
-	ts := httptest.NewServer(p.Handler())
-	t.Cleanup(func() { ts.Close(); p.Stop() })
-	return p, ts
-}
-
-// --------------------------------------------------------------------
-// Test 1: JIRA operation mapping
-// --------------------------------------------------------------------
 
 func TestJiraOperationMapping(t *testing.T) {
 	tests := []struct {
@@ -930,45 +882,35 @@ func TestJiraOperationMapping(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------
-// Test 2: JIRA scope enforcement — total blocking
-// --------------------------------------------------------------------
-
 func TestJiraScopeEnforcement_TotalBlocking(t *testing.T) {
-	// No jira service in scope at all
 	scope := internal.Scope{
 		Services: map[string]internal.ServiceScope{},
 	}
-	_, ts := newJiraTestProxy(t, scope, map[string]string{"jira": "user:token"})
 
 	tests := []struct {
 		name   string
 		method string
-		path   string
+		url    string
 	}{
-		{"GET issue", "GET", "/jira/rest/api/3/issue/PROJ-123"},
-		{"POST issue", "POST", "/jira/rest/api/3/issue"},
-		{"GET search", "GET", "/jira/rest/api/3/search?jql=project=PROJ"},
-		{"GET project", "GET", "/jira/rest/api/3/project"},
-		{"PUT issue", "PUT", "/jira/rest/api/3/issue/PROJ-123"},
-		{"DELETE issue", "DELETE", "/jira/rest/api/3/issue/PROJ-123"},
-		{"GET boards", "GET", "/jira/rest/agile/1.0/board"},
-		{"POST comment", "POST", "/jira/rest/api/3/issue/PROJ-123/comment"},
+		{"GET issue", "GET", "https://company.atlassian.net/rest/api/3/issue/PROJ-123"},
+		{"POST issue", "POST", "https://company.atlassian.net/rest/api/3/issue"},
+		{"GET search", "GET", "https://company.atlassian.net/rest/api/3/search?jql=project=PROJ"},
+		{"GET project", "GET", "https://company.atlassian.net/rest/api/3/project"},
+		{"PUT issue", "PUT", "https://company.atlassian.net/rest/api/3/issue/PROJ-123"},
+		{"DELETE issue", "DELETE", "https://company.atlassian.net/rest/api/3/issue/PROJ-123"},
+		{"GET boards", "GET", "https://company.atlassian.net/rest/agile/1.0/board"},
+		{"POST comment", "POST", "https://company.atlassian.net/rest/api/3/issue/PROJ-123/comment"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			code, _ := doRequest(t, tt.method, ts.URL+tt.path, "")
-			if code != http.StatusForbidden {
-				t.Errorf("expected 403 Forbidden (no jira in scope) but got %d", code)
+			result := CheckAccess(tt.method, tt.url, scope)
+			if result.Allowed {
+				t.Errorf("expected denied (no jira in scope) but got allowed")
 			}
 		})
 	}
 }
-
-// --------------------------------------------------------------------
-// Test 3: JIRA scope enforcement — read only
-// --------------------------------------------------------------------
 
 func TestJiraScopeEnforcement_ReadOnly(t *testing.T) {
 	scope := jiraScope([]string{
@@ -976,156 +918,137 @@ func TestJiraScopeEnforcement_ReadOnly(t *testing.T) {
 		"read_comments", "read_metadata", "read_boards",
 		"read_sprints", "read_transitions",
 	})
-	_, ts := newJiraTestProxy(t, scope, map[string]string{"jira": "user:token"})
 
-	// Read operations should pass
 	readTests := []struct {
 		name   string
 		method string
-		path   string
+		url    string
 	}{
-		{"read issue", "GET", "/jira/rest/api/3/issue/PROJ-123"},
-		{"search issues", "GET", "/jira/rest/api/3/search?jql=project=PROJ"},
-		{"read project", "GET", "/jira/rest/api/3/project"},
-		{"read comments", "GET", "/jira/rest/api/3/issue/PROJ-123/comment"},
-		{"read boards", "GET", "/jira/rest/agile/1.0/board"},
-		{"read sprints", "GET", "/jira/rest/agile/1.0/sprint/5"},
-		{"read transitions", "GET", "/jira/rest/api/3/issue/PROJ-123/transitions"},
+		{"read issue", "GET", "https://company.atlassian.net/rest/api/3/issue/PROJ-123"},
+		{"search issues", "GET", "https://company.atlassian.net/rest/api/3/search?jql=project=PROJ"},
+		{"read project", "GET", "https://company.atlassian.net/rest/api/3/project"},
+		{"read comments", "GET", "https://company.atlassian.net/rest/api/3/issue/PROJ-123/comment"},
+		{"read boards", "GET", "https://company.atlassian.net/rest/agile/1.0/board"},
+		{"read sprints", "GET", "https://company.atlassian.net/rest/agile/1.0/sprint/5"},
+		{"read transitions", "GET", "https://company.atlassian.net/rest/api/3/issue/PROJ-123/transitions"},
 	}
 
 	for _, tt := range readTests {
 		t.Run("allowed_"+tt.name, func(t *testing.T) {
-			code, body := doRequest(t, tt.method, ts.URL+tt.path, "")
-			if code == http.StatusForbidden {
-				t.Errorf("expected allowed (non-403) but got 403: %s", body)
+			result := CheckAccess(tt.method, tt.url, scope)
+			if !result.Allowed {
+				t.Errorf("expected allowed but got denied: %s", result.Reason)
 			}
 		})
 	}
 
-	// Write operations should be denied
 	writeTests := []struct {
 		name   string
 		method string
-		path   string
+		url    string
 	}{
-		{"create issue", "POST", "/jira/rest/api/3/issue"},
-		{"update issue", "PUT", "/jira/rest/api/3/issue/PROJ-123"},
-		{"delete issue", "DELETE", "/jira/rest/api/3/issue/PROJ-123"},
-		{"add comment", "POST", "/jira/rest/api/3/issue/PROJ-123/comment"},
-		{"transition issue", "POST", "/jira/rest/api/3/issue/PROJ-123/transitions"},
-		{"assign issue", "PUT", "/jira/rest/api/3/issue/PROJ-123/assignee"},
+		{"create issue", "POST", "https://company.atlassian.net/rest/api/3/issue"},
+		{"update issue", "PUT", "https://company.atlassian.net/rest/api/3/issue/PROJ-123"},
+		{"delete issue", "DELETE", "https://company.atlassian.net/rest/api/3/issue/PROJ-123"},
+		{"add comment", "POST", "https://company.atlassian.net/rest/api/3/issue/PROJ-123/comment"},
+		{"transition issue", "POST", "https://company.atlassian.net/rest/api/3/issue/PROJ-123/transitions"},
+		{"assign issue", "PUT", "https://company.atlassian.net/rest/api/3/issue/PROJ-123/assignee"},
 	}
 
 	for _, tt := range writeTests {
 		t.Run("denied_"+tt.name, func(t *testing.T) {
-			code, _ := doRequest(t, tt.method, ts.URL+tt.path, "")
-			if code != http.StatusForbidden {
-				t.Errorf("expected 403 Forbidden but got %d", code)
+			result := CheckAccess(tt.method, tt.url, scope)
+			if result.Allowed {
+				t.Errorf("expected denied but got allowed")
 			}
 		})
 	}
 }
 
-// --------------------------------------------------------------------
-// Test 4: JIRA scope enforcement — full access
-// --------------------------------------------------------------------
-
 func TestJiraScopeEnforcement_FullAccess(t *testing.T) {
 	scope := jiraScope([]string{"*"})
-	_, ts := newJiraTestProxy(t, scope, map[string]string{"jira": "user:token"})
 
 	tests := []struct {
 		name   string
 		method string
-		path   string
+		url    string
 	}{
-		{"read issue", "GET", "/jira/rest/api/3/issue/PROJ-123"},
-		{"search issues", "GET", "/jira/rest/api/3/search?jql=project=PROJ"},
-		{"read project", "GET", "/jira/rest/api/3/project"},
-		{"create issue", "POST", "/jira/rest/api/3/issue"},
-		{"update issue", "PUT", "/jira/rest/api/3/issue/PROJ-123"},
-		{"delete issue", "DELETE", "/jira/rest/api/3/issue/PROJ-123"},
-		{"add comment", "POST", "/jira/rest/api/3/issue/PROJ-123/comment"},
-		{"update comment", "PUT", "/jira/rest/api/3/issue/PROJ-123/comment/12345"},
-		{"delete comment", "DELETE", "/jira/rest/api/3/issue/PROJ-123/comment/456"},
-		{"transition issue", "POST", "/jira/rest/api/3/issue/PROJ-123/transitions"},
-		{"assign issue", "PUT", "/jira/rest/api/3/issue/PROJ-123/assignee"},
-		{"read boards", "GET", "/jira/rest/agile/1.0/board"},
-		{"read sprints", "GET", "/jira/rest/agile/1.0/sprint/5"},
-		{"move to sprint", "POST", "/jira/rest/agile/1.0/sprint/5/issue"},
-		{"add worklog", "POST", "/jira/rest/api/3/issue/PROJ-123/worklog"},
+		{"read issue", "GET", "https://company.atlassian.net/rest/api/3/issue/PROJ-123"},
+		{"search issues", "GET", "https://company.atlassian.net/rest/api/3/search?jql=project=PROJ"},
+		{"read project", "GET", "https://company.atlassian.net/rest/api/3/project"},
+		{"create issue", "POST", "https://company.atlassian.net/rest/api/3/issue"},
+		{"update issue", "PUT", "https://company.atlassian.net/rest/api/3/issue/PROJ-123"},
+		{"delete issue", "DELETE", "https://company.atlassian.net/rest/api/3/issue/PROJ-123"},
+		{"add comment", "POST", "https://company.atlassian.net/rest/api/3/issue/PROJ-123/comment"},
+		{"update comment", "PUT", "https://company.atlassian.net/rest/api/3/issue/PROJ-123/comment/12345"},
+		{"delete comment", "DELETE", "https://company.atlassian.net/rest/api/3/issue/PROJ-123/comment/456"},
+		{"transition issue", "POST", "https://company.atlassian.net/rest/api/3/issue/PROJ-123/transitions"},
+		{"assign issue", "PUT", "https://company.atlassian.net/rest/api/3/issue/PROJ-123/assignee"},
+		{"read boards", "GET", "https://company.atlassian.net/rest/agile/1.0/board"},
+		{"read sprints", "GET", "https://company.atlassian.net/rest/agile/1.0/sprint/5"},
+		{"move to sprint", "POST", "https://company.atlassian.net/rest/agile/1.0/sprint/5/issue"},
+		{"add worklog", "POST", "https://company.atlassian.net/rest/api/3/issue/PROJ-123/worklog"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			code, body := doRequest(t, tt.method, ts.URL+tt.path, "")
-			if code == http.StatusForbidden {
-				t.Errorf("expected allowed with * wildcard but got 403: %s", body)
+			result := CheckAccess(tt.method, tt.url, scope)
+			if !result.Allowed {
+				t.Errorf("expected allowed with * wildcard: %s", result.Reason)
 			}
 		})
 	}
 }
-
-// --------------------------------------------------------------------
-// Test 5: JIRA scope enforcement — reduced write
-// --------------------------------------------------------------------
 
 func TestJiraScopeEnforcement_ReducedWrite(t *testing.T) {
 	scope := jiraScope([]string{
 		"read_issues", "search_issues", "read_projects", "read_comments",
 		"create_issue", "add_comment",
 	})
-	_, ts := newJiraTestProxy(t, scope, map[string]string{"jira": "user:token"})
 
-	// Allowed operations
 	allowedTests := []struct {
 		name   string
 		method string
-		path   string
+		url    string
 	}{
-		{"read issue", "GET", "/jira/rest/api/3/issue/PROJ-123"},
-		{"search issues", "GET", "/jira/rest/api/3/search?jql=project=PROJ"},
-		{"read project", "GET", "/jira/rest/api/3/project"},
-		{"read comments", "GET", "/jira/rest/api/3/issue/PROJ-123/comment"},
-		{"create issue", "POST", "/jira/rest/api/3/issue"},
-		{"add comment", "POST", "/jira/rest/api/3/issue/PROJ-123/comment"},
+		{"read issue", "GET", "https://company.atlassian.net/rest/api/3/issue/PROJ-123"},
+		{"search issues", "GET", "https://company.atlassian.net/rest/api/3/search?jql=project=PROJ"},
+		{"read project", "GET", "https://company.atlassian.net/rest/api/3/project"},
+		{"read comments", "GET", "https://company.atlassian.net/rest/api/3/issue/PROJ-123/comment"},
+		{"create issue", "POST", "https://company.atlassian.net/rest/api/3/issue"},
+		{"add comment", "POST", "https://company.atlassian.net/rest/api/3/issue/PROJ-123/comment"},
 	}
 
 	for _, tt := range allowedTests {
 		t.Run("allowed_"+tt.name, func(t *testing.T) {
-			code, body := doRequest(t, tt.method, ts.URL+tt.path, "")
-			if code == http.StatusForbidden {
-				t.Errorf("expected allowed but got 403: %s", body)
+			result := CheckAccess(tt.method, tt.url, scope)
+			if !result.Allowed {
+				t.Errorf("expected allowed but got denied: %s", result.Reason)
 			}
 		})
 	}
 
-	// Denied operations
 	deniedTests := []struct {
 		name   string
 		method string
-		path   string
+		url    string
 	}{
-		{"delete issue", "DELETE", "/jira/rest/api/3/issue/PROJ-123"},
-		{"update issue", "PUT", "/jira/rest/api/3/issue/PROJ-123"},
-		{"transition issue", "POST", "/jira/rest/api/3/issue/PROJ-123/transitions"},
-		{"assign issue", "PUT", "/jira/rest/api/3/issue/PROJ-123/assignee"},
-		{"delete comment", "DELETE", "/jira/rest/api/3/issue/PROJ-123/comment/456"},
+		{"delete issue", "DELETE", "https://company.atlassian.net/rest/api/3/issue/PROJ-123"},
+		{"update issue", "PUT", "https://company.atlassian.net/rest/api/3/issue/PROJ-123"},
+		{"transition issue", "POST", "https://company.atlassian.net/rest/api/3/issue/PROJ-123/transitions"},
+		{"assign issue", "PUT", "https://company.atlassian.net/rest/api/3/issue/PROJ-123/assignee"},
+		{"delete comment", "DELETE", "https://company.atlassian.net/rest/api/3/issue/PROJ-123/comment/456"},
 	}
 
 	for _, tt := range deniedTests {
 		t.Run("denied_"+tt.name, func(t *testing.T) {
-			code, _ := doRequest(t, tt.method, ts.URL+tt.path, "")
-			if code != http.StatusForbidden {
-				t.Errorf("expected 403 Forbidden but got %d", code)
+			result := CheckAccess(tt.method, tt.url, scope)
+			if result.Allowed {
+				t.Errorf("expected denied but got allowed")
 			}
 		})
 	}
 }
-
-// --------------------------------------------------------------------
-// Test 6: JIRA credential injection — Basic auth
-// --------------------------------------------------------------------
 
 func TestJiraCredentialInjection_Basic(t *testing.T) {
 	p := &Proxy{config: Config{
@@ -1142,10 +1065,6 @@ func TestJiraCredentialInjection_Basic(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------
-// Test 7: JIRA credential isolation — cross-service
-// --------------------------------------------------------------------
-
 func TestJiraCredentialIsolation(t *testing.T) {
 	// Scope only allows jira, NOT github or gitlab
 	scope := internal.Scope{
@@ -1154,63 +1073,105 @@ func TestJiraCredentialIsolation(t *testing.T) {
 		},
 	}
 
-	cfg := Config{
-		SessionID: "test-session",
-		Scope:     scope,
-		Credentials: map[string]string{
-			"jira":   "user@example.com:jira-token",
-			"github": "ghp_github_secret",
-			"gitlab": "glpat_gitlab_secret",
-		},
-		ToolConfigs: map[string]ToolConfig{
-			"jira": {
-				APIHost:    "company.atlassian.net",
-				AuthHeader: "Authorization",
-				AuthFormat: "basic",
-			},
-		},
-		SessionToken: "session-tok",
-		LLMToken:     "llm-secret-key",
-		LLMProvider:  "anthropic",
-		LLMTokenType: "api_key",
-	}
-	p := NewProxy(cfg)
-	ts := httptest.NewServer(p.Handler())
-	t.Cleanup(func() { ts.Close(); p.Stop() })
-
-	// JIRA request should be allowed (jira is in scope)
-	code, _ := doRequest(t, "GET", ts.URL+"/jira/rest/api/3/issue/PROJ-123", "")
-	if code == http.StatusForbidden {
-		t.Errorf("expected jira request to be allowed, got 403")
+	// JIRA request should be allowed
+	result := CheckAccess("GET", "https://company.atlassian.net/rest/api/3/issue/PROJ-123", scope)
+	if !result.Allowed {
+		t.Errorf("expected jira request to be allowed")
 	}
 
-	// GitHub request should be denied (github not in scope)
-	code, _ = doRequest(t, "GET", ts.URL+"/github/repos/pulp/pulpcore/pulls", "")
-	if code != http.StatusForbidden {
-		t.Errorf("expected 403 for github (not in scope), got %d", code)
+	// GitHub request should be denied
+	result = CheckAccess("GET", "https://api.github.com/repos/pulp/pulpcore/pulls", scope)
+	if result.Allowed {
+		t.Errorf("expected github to be denied (not in scope)")
 	}
 
-	// GitLab request should be denied (gitlab not in scope)
-	code, _ = doRequest(t, "GET", ts.URL+"/gitlab/api/v4/projects/12345/merge_requests", "")
-	if code != http.StatusForbidden {
-		t.Errorf("expected 403 for gitlab (not in scope), got %d", code)
+	// GitLab request should be denied
+	result = CheckAccess("GET", "https://gitlab.com/api/v4/projects/12345/merge_requests", scope)
+	if result.Allowed {
+		t.Errorf("expected gitlab to be denied (not in scope)")
+	}
+}
+
+// --------------------------------------------------------------------
+// MITM CONNECT integration tests
+// --------------------------------------------------------------------
+
+func TestCONNECT_MITMEnabled_GitHubAllowed(t *testing.T) {
+	scope := githubScope([]string{"*"}, []string{"*"})
+	_, ts, certPEM := newTestProxyWithMITM(t, scope, map[string]string{"github": "ghp_real_token"})
+
+	// CONNECT to api.github.com should succeed (200) with MITM enabled
+	conn, err := net.Dial("tcp", strings.TrimPrefix(ts.URL, "http://"))
+	if err != nil {
+		t.Fatalf("connecting to gate: %v", err)
+	}
+	defer conn.Close()
+
+	fmt.Fprintf(conn, "CONNECT api.github.com:443 HTTP/1.1\r\nHost: api.github.com:443\r\n\r\n")
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		t.Fatalf("reading CONNECT response: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 from CONNECT with MITM, got %d", resp.StatusCode)
 	}
 
-	// Now test the reverse: scope only allows github, jira should be denied
-	scope2 := internal.Scope{
-		Services: map[string]internal.ServiceScope{
-			"github": {Repos: []string{"*"}, Operations: []string{"*"}},
-		},
+	// TLS handshake should succeed with our CA
+	caPool := x509.NewCertPool()
+	caPool.AppendCertsFromPEM(certPEM)
+	tlsConn := tls.Client(conn, &tls.Config{
+		ServerName: "api.github.com",
+		RootCAs:    caPool,
+		NextProtos: []string{"http/1.1"},
+	})
+	if err := tlsConn.Handshake(); err != nil {
+		t.Fatalf("TLS handshake failed: %v", err)
 	}
-	cfg2 := cfg
-	cfg2.Scope = scope2
-	p2 := NewProxy(cfg2)
-	ts2 := httptest.NewServer(p2.Handler())
-	t.Cleanup(func() { ts2.Close(); p2.Stop() })
+	tlsConn.Close()
+}
 
-	code, _ = doRequest(t, "GET", ts2.URL+"/jira/rest/api/3/issue/PROJ-123", "")
-	if code != http.StatusForbidden {
-		t.Errorf("expected 403 for jira (not in scope when only github allowed), got %d", code)
+func TestCONNECT_UnknownHostDenied(t *testing.T) {
+	scope := githubScope([]string{"*"}, []string{"*"})
+	_, ts := newTestProxy(t, scope, map[string]string{"github": "ghp_token"})
+
+	conn, err := net.Dial("tcp", strings.TrimPrefix(ts.URL, "http://"))
+	if err != nil {
+		t.Fatalf("connecting to gate: %v", err)
+	}
+	defer conn.Close()
+
+	fmt.Fprintf(conn, "CONNECT evil.example.com:443 HTTP/1.1\r\nHost: evil.example.com:443\r\n\r\n")
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		t.Fatalf("reading response: %v", err)
+	}
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 for unknown host CONNECT, got %d", resp.StatusCode)
+	}
+}
+
+func TestCONNECT_AllowlistDomainPassthrough(t *testing.T) {
+	scope := internal.Scope{Services: map[string]internal.ServiceScope{}}
+	_, ts := newTestProxy(t, scope, map[string]string{})
+
+	conn, err := net.Dial("tcp", strings.TrimPrefix(ts.URL, "http://"))
+	if err != nil {
+		t.Fatalf("connecting to gate: %v", err)
+	}
+	defer conn.Close()
+
+	// pypi.org is on the domain allowlist
+	fmt.Fprintf(conn, "CONNECT pypi.org:443 HTTP/1.1\r\nHost: pypi.org:443\r\n\r\n")
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		t.Fatalf("reading response: %v", err)
+	}
+	// Should succeed (200) — passthrough tunnel
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for allowlisted domain CONNECT, got %d", resp.StatusCode)
 	}
 }
 
@@ -1219,8 +1180,6 @@ func TestJiraCredentialIsolation(t *testing.T) {
 // --------------------------------------------------------------------
 
 func TestLLMOAuthToken_InjectsCorrectHeaders(t *testing.T) {
-	// Create a proxy with oauth_token type and send a request to /v1/messages.
-	// Verify that Gate accepts the request (no "unknown LLM provider" error).
 	cfg := Config{
 		SessionID:    "test-session",
 		Scope:        internal.Scope{Services: map[string]internal.ServiceScope{}},
@@ -1235,9 +1194,6 @@ func TestLLMOAuthToken_InjectsCorrectHeaders(t *testing.T) {
 	ts := httptest.NewServer(p.Handler())
 	t.Cleanup(func() { ts.Close(); p.Stop() })
 
-	// Send a request to /v1/messages. The upstream (api.anthropic.com) will
-	// likely fail or refuse, but we verify Gate itself does not return a 500
-	// "unknown LLM provider" error — the request should be proxied.
 	code, body := doRequest(t, "POST", ts.URL+"/v1/messages", `{"model":"claude-sonnet-4-20250514","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`)
 	if code == http.StatusInternalServerError && strings.Contains(body, "unknown LLM provider") {
 		t.Errorf("oauth_token type should be accepted, but got 'unknown LLM provider' error")
@@ -1245,8 +1201,6 @@ func TestLLMOAuthToken_InjectsCorrectHeaders(t *testing.T) {
 }
 
 func TestLLMOAuthToken_NotUnknownProvider(t *testing.T) {
-	// Verify that oauth_token with LLMProvider "anthropic" does not trigger
-	// the "unknown LLM provider" error path.
 	cfg := Config{
 		SessionID:    "test-session",
 		Scope:        internal.Scope{Services: map[string]internal.ServiceScope{}},
@@ -1262,9 +1216,6 @@ func TestLLMOAuthToken_NotUnknownProvider(t *testing.T) {
 	t.Cleanup(func() { ts.Close(); p.Stop() })
 
 	code, body := doRequest(t, "POST", ts.URL+"/v1/messages", `{"model":"claude-sonnet-4-20250514","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`)
-	// The request should NOT get the "unknown LLM provider" error (500).
-	// It may fail for other reasons (upstream unreachable, auth failure, etc.)
-	// but the provider routing should work correctly.
 	if code == http.StatusInternalServerError && strings.Contains(body, "unknown LLM provider") {
 		t.Errorf("oauth_token with anthropic provider should not trigger 'unknown LLM provider'; got %d: %s", code, body)
 	}

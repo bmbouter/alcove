@@ -17,6 +17,7 @@ package bridge
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -101,8 +102,9 @@ type TaskRequest struct {
 	Debug          bool                     `json:"debug,omitempty"`
 	Plugins        []PluginSpec             `json:"-"` // Set internally from agent definition
 	Credentials    map[string]string        `json:"-"` // ENV_VAR_NAME: credential_provider_name
-	DirectOutbound bool                     `json:"direct_outbound,omitempty"`
-	DevContainer   *DevContainerSpec       `json:"dev_container,omitempty"`
+	DirectOutbound  bool                     `json:"direct_outbound,omitempty"`
+	EnforcementMode string                  `json:"-"` // "enforce" (default) or "monitor"
+	DevContainer    *DevContainerSpec       `json:"dev_container,omitempty"`
 	// Task metadata — set by dispatch code paths, stored in sessions table.
 	TaskName    string `json:"-"` // Schedule/agent definition name
 	TriggerType string `json:"-"` // "event", "cron", "manual", "webhook"
@@ -365,7 +367,13 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		}
 	}
 
-	// Build Gate sidecar env vars (scope config + LLM credentials).
+	// Generate ephemeral CA for Gate MITM re-encrypt proxy.
+	caCertPEM, caKeyPEM, err := generateEphemeralCA()
+	if err != nil {
+		return nil, fmt.Errorf("generating ephemeral CA: %w", err)
+	}
+
+	// Build Gate sidecar env vars (scope config + LLM credentials + MITM CA).
 	scopeBytes, _ := json.Marshal(scope)
 	gateEnv := map[string]string{
 		"GATE_SESSION_ID":           sessionID,
@@ -380,15 +388,24 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		"GATE_CREDENTIALS":          "{}",
 		"GATE_VERTEX_REGION":        vertexRegion,
 		"GATE_VERTEX_PROJECT":       vertexProject,
+		"GATE_CA_CERT_PEM":          base64.StdEncoding.EncodeToString(caCertPEM),
+		"GATE_CA_KEY_PEM":           base64.StdEncoding.EncodeToString(caKeyPEM),
+	}
+
+	// Pass ephemeral CA cert to Skiff for trust store injection.
+	skiffEnv["ALCOVE_CA_CERT_PEM"] = base64.StdEncoding.EncodeToString(caCertPEM)
+
+	// Pass enforcement mode to Gate (monitor = log-only, no denials).
+	if req.EnforcementMode == "monitor" {
+		gateEnv["GATE_ENFORCEMENT_MODE"] = "monitor"
 	}
 
 	// Resolve SCM credentials for services in scope.
 	scmCredentials := make(map[string]string)
 	scmDummyTokens := make(map[string]string)
-	scmAPIHosts := make(map[string]string) // service -> custom api_host from credential
 	for service := range scope.Services {
 		if service == "github" || service == "gitlab" || service == "jira" || service == "splunk" {
-			realToken, apiHost, err := d.credStore.AcquireSCMTokenWithHost(ctx, service)
+			realToken, _, err := d.credStore.AcquireSCMTokenWithHost(ctx, service)
 			if err != nil {
 				log.Printf("warning: no credential for %s: %v", service, err)
 				continue
@@ -396,9 +413,6 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 			scmCredentials[service] = realToken
 			dummyToken := "alcove-session-" + uuid.New().String()
 			scmDummyTokens[service] = dummyToken
-			if apiHost != "" {
-				scmAPIHosts[service] = stripURLToHost(apiHost)
-			}
 		}
 	}
 
@@ -410,11 +424,9 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 
 	// Resolve MCP tool configurations for the task.
 	var mcpConfigs map[string]any
-	var gateToolConfigs map[string]any
 
 	if len(req.Tools) > 0 {
 		mcpConfigs = make(map[string]any)
-		gateToolConfigs = make(map[string]any)
 
 		for toolName, toolCfg := range req.Tools {
 			if !toolCfg.Enabled {
@@ -435,7 +447,7 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 			}
 
 			// Resolve credential for this tool.
-			realToken, apiHost, err := d.credStore.AcquireSCMTokenWithHost(ctx, toolName)
+			realToken, _, err := d.credStore.AcquireSCMTokenWithHost(ctx, toolName)
 			dummyToken := "alcove-session-" + uuid.New().String()
 
 			if err != nil {
@@ -448,23 +460,14 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 				scmCredentials[toolName] = realToken
 			}
 
-			// If credential has a custom API host, track it for overriding tool config.
-			if apiHost != "" {
-				scmAPIHosts[toolName] = stripURLToHost(apiHost)
-			}
-
 			// Build MCP server config for Skiff.
 			if tool.MCPCommand != "" {
 				envMap := map[string]string{}
 
-				// Set the tool's API URL to go through Gate.
+				// Set the tool's MCP server env vars.
 				switch toolName {
-				case "github":
-					envMap["GITHUB_PERSONAL_ACCESS_TOKEN"] = dummyToken
-					envMap["GITHUB_HOST"] = fmt.Sprintf("http://%s:8443/github", gateName)
 				case "gitlab":
 					envMap["GITLAB_TOKEN"] = dummyToken
-					envMap["GITLAB_API_URL"] = fmt.Sprintf("http://%s:8443/gitlab/api/v4", gateName)
 				default:
 					// Custom tools: set a generic token env var.
 					envMap["TOOL_TOKEN"] = dummyToken
@@ -488,26 +491,12 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 				}
 			}
 
-			// Gate tool config.
-			if tool.APIHost != "" {
-				gateToolConfigs[toolName] = map[string]string{
-					"api_host":    tool.APIHost,
-					"auth_header": tool.AuthHeader,
-					"auth_format": tool.AuthFormat,
-				}
-			}
 		}
 
 		// Set Skiff MCP config env var.
 		if len(mcpConfigs) > 0 {
 			mcpJSON, _ := json.Marshal(mcpConfigs)
 			skiffEnv["ALCOVE_MCP_CONFIG"] = string(mcpJSON)
-		}
-
-		// Set Gate tool configs env var.
-		if len(gateToolConfigs) > 0 {
-			gtcJSON, _ := json.Marshal(gateToolConfigs)
-			gateEnv["GATE_TOOL_CONFIGS"] = string(gtcJSON)
 		}
 	}
 
@@ -517,89 +506,28 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		gateEnv["GATE_CREDENTIALS"] = string(credJSON)
 	}
 
-	// Override Gate tool configs with custom API hosts from credentials.
-	if len(scmAPIHosts) > 0 {
-		if gateToolConfigs == nil {
-			gateToolConfigs = make(map[string]any)
-		}
-		for service, apiHost := range scmAPIHosts {
-			if existing, ok := gateToolConfigs[service]; ok {
-				// Override the api_host in the existing tool config.
-				if m, ok := existing.(map[string]string); ok {
-					m["api_host"] = apiHost
-					gateToolConfigs[service] = m
-				}
-			} else {
-				// Create a new tool config entry with the credential's api_host.
-				switch service {
-				case "gitlab":
-					gateToolConfigs[service] = map[string]string{
-						"api_host":    apiHost,
-						"auth_header": "PRIVATE-TOKEN",
-						"auth_format": "header",
-					}
-				case "github":
-					gateToolConfigs[service] = map[string]string{
-						"api_host":    apiHost,
-						"auth_header": "Authorization",
-						"auth_format": "bearer",
-					}
-				case "jira":
-					gateToolConfigs[service] = map[string]string{
-						"api_host":    apiHost,
-						"auth_header": "Authorization",
-						"auth_format": "basic",
-					}
-				case "splunk":
-					gateToolConfigs[service] = map[string]string{
-						"api_host":    apiHost,
-						"auth_header": "Authorization",
-						"auth_format": "bearer",
-					}
-				}
-			}
-		}
-
-		// Set Gate tool configs env var if we added entries.
-		if len(gateToolConfigs) > 0 {
-			gtcJSON, _ := json.Marshal(gateToolConfigs)
-			gateEnv["GATE_TOOL_CONFIGS"] = string(gtcJSON)
-		}
-
-		// Set GATE_GITLAB_HOST for custom GitLab instances.
-		if gitlabHost, ok := scmAPIHosts["gitlab"]; ok {
-			gateEnv["GATE_GITLAB_HOST"] = gitlabHost
-		}
-	}
-
 	// Re-marshal scope after tool resolution may have added services.
 	scopeBytes, _ = json.Marshal(scope)
 	gateEnv["GATE_SCOPE"] = string(scopeBytes)
 
-	// Set SCM environment for Skiff tools (dummy tokens + Gate proxy URLs).
+	// Set SCM environment for Skiff tools (dummy tokens so tools don't prompt for auth).
+	// Tools reach upstream hosts via HTTP_PROXY -> Gate MITM, so no custom API URLs needed.
 	if token, ok := scmDummyTokens["github"]; ok {
 		skiffEnv["GITHUB_TOKEN"] = token
 		skiffEnv["GH_TOKEN"] = token
 		skiffEnv["GITHUB_PERSONAL_ACCESS_TOKEN"] = token
-		skiffEnv["GITHUB_API_URL"] = fmt.Sprintf("http://%s:8443/github", gateName)
-		skiffEnv["GH_HOST"] = fmt.Sprintf("%s:8443", gateName)
-		skiffEnv["GH_PROTOCOL"] = "http"
 		skiffEnv["GH_PROMPT_DISABLED"] = "1"
 		skiffEnv["GH_NO_UPDATE_NOTIFIER"] = "1"
 	}
 	if token, ok := scmDummyTokens["gitlab"]; ok {
 		skiffEnv["GITLAB_TOKEN"] = token
 		skiffEnv["GITLAB_PERSONAL_ACCESS_TOKEN"] = token
-		skiffEnv["GITLAB_API_URL"] = fmt.Sprintf("http://%s:8443/gitlab/api/v4", gateName)
-		skiffEnv["GLAB_HOST"] = fmt.Sprintf("http://%s:8443/gitlab", gateName)
 	}
 	if token, ok := scmDummyTokens["jira"]; ok {
 		skiffEnv["JIRA_TOKEN"] = token
-		skiffEnv["JIRA_API_URL"] = fmt.Sprintf("http://%s:8443/jira", gateName)
 	}
 	if token, ok := scmDummyTokens["splunk"]; ok {
 		skiffEnv["SPLUNK_TOKEN"] = token
-		skiffEnv["SPLUNK_URL"] = fmt.Sprintf("http://%s:8443/splunk", gateName)
 	}
 
 	// Resolve skill repos for this task (catalog-based for team sessions).

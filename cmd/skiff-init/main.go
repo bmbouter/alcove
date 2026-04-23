@@ -21,6 +21,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -133,6 +134,11 @@ func main() {
 		// No-op cancel channel
 		ch := make(chan struct{})
 		cancelCh = ch
+	}
+
+	// --- Set up CA trust for MITM proxy ---
+	if err := setupCATrust(); err != nil {
+		log.Printf("warning: CA trust setup failed: %v", err)
 	}
 
 	// --- Send running status ---
@@ -1146,6 +1152,65 @@ func injectClaudeMD(repos []internal.RepoSpec, prompt string) string {
 	return strings.Join(claudeMDs, "\n\n---\n\n") + "\n\n---\n\n" + prompt
 }
 
+
+// setupCATrust installs the ephemeral CA certificate into the trust store so that
+// tools like gh, curl, git, Python requests, and Node.js fetch all trust Gate's
+// MITM certificates. The CA cert PEM is passed via ALCOVE_CA_CERT_PEM (base64-encoded).
+func setupCATrust() error {
+	caCertB64 := os.Getenv("ALCOVE_CA_CERT_PEM")
+	if caCertB64 == "" {
+		return nil // No CA cert, MITM not enabled
+	}
+
+	caCertPEM, err := base64.StdEncoding.DecodeString(caCertB64)
+	if err != nil {
+		return fmt.Errorf("decoding ALCOVE_CA_CERT_PEM: %w", err)
+	}
+
+	// Create the TLS directory
+	tlsDir := "/etc/alcove-tls"
+	if err := os.MkdirAll(tlsDir, 0755); err != nil {
+		return fmt.Errorf("creating %s: %w", tlsDir, err)
+	}
+
+	// Write the CA cert
+	caPath := filepath.Join(tlsDir, "ca.pem")
+	if err := os.WriteFile(caPath, caCertPEM, 0644); err != nil {
+		return fmt.Errorf("writing CA cert: %w", err)
+	}
+
+	// Create a combined bundle: system CAs + ephemeral CA
+	// UBI9/RHEL system CA bundle location
+	systemBundle := "/etc/pki/tls/certs/ca-bundle.crt"
+	bundlePath := filepath.Join(tlsDir, "ca-bundle.pem")
+
+	systemCAs, err := os.ReadFile(systemBundle)
+	if err != nil {
+		// Fallback: try the Debian/Ubuntu location
+		systemCAs, err = os.ReadFile("/etc/ssl/certs/ca-certificates.crt")
+		if err != nil {
+			// If no system bundle found, just use the CA cert alone
+			systemCAs = nil
+		}
+	}
+
+	bundle := append(systemCAs, '\n')
+	bundle = append(bundle, caCertPEM...)
+	if err := os.WriteFile(bundlePath, bundle, 0644); err != nil {
+		return fmt.Errorf("writing CA bundle: %w", err)
+	}
+
+	// Set trust store env vars for all common tools
+	os.Setenv("SSL_CERT_FILE", bundlePath)
+	os.Setenv("NODE_EXTRA_CA_CERTS", caPath)
+	os.Setenv("CURL_CA_BUNDLE", bundlePath)
+	os.Setenv("GIT_SSL_CAINFO", bundlePath)
+	os.Setenv("REQUESTS_CA_BUNDLE", bundlePath)
+
+	log.Printf("installed ephemeral CA trust (%d bytes) at %s", len(caCertPEM), tlsDir)
+
+	return nil
+}
 
 // requireEnv returns the value of an environment variable or exits fatally.
 func requireEnv(key string) string {

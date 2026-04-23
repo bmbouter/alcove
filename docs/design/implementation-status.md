@@ -15,7 +15,7 @@ all resolved decisions.
 |-----------|------|---------|
 | Controller | **Bridge** | REST API, dashboard, session dispatch, scheduler, admin settings, security profile builder |
 | Worker | **Skiff** | Ephemeral Claude Code execution |
-| Auth Proxy | **Gate** | Sidecar proxy: token swap, LLM API proxy, SCM proxy (`/github/`, `/gitlab/`), scope enforcement, MCP tool configs |
+| Auth Proxy | **Gate** | Sidecar proxy: token swap, LLM API proxy, MITM TLS SCM proxy, scope enforcement, MCP tool configs |
 | Message Bus | **Hail** | NATS-based status, transcript ingestion, cancellation |
 | Session Store | **Ledger** | PostgreSQL session records, transcripts, proxy logs |
 
@@ -27,7 +27,7 @@ all resolved decisions.
 alcove/
 ├── cmd/
 │   ├── bridge/main.go          ✅ Controller: REST API, auth, session dispatch, migration, scheduling, admin settings
-│   ├── gate/main.go            ✅ HTTP proxy with scope enforcement, LLM proxying, SCM proxying (/github/, /gitlab/), token refresh, MCP tool configs
+│   ├── gate/main.go            ✅ HTTP proxy with scope enforcement, LLM proxying, MITM TLS SCM proxying, token refresh, MCP tool configs
 │   ├── skiff-init/main.go      ✅ PID 1 init: reads session config from env, runs claude, streams output, publishes transcript events to NATS
 │   ├── shim/main.go            ✅ Dev container execution sidecar: GET /healthz + POST /exec with NDJSON streaming, bearer auth, timeout enforcement
 │   ├── hashpw/main.go          ✅ Utility: password hashing tool
@@ -98,7 +98,7 @@ alcove/
 │   └── design/
 │       ├── implementation-status.md    ✅ This file
 │       ├── architecture.md             ✅ Full component design
-│       ├── architecture-decisions.md   ✅ 22 resolved decisions
+│       ├── architecture-decisions.md   ✅ 24 resolved decisions
 │       ├── problem-statement.md        ✅ Why ephemeral agents
 │       ├── credential-management.md    ✅ Credential storage and token flow design
 │       ├── auth-backends.md            ✅ Dual auth backend design
@@ -191,16 +191,16 @@ alcove/
    AI endpoints, body transformation (removes `model` and `context_management`,
    adds `anthropic_version`), model name conversion, and header stripping.
 
-10. **SCM Authorization** — Gate provides `/github/` and `/gitlab/` reverse-proxy
-    endpoints that forward requests to the respective SCM APIs after operation-level
-    scope checking. Bridge resolves SCM credentials via `AcquireSCMToken` at dispatch
-    time and injects dummy tokens into the Skiff container. Gate swaps the dummy
-    tokens for real PATs at proxy time. The Skiff base image includes the `gh` and
-    `glab` CLIs, and a git credential helper (`build/alcove-credential-helper`) that
-    acquires HTTPS git credentials from Gate. SCM-related environment variables
-    (`GITHUB_TOKEN`, `GH_TOKEN`, `GITLAB_TOKEN`, `GITHUB_API_URL`, `GITLAB_API_URL`,
-    `GH_HOST`, `GLAB_HOST`, `GATE_CREDENTIAL_URL`, `GIT_SSH_COMMAND`, etc.) are
-    injected by Bridge when the session scope includes a `github` or `gitlab` service.
+10. **SCM Authorization** — Gate intercepts CONNECT tunnels to service domains
+    (GitHub, GitLab, Jira) via MITM TLS. An ephemeral CA is generated per session
+    by Bridge; the CA cert is injected into Skiff's trust store. Gate terminates
+    TLS tunnels, inspects plaintext requests, performs operation-level scope
+    checking, injects real credentials, and re-encrypts to upstream. Bridge
+    resolves SCM credentials via `AcquireSCMToken` at dispatch time and injects
+    dummy tokens into the Skiff container. The Skiff base image includes the `gh`
+    and `glab` CLIs (which work natively through HTTP_PROXY without per-tool API
+    URL env vars), and a git credential helper (`build/alcove-credential-helper`)
+    that acquires HTTPS git credentials from Gate.
 
 11. **Transcript Viewing** — Skiff flushes transcript events to the database
     every 5 seconds via `POST /api/v1/sessions/{id}/transcript`. The dashboard
@@ -444,12 +444,12 @@ See the full roadmap in [architecture-decisions.md](architecture-decisions.md#ro
 ## Key Design Documents
 
 - [architecture.md](architecture.md) — full component design, deployment diagrams, network isolation
-- [architecture-decisions.md](architecture-decisions.md) — 22 resolved decisions, CLI design, config format, repo layout, revised roadmap
+- [architecture-decisions.md](architecture-decisions.md) — 24 resolved decisions, CLI design, config format, repo layout, revised roadmap
 - [problem-statement.md](problem-statement.md) — why ephemeral agents (context contamination, credential drift, filesystem poisoning, credential exposure)
 - [credential-management.md](credential-management.md) — credential storage, encryption, OAuth2 token flow, token refresh design
 - [auth-backends.md](auth-backends.md) — auth backend design (memory, postgres, rh-identity)
 - [podman-network-isolation.md](podman-network-isolation.md) — dual-network isolation design with `--internal` flag on podman
-- [gate-scm-authorization.md](gate-scm-authorization.md) — SCM authorization design: Gate proxy endpoints, scope checking, credential resolution, git credential helper
+- [gate-scm-authorization.md](gate-scm-authorization.md) — SCM authorization design: Gate MITM TLS proxy, scope checking, credential resolution, git credential helper
 - [mcp-tool-gateway.md](mcp-tool-gateway.md) — MCP tool gateway design
 - [security-profiles-and-system-llm.md](security-profiles-and-system-llm.md) — Security profiles and system LLM design
 
@@ -512,19 +512,18 @@ See the full roadmap in [architecture-decisions.md](architecture-decisions.md#ro
 | `NO_PROXY` | Addresses excluded from proxy |
 | `ANTHROPIC_BASE_URL` | Points to Gate container (`http://gate-<taskID>:8443`) for LLM API proxying |
 | `ANTHROPIC_API_KEY` | Placeholder API key (real key injected by Gate) |
-| `GITHUB_TOKEN` | Dummy GitHub token (Gate swaps for real PAT) |
+| `GITHUB_TOKEN` | Dummy GitHub token (Gate swaps for real PAT via MITM TLS) |
 | `GH_TOKEN` | Alias for `GITHUB_TOKEN` used by `gh` CLI |
 | `GITHUB_PERSONAL_ACCESS_TOKEN` | Alias for GitHub tooling |
-| `GITHUB_API_URL` | Points to Gate's `/github/` proxy endpoint |
-| `GH_HOST` | GitHub host for `gh` CLI |
 | `GH_PROMPT_DISABLED` | Disables interactive prompts in `gh` CLI |
 | `GH_NO_UPDATE_NOTIFIER` | Disables `gh` update notifications |
-| `GITLAB_TOKEN` | Dummy GitLab token (Gate swaps for real PAT) |
+| `GITLAB_TOKEN` | Dummy GitLab token (Gate swaps for real PAT via MITM TLS) |
 | `GITLAB_PERSONAL_ACCESS_TOKEN` | Alias for GitLab tooling |
-| `GITLAB_API_URL` | Points to Gate's `/gitlab/` proxy endpoint |
-| `GLAB_HOST` | GitLab host for `glab` CLI |
 | `GATE_CREDENTIAL_URL` | Gate endpoint for git credential helper |
 | `GIT_SSH_COMMAND` | Disables SSH git operations (forces HTTPS via Gate) |
+| `ALCOVE_CA_CERT_PEM` | Ephemeral CA certificate PEM for MITM TLS trust |
+| `SSL_CERT_FILE` | Path to CA bundle including ephemeral CA (set by skiff-init) |
+| `NODE_EXTRA_CA_CERTS` | Path to CA bundle for Node.js trust (set by skiff-init) |
 | `DEV_TOKEN` | Bearer token for authenticating with the dev container's shim (set when `dev_container` is configured) |
 | `DEV_CONTAINER_HOST` | Hostname and port of the dev container's shim (e.g., `dev-<taskID>:9090`; overridden to `localhost:9090` on K8s) |
 
@@ -545,3 +544,5 @@ See the full roadmap in [architecture-decisions.md](architecture-decisions.md#ro
 | `GATE_VERTEX_REGION` | Vertex AI region (default `us-east5`) |
 | `GATE_VERTEX_PROJECT` | GCP project ID for Vertex AI |
 | `GATE_GITLAB_HOST` | GitLab hostname for self-hosted instances (default `gitlab.com`) |
+| `GATE_CA_CERT_PEM` | Ephemeral CA certificate PEM for MITM TLS leaf cert signing |
+| `GATE_CA_KEY_PEM` | Ephemeral CA private key PEM for MITM TLS leaf cert signing |

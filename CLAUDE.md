@@ -29,7 +29,7 @@ Bridge → Hail (NATS) → Skiff Pod [skiff container + gate sidecar] → Gate �
 
 - Skiff pods are ephemeral: one session, one container, then destroyed
 - Gate is a sidecar (shares network namespace with Skiff)
-- Gate proxies ALL external traffic including LLM API calls (Skiff has no real credentials)
+- Gate proxies ALL external traffic: MITM TLS interception for service domains (GitHub, GitLab, Jira) and `/v1/` endpoint for LLM API calls (Skiff has no real credentials)
 - Optional dev container runs alongside Skiff with a shared `/workspace` volume, enabling agents to build/test code in project-specific environments; the shim binary is baked into the dev container image (built with `make build-dev`); a simple shell entrypoint starts PostgreSQL, NATS, and the shim without requiring a process supervisor
 - On OpenShift, a static `alcove-allow-internal` NetworkPolicy restricts egress (per-task NetworkPolicy is disabled due to OVN-Kubernetes DNS resolution issues); dual-network isolation (`--internal` flag) on podman
 - k3s is supported for local Kubernetes development (`make k3s-setup && make k3s-up && make k3s-watch`); Bridge runs on the host, NATS+PostgreSQL run as k8s pods with port-forwards, Skiff Jobs are dispatched into the same k3s cluster
@@ -40,11 +40,11 @@ Read these for full context:
 
 1. `docs/design/implementation-status.md` — **START HERE** — current state, what works, what's next
 2. `docs/design/architecture.md` — component design, deployment diagrams, network isolation, roadmap
-3. `docs/design/architecture-decisions.md` — 23 resolved decisions, CLI design, config format, repo layout
+3. `docs/design/architecture-decisions.md` — 24 resolved decisions, CLI design, config format, repo layout
 4. `docs/design/problem-statement.md` — why ephemeral agents
 5. `docs/design/credential-management.md` — credential storage, encryption, OAuth2 token flow
 6. `docs/design/auth-backends.md` — auth backend design (memory, postgres, rh-identity)
-7. `docs/design/gate-scm-authorization.md` — SCM proxy endpoints, operation taxonomy, security model
+7. `docs/design/gate-scm-authorization.md` — SCM MITM proxy, operation taxonomy, security model
 
 ## Quick Commands
 
@@ -95,7 +95,7 @@ make k3s-status               # Show pods, port-forwards, and jobs
 
 - **Teams are the ownership unit** — every resource belongs to a team; every user belongs to one or more teams; personal team auto-created on signup; `X-Alcove-Team` header scopes all API requests
 - **Gate is a sidecar** per Skiff pod (not shared service) — credential isolation
-- **No MITM TLS** — protocol-level interception (HTTP_PROXY, git credential helpers)
+- **MITM TLS for service domains** — ephemeral CA per session, Gate terminates CONNECT tunnels to service domains (GitHub, GitLab, Jira), inspects requests, injects credentials, and re-encrypts to upstream; tools use standard HTTP_PROXY; CA cert injected into Skiff trust store
 - **LLM keys never enter Skiff** — Gate proxies LLM API calls, injects keys; Gate also translates Anthropic API format to Vertex AI format when using Vertex AI (`GATE_VERTEX_PROJECT`, `GATE_VERTEX_REGION`)
 - **Fresh git clone per session** — `git clone --depth=1`, no persistent volumes
 - **NATS for messaging** — status updates and cancellation only (session config via env vars)
@@ -103,7 +103,7 @@ make k3s-status               # Show pods, port-forwards, and jobs
 - **Podman + k8s** dual runtime via `Runtime` interface in `internal/runtime/`
 - **Credential management via Bridge** — Bridge pre-fetches OAuth2 tokens, Gate receives only short-lived tokens
 - **Three auth backends** — `AUTH_BACKEND=memory` (default), `postgres`, or `rh-identity` (trusted `X-RH-Identity` header from Red Hat Turnpike, JIT user provisioning, no passwords)
-- **SCM and tool APIs proxied through Gate** — `/github/`, `/gitlab/`, and `/jira/` endpoints with dummy tokens, operation-level scope enforcement, real credentials never enter Skiff
+- **SCM and tool APIs proxied through Gate** — MITM TLS interception of CONNECT tunnels to service domains with operation-level scope enforcement, real credentials never enter Skiff
 - **Custom migration runner** — embedded SQL files, advisory locking, no external dependencies
 - **Per-item catalog granularity** — catalog has a two-level hierarchy: sources (git repos, unit of distribution) and items (plugins, agents, LSPs, MCPs); catalog items are seeded from embedded data at compile time (no runtime cloning of catalog source repos); teams toggle individual items, not whole sources; enabled agents are referenced in workflow steps as `source/item` slugs; workflow definitions are validated at sync time for unknown/disabled agent references
 - **Workflow graph with bounded cycles** — workflows support agent steps (Skiff pods) and bridge steps (deterministic `create-pr`/`await-ci`/`merge-pr` actions); `depends` expressions with `&&`/`||`; `max_iterations` prevents infinite loops in review/revision cycles
