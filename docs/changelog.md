@@ -3,6 +3,13 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.38.0
+
+### Features
+- Generic HTTP-primitive policy rules — replace bespoke operation-name scope checking with method+host+path glob rules. Named rule sets defined in `.alcove/policy-rules/*.yml`, referenced by security profiles.
+- Ships with 73 named rule sets covering all GitHub, GitLab, Jira, and Splunk operations
+- Host wildcard matching in policy rules (`*.atlassian.net`, `*.gitlab.com`)
+
 ## v0.37.0
 
 ### Features
