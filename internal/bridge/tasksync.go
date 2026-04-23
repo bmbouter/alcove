@@ -29,10 +29,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/semaphore"
+	"gopkg.in/yaml.v3"
 )
 
 // AgentRepoSyncer periodically clones/pulls agent repos and syncs YAML agent
-// definitions, workflow definitions, and security profiles into the database, reconciling schedules as needed.
+// definitions, workflow definitions, security profiles, and policy rules into the database, reconciling schedules as needed.
 type AgentRepoSyncer struct {
 	db               *pgxpool.Pool
 	settingsStore    *SettingsStore
@@ -40,6 +41,7 @@ type AgentRepoSyncer struct {
 	defStore         *AgentDefStore
 	dispatcher       *Dispatcher
 	profileStore     *ProfileStore
+	policyRuleStore  *PolicyRuleStore
 	workflowStore    *WorkflowStore
 	catalogItemStore *CatalogItemStore
 	interval         time.Duration
@@ -51,7 +53,7 @@ type AgentRepoSyncer struct {
 }
 
 // NewAgentRepoSyncer creates a AgentRepoSyncer with the given dependencies.
-func NewAgentRepoSyncer(db *pgxpool.Pool, settingsStore *SettingsStore, scheduler *Scheduler, defStore *AgentDefStore, dispatcher *Dispatcher, profileStore *ProfileStore, workflowStore *WorkflowStore) *AgentRepoSyncer {
+func NewAgentRepoSyncer(db *pgxpool.Pool, settingsStore *SettingsStore, scheduler *Scheduler, defStore *AgentDefStore, dispatcher *Dispatcher, profileStore *ProfileStore, policyRuleStore *PolicyRuleStore, workflowStore *WorkflowStore) *AgentRepoSyncer {
 	interval := 15 * time.Minute
 	if v := os.Getenv("AGENT_REPO_SYNC_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
@@ -66,6 +68,7 @@ func NewAgentRepoSyncer(db *pgxpool.Pool, settingsStore *SettingsStore, schedule
 		defStore:         defStore,
 		dispatcher:       dispatcher,
 		profileStore:     profileStore,
+		policyRuleStore:  policyRuleStore,
 		workflowStore:    workflowStore,
 		catalogItemStore: NewCatalogItemStore(db),
 		interval:         interval,
@@ -212,9 +215,10 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 			removedRepos := make(map[string]bool)
 			for _, def := range teamDefs {
 				if !configuredURLs[def.SourceRepo] && !removedRepos[def.SourceRepo] {
-					log.Printf("agent-repo-syncer: removing agent definitions, workflows, and profiles from %s for team %s (no longer configured)", def.SourceRepo, teamID)
+					log.Printf("agent-repo-syncer: removing agent definitions, workflows, profiles, and policy rules from %s for team %s (no longer configured)", def.SourceRepo, teamID)
 					_ = s.defStore.DeleteAgentDefinitionsByRepo(ctx, def.SourceRepo, teamID)
 					_ = s.profileStore.DeleteYAMLProfilesByRepo(ctx, def.SourceRepo, teamID)
+					_ = s.policyRuleStore.DeleteByRepo(ctx, def.SourceRepo, teamID)
 					_ = s.workflowStore.DeleteWorkflowsByRepo(ctx, def.SourceRepo, teamID)
 					// Also clean up schedules from this repo.
 					s.db.Exec(ctx, `DELETE FROM schedules WHERE source_key LIKE $1 AND team_id = $2`, username+"::%", teamID)
@@ -402,6 +406,9 @@ func (s *AgentRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo, username
 	// Sync security profiles from .alcove/security-profiles/*.yml.
 	s.syncSecurityProfiles(ctx, cloneDir, repo, username, teamID)
 
+	// Sync policy rules from .alcove/policy-rules/*.yml.
+	s.syncPolicyRules(ctx, cloneDir, repo, username, teamID)
+
 	// Read all .alcove/agents/*.yml files. Fall back to .alcove/tasks/ for
 	// backward compatibility with repos that haven't been updated yet.
 	agentsDir := filepath.Join(cloneDir, ".alcove", "agents")
@@ -574,6 +581,77 @@ func (s *AgentRepoSyncer) syncSecurityProfiles(ctx context.Context, cloneDir str
 	}
 
 	log.Printf("agent-repo-syncer: synced %d security profile(s) from %s", len(seenKeys), repo.URL)
+}
+
+// syncPolicyRules syncs .alcove/policy-rules/*.yml from a cloned repo for the given user.
+func (s *AgentRepoSyncer) syncPolicyRules(ctx context.Context, cloneDir string, repo SkillRepo, username, teamID string) {
+	rulesDir := filepath.Join(cloneDir, ".alcove", "policy-rules")
+	entries, err := os.ReadDir(rulesDir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("agent-repo-syncer: error reading policy-rules dir: %v", err)
+		}
+		// No policy-rules dir — clean up any previously synced rule sets from this repo.
+		_ = s.policyRuleStore.DeleteByRepo(ctx, repo.URL, teamID)
+		return
+	}
+
+	seenKeys := make(map[string]bool)
+
+	for _, entry := range entries {
+		if entry.IsDir() || (!strings.HasSuffix(entry.Name(), ".yml") && !strings.HasSuffix(entry.Name(), ".yaml")) {
+			continue
+		}
+
+		filePath := filepath.Join(rulesDir, entry.Name())
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			log.Printf("agent-repo-syncer: error reading %s: %v", filePath, err)
+			continue
+		}
+
+		var ruleFile PolicyRuleFile
+		if err := yaml.Unmarshal(data, &ruleFile); err != nil {
+			log.Printf("agent-repo-syncer: error parsing policy rules in %s/%s: %v", repo.URL, entry.Name(), err)
+			continue
+		}
+
+		for _, rs := range ruleFile.RuleSets {
+			if rs.Name == "" {
+				log.Printf("agent-repo-syncer: skipping unnamed rule set in %s/%s", repo.URL, entry.Name())
+				continue
+			}
+
+			sourceKey := fmt.Sprintf("%s::%s::policy-rules/%s::%s", username, repo.URL, entry.Name(), rs.Name)
+			seenKeys[sourceKey] = true
+
+			rulesJSON, err := json.Marshal(rs.Rules)
+			if err != nil {
+				log.Printf("agent-repo-syncer: error marshaling rules for %s: %v", rs.Name, err)
+				continue
+			}
+
+			if err := s.policyRuleStore.UpsertRuleSet(ctx, rs.Name, string(rulesJSON), teamID, repo.URL, entry.Name(), sourceKey); err != nil {
+				log.Printf("agent-repo-syncer: rule set upsert error for %s: %v", sourceKey, err)
+			}
+		}
+	}
+
+	// Delete stale rule sets from this repo.
+	existingKeys, err := s.policyRuleStore.ListSourceKeysByRepo(ctx, repo.URL, teamID)
+	if err != nil {
+		log.Printf("agent-repo-syncer: error listing existing rule set keys: %v", err)
+		return
+	}
+	for _, key := range existingKeys {
+		if !seenKeys[key] {
+			if _, err := s.db.Exec(ctx, `DELETE FROM policy_rule_sets WHERE source_key = $1`, key); err != nil {
+				log.Printf("agent-repo-syncer: error deleting stale rule set %s: %v", key, err)
+			}
+		}
+	}
+
+	log.Printf("agent-repo-syncer: synced %d policy rule set(s) from %s", len(seenKeys), repo.URL)
 }
 
 // validateProfileReferences checks that all profile references in agent definitions

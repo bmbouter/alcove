@@ -1,0 +1,157 @@
+# Splunk API policy rule sets
+#
+# Each rule set maps to one or more HTTP method+host+path combinations that
+# correspond to the operations previously defined in internal/gate/scope.go's
+# mapSplunkOperation() function.
+#
+# Path patterns use "*" to match a single path segment and "**" to match
+# one or more segments. The host uses "*" to match any Splunk instance
+# since Splunk hosts vary by deployment.
+
+rule_sets:
+  # ---------------------------------------------------------------------------
+  # Search operations
+  # ---------------------------------------------------------------------------
+  - name: splunk-search
+    rules:
+      # POST /services/search/jobs (create search job)
+      - allow:
+          method: POST
+          host: "*"
+          path: "/services/search/jobs"
+      # GET /services/search/jobs/{sid} (read search status)
+      - allow:
+          method: GET
+          host: "*"
+          path: "/services/search/jobs/*"
+      # GET /services/search/jobs
+      - allow:
+          method: GET
+          host: "*"
+          path: "/services/search/jobs"
+      # POST /servicesNS/{user}/{app}/search/jobs
+      - allow:
+          method: POST
+          host: "*"
+          path: "/servicesNS/*/*/search/jobs"
+      # GET /servicesNS/{user}/{app}/search/jobs/{sid}
+      - allow:
+          method: GET
+          host: "*"
+          path: "/servicesNS/*/*/search/jobs/*"
+      # GET /servicesNS/{user}/{app}/search/jobs
+      - allow:
+          method: GET
+          host: "*"
+          path: "/servicesNS/*/*/search/jobs"
+
+  - name: splunk-read-results
+    rules:
+      # GET /services/search/jobs/{sid}/results
+      - allow:
+          method: GET
+          host: "*"
+          path: "/services/search/jobs/*/results"
+      # GET /servicesNS/{user}/{app}/search/jobs/{sid}/results
+      - allow:
+          method: GET
+          host: "*"
+          path: "/servicesNS/*/*/search/jobs/*/results"
+
+  # ---------------------------------------------------------------------------
+  # Read operations
+  # ---------------------------------------------------------------------------
+  - name: splunk-read-saved-searches
+    rules:
+      # GET /services/saved/searches
+      - allow:
+          method: GET
+          host: "*"
+          path: "/services/saved/searches"
+      # GET /services/saved/searches/{name}
+      - allow:
+          method: GET
+          host: "*"
+          path: "/services/saved/searches/*"
+      # GET /services/saved/searches/**
+      - allow:
+          method: GET
+          host: "*"
+          path: "/services/saved/searches/**"
+      # GET /servicesNS/{user}/{app}/saved/searches
+      - allow:
+          method: GET
+          host: "*"
+          path: "/servicesNS/*/*/saved/searches"
+      # GET /servicesNS/{user}/{app}/saved/searches/{name}
+      - allow:
+          method: GET
+          host: "*"
+          path: "/servicesNS/*/*/saved/searches/*"
+      # GET /servicesNS/{user}/{app}/saved/searches/**
+      - allow:
+          method: GET
+          host: "*"
+          path: "/servicesNS/*/*/saved/searches/**"
+
+  - name: splunk-read-alerts
+    rules:
+      # GET /services/alerts/**
+      - allow:
+          method: GET
+          host: "*"
+          path: "/services/alerts/**"
+      # GET /servicesNS/{user}/{app}/alerts/**
+      - allow:
+          method: GET
+          host: "*"
+          path: "/servicesNS/*/*/alerts/**"
+
+  # ---------------------------------------------------------------------------
+  # General read/write
+  # ---------------------------------------------------------------------------
+  - name: splunk-read
+    rules:
+      - allow:
+          method: GET
+          host: "*"
+          path: "/services/**"
+      - allow:
+          method: HEAD
+          host: "*"
+          path: "/services/**"
+      - allow:
+          method: GET
+          host: "*"
+          path: "/servicesNS/**"
+      - allow:
+          method: HEAD
+          host: "*"
+          path: "/servicesNS/**"
+
+  - name: splunk-write
+    rules:
+      - allow:
+          method: POST
+          host: "*"
+          path: "/services/**"
+      - allow:
+          method: PUT
+          host: "*"
+          path: "/services/**"
+      - allow:
+          method: DELETE
+          host: "*"
+          path: "/services/**"
+      - allow:
+          method: POST
+          host: "*"
+          path: "/servicesNS/**"
+      - allow:
+          method: PUT
+          host: "*"
+          path: "/servicesNS/**"
+      - allow:
+          method: DELETE
+          host: "*"
+          path: "/servicesNS/**"

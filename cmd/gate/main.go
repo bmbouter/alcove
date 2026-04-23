@@ -49,6 +49,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bmbouter/alcove/internal"
 	"github.com/bmbouter/alcove/internal/gate"
 )
 
@@ -219,6 +220,14 @@ func loadConfig() (gate.Config, error) {
 		log.Printf("gate: enforcement mode = monitor (log-only, all requests allowed)")
 	}
 
+	var policyRules []internal.PolicyRule
+	if prJSON := os.Getenv("GATE_POLICY_RULES"); prJSON != "" {
+		if err := json.Unmarshal([]byte(prJSON), &policyRules); err != nil {
+			return gate.Config{}, fmt.Errorf("invalid GATE_POLICY_RULES: %w", err)
+		}
+		log.Printf("gate: loaded %d policy rules", len(policyRules))
+	}
+
 	return gate.Config{
 		SessionID:          sessionID,
 		Scope:              scope,
@@ -237,5 +246,6 @@ func loadConfig() (gate.Config, error) {
 		CACertPEM:          caCertPEM,
 		CAKeyPEM:           caKeyPEM,
 		EnforcementMode:    enforcementMode,
+		PolicyRules:        policyRules,
 	}, nil
 }

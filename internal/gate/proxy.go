@@ -73,9 +73,10 @@ type Config struct {
 	VertexProject      string // Vertex AI project ID
 	LedgerURL          string
 	GitLabHost         string // self-hosted GitLab hostname (default: "gitlab.com")
-	CACertPEM          []byte // PEM-encoded CA certificate for MITM TLS interception
-	CAKeyPEM           []byte // PEM-encoded CA private key for MITM TLS interception
-	EnforcementMode    string // "monitor" = log-only, "" or "enforce" = enforce scope
+	CACertPEM          []byte                  // PEM-encoded CA certificate for MITM TLS interception
+	CAKeyPEM           []byte                  // PEM-encoded CA private key for MITM TLS interception
+	EnforcementMode    string                  // "monitor" = log-only, "" or "enforce" = enforce scope
+	PolicyRules        []internal.PolicyRule    // Generic HTTP-primitive policy rules
 }
 
 // Proxy is the Gate authorization proxy.

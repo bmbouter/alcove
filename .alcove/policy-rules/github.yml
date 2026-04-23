@@ -1,0 +1,418 @@
+# GitHub API policy rule sets
+#
+# Each rule set maps to one or more HTTP method+host+path combinations that
+# correspond to the operations previously defined in internal/gate/scope.go's
+# mapGitHubOperation() and mapGitHubGeneral() functions.
+#
+# Path patterns use "*" to match a single path segment and "**" to match
+# one or more segments.
+
+rule_sets:
+  # ---------------------------------------------------------------------------
+  # Git credential operations (handled via git credential helpers, not HTTP proxy)
+  # ---------------------------------------------------------------------------
+  - name: github-clone
+    rules:
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*"
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/**"
+
+  - name: github-push-branch
+    rules:
+      - allow:
+          method: POST
+          host: api.github.com
+          path: "/repos/*/git/refs"
+      - allow:
+          method: PATCH
+          host: api.github.com
+          path: "/repos/*/git/refs/**"
+
+  # ---------------------------------------------------------------------------
+  # Read operations
+  # ---------------------------------------------------------------------------
+  - name: github-read-issues
+    rules:
+      # GET /repos/{owner}/{repo}/issues
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/issues"
+      # GET /repos/{owner}/{repo}/issues/{number}
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/issues/*"
+      # GET /repos/{owner}/{repo}/issues/{number}/comments
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/issues/*/comments"
+      # GET /repos/{owner}/{repo}/issues/{number}/comments/{id}
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/issues/*/comments/*"
+      # GET /repos/{owner}/{repo}/issues/{number}/labels
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/issues/*/labels"
+      # GET /repos/{owner}/{repo}/labels
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/labels"
+      # GET /repos/{owner}/{repo}/labels/{name}
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/labels/*"
+
+  - name: github-read-prs
+    rules:
+      # GET /repos/{owner}/{repo}/pulls
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/pulls"
+      # GET /repos/{owner}/{repo}/pulls/{number}
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/pulls/*"
+      # GET /repos/{owner}/{repo}/pulls/{number}/**
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/pulls/**"
+
+  - name: github-read-contents
+    rules:
+      # GET /repos/{owner}/{repo}/contents/{path}
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/contents/**"
+
+  - name: github-read-commits
+    rules:
+      # GET /repos/{owner}/{repo}/commits
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/commits"
+      # GET /repos/{owner}/{repo}/commits/{sha}
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/commits/*"
+      # GET /repos/{owner}/{repo}/commits/**
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/commits/**"
+
+  - name: github-read-branches
+    rules:
+      # GET /repos/{owner}/{repo}/branches
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/branches"
+      # GET /repos/{owner}/{repo}/branches/{branch}
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/branches/*"
+
+  - name: github-read-git
+    rules:
+      # GET /repos/{owner}/{repo}/git/**
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/git/**"
+
+  - name: github-read-actions
+    rules:
+      # GET /repos/{owner}/{repo}/actions/**
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/actions/**"
+
+  - name: github-read-releases
+    rules:
+      # GET /repos/{owner}/{repo}/releases
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/releases"
+      # GET /repos/{owner}/{repo}/releases/{id}
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/releases/*"
+      # GET /repos/{owner}/{repo}/releases/**
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/repos/*/*/releases/**"
+
+  # ---------------------------------------------------------------------------
+  # Write operations — issues and PRs
+  # ---------------------------------------------------------------------------
+  - name: github-create-comment
+    rules:
+      # POST /repos/{owner}/{repo}/issues/{number}/comments
+      - allow:
+          method: POST
+          host: api.github.com
+          path: "/repos/*/*/issues/*/comments"
+      # POST /repos/{owner}/{repo}/pulls/{number}/comments
+      - allow:
+          method: POST
+          host: api.github.com
+          path: "/repos/*/*/pulls/*/comments"
+
+  - name: github-create-issue
+    rules:
+      # POST /repos/{owner}/{repo}/issues
+      - allow:
+          method: POST
+          host: api.github.com
+          path: "/repos/*/*/issues"
+
+  - name: github-update-issue
+    rules:
+      # PATCH /repos/{owner}/{repo}/issues/{number}
+      - allow:
+          method: PATCH
+          host: api.github.com
+          path: "/repos/*/*/issues/*"
+      # POST /repos/{owner}/{repo}/issues/{number}/labels
+      - allow:
+          method: POST
+          host: api.github.com
+          path: "/repos/*/*/issues/*/labels"
+      # DELETE /repos/{owner}/{repo}/issues/{number}/labels/{name}
+      - allow:
+          method: DELETE
+          host: api.github.com
+          path: "/repos/*/*/issues/*/labels/*"
+
+  - name: github-create-pr
+    rules:
+      # POST /repos/{owner}/{repo}/pulls (create_pr_draft)
+      - allow:
+          method: POST
+          host: api.github.com
+          path: "/repos/*/*/pulls"
+
+  - name: github-update-pr
+    rules:
+      # PATCH /repos/{owner}/{repo}/pulls/{number}
+      - allow:
+          method: PATCH
+          host: api.github.com
+          path: "/repos/*/*/pulls/*"
+
+  - name: github-merge-pr
+    rules:
+      # PUT /repos/{owner}/{repo}/pulls/{number}/merge
+      - allow:
+          method: PUT
+          host: api.github.com
+          path: "/repos/*/*/pulls/*/merge"
+
+  - name: github-create-review
+    rules:
+      # POST /repos/{owner}/{repo}/pulls/{number}/reviews
+      - allow:
+          method: POST
+          host: api.github.com
+          path: "/repos/*/*/pulls/*/reviews"
+      # POST /repos/{owner}/{repo}/pulls/{number}/reviews/{id}/**
+      - allow:
+          method: POST
+          host: api.github.com
+          path: "/repos/*/*/pulls/*/reviews/**"
+
+  # ---------------------------------------------------------------------------
+  # Write operations — contents and git
+  # ---------------------------------------------------------------------------
+  - name: github-write-contents
+    rules:
+      # PUT /repos/{owner}/{repo}/contents/{path}
+      - allow:
+          method: PUT
+          host: api.github.com
+          path: "/repos/*/*/contents/**"
+      # POST /repos/{owner}/{repo}/contents/{path}
+      - allow:
+          method: POST
+          host: api.github.com
+          path: "/repos/*/*/contents/**"
+
+  - name: github-write-git
+    rules:
+      # POST /repos/{owner}/{repo}/git/**
+      - allow:
+          method: POST
+          host: api.github.com
+          path: "/repos/*/*/git/**"
+      # PATCH /repos/{owner}/{repo}/git/**
+      - allow:
+          method: PATCH
+          host: api.github.com
+          path: "/repos/*/*/git/**"
+      # PUT /repos/{owner}/{repo}/git/**
+      - allow:
+          method: PUT
+          host: api.github.com
+          path: "/repos/*/*/git/**"
+
+  - name: github-create-branch
+    rules:
+      # POST /repos/{owner}/{repo}/git/refs
+      - allow:
+          method: POST
+          host: api.github.com
+          path: "/repos/*/*/git/refs"
+
+  - name: github-delete-branch
+    rules:
+      # DELETE /repos/{owner}/{repo}/git/refs/**
+      - allow:
+          method: DELETE
+          host: api.github.com
+          path: "/repos/*/*/git/refs/**"
+      # DELETE /repos/{owner}/{repo}/branches/{branch}
+      - allow:
+          method: DELETE
+          host: api.github.com
+          path: "/repos/*/*/branches/*"
+
+  - name: github-write-branches
+    rules:
+      # POST /repos/{owner}/{repo}/branches/**
+      - allow:
+          method: POST
+          host: api.github.com
+          path: "/repos/*/*/branches/**"
+      # PUT /repos/{owner}/{repo}/branches/**
+      - allow:
+          method: PUT
+          host: api.github.com
+          path: "/repos/*/*/branches/**"
+      # PATCH /repos/{owner}/{repo}/branches/**
+      - allow:
+          method: PATCH
+          host: api.github.com
+          path: "/repos/*/*/branches/**"
+
+  # ---------------------------------------------------------------------------
+  # Write operations — actions, releases
+  # ---------------------------------------------------------------------------
+  - name: github-write-actions
+    rules:
+      # POST /repos/{owner}/{repo}/actions/**
+      - allow:
+          method: POST
+          host: api.github.com
+          path: "/repos/*/*/actions/**"
+      # PUT /repos/{owner}/{repo}/actions/**
+      - allow:
+          method: PUT
+          host: api.github.com
+          path: "/repos/*/*/actions/**"
+      # PATCH /repos/{owner}/{repo}/actions/**
+      - allow:
+          method: PATCH
+          host: api.github.com
+          path: "/repos/*/*/actions/**"
+      # DELETE /repos/{owner}/{repo}/actions/**
+      - allow:
+          method: DELETE
+          host: api.github.com
+          path: "/repos/*/*/actions/**"
+
+  - name: github-write-releases
+    rules:
+      # POST /repos/{owner}/{repo}/releases
+      - allow:
+          method: POST
+          host: api.github.com
+          path: "/repos/*/*/releases"
+      # PATCH /repos/{owner}/{repo}/releases/{id}
+      - allow:
+          method: PATCH
+          host: api.github.com
+          path: "/repos/*/*/releases/*"
+      # DELETE /repos/{owner}/{repo}/releases/{id}
+      - allow:
+          method: DELETE
+          host: api.github.com
+          path: "/repos/*/*/releases/*"
+      # POST /repos/{owner}/{repo}/releases/{id}/assets
+      - allow:
+          method: POST
+          host: api.github.com
+          path: "/repos/*/*/releases/*/assets"
+
+  - name: github-create-release
+    rules:
+      # POST /repos/{owner}/{repo}/releases
+      - allow:
+          method: POST
+          host: api.github.com
+          path: "/repos/*/*/releases"
+
+  # ---------------------------------------------------------------------------
+  # GraphQL API
+  # ---------------------------------------------------------------------------
+  - name: github-graphql
+    rules:
+      - allow:
+          method: POST
+          host: api.github.com
+          path: "/graphql"
+
+  # ---------------------------------------------------------------------------
+  # General read/write (non-repo endpoints like /user, /search)
+  # ---------------------------------------------------------------------------
+  - name: github-read
+    rules:
+      - allow:
+          method: GET
+          host: api.github.com
+          path: "/**"
+      - allow:
+          method: HEAD
+          host: api.github.com
+          path: "/**"
+
+  - name: github-write
+    rules:
+      - allow:
+          method: POST
+          host: api.github.com
+          path: "/**"
+      - allow:
+          method: PUT
+          host: api.github.com
+          path: "/**"
+      - allow:
+          method: PATCH
+          host: api.github.com
+          path: "/**"
+      - allow:
+          method: DELETE
+          host: api.github.com
+          path: "/**"
