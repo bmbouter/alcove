@@ -87,9 +87,6 @@ repos:
   - name: alcove
     url: https://github.com/bmbouter/alcove.git
 
-credentials:
-  GITHUB_TOKEN: github
-
 timeout: 900
 
 profiles:
