@@ -12,24 +12,20 @@ env:
   REGISTRY: ghcr.io/bmbouter
 
 jobs:
-  release:
+  # Job 1: Build all Go binaries + create the GitHub Release
+  binaries:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      sha_short: ${{ steps.version.outputs.sha_short }}
     steps:
       - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25'
-
-      - name: Run tests
-        run: go test ./...
-        env:
-          GOPROXY: direct
-
-      - name: Run go vet
-        run: go vet ./...
-        env:
-          GOPROXY: direct
+          cache: true
 
       - name: Extract version
         id: version
@@ -46,110 +42,28 @@ jobs:
         run: |
           mkdir -p dist
 
-          # Build matrix for multi-platform CLI distribution
-          cli_platforms=(
-            "linux/amd64"
-            "linux/arm64"
-            "darwin/amd64"
-            "darwin/arm64"
-            "windows/amd64"
-          )
+          # Build all binaries in parallel using background jobs
+          pids=()
 
-          # Build CLI for all platforms
-          for platform in "${cli_platforms[@]}"; do
-            export GOOS="${platform%/*}"
-            export GOARCH="${platform#*/}"
-
-            ext=""
-            if [ "$GOOS" = "windows" ]; then
-              ext=".exe"
-            fi
-
-            echo "Building alcove CLI for $GOOS/$GOARCH..."
-            CGO_ENABLED=0 go build -ldflags="-s -w -X main.Version=${VERSION}" \
-              -o "dist/alcove-$GOOS-$GOARCH$ext" "./cmd/alcove"
+          for platform in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            (
+              export GOOS="${platform%/*}" GOARCH="${platform#*/}"
+              ext=""; [ "$GOOS" = "windows" ] && ext=".exe"
+              CGO_ENABLED=0 go build -ldflags="-s -w -X main.Version=${VERSION}" \
+                -o "dist/alcove-$GOOS-$GOARCH$ext" ./cmd/alcove
+            ) & pids+=($!)
           done
 
-          # Build server components for Linux AMD64 (existing pattern)
           for cmd in bridge gate skiff-init debug-env shim; do
-            echo "Building ${cmd}..."
-            CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-              go build -ldflags="-s -w -X main.Version=${VERSION}" \
-              -o "dist/alcove-${cmd}-linux-amd64" "./cmd/${cmd}"
+            (
+              CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+                -ldflags="-s -w -X main.Version=${VERSION}" \
+                -o "dist/alcove-${cmd}-linux-amd64" "./cmd/${cmd}"
+            ) & pids+=($!)
           done
 
-          # Generate checksums for all binaries
+          for pid in "${pids[@]}"; do wait "$pid"; done
           cd dist && sha256sum * > checksums-sha256.txt
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Build and push bridge image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: build/Containerfile.bridge
-          push: true
-          build-args: VERSION=${{ steps.version.outputs.version }}
-          tags: |
-            ${{ env.REGISTRY }}/alcove-bridge:${{ steps.version.outputs.version }}
-            ${{ env.REGISTRY }}/alcove-bridge:latest
-            ${{ env.REGISTRY }}/alcove-bridge:sha-${{ steps.version.outputs.sha_short }}
-
-      - name: Build and push gate image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: build/Containerfile.gate
-          push: true
-          build-args: VERSION=${{ steps.version.outputs.version }}
-          tags: |
-            ${{ env.REGISTRY }}/alcove-gate:${{ steps.version.outputs.version }}
-            ${{ env.REGISTRY }}/alcove-gate:latest
-            ${{ env.REGISTRY }}/alcove-gate:sha-${{ steps.version.outputs.sha_short }}
-
-      - name: Build and push skiff-tooling image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: build/Containerfile.skiff-tooling
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/alcove-skiff-tooling:latest
-
-      - name: Build and push skiff-base image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: build/Containerfile.skiff-base
-          push: true
-          build-args: |
-            VERSION=${{ steps.version.outputs.version }}
-            SKIFF_TOOLING_BASE=${{ env.REGISTRY }}/alcove-skiff-tooling:latest
-          tags: |
-            ${{ env.REGISTRY }}/alcove-skiff-base:${{ steps.version.outputs.version }}
-            ${{ env.REGISTRY }}/alcove-skiff-base:latest
-            ${{ env.REGISTRY }}/alcove-skiff-base:sha-${{ steps.version.outputs.sha_short }}
-
-      - name: Build and push dev container image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: build/Containerfile.dev
-          push: true
-          no-cache: true
-          build-args: VERSION=${{ steps.version.outputs.version }}
-          tags: |
-            ${{ env.REGISTRY }}/alcove-dev:${{ steps.version.outputs.version }}
-            ${{ env.REGISTRY }}/alcove-dev:latest
-            ${{ env.REGISTRY }}/alcove-dev:sha-${{ steps.version.outputs.sha_short }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -171,3 +85,100 @@ jobs:
             dist/checksums-sha256.txt
             scripts/install.sh
             scripts/install.ps1
+
+  # Jobs 2-4: Build container images IN PARALLEL
+  bridge-image:
+    runs-on: ubuntu-latest
+    needs: binaries
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: build/Containerfile.bridge
+          push: true
+          build-args: VERSION=${{ needs.binaries.outputs.version }}
+          tags: |
+            ${{ env.REGISTRY }}/alcove-bridge:${{ needs.binaries.outputs.version }}
+            ${{ env.REGISTRY }}/alcove-bridge:latest
+            ${{ env.REGISTRY }}/alcove-bridge:sha-${{ needs.binaries.outputs.sha_short }}
+
+  gate-image:
+    runs-on: ubuntu-latest
+    needs: binaries
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: build/Containerfile.gate
+          push: true
+          build-args: VERSION=${{ needs.binaries.outputs.version }}
+          tags: |
+            ${{ env.REGISTRY }}/alcove-gate:${{ needs.binaries.outputs.version }}
+            ${{ env.REGISTRY }}/alcove-gate:latest
+            ${{ env.REGISTRY }}/alcove-gate:sha-${{ needs.binaries.outputs.sha_short }}
+
+  skiff-image:
+    runs-on: ubuntu-latest
+    needs: binaries
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: build/Containerfile.skiff-tooling
+          push: true
+          tags: ${{ env.REGISTRY }}/alcove-skiff-tooling:latest
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: build/Containerfile.skiff-base
+          push: true
+          build-args: |
+            VERSION=${{ needs.binaries.outputs.version }}
+            SKIFF_TOOLING_BASE=${{ env.REGISTRY }}/alcove-skiff-tooling:latest
+          tags: |
+            ${{ env.REGISTRY }}/alcove-skiff-base:${{ needs.binaries.outputs.version }}
+            ${{ env.REGISTRY }}/alcove-skiff-base:latest
+            ${{ env.REGISTRY }}/alcove-skiff-base:sha-${{ needs.binaries.outputs.sha_short }}
+
+  dev-image:
+    runs-on: ubuntu-latest
+    needs: binaries
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: build/Containerfile.dev
+          push: true
+          build-args: VERSION=${{ needs.binaries.outputs.version }}
+          tags: |
+            ${{ env.REGISTRY }}/alcove-dev:${{ needs.binaries.outputs.version }}
+            ${{ env.REGISTRY }}/alcove-dev:latest
+            ${{ env.REGISTRY }}/alcove-dev:sha-${{ needs.binaries.outputs.sha_short }}
