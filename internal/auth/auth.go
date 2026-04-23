@@ -478,7 +478,8 @@ func MeHandler(authBackend string) http.HandlerFunc {
 func isSessionIngestionPath(path string) bool {
 	return strings.HasSuffix(path, "/transcript") ||
 		strings.HasSuffix(path, "/status") ||
-		strings.HasSuffix(path, "/proxy-log")
+		strings.HasSuffix(path, "/proxy-log") ||
+		strings.HasSuffix(path, "/env-snapshot")
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
