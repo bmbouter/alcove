@@ -71,7 +71,7 @@ jobs:
           done
 
           # Build server components for Linux AMD64 (existing pattern)
-          for cmd in bridge gate skiff-init debug-env; do
+          for cmd in bridge gate skiff-init debug-env shim; do
             echo "Building ${cmd}..."
             CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
               go build -ldflags="-s -w -X main.Version=${VERSION}" \
@@ -162,6 +162,7 @@ jobs:
             dist/alcove-gate-linux-amd64
             dist/alcove-skiff-init-linux-amd64
             dist/alcove-debug-env-linux-amd64
+            dist/alcove-shim-linux-amd64
             dist/alcove-linux-amd64
             dist/alcove-linux-arm64
             dist/alcove-darwin-amd64

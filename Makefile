@@ -15,7 +15,7 @@ IMAGES       := bridge gate skiff-base
 GO       := go
 PODMAN   := podman
 
-CMDS     := bridge gate skiff-init alcove debug-env test-agent
+CMDS     := bridge gate skiff-init alcove debug-env test-agent shim
 
 # Stamp directory for image build tracking
 STAMP_DIR := .stamps
