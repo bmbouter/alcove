@@ -1,0 +1,17 @@
+name: SDLC Milestone Planner
+trigger:
+  github:
+    events: [issues, issue_comment]
+    actions: [labeled, created]
+    labels: [needs-planning]
+    repos: [bmbouter/alcove]
+    delivery_mode: polling
+
+workflow:
+  - id: plan
+    type: agent
+    agent: Implementation Planner
+    inputs:
+      issue_number: "{{trigger.issue_number}}"
+      issue_url: "{{trigger.issue_url}}"
+      repo: "bmbouter/alcove"

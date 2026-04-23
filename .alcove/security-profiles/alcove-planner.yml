@@ -16,3 +16,4 @@ tools:
           - read_branches
           - read_git
           - create_comment
+          - update_issue
