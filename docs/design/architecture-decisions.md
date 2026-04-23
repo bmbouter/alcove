@@ -24,9 +24,11 @@ and Integration architecture.
 and `gate` (sidecar proxy). They share a network namespace, so `HTTP_PROXY=localhost:8443`
 works without Service routing.
 
-### 2. HTTPS Interception: Protocol-Level (no MITM CA)
+### 2. HTTPS Interception: MITM TLS Re-encrypt for Service Domains
 
-**Decision**: Use protocol-level interception, not MITM TLS.
+**Decision**: Use MITM TLS re-encrypt proxy for known service domains (GitHub,
+GitLab, Jira). Gate terminates CONNECT tunnels, inspects plaintext HTTP requests,
+performs scope checking and credential injection, then re-encrypts to upstream.
 
 **Approach by tool type**:
 
@@ -34,17 +36,21 @@ works without Service routing.
 |------|-------------------|
 | Git (clone/push/fetch) | Git credential helper routed through Gate |
 | LLM API calls | Custom base URL → Gate localhost → real provider endpoint |
-| MCP servers (Phase 2) | Gate wraps MCP — Claude Code talks to proxy stubs |
-| `gh` / `glab` CLI | HTTP_PROXY + CONNECT tunneling (domain-level) |
-| `curl` / arbitrary HTTP | HTTP_PROXY + CONNECT tunneling (domain-level) |
+| `gh` / `glab` CLI | HTTP_PROXY → CONNECT tunnel → MITM TLS interception by Gate |
+| `curl` / arbitrary HTTP | HTTP_PROXY → CONNECT tunnel → MITM TLS for service domains, passthrough for others |
+| JIRA tools | HTTP_PROXY → CONNECT tunnel → MITM TLS interception by Gate |
 
-**Phase 1 simplification**: Skip MCP entirely. Configure Claude Code with CLI-only
-tools (`Bash, Edit, Read, Write, Grep, Glob`). All external access happens through
-CLI tools routed via HTTP_PROXY. MCP gateway added in Phase 2.
+An ephemeral CA is generated per session by Bridge. The CA cert is injected into
+Skiff's trust store (`SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`). Gate presents
+leaf certs signed by this CA for intercepted domains. The CA private key exists
+only in Gate's memory (passed via `GATE_CA_KEY_PEM` env var from Bridge).
 
-**Rationale** (Security): MITM CA is the weakest option — the CA private key in
-Gate becomes a high-value target, breaks cert pinning, is detectable by the agent,
-and requires per-runtime trust store configuration (Python, Node, Java all differ).
+**Rationale**: The `gh` CLI sends GraphQL requests via CONNECT tunnels to
+`api.github.com:443`. The previous protocol-level-only approach could not
+inject tokens into encrypted tunnels. MITM is general-purpose -- any tool using
+HTTP_PROXY works without per-tool env var configuration (no `GH_HOST`,
+`GITHUB_API_URL`, etc.). Ephemeral CA with 24-hour validity and 1-hour leaf
+certs limits the blast radius.
 
 ### 3. LLM API Key Isolation: Gate Proxies LLM Calls
 
@@ -428,6 +434,52 @@ duplication and keeps agent definitions minimal.
 - `scripts/k3s-bridge-endpoint.sh` — headless Service Endpoints for host Bridge
 - `deploy/k3s/infra.yaml` — Namespace, Deployments, Services, PVC, NetworkPolicy
 - `Makefile` — k3s-setup, k3s-up, k3s-watch, k3s-down, k3s-reset, k3s-status targets
+
+
+### 24. MITM TLS Re-encrypt Proxy for Service Domains
+
+**Decision**: Gate intercepts CONNECT tunnels to known service domains (GitHub,
+GitLab, Jira) using MITM TLS. An ephemeral CA is generated per session by Bridge,
+the CA cert is injected into Skiff's trust store, and Gate presents leaf certs
+signed by this CA. Gate reads the plaintext HTTP request, performs scope checking
+and credential injection, then forwards over real TLS to the upstream. This
+replaces the previous boutique `/github/`, `/gitlab/`, `/jira/` path-prefix
+proxy endpoints.
+
+**Why**: The `gh` CLI sends GraphQL requests via CONNECT tunnels to
+`api.github.com:443`. The previous architecture blocked these because Gate
+couldn't inject tokens into encrypted tunnels. The MITM approach is
+general-purpose -- any tool using HTTP_PROXY works without per-tool
+configuration. Inspired by OpenShell's sandbox proxy architecture.
+
+**Trade-offs**:
+- More complex than prefix proxying, but eliminates per-service handlers
+- Requires trust store injection (`SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, etc.)
+- Ephemeral CA has 24-hour validity; leaf certs have 1-hour validity
+- CA private key exists only in Gate's memory (passed via env var from Bridge)
+
+**How it works**:
+1. Bridge generates an ephemeral CA key pair at session dispatch time
+2. Bridge passes `GATE_CA_CERT_PEM` and `GATE_CA_KEY_PEM` to Gate as env vars
+3. Bridge passes `ALCOVE_CA_CERT_PEM` to Skiff; skiff-init writes it to a file
+   and sets `SSL_CERT_FILE` and `NODE_EXTRA_CA_CERTS`
+4. When Skiff makes a CONNECT request to a service domain (e.g.,
+   `api.github.com:443`), Gate accepts the tunnel
+5. Gate generates a leaf cert for that domain signed by the session CA
+6. Gate performs a TLS handshake with Skiff using the leaf cert
+7. Gate reads the plaintext HTTP request, classifies the operation, checks scope
+8. If allowed, Gate injects real credentials and forwards to the upstream over
+   real TLS
+9. The response flows back through Gate to Skiff
+
+**Impact on Skiff environment**: `GITHUB_API_URL`, `GH_HOST`, `GITLAB_API_URL`,
+`JIRA_API_URL` env vars are no longer needed. Tools connect to their standard
+upstream URLs; Gate intercepts transparently via HTTP_PROXY.
+
+**Files**:
+- `internal/gate/proxy.go` -- MITM proxy handler, leaf cert generation
+- `internal/bridge/dispatcher.go` -- CA generation, env var injection
+- `cmd/skiff-init/main.go` -- trust store setup from `ALCOVE_CA_CERT_PEM`
 
 
 ## CLI Design

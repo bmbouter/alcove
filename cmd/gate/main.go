@@ -191,6 +191,34 @@ func loadConfig() (gate.Config, error) {
 		}
 	}
 
+	// MITM TLS interception: base64-encoded PEM CA cert and key.
+	// When set, Gate performs MITM re-encrypt proxy for service domains,
+	// enabling credential injection and scope enforcement on CONNECT tunnels.
+	var caCertPEM, caKeyPEM []byte
+	if certB64 := os.Getenv("GATE_CA_CERT_PEM"); certB64 != "" {
+		decoded, err := gate.DecodePEMFromBase64(certB64)
+		if err != nil {
+			return gate.Config{}, fmt.Errorf("invalid GATE_CA_CERT_PEM: %w", err)
+		}
+		caCertPEM = decoded
+	}
+	if keyB64 := os.Getenv("GATE_CA_KEY_PEM"); keyB64 != "" {
+		decoded, err := gate.DecodePEMFromBase64(keyB64)
+		if err != nil {
+			return gate.Config{}, fmt.Errorf("invalid GATE_CA_KEY_PEM: %w", err)
+		}
+		caKeyPEM = decoded
+	}
+
+	if len(caCertPEM) > 0 && len(caKeyPEM) > 0 {
+		log.Printf("gate: MITM mode enabled for service domains")
+	}
+
+	enforcementMode := os.Getenv("GATE_ENFORCEMENT_MODE") // "monitor" or "" (enforce)
+	if enforcementMode == "monitor" {
+		log.Printf("gate: enforcement mode = monitor (log-only, all requests allowed)")
+	}
+
 	return gate.Config{
 		SessionID:          sessionID,
 		Scope:              scope,
@@ -206,5 +234,8 @@ func loadConfig() (gate.Config, error) {
 		VertexProject:      vertexProject,
 		LedgerURL:          ledgerURL,
 		GitLabHost:         gitlabHost,
+		CACertPEM:          caCertPEM,
+		CAKeyPEM:           caKeyPEM,
+		EnforcementMode:    enforcementMode,
 	}, nil
 }

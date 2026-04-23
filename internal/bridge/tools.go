@@ -317,7 +317,7 @@ func (ts *ToolStore) SeedBuiltinTools(ctx context.Context) error {
 		{
 			name:        "github",
 			displayName: "GitHub",
-			mcpCommand:  "github-mcp-server",
+			mcpCommand:  "",
 			mcpArgs:     `[]`,
 			apiHost:     "api.github.com",
 			authHeader:  "Authorization",

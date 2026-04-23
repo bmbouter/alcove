@@ -132,15 +132,15 @@ Gate sidecar. Gate provides:
   configured with a custom base URL pointing to the Gate sidecar (`ANTHROPIC_BASE_URL=http://localhost:8443`).
   Gate injects the real API key and forwards to the provider. This prevents
   prompt injection attacks from exfiltrating LLM credentials.
-- **SCM API proxying** — Gate exposes `/github/` and `/gitlab/` reverse-proxy
-  endpoints. `gh` and `glab` CLIs inside Skiff are configured via
-  `GITHUB_API_URL` and `GITLAB_API_URL` to point at these local endpoints.
-  Gate performs operation-level scope enforcement on every request, injects
-  real SCM credentials, and forwards to the upstream API.
-- **CLI and MCP coverage** — Gate intercepts both MCP tool calls and CLI-initiated
-  network requests (e.g., `gh pr create`, `git push`, `curl`). This is achieved
-  by running Gate as an HTTP/HTTPS proxy (via `HTTP_PROXY`/`HTTPS_PROXY` env vars
-  in Skiff pods) combined with MCP server wrapping.
+- **SCM API proxying** — Gate intercepts CONNECT tunnels to service domains
+  (GitHub, GitLab, Jira) via MITM TLS. An ephemeral CA per session signs leaf
+  certs for intercepted domains. Tools like `gh` and `glab` connect to their
+  standard upstream URLs through HTTP_PROXY; Gate terminates the TLS tunnel,
+  inspects the plaintext request, performs operation-level scope enforcement,
+  injects real SCM credentials, and re-encrypts to upstream.
+- **CLI coverage** — Gate intercepts CLI-initiated network requests (e.g.,
+  `gh pr create`, `git push`, `curl`) via HTTP_PROXY with MITM TLS interception
+  for service domains. Tools work natively without per-tool API URL configuration.
 - **Request logging** — every proxied request is logged with timestamp, operation
   type, target service, authorization decision (allow/deny), and response status.
   Logs are forwarded to the Ledger.
@@ -152,14 +152,14 @@ variables or config files gets only the opaque session token, which is:
 - Short-lived (expires when the session ends)
 - Revocable by Bridge at any time
 
-**HTTPS interception approach**: protocol-level, not MITM TLS.
+**HTTPS interception approach**: MITM TLS re-encrypt for service domains.
 
 | Tool | Interception Method |
 |------|-------------------|
 | Git (clone/push/fetch) | Git credential helper routed through Gate |
-| MCP servers (Phase 2) | Gate wraps MCP — Claude Code talks to proxy stubs |
-| `gh` / `glab` CLI | `GITHUB_API_URL` / `GITLAB_API_URL` pointing to Gate's `/github/` and `/gitlab/` HTTP endpoints (operation-level enforcement) |
-| `curl` / arbitrary HTTP | HTTP_PROXY + CONNECT tunneling (domain-level) |
+| `gh` / `glab` CLI | HTTP_PROXY → CONNECT tunnel → MITM TLS interception (operation-level enforcement) |
+| `curl` / arbitrary HTTP | HTTP_PROXY → CONNECT tunnel → MITM TLS for service domains, passthrough for others |
+| JIRA tools | HTTP_PROXY → CONNECT tunnel → MITM TLS interception |
 | LLM API calls | Custom base URL → Gate → real provider endpoint |
 
 ### Ledger — Session Storage

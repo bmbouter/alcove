@@ -155,29 +155,9 @@ func (k *KubernetesRuntime) RunTask(ctx context.Context, spec TaskSpec) (TaskHan
 			skiffEnv["NO_PROXY"] = "localhost,127.0.0.1,alcove-hail,alcove-bridge,alcove-ledger,.svc,.svc.cluster.local"
 		}
 	}
-	// Override Gate-referenced URLs to use localhost since Gate is a sidecar
-	// sharing the pod network namespace (not a separate container with its own hostname).
+	// Point LLM API calls to the Gate sidecar on localhost (Gate and Skiff share
+	// the pod network namespace).
 	skiffEnv["ANTHROPIC_BASE_URL"] = "http://localhost:8443"
-	for _, key := range []string{
-		"GITHUB_API_URL", "GITLAB_API_URL", "JIRA_API_URL",
-	} {
-		if val, ok := skiffEnv[key]; ok {
-			// Replace gate-{taskid}:8443 with localhost:8443
-			if strings.Contains(val, ":8443/") {
-				parts := strings.SplitN(val, ":8443/", 2)
-				skiffEnv[key] = "http://localhost:8443/" + parts[1]
-			}
-		}
-	}
-	// Remove GH_HOST on k8s — the gh CLI uses it to identify the GitHub server,
-	// not as a proxy URL. Setting it to localhost:8443 causes gh to reject git
-	// remotes pointing to github.com. The HTTP_PROXY already routes traffic
-	// through Gate correctly.
-	delete(skiffEnv, "GH_HOST")
-	delete(skiffEnv, "GH_PROTOCOL")
-	if _, ok := skiffEnv["GLAB_HOST"]; ok {
-		skiffEnv["GLAB_HOST"] = "http://localhost:8443/gitlab"
-	}
 
 	// Resolve service hostnames to IPs to bypass DNS issues in task pods.
 	// OVN-Kubernetes may block UDP DNS from pods with restrictive egress policies.

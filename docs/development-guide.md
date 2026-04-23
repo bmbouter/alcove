@@ -627,14 +627,16 @@ embedded at compile time, so they are available immediately on Bridge startup
 without cloning catalog source repos. Only custom agent repo definitions
 require the sync interval.
 
-## Gate SCM Proxy Endpoints
+## Gate SCM MITM Proxy
 
-Gate exposes `/github/` and `/gitlab/` reverse-proxy endpoints that forward
-requests to the upstream GitHub and GitLab APIs. Inside Skiff, the `gh` and
-`glab` CLIs are configured via `GITHUB_API_URL` and `GITLAB_API_URL` to point
-at these local Gate endpoints. Gate inspects each request, enforces
-operation-level scope (e.g., allowing `create_pr_draft` but blocking
-`merge_pr`), injects real SCM credentials, and forwards to the upstream API.
+Gate intercepts CONNECT tunnels to service domains (GitHub, GitLab, Jira)
+via MITM TLS. An ephemeral CA is generated per session by Bridge; the CA cert
+is injected into Skiff's trust store (`SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`).
+Gate generates leaf certs signed by this CA, terminates TLS tunnels, inspects
+plaintext requests, enforces operation-level scope (e.g., allowing
+`create_pr_draft` but blocking `merge_pr`), injects real SCM credentials,
+and re-encrypts to the upstream API. Tools like `gh` and `glab` work natively
+through HTTP_PROXY without per-tool API URL env vars.
 See `internal/gate/` for the proxy implementation and
 `docs/design/gate-scm-authorization.md` for the full design.
 

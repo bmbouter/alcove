@@ -198,7 +198,10 @@ they are documented here for debugging and for custom deployment scenarios.
 | `GATE_LEDGER_URL` | string | _(unset)_ | URL where Gate sends proxy audit logs. |
 | `GATE_VERTEX_REGION` | string | `us-east5` | Vertex AI region for API URL construction. |
 | `GATE_VERTEX_PROJECT` | string | _(unset)_ | Vertex AI project ID for API URL construction. |
-| `GATE_GITLAB_HOST` | string | `gitlab.com` | GitLab hostname for self-hosted GitLab instances. Used to route `/gitlab/` proxy requests to the correct host. |
+| `GATE_GITLAB_HOST` | string | `gitlab.com` | GitLab hostname for self-hosted GitLab instances. |
+| `GATE_CA_CERT_PEM` | string | _(injected)_ | Base64-encoded ephemeral CA certificate PEM for MITM TLS. Gate signs leaf certs with this CA to intercept CONNECT tunnels to service domains. |
+| `GATE_CA_KEY_PEM` | string | _(injected)_ | Base64-encoded ephemeral CA private key PEM for MITM TLS leaf cert signing. Exists only in Gate's memory. |
+| `GATE_ENFORCEMENT_MODE` | string | _(unset)_ | Enforcement mode: empty or `enforce` (default) denies unauthorized requests; `monitor` logs all requests but allows them regardless of scope. Set via `enforcement_mode` in agent definitions. |
 
 Gate listens on port **8443** inside the pod.
 
@@ -236,26 +239,24 @@ Skiff is the ephemeral worker container (`cmd/skiff-init`). These variables are
 | `DEV_CONTAINER_HOST` | string | _(injected)_ | Hostname and port of the dev container's shim (e.g., `dev-<taskID>:9090`). Set only when `dev_container` is configured. |
 
 The following SCM-related environment variables are injected by Bridge when the
-task's scope includes a `github` or `gitlab` service. They configure the `gh`
-and `glab` CLIs and the git credential helper inside the Skiff container.
+task's scope includes a `github` or `gitlab` service. They configure dummy
+tokens and the git credential helper inside the Skiff container. Tools like
+`gh` and `glab` connect to their standard upstream URLs; Gate intercepts the
+connections via MITM TLS through HTTP_PROXY.
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `GITHUB_TOKEN` | string | _(injected)_ | Dummy GitHub token. Routed through Gate which swaps it for the real PAT. |
+| `GITHUB_TOKEN` | string | _(injected)_ | Dummy GitHub token. Gate intercepts CONNECT tunnels to GitHub and swaps it for the real PAT. |
 | `GH_TOKEN` | string | _(injected)_ | Alias for `GITHUB_TOKEN` used by the `gh` CLI. |
 | `GITHUB_PERSONAL_ACCESS_TOKEN` | string | _(injected)_ | Alias recognized by some GitHub tooling. |
-| `GITHUB_API_URL` | string | _(injected)_ | Points to Gate's `/github/` proxy endpoint (e.g., `http://gate-<taskID>:8443/github`). |
-| `GH_HOST` | string | _(injected)_ | GitHub host for `gh` CLI (e.g., `github.com`). |
 | `GH_PROMPT_DISABLED` | string | `1` | Disables interactive prompts in `gh` CLI. |
 | `GH_NO_UPDATE_NOTIFIER` | string | `1` | Disables `gh` CLI update notifications. |
-| `GITLAB_TOKEN` | string | _(injected)_ | Dummy GitLab token. Routed through Gate which swaps it for the real PAT. |
+| `GITLAB_TOKEN` | string | _(injected)_ | Dummy GitLab token. Gate intercepts CONNECT tunnels to GitLab and swaps it for the real PAT. |
 | `GITLAB_PERSONAL_ACCESS_TOKEN` | string | _(injected)_ | Alias recognized by some GitLab tooling. |
-| `GITLAB_API_URL` | string | _(injected)_ | Points to Gate's `/gitlab/` proxy endpoint (e.g., `http://gate-<taskID>:8443/gitlab`). |
-| `GLAB_HOST` | string | _(injected)_ | GitLab host for `glab` CLI (e.g., `gitlab.com`). |
-| `JIRA_TOKEN` | string | _(injected)_ | Dummy JIRA token. Routed through Gate which swaps it for real credentials (Basic auth). |
-| `JIRA_API_URL` | string | _(injected)_ | Points to Gate's `/jira/` proxy endpoint (e.g., `http://gate-<taskID>:8443/jira`). |
+| `JIRA_TOKEN` | string | _(injected)_ | Dummy JIRA token. Gate intercepts CONNECT tunnels to Jira and swaps it for real credentials (Basic auth). |
 | `GATE_CREDENTIAL_URL` | string | _(injected)_ | Gate endpoint URL used by the git credential helper to acquire tokens. |
 | `GIT_SSH_COMMAND` | string | _(injected)_ | Set to disable SSH-based git operations (forces HTTPS through Gate). |
+| `ALCOVE_CA_CERT_PEM` | string | _(injected)_ | Base64-encoded ephemeral CA certificate PEM for MITM TLS. skiff-init writes this to a file and sets `SSL_CERT_FILE` and `NODE_EXTRA_CA_CERTS`. |
 
 Skiff also sets these git environment variables automatically (unless already
 present):
@@ -686,6 +687,7 @@ schedule: "0 2 * * *"
 | `plugins`   | PluginSpec[] | no   | Claude Code plugins to install (see [Plugins](#plugins)) |
 | `credentials` | map[string]string | no | Environment variable names to credential provider mappings (see [Credentials](#credentials)) |
 | `direct_outbound` | bool | no | Allow direct outbound connections bypassing Gate proxy (default `false`) |
+| `enforcement_mode` | string | no | Gate enforcement mode: `enforce` (default) denies unauthorized requests; `monitor` logs all requests but allows them regardless of scope, enabling iterative policy development |
 | `dev_container` | object | no | Dev container sidecar configuration (see [Dev Containers](#dev-containers)) |
 | `schedule`  | string   | no       | Cron expression for automatic execution |
 | `labels`    | string[] | no       | GitHub issue/PR labels for event filtering (see below) |

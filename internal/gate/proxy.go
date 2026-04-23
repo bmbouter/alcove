@@ -73,11 +73,15 @@ type Config struct {
 	VertexProject      string // Vertex AI project ID
 	LedgerURL          string
 	GitLabHost         string // self-hosted GitLab hostname (default: "gitlab.com")
+	CACertPEM          []byte // PEM-encoded CA certificate for MITM TLS interception
+	CAKeyPEM           []byte // PEM-encoded CA private key for MITM TLS interception
+	EnforcementMode    string // "monitor" = log-only, "" or "enforce" = enforce scope
 }
 
 // Proxy is the Gate authorization proxy.
 type Proxy struct {
-	config Config
+	config      Config
+	MITMHandler *MITMHandler
 
 	mu       sync.Mutex
 	logBuf   []internal.ProxyLogEntry
@@ -86,10 +90,22 @@ type Proxy struct {
 
 // NewProxy creates a new Gate proxy with the given configuration.
 func NewProxy(cfg Config) *Proxy {
-	return &Proxy{
+	p := &Proxy{
 		config:   cfg,
 		stopChan: make(chan struct{}),
 	}
+
+	if len(cfg.CACertPEM) > 0 && len(cfg.CAKeyPEM) > 0 {
+		m, err := NewMITMHandler(cfg.CACertPEM, cfg.CAKeyPEM, &p.config)
+		if err != nil {
+			log.Printf("gate: failed to initialize MITM handler: %v", err)
+		} else {
+			p.MITMHandler = m
+			log.Printf("gate: MITM mode enabled for service domains")
+		}
+	}
+
+	return p
 }
 
 // Handler returns an http.Handler that implements the Gate proxy.
@@ -107,26 +123,6 @@ func (p *Proxy) Handler() http.Handler {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ok")
 	})
-
-	// Register dynamic tool proxy endpoints from ToolConfigs
-	for toolName := range p.config.ToolConfigs {
-		name := toolName // capture for closure
-		mux.HandleFunc("/"+name+"/", func(w http.ResponseWriter, r *http.Request) {
-			p.handleSCMProxy(w, r, name)
-		})
-	}
-
-	// Keep hardcoded /github/ and /gitlab/ as fallbacks if not in ToolConfigs
-	if _, ok := p.config.ToolConfigs["github"]; !ok {
-		mux.HandleFunc("/github/", func(w http.ResponseWriter, r *http.Request) {
-			p.handleSCMProxy(w, r, "github")
-		})
-	}
-	if _, ok := p.config.ToolConfigs["gitlab"]; !ok {
-		mux.HandleFunc("/gitlab/", func(w http.ResponseWriter, r *http.Request) {
-			p.handleSCMProxy(w, r, "gitlab")
-		})
-	}
 
 	// LLM API proxy -- handles requests when ANTHROPIC_BASE_URL or similar
 	// is set to http://localhost:8443. These arrive as normal HTTP requests
@@ -176,17 +172,11 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	hostname := hostOnly(host)
 
-	// Determine request category
 	switch {
 	case isLLMHost(hostname):
 		p.tunnelToLLM(w, r, host)
-	case hostname == "api.github.com":
-		// Block CONNECT tunnels to api.github.com -- API operations must go
-		// through the /github/ proxy endpoint for operation-level enforcement.
-		http.Error(w, "Forbidden: use /github/ proxy endpoint for API calls", http.StatusForbidden)
-		p.logEntry("CONNECT", host, "github", "", "deny", http.StatusForbidden)
-	case isServiceHost(hostname):
-		p.tunnelToService(w, r, host, hostname)
+	case p.MITMHandler != nil && p.MITMHandler.IsMITMDomain(hostname):
+		p.MITMHandler.HandleCONNECT(w, r, host)
 	case isDomainAllowed(hostname):
 		p.tunnelDirect(w, r, host)
 		p.logEntry("CONNECT", host, "allowlist", "passthrough", "allow", http.StatusOK)
@@ -206,7 +196,8 @@ func (p *Proxy) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if isServiceHost(hostname) {
-		p.handleServiceForward(w, r)
+		http.Error(w, "Forbidden: use HTTPS (CONNECT) for service API calls", http.StatusForbidden)
+		p.logEntry(r.Method, r.URL.String(), identifyService(hostname), "", "deny", http.StatusForbidden)
 		return
 	}
 
@@ -407,101 +398,6 @@ func (p *Proxy) handleLLMForward(w http.ResponseWriter, r *http.Request) {
 	p.logEntry(r.Method, r.URL.String(), "llm", p.config.LLMProvider, "allow", http.StatusOK)
 }
 
-// handleServiceForward handles service API requests arriving as plain HTTP proxy requests.
-func (p *Proxy) handleServiceForward(w http.ResponseWriter, r *http.Request) {
-	result := CheckAccess(r.Method, r.URL.String(), p.config.Scope)
-	if !result.Allowed {
-		http.Error(w, "Forbidden: "+result.Reason, http.StatusForbidden)
-		p.logEntry(r.Method, r.URL.String(), result.Service, result.Operation, "deny", http.StatusForbidden)
-		return
-	}
-
-	proxy := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
-			req.URL = r.URL
-			req.Host = r.URL.Host
-			p.injectServiceCredential(req, result.Service)
-		},
-	}
-	proxy.ServeHTTP(w, r)
-	p.logEntry(r.Method, r.URL.String(), result.Service, result.Operation, "allow", http.StatusOK)
-}
-
-// handleSCMProxy handles API calls arriving at proxy endpoints like /github/,
-// /gitlab/, or any dynamically registered tool endpoint. It strips the service
-// prefix, checks access against the scope, injects real credentials, and
-// reverse-proxies to the real API.
-func (p *Proxy) handleSCMProxy(w http.ResponseWriter, r *http.Request, service string) {
-	prefix := "/" + service + "/"
-	apiPath := strings.TrimPrefix(r.URL.Path, prefix)
-	if apiPath == "" {
-		apiPath = "/"
-	}
-
-	// Look up tool config for target host and auth settings
-	var targetHost, authHeader, authFormat string
-	if tc, ok := p.config.ToolConfigs[service]; ok {
-		targetHost = tc.APIHost
-		authHeader = tc.AuthHeader
-		authFormat = tc.AuthFormat
-	} else {
-		// Fallback to hardcoded defaults for backward compat
-		switch service {
-		case "github":
-			targetHost = "api.github.com"
-			authHeader = "Authorization"
-			authFormat = "bearer"
-		case "gitlab":
-			targetHost = p.config.GitLabHost
-			if targetHost == "" {
-				targetHost = "gitlab.com"
-			}
-			authHeader = "PRIVATE-TOKEN"
-			authFormat = "header"
-		default:
-			http.Error(w, "unknown tool: "+service, http.StatusNotFound)
-			return
-		}
-	}
-
-	fakeURL := fmt.Sprintf("https://%s/%s", targetHost, apiPath)
-	if r.URL.RawQuery != "" {
-		fakeURL += "?" + r.URL.RawQuery
-	}
-
-	// Use service-aware access check for services that may not be
-	// recognized by hostname in CheckAccess (e.g., Splunk on custom hosts).
-	var result AccessResult
-	switch service {
-	case "github", "gitlab", "jira":
-		result = CheckAccess(r.Method, fakeURL, p.config.Scope)
-	default:
-		parsedURL, parseErr := url.Parse(fakeURL)
-		if parseErr != nil {
-			result = AccessResult{Allowed: false, Reason: "invalid URL"}
-		} else {
-			result = CheckServiceAccess(r.Method, parsedURL.Path, service, p.config.Scope)
-		}
-	}
-	if !result.Allowed {
-		http.Error(w, "Forbidden: "+result.Reason, http.StatusForbidden)
-		p.logEntry(r.Method, fakeURL, result.Service, result.Operation, "deny", http.StatusForbidden)
-		return
-	}
-
-	targetURL, _ := url.Parse(fakeURL)
-
-	proxy := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
-			req.URL = targetURL
-			req.Host = targetHost
-			p.injectToolCredential(req, service, authHeader, authFormat)
-		},
-		FlushInterval: -1,
-	}
-	proxy.ServeHTTP(w, r)
-	p.logEntry(r.Method, fakeURL, result.Service, result.Operation, "allow", http.StatusOK)
-}
 
 // tunnelToLLM handles CONNECT tunnels for LLM API hosts.
 // Since the design prefers ANTHROPIC_BASE_URL=http://localhost:8443 for
@@ -536,42 +432,6 @@ func (p *Proxy) tunnelToLLM(w http.ResponseWriter, r *http.Request, targetHost s
 	bidirectionalCopy(clientConn, clientBuf, upstreamConn)
 }
 
-// tunnelToService handles CONNECT tunnels for service APIs (GitHub, GitLab, etc.).
-// CONNECT tunnels only allow domain-level enforcement since we cannot inspect
-// or modify the encrypted payload without MITM TLS.
-func (p *Proxy) tunnelToService(w http.ResponseWriter, r *http.Request, targetHost, hostname string) {
-	service := identifyService(hostname)
-	if _, ok := p.config.Scope.Services[service]; !ok {
-		http.Error(w, "Forbidden: service not in scope", http.StatusForbidden)
-		p.logEntry("CONNECT", targetHost, service, "", "deny", http.StatusForbidden)
-		return
-	}
-
-	hijacker, ok := w.(http.Hijacker)
-	if !ok {
-		http.Error(w, "hijacking not supported", http.StatusInternalServerError)
-		return
-	}
-
-	clientConn, clientBuf, err := hijacker.Hijack()
-	if err != nil {
-		log.Printf("gate: hijack failed: %v", err)
-		return
-	}
-	defer clientConn.Close()
-
-	upstreamConn, err := net.DialTimeout("tcp", ensurePort(targetHost, "443"), 10*time.Second)
-	if err != nil {
-		log.Printf("gate: upstream dial failed for %s: %v", targetHost, err)
-		return
-	}
-	defer upstreamConn.Close()
-
-	_, _ = clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
-
-	p.logEntry("CONNECT", targetHost, service, "tunnel", "allow", http.StatusOK)
-	bidirectionalCopy(clientConn, clientBuf, upstreamConn)
-}
 
 // tunnelDirect creates a passthrough tunnel for allowed domains.
 func (p *Proxy) tunnelDirect(w http.ResponseWriter, r *http.Request, targetHost string) {

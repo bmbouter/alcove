@@ -88,6 +88,7 @@ repos:
     url: https://github.com/bmbouter/alcove.git
 
 timeout: 900
+enforcement_mode: monitor
 
 profiles:
   - alcove-planner

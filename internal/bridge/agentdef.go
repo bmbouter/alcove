@@ -67,8 +67,9 @@ type AgentDefinition struct {
 	Schedule       *AgentDefSchedule         `json:"schedule,omitempty" yaml:"schedule"`
 	Trigger        *EventTrigger            `json:"trigger,omitempty" yaml:"trigger"`
 	CIGate         *CIGate                  `json:"ci_gate,omitempty" yaml:"ci_gate"`
-	DirectOutbound bool                     `json:"direct_outbound,omitempty" yaml:"direct_outbound"`
-	DevContainer   *DevContainerSpec       `json:"dev_container,omitempty" yaml:"dev_container"`
+	DirectOutbound  bool                     `json:"direct_outbound,omitempty" yaml:"direct_outbound"`
+	EnforcementMode string                  `json:"enforcement_mode,omitempty" yaml:"enforcement_mode"`
+	DevContainer    *DevContainerSpec       `json:"dev_container,omitempty" yaml:"dev_container"`
 
 	// Metadata (not from YAML).
 	TeamID       string     `json:"team_id,omitempty"`
@@ -176,8 +177,9 @@ func (td *AgentDefinition) ToTaskRequest() TaskRequest {
 		Debug:          td.Debug,
 		Plugins:        td.Plugins,
 		Credentials:    td.Credentials,
-		DirectOutbound: td.DirectOutbound,
-		DevContainer:   td.DevContainer,
+		DirectOutbound:  td.DirectOutbound,
+		EnforcementMode: td.EnforcementMode,
+		DevContainer:    td.DevContainer,
 	}
 }
 
@@ -248,6 +250,7 @@ func (s *AgentDefStore) ListAgentDefinitions(ctx context.Context, teamID string)
 				td.Plugins = parsed.Plugins
 				td.Credentials = parsed.Credentials
 				td.DirectOutbound = parsed.DirectOutbound
+				td.EnforcementMode = parsed.EnforcementMode
 				td.CIGate = parsed.CIGate
 				td.DevContainer = parsed.DevContainer
 			}
@@ -314,6 +317,7 @@ func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, teamID strin
 			td.Plugins = parsed.Plugins
 			td.Credentials = parsed.Credentials
 			td.DirectOutbound = parsed.DirectOutbound
+			td.EnforcementMode = parsed.EnforcementMode
 			td.CIGate = parsed.CIGate
 			td.DevContainer = parsed.DevContainer
 		}
@@ -422,6 +426,7 @@ func (s *AgentDefStore) ListAgentDefinitionsByRepo(ctx context.Context, repoURL,
 				td.Plugins = parsed.Plugins
 				td.Credentials = parsed.Credentials
 				td.DirectOutbound = parsed.DirectOutbound
+				td.EnforcementMode = parsed.EnforcementMode
 				td.CIGate = parsed.CIGate
 				td.DevContainer = parsed.DevContainer
 			}
