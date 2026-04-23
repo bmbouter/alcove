@@ -59,14 +59,12 @@ prompt: |
   Do NOT skip this step.
 
 timeout: 3600
+enforcement_mode: monitor
 
 outputs:
   - version
   - deployed
   - mr_merged
-
-profiles:
-  - alcove-releaser
 
 credentials:
   GITLAB_TOKEN: gitlab

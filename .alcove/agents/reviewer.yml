@@ -15,6 +15,7 @@ prompt: |
 repos:
   - url: https://github.com/bmbouter/alcove.git
 timeout: 1800
+enforcement_mode: monitor
 
 dev_container:
   image: ghcr.io/bmbouter/alcove-dev:latest
@@ -22,9 +23,6 @@ dev_container:
 outputs:
   - approved
   - comments
-
-profiles:
-  - alcove-reviewer
 
 plugins:
   - name: code-review
