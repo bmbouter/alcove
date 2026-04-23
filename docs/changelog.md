@@ -3,6 +3,12 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.38.1
+
+### Other
+- Set all agents to enforcement_mode: monitor, remove security profiles
+- Mark scope.go as deprecated (to be removed after policy rule migration)
+
 ## v0.38.0
 
 ### Features
