@@ -34,6 +34,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/bmbouter/alcove/internal"
 )
 
 const certCacheMaxSize = 256
@@ -148,11 +150,12 @@ func generateLeafCert(hostname string, caCert *x509.Certificate, caKey crypto.Pr
 // MITMHandler handles CONNECT requests by performing TLS interception,
 // credential injection, and scope enforcement.
 type MITMHandler struct {
-	caCert    *x509.Certificate
-	caKey     crypto.PrivateKey
-	certCache *CertCache
-	config    *Config
-	domains   map[string]bool // set of MITM-eligible hostnames
+	caCert          *x509.Certificate
+	caKey           crypto.PrivateKey
+	certCache       *CertCache
+	config          *Config
+	domains         map[string]bool          // set of MITM-eligible hostnames (exact)
+	policyRuleHosts []internal.PolicyRule     // for wildcard host matching
 }
 
 // NewMITMHandler parses the PEM-encoded CA cert+key and initializes the handler.
@@ -208,6 +211,14 @@ func NewMITMHandler(caCertPEM, caKeyPEM []byte, config *Config) (*MITMHandler, e
 		}
 	}
 
+	// Add hosts from PolicyRules (store wildcard patterns separately)
+	for _, rule := range config.PolicyRules {
+		if rule.Allow.Host != "" {
+			m.domains[rule.Allow.Host] = true
+		}
+	}
+	m.policyRuleHosts = config.PolicyRules
+
 	return m, nil
 }
 
@@ -240,6 +251,13 @@ func (m *MITMHandler) IsMITMDomain(hostname string) bool {
 	// Wildcard matching for Jira/Atlassian
 	if _, ok := m.config.Scope.Services["jira"]; ok {
 		if strings.HasSuffix(hostname, ".atlassian.net") {
+			return true
+		}
+	}
+
+	// Check policy rule hosts with wildcard matching
+	for _, rule := range m.policyRuleHosts {
+		if matchHost(hostname, rule.Allow.Host) {
 			return true
 		}
 	}
@@ -306,7 +324,12 @@ func (m *MITMHandler) HandleCONNECT(w http.ResponseWriter, r *http.Request, targ
 
 func (m *MITMHandler) handleMITMRequest(clientConn net.Conn, req *http.Request, hostname, targetHost string) {
 	// Check scope (skip enforcement in monitor mode)
-	result := CheckAccess(req.Method, req.URL.String(), m.config.Scope)
+	var result AccessResult
+	if len(m.config.PolicyRules) > 0 {
+		result = CheckPolicyRules(req.Method, req.URL.String(), m.config.PolicyRules)
+	} else {
+		result = CheckAccess(req.Method, req.URL.String(), m.config.Scope)
+	}
 	if !result.Allowed {
 		if m.config.EnforcementMode == "monitor" {
 			log.Printf("gate: MITM monitor: would deny %s %s: %s (allowing)", req.Method, req.URL.String(), result.Reason)

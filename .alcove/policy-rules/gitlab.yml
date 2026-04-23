@@ -1,0 +1,263 @@
+# GitLab API policy rule sets
+#
+# Each rule set maps to one or more HTTP method+host+path combinations that
+# correspond to the operations previously defined in internal/gate/scope.go's
+# mapGitLabOperation() function.
+#
+# Path patterns use "*" to match a single path segment and "**" to match
+# one or more segments. The host uses "*" to match any GitLab instance
+# (gitlab.com, gitlab.example.com, etc.).
+
+rule_sets:
+  # ---------------------------------------------------------------------------
+  # Read operations
+  # ---------------------------------------------------------------------------
+  - name: gitlab-read-prs
+    rules:
+      # GET /api/v4/projects/{id}/merge_requests
+      - allow:
+          method: GET
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/merge_requests"
+      # GET /api/v4/projects/{id}/merge_requests/{iid}
+      - allow:
+          method: GET
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/merge_requests/*"
+      # GET /api/v4/projects/{id}/merge_requests/{iid}/**
+      - allow:
+          method: GET
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/merge_requests/**"
+
+  - name: gitlab-read-issues
+    rules:
+      # GET /api/v4/projects/{id}/issues
+      - allow:
+          method: GET
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/issues"
+      # GET /api/v4/projects/{id}/issues/{iid}
+      - allow:
+          method: GET
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/issues/*"
+      # GET /api/v4/projects/{id}/issues/{iid}/**
+      - allow:
+          method: GET
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/issues/**"
+
+  - name: gitlab-read-contents
+    rules:
+      # GET /api/v4/projects/{id}/repository/**
+      - allow:
+          method: GET
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/repository/**"
+
+  - name: gitlab-read-releases
+    rules:
+      # GET /api/v4/projects/{id}/releases
+      - allow:
+          method: GET
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/releases"
+      # GET /api/v4/projects/{id}/releases/{tag}
+      - allow:
+          method: GET
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/releases/*"
+      # GET /api/v4/projects/{id}/releases/**
+      - allow:
+          method: GET
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/releases/**"
+
+  - name: gitlab-read-actions
+    rules:
+      # GET /api/v4/projects/{id}/pipelines
+      - allow:
+          method: GET
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/pipelines"
+      # GET /api/v4/projects/{id}/pipelines/{id}
+      - allow:
+          method: GET
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/pipelines/*"
+      # GET /api/v4/projects/{id}/pipelines/**
+      - allow:
+          method: GET
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/pipelines/**"
+
+  # ---------------------------------------------------------------------------
+  # Write operations — merge requests
+  # ---------------------------------------------------------------------------
+  - name: gitlab-create-pr
+    rules:
+      # POST /api/v4/projects/{id}/merge_requests
+      - allow:
+          method: POST
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/merge_requests"
+
+  - name: gitlab-update-pr
+    rules:
+      # PUT /api/v4/projects/{id}/merge_requests/{iid}
+      - allow:
+          method: PUT
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/merge_requests/*"
+
+  - name: gitlab-merge-pr
+    rules:
+      # PUT /api/v4/projects/{id}/merge_requests/{iid}/merge
+      - allow:
+          method: PUT
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/merge_requests/*/merge"
+
+  - name: gitlab-create-review
+    rules:
+      # POST /api/v4/projects/{id}/merge_requests/{iid}/approve
+      - allow:
+          method: POST
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/merge_requests/*/approve"
+
+  # ---------------------------------------------------------------------------
+  # Write operations — issues
+  # ---------------------------------------------------------------------------
+  - name: gitlab-create-issue
+    rules:
+      # POST /api/v4/projects/{id}/issues
+      - allow:
+          method: POST
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/issues"
+
+  - name: gitlab-update-issue
+    rules:
+      # PUT /api/v4/projects/{id}/issues/{iid}
+      - allow:
+          method: PUT
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/issues/*"
+
+  # ---------------------------------------------------------------------------
+  # Write operations — comments / notes
+  # ---------------------------------------------------------------------------
+  - name: gitlab-create-comment
+    rules:
+      # POST /api/v4/projects/{id}/merge_requests/{iid}/notes
+      - allow:
+          method: POST
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/merge_requests/*/notes"
+      # POST /api/v4/projects/{id}/issues/{iid}/notes
+      - allow:
+          method: POST
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/issues/*/notes"
+      # POST /api/v4/projects/{id}/notes (generic)
+      - allow:
+          method: POST
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/notes"
+
+  # ---------------------------------------------------------------------------
+  # Write operations — repository (branches, contents)
+  # ---------------------------------------------------------------------------
+  - name: gitlab-create-branch
+    rules:
+      # POST /api/v4/projects/{id}/repository/branches
+      - allow:
+          method: POST
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/repository/branches"
+
+  - name: gitlab-delete-branch
+    rules:
+      # DELETE /api/v4/projects/{id}/repository/branches/{branch}
+      - allow:
+          method: DELETE
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/repository/branches/*"
+
+  - name: gitlab-write-contents
+    rules:
+      # POST /api/v4/projects/{id}/repository/**
+      - allow:
+          method: POST
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/repository/**"
+      # PUT /api/v4/projects/{id}/repository/**
+      - allow:
+          method: PUT
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/repository/**"
+
+  # ---------------------------------------------------------------------------
+  # Write operations — releases, pipelines
+  # ---------------------------------------------------------------------------
+  - name: gitlab-write-releases
+    rules:
+      # POST /api/v4/projects/{id}/releases
+      - allow:
+          method: POST
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/releases"
+      # PUT /api/v4/projects/{id}/releases/{tag}
+      - allow:
+          method: PUT
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/releases/*"
+      # DELETE /api/v4/projects/{id}/releases/{tag}
+      - allow:
+          method: DELETE
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/releases/*"
+
+  - name: gitlab-write-actions
+    rules:
+      # POST /api/v4/projects/{id}/pipelines
+      - allow:
+          method: POST
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/pipelines"
+      # POST /api/v4/projects/{id}/pipelines/**
+      - allow:
+          method: POST
+          host: "*.gitlab.*"
+          path: "/api/v4/projects/*/pipelines/**"
+
+  # ---------------------------------------------------------------------------
+  # General read/write (non-project endpoints)
+  # ---------------------------------------------------------------------------
+  - name: gitlab-read
+    rules:
+      - allow:
+          method: GET
+          host: "*.gitlab.*"
+          path: "/api/v4/**"
+      - allow:
+          method: HEAD
+          host: "*.gitlab.*"
+          path: "/api/v4/**"
+
+  - name: gitlab-write
+    rules:
+      - allow:
+          method: POST
+          host: "*.gitlab.*"
+          path: "/api/v4/**"
+      - allow:
+          method: PUT
+          host: "*.gitlab.*"
+          path: "/api/v4/**"
+      - allow:
+          method: DELETE
+          host: "*.gitlab.*"
+          path: "/api/v4/**"

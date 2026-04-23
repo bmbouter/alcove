@@ -34,6 +34,7 @@ type SecurityProfile struct {
 	DisplayName string                       `json:"display_name,omitempty" yaml:"display_name"`
 	Description string                       `json:"description,omitempty" yaml:"description"`
 	Tools       map[string]ProfileToolConfig `json:"tools" yaml:"tools"`
+	Rules       []ProfileRuleEntry           `json:"rules,omitempty" yaml:"rules"`
 	TeamID      string                       `json:"team_id,omitempty"`
 	IsBuiltin   bool                         `json:"is_builtin"`
 	Source      string                       `json:"source"`
@@ -128,12 +129,16 @@ func (ps *ProfileStore) CreateProfile(ctx context.Context, profile *SecurityProf
 	if err != nil {
 		return fmt.Errorf("marshaling tools: %w", err)
 	}
+	rulesJSON, err := json.Marshal(profile.Rules)
+	if err != nil {
+		return fmt.Errorf("marshaling rules: %w", err)
+	}
 
 	_, err = ps.db.Exec(ctx,
-		`INSERT INTO security_profiles (id, name, display_name, description, tools, team_id, is_builtin, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		`INSERT INTO security_profiles (id, name, display_name, description, tools, rules, team_id, is_builtin, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		profile.ID, profile.Name, profile.DisplayName, profile.Description,
-		string(toolsJSON), profile.TeamID, profile.IsBuiltin,
+		string(toolsJSON), string(rulesJSON), profile.TeamID, profile.IsBuiltin,
 		profile.CreatedAt, profile.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("inserting profile: %w", err)
@@ -143,7 +148,7 @@ func (ps *ProfileStore) CreateProfile(ctx context.Context, profile *SecurityProf
 
 // ListProfiles returns the given team's profiles.
 func (ps *ProfileStore) ListProfiles(ctx context.Context, teamID string) ([]SecurityProfile, error) {
-	query := `SELECT id, name, display_name, description, tools, team_id, is_builtin, source, source_repo, source_key, created_at, updated_at
+	query := `SELECT id, name, display_name, description, tools, rules, team_id, is_builtin, source, source_repo, source_key, created_at, updated_at
 		FROM security_profiles
 		WHERE team_id = $1
 		ORDER BY name ASC`
@@ -172,7 +177,7 @@ func (ps *ProfileStore) ListProfiles(ctx context.Context, teamID string) ([]Secu
 
 // GetProfile looks up a profile by name, scoped to the given team.
 func (ps *ProfileStore) GetProfile(ctx context.Context, name, teamID string) (*SecurityProfile, error) {
-	query := `SELECT id, name, display_name, description, tools, team_id, is_builtin, source, source_repo, source_key, created_at, updated_at
+	query := `SELECT id, name, display_name, description, tools, rules, team_id, is_builtin, source, source_repo, source_key, created_at, updated_at
 		FROM security_profiles
 		WHERE name = $1 AND team_id = $2
 		ORDER BY source ASC
@@ -188,13 +193,17 @@ func (ps *ProfileStore) UpdateProfile(ctx context.Context, profile *SecurityProf
 	if err != nil {
 		return fmt.Errorf("marshaling tools: %w", err)
 	}
+	rulesJSON, err := json.Marshal(profile.Rules)
+	if err != nil {
+		return fmt.Errorf("marshaling rules: %w", err)
+	}
 
 	now := time.Now().UTC()
 	result, err := ps.db.Exec(ctx,
 		`UPDATE security_profiles
-		SET display_name = $1, description = $2, tools = $3, updated_at = $4
-		WHERE name = $5 AND team_id = $6 AND source != 'yaml'`,
-		profile.DisplayName, profile.Description, string(toolsJSON), now,
+		SET display_name = $1, description = $2, tools = $3, rules = $4, updated_at = $5
+		WHERE name = $6 AND team_id = $7 AND source != 'yaml'`,
+		profile.DisplayName, profile.Description, string(toolsJSON), string(rulesJSON), now,
 		profile.Name, teamID)
 	if err != nil {
 		return fmt.Errorf("updating profile: %w", err)
@@ -220,17 +229,22 @@ func (ps *ProfileStore) DeleteProfile(ctx context.Context, name, teamID string) 
 	return nil
 }
 
-// MergeProfiles takes multiple profile names, looks them up, and returns a merged Scope
-// and merged tool config map. Union merge: operations unioned, repos unioned, wildcard wins.
-func (ps *ProfileStore) MergeProfiles(ctx context.Context, names []string, teamID string) (internal.Scope, map[string]ProfileToolConfig, error) {
+// MergeProfiles takes multiple profile names, looks them up, and returns a merged Scope,
+// merged tool config map, and collected policy rule entries.
+// Union merge: operations unioned, repos unioned, wildcard wins.
+func (ps *ProfileStore) MergeProfiles(ctx context.Context, names []string, teamID string) (internal.Scope, map[string]ProfileToolConfig, []ProfileRuleEntry, error) {
 	scope := internal.Scope{Services: make(map[string]internal.ServiceScope)}
 	merged := make(map[string]ProfileToolConfig)
+	var policyRules []ProfileRuleEntry
 
 	for _, name := range names {
 		profile, err := ps.GetProfile(ctx, name, teamID)
 		if err != nil {
-			return scope, nil, fmt.Errorf("profile %q not found: %w", name, err)
+			return scope, nil, nil, fmt.Errorf("profile %q not found: %w", name, err)
 		}
+
+		// Collect policy rule entries from this profile.
+		policyRules = append(policyRules, profile.Rules...)
 
 		for tool, cfg := range profile.Tools {
 			existing := merged[tool]
@@ -277,22 +291,27 @@ func (ps *ProfileStore) MergeProfiles(ctx context.Context, names []string, teamI
 		}
 	}
 
-	return scope, merged, nil
+	return scope, merged, policyRules, nil
 }
 
 // scanProfile scans a SecurityProfile from a rows result.
 func scanProfile(rows interface{ Scan(dest ...any) error }) (*SecurityProfile, error) {
 	var p SecurityProfile
-	var toolsJSON string
+	var toolsJSON, rulesJSON string
 
 	if err := rows.Scan(&p.ID, &p.Name, &p.DisplayName, &p.Description,
-		&toolsJSON, &p.TeamID, &p.IsBuiltin, &p.Source, &p.SourceRepo, &p.SourceKey,
+		&toolsJSON, &rulesJSON, &p.TeamID, &p.IsBuiltin, &p.Source, &p.SourceRepo, &p.SourceKey,
 		&p.CreatedAt, &p.UpdatedAt); err != nil {
 		return nil, fmt.Errorf("scanning profile: %w", err)
 	}
 
 	if err := json.Unmarshal([]byte(toolsJSON), &p.Tools); err != nil {
 		return nil, fmt.Errorf("unmarshaling profile tools: %w", err)
+	}
+	if rulesJSON != "" && rulesJSON != "[]" {
+		if err := json.Unmarshal([]byte(rulesJSON), &p.Rules); err != nil {
+			return nil, fmt.Errorf("unmarshaling profile rules: %w", err)
+		}
 	}
 
 	return &p, nil
@@ -328,19 +347,25 @@ func (ps *ProfileStore) UpsertYAMLProfile(ctx context.Context, profile *Security
 		return fmt.Errorf("marshaling tools: %w", err)
 	}
 
+	rulesJSON, err := json.Marshal(profile.Rules)
+	if err != nil {
+		return fmt.Errorf("marshaling rules: %w", err)
+	}
+
 	_, err = ps.db.Exec(ctx,
-		`INSERT INTO security_profiles (id, name, display_name, description, tools, team_id, is_builtin, source, source_repo, source_key, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, false, 'yaml', $7, $8, NOW(), NOW())
+		`INSERT INTO security_profiles (id, name, display_name, description, tools, rules, team_id, is_builtin, source, source_repo, source_key, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, false, 'yaml', $8, $9, NOW(), NOW())
 		ON CONFLICT (source_key) WHERE source_key != '' DO UPDATE SET
 			name = EXCLUDED.name,
 			display_name = EXCLUDED.display_name,
 			description = EXCLUDED.description,
 			tools = EXCLUDED.tools,
+			rules = EXCLUDED.rules,
 			team_id = EXCLUDED.team_id,
 			source_repo = EXCLUDED.source_repo,
 			updated_at = NOW()`,
 		profile.ID, profile.Name, profile.DisplayName, profile.Description,
-		string(toolsJSON), profile.TeamID, profile.SourceRepo, profile.SourceKey)
+		string(toolsJSON), string(rulesJSON), profile.TeamID, profile.SourceRepo, profile.SourceKey)
 	if err != nil {
 		return fmt.Errorf("upserting YAML profile: %w", err)
 	}

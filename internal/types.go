@@ -107,6 +107,18 @@ type ExecutableSpec struct {
 	Env  map[string]string `json:"env,omitempty" yaml:"env"`   // Additional environment variables
 }
 
+// HTTPRule defines a single HTTP-primitive policy rule.
+type HTTPRule struct {
+	Method string `json:"method" yaml:"method"` // HTTP method or "*" for any
+	Host   string `json:"host" yaml:"host"`     // Hostname (exact, case-insensitive)
+	Path   string `json:"path" yaml:"path"`     // Glob: * = single segment, ** = multi-segment
+}
+
+// PolicyRule wraps an HTTPRule as an allow directive.
+type PolicyRule struct {
+	Allow HTTPRule `json:"allow" yaml:"allow"`
+}
+
 // Provider holds LLM provider configuration.
 type Provider struct {
 	Name         string  `json:"name"`

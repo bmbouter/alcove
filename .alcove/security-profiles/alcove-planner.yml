@@ -1,6 +1,21 @@
 name: alcove-planner
 display_name: Alcove Planner
 description: Read-only code access plus issue reading and commenting on bmbouter/alcove
+
+rules:
+  - github-clone
+  - github-read-issues
+  - github-read-prs
+  - github-read-contents
+  - github-read-commits
+  - github-read-branches
+  - github-read-git
+  - github-read-actions
+  - github-read-releases
+  - github-create-comment
+  - github-update-issue
+  - github-graphql
+
 tools:
   github:
     rules:

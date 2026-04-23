@@ -173,6 +173,9 @@ func main() {
 	// Create security profile store.
 	profileStore := bridge.NewProfileStore(dbpool)
 
+	// Create policy rule store.
+	policyRuleStore := bridge.NewPolicyRuleStore(dbpool)
+
 	// Create settings store for admin settings.
 	settingsStore := bridge.NewSettingsStore(dbpool)
 
@@ -185,7 +188,7 @@ func main() {
 	}
 
 	// Create dispatcher and API.
-	dispatcher := bridge.NewDispatcher(nc, dbpool, rt, cfg, credStore, toolStore, profileStore, settingsStore)
+	dispatcher := bridge.NewDispatcher(nc, dbpool, rt, cfg, credStore, toolStore, profileStore, settingsStore, policyRuleStore)
 
 	// Create CI Gate monitor for automated CI retry.
 	ciGateMonitor := bridge.NewCIGateMonitor(dbpool, dispatcher, credStore, bridgeLLM)
@@ -235,7 +238,7 @@ func main() {
 	}()
 
 	// Create agent repo syncer.
-	syncer := bridge.NewAgentRepoSyncer(dbpool, settingsStore, scheduler, defStore, dispatcher, profileStore, workflowStore)
+	syncer := bridge.NewAgentRepoSyncer(dbpool, settingsStore, scheduler, defStore, dispatcher, profileStore, policyRuleStore, workflowStore)
 	syncer.Start(context.Background())
 	defer func() {
 		log.Println("shutting down agent repo syncer...")

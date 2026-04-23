@@ -36,32 +36,34 @@ import (
 // Dispatcher manages task lifecycle: creation, dispatch to Skiff pods,
 // and status tracking.
 type Dispatcher struct {
-	nc             *nats.Conn
-	db             *pgxpool.Pool
-	rt             runtime.Runtime
-	cfg            *Config
-	credStore      *CredentialStore
-	toolStore      *ToolStore
-	profileStore   *ProfileStore
-	settingsStore  *SettingsStore
-	mu             sync.Mutex
-	handles        map[string]runtime.TaskHandle // sessionID -> handle
-	ciGate         *CIGateMonitor
-	workflowEngine *WorkflowEngine
+	nc              *nats.Conn
+	db              *pgxpool.Pool
+	rt              runtime.Runtime
+	cfg             *Config
+	credStore       *CredentialStore
+	toolStore       *ToolStore
+	profileStore    *ProfileStore
+	settingsStore   *SettingsStore
+	policyRuleStore *PolicyRuleStore
+	mu              sync.Mutex
+	handles         map[string]runtime.TaskHandle // sessionID -> handle
+	ciGate          *CIGateMonitor
+	workflowEngine  *WorkflowEngine
 }
 
 // NewDispatcher creates a Dispatcher with the given dependencies.
-func NewDispatcher(nc *nats.Conn, db *pgxpool.Pool, rt runtime.Runtime, cfg *Config, credStore *CredentialStore, toolStore *ToolStore, profileStore *ProfileStore, settingsStore *SettingsStore) *Dispatcher {
+func NewDispatcher(nc *nats.Conn, db *pgxpool.Pool, rt runtime.Runtime, cfg *Config, credStore *CredentialStore, toolStore *ToolStore, profileStore *ProfileStore, settingsStore *SettingsStore, policyRuleStore *PolicyRuleStore) *Dispatcher {
 	return &Dispatcher{
-		nc:            nc,
-		db:            db,
-		rt:            rt,
-		cfg:           cfg,
-		credStore:     credStore,
-		toolStore:     toolStore,
-		profileStore:  profileStore,
-		settingsStore: settingsStore,
-		handles:       make(map[string]runtime.TaskHandle),
+		nc:              nc,
+		db:              db,
+		rt:              rt,
+		cfg:             cfg,
+		credStore:       credStore,
+		toolStore:       toolStore,
+		profileStore:    profileStore,
+		settingsStore:   settingsStore,
+		policyRuleStore: policyRuleStore,
+		handles:         make(map[string]runtime.TaskHandle),
 	}
 }
 
@@ -168,12 +170,14 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		scope = *req.Scope
 	}
 
-	// Resolve security profiles into scope and tools.
+	// Resolve security profiles into scope, tools, and policy rules.
+	var profileRules []ProfileRuleEntry
 	if len(req.Profiles) > 0 {
-		profileScope, profileTools, err := d.profileStore.MergeProfiles(ctx, req.Profiles, activeTeamID)
+		profileScope, profileTools, mergedRules, err := d.profileStore.MergeProfiles(ctx, req.Profiles, activeTeamID)
 		if err != nil {
 			return nil, fmt.Errorf("resolving profiles: %w", err)
 		}
+		profileRules = mergedRules
 
 		// Merge profile scope into task scope.
 		for svc, svcScope := range profileScope.Services {
@@ -509,6 +513,18 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 	// Re-marshal scope after tool resolution may have added services.
 	scopeBytes, _ = json.Marshal(scope)
 	gateEnv["GATE_SCOPE"] = string(scopeBytes)
+
+	// Resolve HTTP policy rules from profiles.
+	if d.policyRuleStore != nil && len(profileRules) > 0 {
+		resolvedRules, err := ResolvePolicyRules(ctx, d.policyRuleStore, profileRules, activeTeamID)
+		if err != nil {
+			log.Printf("warning: resolving policy rules: %v", err)
+		}
+		if len(resolvedRules) > 0 {
+			rulesJSON, _ := json.Marshal(resolvedRules)
+			gateEnv["GATE_POLICY_RULES"] = string(rulesJSON)
+		}
+	}
 
 	// Set SCM environment for Skiff tools (dummy tokens so tools don't prompt for auth).
 	// Tools reach upstream hosts via HTTP_PROXY -> Gate MITM, so no custom API URLs needed.

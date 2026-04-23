@@ -1,0 +1,312 @@
+# Jira (Atlassian) API policy rule sets
+#
+# Each rule set maps to one or more HTTP method+host+path combinations that
+# correspond to the operations previously defined in internal/gate/scope.go's
+# mapJiraOperation() function.
+#
+# Path patterns use "*" to match a single path segment and "**" to match
+# one or more segments. The host "*.atlassian.net" matches any Atlassian
+# Cloud instance.
+
+rule_sets:
+  # ---------------------------------------------------------------------------
+  # Read operations
+  # ---------------------------------------------------------------------------
+  - name: jira-read-issues
+    rules:
+      # GET /rest/api/3/issue
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/issue"
+      # GET /rest/api/3/issue/{issueIdOrKey}
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/issue/*"
+      # GET /rest/api/3/issue/{issueIdOrKey}/** (sub-resources)
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/issue/**"
+
+  - name: jira-search-issues
+    rules:
+      # GET /rest/api/3/search
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/search"
+      # GET /rest/api/3/search/**
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/search/**"
+      # POST /rest/api/3/search (JQL search)
+      - allow:
+          method: POST
+          host: "*.atlassian.net"
+          path: "/rest/api/*/search"
+      # POST /rest/api/3/search/**
+      - allow:
+          method: POST
+          host: "*.atlassian.net"
+          path: "/rest/api/*/search/**"
+
+  - name: jira-read-comments
+    rules:
+      # GET /rest/api/3/issue/{issueIdOrKey}/comment
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/issue/*/comment"
+      # GET /rest/api/3/issue/{issueIdOrKey}/comment/{id}
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/issue/*/comment/*"
+
+  - name: jira-read-transitions
+    rules:
+      # GET /rest/api/3/issue/{issueIdOrKey}/transitions
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/issue/*/transitions"
+
+  - name: jira-read-projects
+    rules:
+      # GET /rest/api/3/project
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/project"
+      # GET /rest/api/3/project/{projectIdOrKey}
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/project/*"
+      # GET /rest/api/3/project/**
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/project/**"
+
+  - name: jira-read-boards
+    rules:
+      # GET /rest/agile/1.0/board
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/agile/*/board"
+      # GET /rest/agile/1.0/board/{boardId}
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/agile/*/board/*"
+      # GET /rest/agile/1.0/board/**
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/agile/*/board/**"
+
+  - name: jira-read-sprints
+    rules:
+      # GET /rest/agile/1.0/sprint
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/agile/*/sprint"
+      # GET /rest/agile/1.0/sprint/{sprintId}
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/agile/*/sprint/*"
+      # GET /rest/agile/1.0/sprint/**
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/agile/*/sprint/**"
+
+  - name: jira-read-metadata
+    rules:
+      # GET /rest/api/3/issuetype
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/issuetype"
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/issuetype/**"
+      # GET /rest/api/3/priority
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/priority"
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/priority/**"
+      # GET /rest/api/3/status
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/status"
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/status/**"
+      # GET /rest/api/3/field
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/field"
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/field/**"
+      # GET /rest/api/3/label
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/label"
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/label/**"
+      # GET /rest/api/3/myself
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/myself"
+      # GET /rest/api/3/user
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/user"
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/api/*/user/**"
+
+  # ---------------------------------------------------------------------------
+  # Write operations — issues
+  # ---------------------------------------------------------------------------
+  - name: jira-create-issue
+    rules:
+      # POST /rest/api/3/issue
+      - allow:
+          method: POST
+          host: "*.atlassian.net"
+          path: "/rest/api/*/issue"
+
+  - name: jira-update-issue
+    rules:
+      # PUT /rest/api/3/issue/{issueIdOrKey}
+      - allow:
+          method: PUT
+          host: "*.atlassian.net"
+          path: "/rest/api/*/issue/*"
+
+  - name: jira-delete-issue
+    rules:
+      # DELETE /rest/api/3/issue/{issueIdOrKey}
+      - allow:
+          method: DELETE
+          host: "*.atlassian.net"
+          path: "/rest/api/*/issue/*"
+
+  - name: jira-assign-issue
+    rules:
+      # PUT /rest/api/3/issue/{issueIdOrKey}/assignee
+      - allow:
+          method: PUT
+          host: "*.atlassian.net"
+          path: "/rest/api/*/issue/*/assignee"
+
+  - name: jira-transition-issue
+    rules:
+      # POST /rest/api/3/issue/{issueIdOrKey}/transitions
+      - allow:
+          method: POST
+          host: "*.atlassian.net"
+          path: "/rest/api/*/issue/*/transitions"
+
+  # ---------------------------------------------------------------------------
+  # Write operations — comments
+  # ---------------------------------------------------------------------------
+  - name: jira-add-comment
+    rules:
+      # POST /rest/api/3/issue/{issueIdOrKey}/comment
+      - allow:
+          method: POST
+          host: "*.atlassian.net"
+          path: "/rest/api/*/issue/*/comment"
+
+  - name: jira-update-comment
+    rules:
+      # PUT /rest/api/3/issue/{issueIdOrKey}/comment/{id}
+      - allow:
+          method: PUT
+          host: "*.atlassian.net"
+          path: "/rest/api/*/issue/*/comment/*"
+
+  - name: jira-delete-comment
+    rules:
+      # DELETE /rest/api/3/issue/{issueIdOrKey}/comment/{id}
+      - allow:
+          method: DELETE
+          host: "*.atlassian.net"
+          path: "/rest/api/*/issue/*/comment/*"
+
+  # ---------------------------------------------------------------------------
+  # Write operations — worklogs
+  # ---------------------------------------------------------------------------
+  - name: jira-add-worklog
+    rules:
+      # POST /rest/api/3/issue/{issueIdOrKey}/worklog
+      - allow:
+          method: POST
+          host: "*.atlassian.net"
+          path: "/rest/api/*/issue/*/worklog"
+
+  # ---------------------------------------------------------------------------
+  # Write operations — sprints
+  # ---------------------------------------------------------------------------
+  - name: jira-move-to-sprint
+    rules:
+      # POST /rest/agile/1.0/sprint/{sprintId}/issue
+      - allow:
+          method: POST
+          host: "*.atlassian.net"
+          path: "/rest/agile/*/sprint/*/issue"
+
+  # ---------------------------------------------------------------------------
+  # General read/write (catch-all for any rest/* path)
+  # ---------------------------------------------------------------------------
+  - name: jira-read
+    rules:
+      - allow:
+          method: GET
+          host: "*.atlassian.net"
+          path: "/rest/**"
+      - allow:
+          method: HEAD
+          host: "*.atlassian.net"
+          path: "/rest/**"
+
+  - name: jira-write
+    rules:
+      - allow:
+          method: POST
+          host: "*.atlassian.net"
+          path: "/rest/**"
+      - allow:
+          method: PUT
+          host: "*.atlassian.net"
+          path: "/rest/**"
+      - allow:
+          method: DELETE
+          host: "*.atlassian.net"
+          path: "/rest/**"
