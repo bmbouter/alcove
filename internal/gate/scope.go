@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package gate implements the Gate authorization proxy for Alcove.
-// Gate runs as a sidecar in each Skiff pod, enforcing scope-based access
-// control and credential injection for all outbound requests.
+// DEPRECATED: This file contains bespoke per-service scope checking
+// (checkGitHub, checkGitLab, checkAtlassian, checkSplunk) that maps API
+// paths to operation names. It is superseded by the generic HTTP-primitive
+// policy rule system in policy.go. Remove this file once all security
+// profiles have migrated from tools/operations to rules/ format and
+// GATE_SCOPE is no longer set by the dispatcher.
 package gate
 
 import (
