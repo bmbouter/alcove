@@ -2334,6 +2334,13 @@
                 $('#runtime-config-content').innerHTML = '<p class="form-help" style="text-align:center;padding:24px;">Runtime configuration not available for this session.</p>';
             }
 
+            // Render environment tab
+            if (session.env_snapshot) {
+                renderEnvSnapshot(session.env_snapshot);
+            } else {
+                $('#env-snapshot-content').innerHTML = '<p class="form-help" style="text-align:center;padding:24px;">Environment snapshot not available for this session.</p>';
+            }
+
             // Auto-refresh while running
             if (session.status === 'running') {
                 stopRefresh();
@@ -2596,6 +2603,42 @@
         el.innerHTML = html;
     }
 
+    function renderEnvSnapshot(snapshot) {
+        var el = $('#env-snapshot-content');
+        if (!snapshot) {
+            el.innerHTML = '<p class="form-help" style="text-align:center;padding:24px;">No environment data.</p>';
+            return;
+        }
+
+        var lines = snapshot.split('\n');
+        var html = '<div style="padding:16px;">';
+        html += '<div style="margin-bottom:12px;color:var(--text-secondary);font-size:0.875rem;">' + lines.length + ' environment variable' + (lines.length !== 1 ? 's' : '') + ' captured at session startup. Sensitive values are redacted.</div>';
+        html += '<pre style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:16px;overflow-x:auto;font-size:0.8125rem;line-height:1.6;margin:0;white-space:pre-wrap;word-break:break-all;">';
+
+        lines.forEach(function(line) {
+            var eqIdx = line.indexOf('=');
+            if (eqIdx < 0) {
+                html += escapeHtml(line) + '\n';
+                return;
+            }
+            var key = line.substring(0, eqIdx);
+            var value = line.substring(eqIdx + 1);
+
+            html += '<span style="color:var(--accent);">' + escapeHtml(key) + '</span>=';
+            if (value === '[REDACTED]') {
+                html += '<span style="color:#e74c3c;font-style:italic;">[REDACTED]</span>';
+            } else if (value === '[DUMMY]') {
+                html += '<span style="color:#f1c40f;font-style:italic;">[DUMMY]</span>';
+            } else {
+                html += escapeHtml(value);
+            }
+            html += '\n';
+        });
+
+        html += '</pre></div>';
+        el.innerHTML = html;
+    }
+
     // Detail tabs
     $$('.detail-tab').forEach((tab) => {
         tab.addEventListener('click', () => {
@@ -2610,6 +2653,7 @@
             hide($('#detail-transcript'));
             hide($('#detail-proxy-log'));
             hide($('#detail-runtime-config'));
+            hide($('#detail-environment'));
             if (target === 'transcript') {
                 show($('#detail-transcript'));
             } else if (target === 'proxy-log') {
@@ -2621,6 +2665,8 @@
                 }
             } else if (target === 'runtime-config') {
                 show($('#detail-runtime-config'));
+            } else if (target === 'environment') {
+                show($('#detail-environment'));
             }
         });
     });

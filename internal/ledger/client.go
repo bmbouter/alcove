@@ -60,6 +60,15 @@ func (c *Client) AppendTranscript(sessionID string, events []json.RawMessage) er
 	return c.post(path, payload)
 }
 
+// UpdateEnvSnapshot stores the redacted environment variable snapshot for a session.
+func (c *Client) UpdateEnvSnapshot(sessionID string, envSnapshot string) error {
+	path := fmt.Sprintf("/api/v1/sessions/%s/env-snapshot", sessionID)
+	payload := struct {
+		EnvSnapshot string `json:"env_snapshot"`
+	}{EnvSnapshot: envSnapshot}
+	return c.post(path, payload)
+}
+
 // UpdateSession updates the final status of a session (status, exit code, artifacts).
 // Only the status, exit_code, and artifacts fields are mutable; all other fields
 // are immutable after creation.

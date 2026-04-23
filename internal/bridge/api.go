@@ -296,6 +296,13 @@ func (a *API) handleSessionByID(w http.ResponseWriter, r *http.Request) {
 				respondError(w, http.StatusMethodNotAllowed, "method not allowed")
 			}
 			return
+		case "env-snapshot":
+			if r.Method == http.MethodPost {
+				a.handleUpdateEnvSnapshot(w, r, sessionID)
+			} else {
+				respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+			}
+			return
 		}
 	}
 
@@ -326,20 +333,22 @@ func (a *API) handleGetSession(w http.ResponseWriter, r *http.Request, sessionID
 		return
 	}
 
-	// Also fetch transcript, proxy log, and runtime config.
+	// Also fetch transcript, proxy log, runtime config, and env snapshot.
 	type sessionDetail struct {
 		internal.Session
 		Transcript    json.RawMessage `json:"transcript,omitempty"`
 		ProxyLog      json.RawMessage `json:"proxy_log,omitempty"`
 		RuntimeConfig json.RawMessage `json:"runtime_config,omitempty"`
+		EnvSnapshot   *string         `json:"env_snapshot,omitempty"`
 	}
 
 	detail := sessionDetail{Session: *session}
 
 	var transcript, proxyLog, runtimeConfig []byte
+	var envSnapshot *string
 	_ = a.db.QueryRow(r.Context(),
-		`SELECT transcript, proxy_log, runtime_config FROM sessions WHERE id = $1`, sessionID,
-	).Scan(&transcript, &proxyLog, &runtimeConfig)
+		`SELECT transcript, proxy_log, runtime_config, env_snapshot FROM sessions WHERE id = $1`, sessionID,
+	).Scan(&transcript, &proxyLog, &runtimeConfig, &envSnapshot)
 
 	if transcript != nil {
 		detail.Transcript = transcript
@@ -349,6 +358,9 @@ func (a *API) handleGetSession(w http.ResponseWriter, r *http.Request, sessionID
 	}
 	if runtimeConfig != nil {
 		detail.RuntimeConfig = runtimeConfig
+	}
+	if envSnapshot != nil {
+		detail.EnvSnapshot = envSnapshot
 	}
 
 	respondJSON(w, http.StatusOK, detail)
@@ -725,6 +737,45 @@ func (a *API) handleUpdateStatus(w http.ResponseWriter, r *http.Request, session
 	}
 	if result.RowsAffected() == 0 {
 		respondError(w, http.StatusNotFound, "session not found")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]bool{"updated": true})
+}
+
+func (a *API) handleUpdateEnvSnapshot(w http.ResponseWriter, r *http.Request, sessionID string) {
+	// Validate session token for ingestion auth.
+	token := r.Header.Get("Authorization")
+	if strings.HasPrefix(token, "Bearer ") {
+		token = strings.TrimPrefix(token, "Bearer ")
+	}
+	if token != "" {
+		var storedToken *string
+		_ = a.db.QueryRow(r.Context(), `SELECT session_token FROM sessions WHERE id = $1`, sessionID).Scan(&storedToken)
+		if storedToken == nil || token != *storedToken {
+			respondError(w, http.StatusForbidden, "invalid session token")
+			return
+		}
+	}
+
+	var req struct {
+		EnvSnapshot string `json:"env_snapshot"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		return
+	}
+	if req.EnvSnapshot == "" {
+		respondError(w, http.StatusBadRequest, "env_snapshot is required")
+		return
+	}
+
+	_, err := a.db.Exec(r.Context(),
+		`UPDATE sessions SET env_snapshot = $1 WHERE id = $2`,
+		req.EnvSnapshot, sessionID)
+	if err != nil {
+		log.Printf("error: updating env_snapshot for session %s: %v", sessionID, err)
+		respondError(w, http.StatusInternalServerError, "failed to update env snapshot")
 		return
 	}
 

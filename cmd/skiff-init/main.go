@@ -186,6 +186,19 @@ func main() {
 	// --- Install lola modules (must run after cloneRepo so cwd is correct) ---
 	installLolaModules()
 
+	// --- Capture and send redacted environment snapshot ---
+	// Reuse the debug-env binary (baked into the Skiff image) for env
+	// classification, redaction, and formatting — one source of truth.
+	if envOut, err := exec.Command("/usr/local/bin/debug-env").Output(); err == nil {
+		if err := lc.UpdateEnvSnapshot(sessionID, string(envOut)); err != nil {
+			log.Printf("warning: failed to send env snapshot to Ledger: %v", err)
+		} else {
+			log.Printf("env snapshot captured (%d bytes)", len(envOut))
+		}
+	} else {
+		log.Printf("warning: debug-env not available for env snapshot: %v", err)
+	}
+
 	// --- Build context with hard timeout ---
 	ctx, cancel := context.WithTimeout(context.Background(), task.Timeout)
 	defer cancel()
@@ -1132,6 +1145,7 @@ func injectClaudeMD(repos []internal.RepoSpec, prompt string) string {
 	// Prepend CLAUDE.md content to the prompt
 	return strings.Join(claudeMDs, "\n\n---\n\n") + "\n\n---\n\n" + prompt
 }
+
 
 // requireEnv returns the value of an environment variable or exits fatally.
 func requireEnv(key string) string {
