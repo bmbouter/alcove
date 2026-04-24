@@ -3,6 +3,11 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.38.3
+
+### Bug Fixes
+- Fix monitor mode: dedicated codepath allows all traffic through Gate instead of only checking inside MITM handler (fixes #462)
+
 ## v0.38.2
 
 ### Bug Fixes
