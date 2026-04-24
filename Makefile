@@ -202,19 +202,19 @@ dev-up: dev-config ## Start full containerized environment
 	@echo "Creating podman networks..."
 	-$(PODMAN) network create --internal $(INTERNAL_NET) 2>/dev/null || true
 	-$(PODMAN) network create $(EXTERNAL_NET) 2>/dev/null || true
-	@echo "Starting ledger (PostgreSQL) on internal network..."
+	@echo "Starting ledger (PostgreSQL) on external network..."
 	$(PODMAN) run -d --rm --replace \
 		--name alcove-ledger \
-		--network $(INTERNAL_NET) \
+		--network $(EXTERNAL_NET) \
 		-e POSTGRES_USER=alcove \
 		-e POSTGRES_PASSWORD=alcove \
 		-e POSTGRES_DB=alcove \
 		-p 5432:5432 \
 		docker.io/library/postgres:16
-	@echo "Starting hail (NATS) on internal network..."
+	@echo "Starting hail (NATS) on external+internal networks..."
 	$(PODMAN) run -d --rm --replace \
 		--name alcove-hail \
-		--network $(INTERNAL_NET) \
+		--network $(EXTERNAL_NET)$(comma)$(INTERNAL_NET) \
 		-p 4222:4222 \
 		-p 8222:8222 \
 		docker.io/library/nats:latest
@@ -255,20 +255,20 @@ dev-infra: ## Start only NATS + PostgreSQL (run Bridge locally with ./bin/bridge
 	@echo "Creating podman networks..."
 	-$(PODMAN) network create --internal $(INTERNAL_NET) 2>/dev/null || true
 	-$(PODMAN) network create $(EXTERNAL_NET) 2>/dev/null || true
-	@echo "Starting ledger (PostgreSQL) on internal network..."
+	@echo "Starting ledger (PostgreSQL) on external network..."
 	$(PODMAN) run -d --replace \
 		--name alcove-ledger \
-		--network $(INTERNAL_NET) \
+		--network $(EXTERNAL_NET) \
 		-v alcove-ledger-data:/var/lib/postgresql/data \
 		-e POSTGRES_USER=alcove \
 		-e POSTGRES_PASSWORD=alcove \
 		-e POSTGRES_DB=alcove \
 		-p 5432:5432 \
 		docker.io/library/postgres:16
-	@echo "Starting hail (NATS) on internal network..."
+	@echo "Starting hail (NATS) on external+internal networks..."
 	$(PODMAN) run -d --rm --replace \
 		--name alcove-hail \
-		--network $(INTERNAL_NET) \
+		--network $(EXTERNAL_NET)$(comma)$(INTERNAL_NET) \
 		-p 4222:4222 \
 		-p 8222:8222 \
 		docker.io/library/nats:latest
