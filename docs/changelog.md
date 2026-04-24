@@ -3,6 +3,14 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.38.5
+
+### Features
+- Support inputs in agent definition /run endpoint — callers can pass context like PR numbers
+
+### Bug Fixes
+- Fix PR Reviewer not receiving PR context when manually triggered
+
 ## v0.38.4
 
 ### Bug Fixes
