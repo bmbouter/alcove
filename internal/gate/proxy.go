@@ -170,9 +170,21 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	if host == "" {
 		host = r.URL.Host
 	}
-
 	hostname := hostOnly(host)
 
+	// Monitor mode: allow all traffic, log for observation
+	if p.config.EnforcementMode == "monitor" {
+		if isLLMHost(hostname) {
+			p.tunnelToLLM(w, r, host)
+		} else {
+			log.Printf("gate: monitor: CONNECT %s", host)
+			p.tunnelDirect(w, r, host)
+			p.logEntry("CONNECT", host, identifyService(hostname), "monitor", "allow", http.StatusOK)
+		}
+		return
+	}
+
+	// Enforcement mode: normal routing with scope checking
 	switch {
 	case isLLMHost(hostname):
 		p.tunnelToLLM(w, r, host)
@@ -191,17 +203,34 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 func (p *Proxy) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 	hostname := hostOnly(r.URL.Host)
 
+	// Monitor mode: allow all traffic
+	if p.config.EnforcementMode == "monitor" {
+		if isLLMHost(hostname) {
+			p.handleLLMForward(w, r)
+			return
+		}
+		log.Printf("gate: monitor: %s %s", r.Method, r.URL.String())
+		proxy := &httputil.ReverseProxy{
+			Director: func(req *http.Request) {
+				req.URL = r.URL
+				req.Host = r.URL.Host
+			},
+		}
+		proxy.ServeHTTP(w, r)
+		p.logEntry(r.Method, r.URL.String(), "monitor", "passthrough", "allow", http.StatusOK)
+		return
+	}
+
+	// Enforcement mode: existing logic unchanged
 	if isLLMHost(hostname) {
 		p.handleLLMForward(w, r)
 		return
 	}
-
 	if isServiceHost(hostname) {
 		http.Error(w, "Forbidden: use HTTPS (CONNECT) for service API calls", http.StatusForbidden)
 		p.logEntry(r.Method, r.URL.String(), identifyService(hostname), "", "deny", http.StatusForbidden)
 		return
 	}
-
 	if isDomainAllowed(hostname) {
 		proxy := &httputil.ReverseProxy{
 			Director: func(req *http.Request) {
@@ -213,7 +242,6 @@ func (p *Proxy) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 		p.logEntry(r.Method, r.URL.String(), "allowlist", "passthrough", "allow", http.StatusOK)
 		return
 	}
-
 	http.Error(w, "Forbidden: host not allowed", http.StatusForbidden)
 	p.logEntry(r.Method, r.URL.String(), "unknown", "", "deny", http.StatusForbidden)
 }
