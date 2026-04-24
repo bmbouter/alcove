@@ -3,6 +3,13 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.38.4
+
+### Bug Fixes
+- Derive SCM services from repo URLs — agents with repos: pointing at GitHub now get tokens without needing security profiles
+- Remove credentials: GITHUB_TOKEN from agents — prevents real token leaking into Skiff env
+- Fix dev-infra networking — NATS on both networks for Skiff reachability
+
 ## v0.38.3
 
 ### Bug Fixes
