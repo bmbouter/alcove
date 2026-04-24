@@ -92,17 +92,3 @@ credentials:
 
 timeout: 900
 enforcement_mode: monitor
-
-trigger:
-  github:
-    events:
-      - issues
-      - issue_comment
-    actions:
-      - labeled
-      - created
-    repos:
-      - bmbouter/alcove
-    labels:
-      - needs-planning
-    delivery_mode: polling
