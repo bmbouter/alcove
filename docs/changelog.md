@@ -3,6 +3,12 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.38.2
+
+### Bug Fixes
+- Fix missing GH_TOKEN when using policy rules without security profiles — derive needed SCM services from policy rule hosts
+- Add github.com to github-clone rule set for git HTTPS transport through MITM proxy
+
 ## v0.38.1
 
 ### Other
