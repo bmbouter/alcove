@@ -27,6 +27,8 @@ prompt: |
 repos:
   - url: https://github.com/bmbouter/alcove.git
 timeout: 300
+credentials:
+  GITHUB_TOKEN: github
 enforcement_mode: monitor
 
 outputs:
