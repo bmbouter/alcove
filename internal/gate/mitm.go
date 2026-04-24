@@ -331,21 +331,17 @@ func (m *MITMHandler) handleMITMRequest(clientConn net.Conn, req *http.Request, 
 		result = CheckAccess(req.Method, req.URL.String(), m.config.Scope)
 	}
 	if !result.Allowed {
-		if m.config.EnforcementMode == "monitor" {
-			log.Printf("gate: MITM monitor: would deny %s %s: %s (allowing)", req.Method, req.URL.String(), result.Reason)
-		} else {
-			resp := &http.Response{
-				StatusCode: http.StatusForbidden,
-				ProtoMajor: 1,
-				ProtoMinor: 1,
-				Header:     make(http.Header),
-				Body:       io.NopCloser(strings.NewReader("Forbidden: " + result.Reason)),
-			}
-			resp.Header.Set("Content-Type", "text/plain")
-			_ = resp.Write(clientConn)
-			log.Printf("gate: MITM denied %s %s: %s", req.Method, req.URL.String(), result.Reason)
-			return
+		resp := &http.Response{
+			StatusCode: http.StatusForbidden,
+			ProtoMajor: 1,
+			ProtoMinor: 1,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("Forbidden: " + result.Reason)),
 		}
+		resp.Header.Set("Content-Type", "text/plain")
+		_ = resp.Write(clientConn)
+		log.Printf("gate: MITM denied %s %s: %s", req.Method, req.URL.String(), result.Reason)
+		return
 	}
 
 	// Inject credentials

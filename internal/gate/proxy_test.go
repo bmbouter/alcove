@@ -24,8 +24,10 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bmbouter/alcove/internal"
 )
@@ -1218,5 +1220,167 @@ func TestLLMOAuthToken_NotUnknownProvider(t *testing.T) {
 	code, body := doRequest(t, "POST", ts.URL+"/v1/messages", `{"model":"claude-sonnet-4-20250514","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`)
 	if code == http.StatusInternalServerError && strings.Contains(body, "unknown LLM provider") {
 		t.Errorf("oauth_token with anthropic provider should not trigger 'unknown LLM provider'; got %d: %s", code, body)
+	}
+}
+
+// --------------------------------------------------------------------
+// Monitor mode tests — CONNECT routing level
+// --------------------------------------------------------------------
+
+// newTestProxyWithMonitor creates a Gate proxy in monitor enforcement mode.
+func newTestProxyWithMonitor(t *testing.T, scope internal.Scope, creds map[string]string) (*Proxy, *httptest.Server) {
+	t.Helper()
+	cfg := Config{
+		SessionID:       "test-session",
+		Scope:           scope,
+		Credentials:     creds,
+		ToolConfigs:     map[string]ToolConfig{},
+		SessionToken:    "session-tok",
+		LLMToken:        "llm-secret-key",
+		LLMProvider:     "anthropic",
+		LLMTokenType:    "api_key",
+		EnforcementMode: "monitor",
+	}
+	p := NewProxy(cfg)
+	ts := httptest.NewServer(p.Handler())
+	t.Cleanup(func() { ts.Close(); p.Stop() })
+	return p, ts
+}
+
+func TestCONNECT_MonitorMode_AllowsUnknownHost(t *testing.T) {
+	// Start a local TCP listener to act as the "unknown" upstream so the
+	// tunnel dial succeeds in the test environment.
+	upstream, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("starting upstream listener: %v", err)
+	}
+	defer upstream.Close()
+	go func() {
+		for {
+			c, err := upstream.Accept()
+			if err != nil {
+				return
+			}
+			c.Close()
+		}
+	}()
+
+	scope := internal.Scope{Services: map[string]internal.ServiceScope{}}
+	p, ts := newTestProxyWithMonitor(t, scope, map[string]string{})
+
+	conn, err := net.Dial("tcp", strings.TrimPrefix(ts.URL, "http://"))
+	if err != nil {
+		t.Fatalf("connecting to gate: %v", err)
+	}
+	defer conn.Close()
+
+	// Send CONNECT to 127.0.0.1:<port> — not an LLM, service, or allowlisted host,
+	// so it hits the default case. Monitor mode should allow it (200).
+	target := upstream.Addr().String()
+	fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target)
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		t.Fatalf("reading CONNECT response: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("monitor mode should allow unknown host CONNECT (200), got %d", resp.StatusCode)
+	}
+
+	// Close our side so bidirectionalCopy in tunnelDirect finishes and the
+	// log entry is written.
+	conn.Close()
+
+	// Wait briefly for the server goroutine to finish and record the log entry.
+	var entries []internal.ProxyLogEntry
+	for i := 0; i < 50; i++ {
+		time.Sleep(10 * time.Millisecond)
+		entries = p.FlushLogs()
+		if len(entries) > 0 {
+			break
+		}
+	}
+	found := false
+	for _, e := range entries {
+		if e.Decision == "allow" && e.Operation == "monitor" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected log entry with decision=allow, operation=monitor; got: %+v", entries)
+	}
+}
+
+func TestCONNECT_EnforceMode_DeniesUnknownHost(t *testing.T) {
+	scope := internal.Scope{Services: map[string]internal.ServiceScope{}}
+	// Use the standard test proxy (enforce mode by default)
+	p, ts := newTestProxy(t, scope, map[string]string{})
+
+	conn, err := net.Dial("tcp", strings.TrimPrefix(ts.URL, "http://"))
+	if err != nil {
+		t.Fatalf("connecting to gate: %v", err)
+	}
+	defer conn.Close()
+
+	// Send CONNECT to an unknown host — enforce mode should deny (403)
+	fmt.Fprintf(conn, "CONNECT unknown.example.com:443 HTTP/1.1\r\nHost: unknown.example.com:443\r\n\r\n")
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		t.Fatalf("reading CONNECT response: %v", err)
+	}
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("enforce mode should deny unknown host CONNECT (403), got %d", resp.StatusCode)
+	}
+
+	// Verify audit log records deny
+	entries := p.FlushLogs()
+	found := false
+	for _, e := range entries {
+		if e.Decision == "deny" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected log entry with decision=deny; got: %+v", entries)
+	}
+}
+
+func TestProxyRequest_MonitorMode_AllowsUnknownHost(t *testing.T) {
+	// Set up a backend server to receive the forwarded request
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "forwarded-ok")
+	}))
+	t.Cleanup(func() { backend.Close() })
+
+	scope := internal.Scope{Services: map[string]internal.ServiceScope{}}
+	_, ts := newTestProxyWithMonitor(t, scope, map[string]string{})
+
+	// Use the Gate proxy to forward a plain HTTP request to the backend.
+	proxyURL, _ := url.Parse(ts.URL)
+	client := &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyURL(proxyURL),
+		},
+	}
+
+	resp, err := client.Get(backend.URL + "/test")
+	if err != nil {
+		t.Fatalf("sending request through proxy: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusForbidden {
+		t.Errorf("monitor mode should allow unknown host proxy request, got 403: %s", string(body))
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+	if string(body) != "forwarded-ok" {
+		t.Errorf("expected forwarded-ok body, got %q", string(body))
 	}
 }
