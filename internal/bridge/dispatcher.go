@@ -404,10 +404,28 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		gateEnv["GATE_ENFORCEMENT_MODE"] = "monitor"
 	}
 
-	// Resolve SCM credentials for services in scope.
+	// Resolve SCM credentials for services in scope or policy rules.
 	scmCredentials := make(map[string]string)
 	scmDummyTokens := make(map[string]string)
+	servicesNeeded := make(map[string]bool)
 	for service := range scope.Services {
+		servicesNeeded[service] = true
+	}
+	// Derive services from resolved policy rules (host → service mapping).
+	if resolvedRules, err := ResolvePolicyRules(ctx, d.policyRuleStore, profileRules, activeTeamID); err == nil {
+		for _, rule := range resolvedRules {
+			host := strings.ToLower(rule.Allow.Host)
+			switch {
+			case strings.Contains(host, "github"):
+				servicesNeeded["github"] = true
+			case strings.Contains(host, "gitlab"):
+				servicesNeeded["gitlab"] = true
+			case strings.HasSuffix(host, ".atlassian.net"):
+				servicesNeeded["jira"] = true
+			}
+		}
+	}
+	for service := range servicesNeeded {
 		if service == "github" || service == "gitlab" || service == "jira" || service == "splunk" {
 			realToken, _, err := d.credStore.AcquireSCMTokenWithHost(ctx, service)
 			if err != nil {

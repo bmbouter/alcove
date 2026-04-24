@@ -21,6 +21,10 @@ rule_sets:
           method: GET
           host: api.github.com
           path: "/repos/*/*/**"
+      - allow:
+          method: "*"
+          host: github.com
+          path: "/**"
 
   - name: github-push-branch
     rules:
