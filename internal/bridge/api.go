@@ -1723,9 +1723,32 @@ func (a *API) handleAgentDefinitionRun(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 
+	// Parse optional inputs from request body.
+	var body struct {
+		Inputs map[string]interface{} `json:"inputs,omitempty"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}
+
 	req := def.ToTaskRequest()
 	req.TaskName = def.Name
 	req.TriggerType = "manual"
+
+	// Prepend inputs as context (same format as workflow engine).
+	if len(body.Inputs) > 0 {
+		var lines []string
+		lines = append(lines, "Context:")
+		for key, value := range body.Inputs {
+			if str, ok := value.(string); ok {
+				lines = append(lines, fmt.Sprintf("  %s: %s", key, str))
+			} else {
+				valJSON, _ := json.Marshal(value)
+				lines = append(lines, fmt.Sprintf("  %s: %s", key, string(valJSON)))
+			}
+		}
+		req.Prompt = strings.Join(lines, "\n") + "\n\n" + req.Prompt
+	}
 	session, err := a.dispatcher.DispatchTask(r.Context(), req, submitter, teamID)
 	if err != nil {
 		log.Printf("error: dispatching agent definition %s: %v", id, err)
