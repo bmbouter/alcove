@@ -425,6 +425,16 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 			}
 		}
 	}
+	// Derive services from repo URLs.
+	for _, repo := range req.Repos {
+		u := strings.ToLower(repo.URL)
+		switch {
+		case strings.Contains(u, "github.com"):
+			servicesNeeded["github"] = true
+		case strings.Contains(u, "gitlab"):
+			servicesNeeded["gitlab"] = true
+		}
+	}
 	for service := range servicesNeeded {
 		if service == "github" || service == "gitlab" || service == "jira" || service == "splunk" {
 			realToken, _, err := d.credStore.AcquireSCMTokenWithHost(ctx, service)
