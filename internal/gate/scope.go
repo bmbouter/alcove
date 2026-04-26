@@ -23,6 +23,7 @@ package gate
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -735,7 +736,7 @@ func isNumeric(s string) bool {
 // HandleGitCredential responds to git credential fill requests.
 // It extracts the host and path from the request body and returns
 // credentials if the repo is within scope.
-func HandleGitCredential(w http.ResponseWriter, r *http.Request, scope internal.Scope, credentials map[string]string) {
+func HandleGitCredential(w http.ResponseWriter, r *http.Request, scope internal.Scope, credentials map[string]string, enforcementMode string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -763,22 +764,27 @@ func HandleGitCredential(w http.ResponseWriter, r *http.Request, scope internal.
 	case strings.Contains(host, "gitlab"):
 		service = "gitlab"
 	default:
-		http.Error(w, "unknown git host", http.StatusForbidden)
-		return
+		if enforcementMode == "monitor" {
+			log.Printf("gate: monitor: git-credential for unknown host %s (allowing)", host)
+		} else {
+			http.Error(w, "unknown git host", http.StatusForbidden)
+			return
+		}
 	}
 
-	// Check if the repo is in scope
-	svcScope, ok := scope.Services[service]
-	if !ok {
-		http.Error(w, fmt.Sprintf("service %q not in scope", service), http.StatusForbidden)
-		return
-	}
+	// Check if the repo is in scope (skip in monitor mode)
+	if enforcementMode != "monitor" {
+		svcScope, ok := scope.Services[service]
+		if !ok {
+			http.Error(w, fmt.Sprintf("service %q not in scope", service), http.StatusForbidden)
+			return
+		}
 
-	// path is typically "owner/repo.git" — strip .git suffix
-	repoPath := strings.TrimSuffix(path, ".git")
-	if !repoAllowed(repoPath, svcScope.Repos) {
-		http.Error(w, fmt.Sprintf("repo %q not in scope", repoPath), http.StatusForbidden)
-		return
+		repoPath := strings.TrimSuffix(path, ".git")
+		if !repoAllowed(repoPath, svcScope.Repos) {
+			http.Error(w, fmt.Sprintf("repo %q not in scope", repoPath), http.StatusForbidden)
+			return
+		}
 	}
 
 	// Look up credentials

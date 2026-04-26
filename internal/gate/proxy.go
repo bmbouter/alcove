@@ -115,7 +115,7 @@ func (p *Proxy) Handler() http.Handler {
 
 	// Git credential helper endpoint
 	mux.HandleFunc("/git-credential", func(w http.ResponseWriter, r *http.Request) {
-		HandleGitCredential(w, r, p.config.Scope, p.config.Credentials)
+		HandleGitCredential(w, r, p.config.Scope, p.config.Credentials, p.config.EnforcementMode)
 		p.logEntry(r.Method, r.URL.String(), "gate", "git_credential", "allow", http.StatusOK)
 	})
 
