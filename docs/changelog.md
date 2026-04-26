@@ -3,6 +3,11 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.39.0
+
+### Security
+- Fix credential team isolation — SCM token lookup now scoped to active team, preventing cross-team credential leakage
+
 ## v0.38.6
 
 ### Bug Fixes
