@@ -437,7 +437,7 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 	}
 	for service := range servicesNeeded {
 		if service == "github" || service == "gitlab" || service == "jira" || service == "splunk" {
-			realToken, _, err := d.credStore.AcquireSCMTokenWithHost(ctx, service)
+			realToken, _, err := d.credStore.AcquireSCMTokenForOwner(ctx, service, activeTeamID)
 			if err != nil {
 				log.Printf("warning: no credential for %s: %v", service, err)
 				continue
@@ -479,7 +479,7 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 			}
 
 			// Resolve credential for this tool.
-			realToken, _, err := d.credStore.AcquireSCMTokenWithHost(ctx, toolName)
+			realToken, _, err := d.credStore.AcquireSCMTokenForOwner(ctx, toolName, activeTeamID)
 			dummyToken := "alcove-session-" + uuid.New().String()
 
 			if err != nil {
@@ -631,7 +631,7 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 			continue
 		}
 		// Fall back to SCM token path.
-		token, _, err := d.credStore.AcquireSCMTokenWithHost(ctx, credName)
+		token, _, err := d.credStore.AcquireSCMTokenForOwner(ctx, credName, activeTeamID)
 		if err != nil {
 			log.Printf("warning: credential %q not found for env var %s", credName, envVar)
 			continue
