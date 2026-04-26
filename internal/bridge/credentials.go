@@ -404,8 +404,7 @@ func (cs *CredentialStore) AcquireSCMTokenForOwner(ctx context.Context, service,
 		ORDER BY created_at DESC LIMIT 1`,
 		service, teamID).Scan(&encrypted, &host)
 	if err != nil {
-		// Fall back to any available credential for this service.
-		return cs.AcquireSCMTokenWithHost(ctx, service)
+		return "", "", fmt.Errorf("no credential found for service %q in team %q: %w", service, teamID, err)
 	}
 	raw, err := decrypt(cs.key, encrypted)
 	if err != nil {
