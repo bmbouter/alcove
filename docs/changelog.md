@@ -3,6 +3,11 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.38.6
+
+### Bug Fixes
+- Fix monitor mode for git-credential endpoint — git push no longer fails with "service not in scope" in monitor mode
+
 ## v0.38.5
 
 ### Features
