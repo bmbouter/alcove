@@ -27,6 +27,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -191,10 +192,20 @@ func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			TaskRequest
 			AgentDefinition string `json:"agent_definition,omitempty"`
+			Repo            string `json:"repo,omitempty"` // Legacy single-repo from CLI
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			respondError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 			return
+		}
+
+		// Convert legacy single "repo" field to multi-repo format.
+		if body.Repo != "" && len(body.Repos) == 0 {
+			repoURL := body.Repo
+			if !strings.Contains(repoURL, "://") {
+				repoURL = "https://github.com/" + repoURL
+			}
+			body.Repos = []internal.RepoSpec{{URL: repoURL, Name: path.Base(repoURL)}}
 		}
 
 		submitter := r.Header.Get("X-Alcove-User")
