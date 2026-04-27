@@ -379,6 +379,7 @@ k3s-status: ## Show k3s Alcove pods, port-forwards, and jobs
 
 test: ## Run all tests
 	$(GO) test ./...
+	@./scripts/validate-triggers.sh
 
 test-network: ## Smoke-test Skiff network isolation (requires podman + skiff-base image)
 	@echo "Running network isolation smoke tests..."
