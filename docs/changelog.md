@@ -3,6 +3,13 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.39.1
+
+### Bug Fixes
+- Fix monitor mode MITM: service domains now use MITM for credential injection in monitor mode instead of raw passthrough
+- Add derived services to GATE_SCOPE so MITM handler knows which domains to intercept
+- Remove duplicate trigger from autonomous-dev agent
+
 ## v0.39.0
 
 ### Security
