@@ -81,7 +81,17 @@ func main() {
 	defer stop()
 
 	go func() {
-		log.Printf("gate: starting proxy on :8443 (session=%s, provider=%s)", cfg.SessionID, cfg.LLMProvider)
+		log.Printf("gate: starting proxy on :8443 (session=%s, provider=%s, enforcement=%s)", cfg.SessionID, cfg.LLMProvider, cfg.EnforcementMode)
+		services := make([]string, 0)
+		for k := range cfg.Scope.Services {
+			services = append(services, k)
+		}
+		creds := make([]string, 0)
+		for k, v := range cfg.Credentials {
+			creds = append(creds, fmt.Sprintf("%s=%d", k, len(v)))
+		}
+		log.Printf("gate: config: services=%v credentials=%v policyRules=%d hasCACert=%v hasCACertPEM=%v",
+			services, creds, len(cfg.PolicyRules), cfg.CACertPEM != nil, len(cfg.CACertPEM) > 0)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("gate: server error: %v", err)
 		}

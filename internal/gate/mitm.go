@@ -219,6 +219,19 @@ func NewMITMHandler(caCertPEM, caKeyPEM []byte, config *Config) (*MITMHandler, e
 	}
 	m.policyRuleHosts = config.PolicyRules
 
+	// Log all MITM domains for debugging
+	domainList := make([]string, 0, len(m.domains))
+	for d := range m.domains {
+		domainList = append(domainList, d)
+	}
+	log.Printf("gate: MITM domains: %v (services: %v, policyRules: %d)", domainList, func() []string {
+		s := make([]string, 0)
+		for k := range config.Scope.Services {
+			s = append(s, k)
+		}
+		return s
+	}(), len(config.PolicyRules))
+
 	return m, nil
 }
 
@@ -268,57 +281,65 @@ func (m *MITMHandler) IsMITMDomain(hostname string) bool {
 // HandleCONNECT performs MITM TLS interception on a CONNECT tunnel.
 func (m *MITMHandler) HandleCONNECT(w http.ResponseWriter, r *http.Request, targetHost string) {
 	hostname := hostOnly(targetHost)
+	log.Printf("gate: MITM CONNECT start: target=%s hostname=%s", targetHost, hostname)
 
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
+		log.Printf("gate: MITM CONNECT %s: hijacking not supported", hostname)
 		http.Error(w, "hijacking not supported", http.StatusInternalServerError)
 		return
 	}
 
 	clientConn, _, err := hijacker.Hijack()
 	if err != nil {
-		log.Printf("gate: MITM hijack failed: %v", err)
+		log.Printf("gate: MITM hijack failed for %s: %v", hostname, err)
 		return
 	}
 	defer clientConn.Close()
 
+	log.Printf("gate: MITM %s: sending 200 Connection Established", hostname)
 	_, _ = clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 
-	// Get or create leaf cert for hostname
 	leafCert, err := m.certCache.GetOrCreate(hostname, m.caCert, m.caKey)
 	if err != nil {
 		log.Printf("gate: MITM cert generation failed for %s: %v", hostname, err)
 		return
 	}
+	log.Printf("gate: MITM %s: leaf cert ready, starting TLS handshake", hostname)
 
-	// TLS handshake with the client using our leaf cert
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{*leafCert},
 		NextProtos:   []string{"http/1.1"},
 	}
 	tlsConn := tls.Server(clientConn, tlsConfig)
 	if err := tlsConn.Handshake(); err != nil {
-		log.Printf("gate: MITM TLS handshake failed for %s: %v", hostname, err)
+		log.Printf("gate: MITM TLS handshake FAILED for %s: %v", hostname, err)
 		return
 	}
 	defer tlsConn.Close()
+	log.Printf("gate: MITM %s: TLS handshake complete, negotiated=%s", hostname, tlsConn.ConnectionState().NegotiatedProtocol)
 
-	// Read HTTP requests in a loop (keep-alive support)
 	reader := bufio.NewReader(tlsConn)
+	reqCount := 0
 	for {
+		log.Printf("gate: MITM %s: waiting for HTTP request (req #%d)...", hostname, reqCount+1)
 		req, err := http.ReadRequest(reader)
 		if err != nil {
 			if err != io.EOF {
-				log.Printf("gate: MITM read request failed for %s: %v", hostname, err)
+				log.Printf("gate: MITM read request failed for %s (req #%d): %v", hostname, reqCount+1, err)
+			} else {
+				log.Printf("gate: MITM %s: client EOF after %d requests", hostname, reqCount)
 			}
 			return
 		}
+		reqCount++
 
-		// Set the full URL for scope checking
 		req.URL.Scheme = "https"
 		req.URL.Host = hostname
+		log.Printf("gate: MITM %s: received %s %s (req #%d)", hostname, req.Method, req.URL.String(), reqCount)
 
 		m.handleMITMRequest(tlsConn, req, hostname, targetHost)
+		log.Printf("gate: MITM %s: completed %s %s (req #%d)", hostname, req.Method, req.URL.String(), reqCount)
 	}
 }
 
@@ -327,15 +348,15 @@ func (m *MITMHandler) handleMITMRequest(clientConn net.Conn, req *http.Request, 
 	var result AccessResult
 	if len(m.config.PolicyRules) > 0 {
 		result = CheckPolicyRules(req.Method, req.URL.String(), m.config.PolicyRules)
+		log.Printf("gate: MITM %s: policy check result: allowed=%v reason=%q", hostname, result.Allowed, result.Reason)
 	} else {
 		result = CheckAccess(req.Method, req.URL.String(), m.config.Scope)
+		log.Printf("gate: MITM %s: scope check result: allowed=%v reason=%q", hostname, result.Allowed, result.Reason)
 	}
 	if !result.Allowed {
 		if m.config.EnforcementMode == "monitor" {
-			// Monitor mode: log the violation but allow the request through
 			log.Printf("gate: MITM monitor: would deny %s %s: %s (allowing)", req.Method, req.URL.String(), result.Reason)
 		} else {
-			// Enforce mode: deny the request
 			resp := &http.Response{
 				StatusCode: http.StatusForbidden,
 				ProtoMajor: 1,
@@ -351,16 +372,30 @@ func (m *MITMHandler) handleMITMRequest(clientConn net.Conn, req *http.Request, 
 	}
 
 	// Inject credentials
+	log.Printf("gate: MITM %s: injecting credentials...", hostname)
 	if err := m.injectMITMCredential(req, hostname); err != nil {
 		log.Printf("gate: MITM credential injection failed for %s: %v", hostname, err)
 	}
+	authHeader := req.Header.Get("Authorization")
+	if authHeader != "" {
+		// Mask the credential but show the type
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) == 2 {
+			log.Printf("gate: MITM %s: auth header set: type=%s len=%d", hostname, parts[0], len(parts[1]))
+		} else {
+			log.Printf("gate: MITM %s: auth header set: raw len=%d", hostname, len(authHeader))
+		}
+	} else {
+		log.Printf("gate: MITM %s: WARNING no auth header after credential injection", hostname)
+	}
 
 	// Forward to real upstream over TLS
+	log.Printf("gate: MITM %s: dialing upstream %s...", hostname, ensurePort(targetHost, "443"))
 	upstreamConn, err := tls.Dial("tcp", ensurePort(targetHost, "443"), &tls.Config{
 		ServerName: hostname,
 	})
 	if err != nil {
-		log.Printf("gate: MITM upstream dial failed for %s: %v", targetHost, err)
+		log.Printf("gate: MITM upstream dial FAILED for %s: %v", targetHost, err)
 		resp := &http.Response{
 			StatusCode: http.StatusBadGateway,
 			ProtoMajor: 1,
@@ -372,31 +407,37 @@ func (m *MITMHandler) handleMITMRequest(clientConn net.Conn, req *http.Request, 
 		return
 	}
 	defer upstreamConn.Close()
+	log.Printf("gate: MITM %s: upstream connected", hostname)
 
 	// Send the request to upstream
-	req.RequestURI = "" // Must be empty for client requests
+	req.RequestURI = ""
 	upstreamURL := *req.URL
 	req.URL = &upstreamURL
 
+	log.Printf("gate: MITM %s: writing request to upstream...", hostname)
 	if err := req.Write(upstreamConn); err != nil {
-		log.Printf("gate: MITM upstream write failed for %s: %v", targetHost, err)
+		log.Printf("gate: MITM upstream write FAILED for %s: %v", targetHost, err)
 		return
 	}
+	log.Printf("gate: MITM %s: request written, reading response...", hostname)
 
 	// Read the response from upstream
 	upstreamReader := bufio.NewReader(upstreamConn)
 	resp, err := http.ReadResponse(upstreamReader, req)
 	if err != nil {
-		log.Printf("gate: MITM upstream response read failed for %s: %v", targetHost, err)
+		log.Printf("gate: MITM upstream response read FAILED for %s: %v", targetHost, err)
 		return
 	}
 	defer resp.Body.Close()
+	log.Printf("gate: MITM %s: upstream response: %d %s (content-length=%d)", hostname, resp.StatusCode, resp.Status, resp.ContentLength)
 
 	// Forward response to client
+	log.Printf("gate: MITM %s: forwarding response to client...", hostname)
 	if err := resp.Write(clientConn); err != nil {
-		log.Printf("gate: MITM response write failed for %s: %v", targetHost, err)
+		log.Printf("gate: MITM response write FAILED for %s: %v", targetHost, err)
 		return
 	}
+	log.Printf("gate: MITM %s: response forwarded successfully", hostname)
 }
 
 // injectMITMCredential injects real credentials into the request based on the
@@ -404,8 +445,10 @@ func (m *MITMHandler) handleMITMRequest(clientConn net.Conn, req *http.Request, 
 func (m *MITMHandler) injectMITMCredential(req *http.Request, hostname string) error {
 	service := m.identifyServiceFromHost(hostname)
 	if service == "" {
+		log.Printf("gate: MITM credential: no service identified for host %s", hostname)
 		return nil
 	}
+	log.Printf("gate: MITM credential: host=%s service=%s", hostname, service)
 
 	// Check ToolConfigs first for custom credential injection
 	if tc, ok := m.config.ToolConfigs[service]; ok {
