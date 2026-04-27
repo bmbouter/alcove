@@ -172,16 +172,21 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	hostname := hostOnly(host)
 
+	hasMITM := p.MITMHandler != nil
+	isMITMDomain := hasMITM && p.MITMHandler.IsMITMDomain(hostname)
+	log.Printf("gate: handleConnect: host=%s hostname=%s enforcementMode=%s hasMITM=%v isMITMDomain=%v isLLM=%v",
+		host, hostname, p.config.EnforcementMode, hasMITM, isMITMDomain, isLLMHost(hostname))
+
 	// Monitor mode: allow all traffic, log for observation
 	if p.config.EnforcementMode == "monitor" {
 		if isLLMHost(hostname) {
+			log.Printf("gate: monitor: routing %s to LLM tunnel", host)
 			p.tunnelToLLM(w, r, host)
-		} else if p.MITMHandler != nil && p.MITMHandler.IsMITMDomain(hostname) {
-			// Service domains: MITM for credential injection (scope check skipped inside handler)
+		} else if isMITMDomain {
+			log.Printf("gate: monitor: routing %s through MITM", host)
 			p.MITMHandler.HandleCONNECT(w, r, host)
 		} else {
-			// Unknown domains: passthrough
-			log.Printf("gate: monitor: CONNECT %s", host)
+			log.Printf("gate: monitor: CONNECT %s (passthrough, not a MITM domain)", host)
 			p.tunnelDirect(w, r, host)
 			p.logEntry("CONNECT", host, identifyService(hostname), "monitor", "allow", http.StatusOK)
 		}
@@ -191,13 +196,17 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	// Enforcement mode: normal routing with scope checking
 	switch {
 	case isLLMHost(hostname):
+		log.Printf("gate: enforce: routing %s to LLM tunnel", host)
 		p.tunnelToLLM(w, r, host)
-	case p.MITMHandler != nil && p.MITMHandler.IsMITMDomain(hostname):
+	case isMITMDomain:
+		log.Printf("gate: enforce: routing %s through MITM", host)
 		p.MITMHandler.HandleCONNECT(w, r, host)
 	case isDomainAllowed(hostname):
+		log.Printf("gate: enforce: routing %s through direct tunnel (allowlist)", host)
 		p.tunnelDirect(w, r, host)
 		p.logEntry("CONNECT", host, "allowlist", "passthrough", "allow", http.StatusOK)
 	default:
+		log.Printf("gate: enforce: DENYING %s (not allowed)", host)
 		http.Error(w, "Forbidden: host not allowed", http.StatusForbidden)
 		p.logEntry("CONNECT", host, "unknown", "", "deny", http.StatusForbidden)
 	}
