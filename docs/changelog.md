@@ -3,6 +3,11 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.39.2
+
+### Improvements
+- Add verbose MITM proxy debugging logs for diagnosing connection issues on staging
+
 ## v0.39.1
 
 ### Bug Fixes
