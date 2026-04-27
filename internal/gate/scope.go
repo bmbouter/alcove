@@ -61,8 +61,8 @@ func CheckAccess(method, rawURL string, scope internal.Scope) AccessResult {
 
 	host := u.Hostname()
 
-	// GitHub API
-	if host == "api.github.com" {
+	// GitHub API and web (git clone uses github.com, API uses api.github.com)
+	if host == "api.github.com" || host == "github.com" {
 		return checkGitHub(method, u.Path, scope)
 	}
 
@@ -681,6 +681,9 @@ func extractJiraProjectKey(path string) string {
 
 // repoAllowed checks if a repo is in the allowed list. Supports wildcard "*".
 func repoAllowed(repo string, allowed []string) bool {
+	if allowed == nil {
+		return true // nil means all repos allowed (no restrictions)
+	}
 	if len(allowed) == 0 {
 		return false
 	}
@@ -701,6 +704,9 @@ func repoAllowed(repo string, allowed []string) bool {
 
 // operationAllowed checks if an operation is in the allowed list. Supports wildcard "*".
 func operationAllowed(op string, allowed []string) bool {
+	if allowed == nil {
+		return true // nil means all operations allowed (no restrictions)
+	}
 	for _, a := range allowed {
 		if a == "*" || a == op {
 			return true
