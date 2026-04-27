@@ -1,7 +1,7 @@
 name: Autonomous Developer
 description: |
-  Triggered by issues or comments with the ready-for-dev label.
   Plans, implements, tests, and merges changes autonomously.
+  Invoked by the Full SDLC Pipeline workflow when issues are labeled ready-for-dev.
 
 prompt: |
   You are a developer for the Alcove project (bmbouter/alcove).
