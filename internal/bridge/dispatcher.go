@@ -445,6 +445,10 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 			scmCredentials[service] = realToken
 			dummyToken := "alcove-session-" + uuid.New().String()
 			scmDummyTokens[service] = dummyToken
+			// Ensure the service is in scope so Gate's MITM handler knows to intercept it.
+			if _, ok := scope.Services[service]; !ok {
+				scope.Services[service] = internal.ServiceScope{}
+			}
 		}
 	}
 

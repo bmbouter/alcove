@@ -323,7 +323,7 @@ func (m *MITMHandler) HandleCONNECT(w http.ResponseWriter, r *http.Request, targ
 }
 
 func (m *MITMHandler) handleMITMRequest(clientConn net.Conn, req *http.Request, hostname, targetHost string) {
-	// Check scope (skip enforcement in monitor mode)
+	// Check scope
 	var result AccessResult
 	if len(m.config.PolicyRules) > 0 {
 		result = CheckPolicyRules(req.Method, req.URL.String(), m.config.PolicyRules)
@@ -331,17 +331,23 @@ func (m *MITMHandler) handleMITMRequest(clientConn net.Conn, req *http.Request, 
 		result = CheckAccess(req.Method, req.URL.String(), m.config.Scope)
 	}
 	if !result.Allowed {
-		resp := &http.Response{
-			StatusCode: http.StatusForbidden,
-			ProtoMajor: 1,
-			ProtoMinor: 1,
-			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader("Forbidden: " + result.Reason)),
+		if m.config.EnforcementMode == "monitor" {
+			// Monitor mode: log the violation but allow the request through
+			log.Printf("gate: MITM monitor: would deny %s %s: %s (allowing)", req.Method, req.URL.String(), result.Reason)
+		} else {
+			// Enforce mode: deny the request
+			resp := &http.Response{
+				StatusCode: http.StatusForbidden,
+				ProtoMajor: 1,
+				ProtoMinor: 1,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader("Forbidden: " + result.Reason)),
+			}
+			resp.Header.Set("Content-Type", "text/plain")
+			_ = resp.Write(clientConn)
+			log.Printf("gate: MITM denied %s %s: %s", req.Method, req.URL.String(), result.Reason)
+			return
 		}
-		resp.Header.Set("Content-Type", "text/plain")
-		_ = resp.Write(clientConn)
-		log.Printf("gate: MITM denied %s %s: %s", req.Method, req.URL.String(), result.Reason)
-		return
 	}
 
 	// Inject credentials

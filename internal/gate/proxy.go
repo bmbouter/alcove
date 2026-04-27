@@ -176,7 +176,11 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	if p.config.EnforcementMode == "monitor" {
 		if isLLMHost(hostname) {
 			p.tunnelToLLM(w, r, host)
+		} else if p.MITMHandler != nil && p.MITMHandler.IsMITMDomain(hostname) {
+			// Service domains: MITM for credential injection (scope check skipped inside handler)
+			p.MITMHandler.HandleCONNECT(w, r, host)
 		} else {
+			// Unknown domains: passthrough
 			log.Printf("gate: monitor: CONNECT %s", host)
 			p.tunnelDirect(w, r, host)
 			p.logEntry("CONNECT", host, identifyService(hostname), "monitor", "allow", http.StatusOK)
