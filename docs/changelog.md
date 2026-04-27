@@ -3,6 +3,13 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.39.3
+
+### Bug Fixes
+- Fix CLI repo derivation — convert legacy `repo` field to multi-repo format for proper credential injection
+- Fix scope nil-operations semantics — `null` operations means allow-all, not deny-all
+- Add `github.com` to GitHub host recognition in scope checker (git clone uses `github.com`, API uses `api.github.com`)
+
 ## v0.39.2
 
 ### Improvements
