@@ -37,19 +37,3 @@ ci_gate:
   max_retries: 3
   timeout: 900
 
-trigger:
-  github:
-    events:
-      - issues
-      - issue_comment
-      - pull_request
-    actions:
-      - reopened
-      - created
-      - labeled
-    repos:
-      - bmbouter/alcove
-    labels:
-      - ready-for-dev
-      - changes-requested
-    delivery_mode: polling
