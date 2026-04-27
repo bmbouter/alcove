@@ -1384,3 +1384,70 @@ func TestProxyRequest_MonitorMode_AllowsUnknownHost(t *testing.T) {
 		t.Errorf("expected forwarded-ok body, got %q", string(body))
 	}
 }
+
+// newTestProxyWithMonitorAndMITM creates a Gate proxy in monitor mode with MITM enabled.
+func newTestProxyWithMonitorAndMITM(t *testing.T, scope internal.Scope, creds map[string]string) (*Proxy, *httptest.Server, []byte) {
+	t.Helper()
+	certPEM, keyPEM, err := GenerateTestCA()
+	if err != nil {
+		t.Fatalf("generating test CA: %v", err)
+	}
+	cfg := Config{
+		SessionID:       "test-session",
+		Scope:           scope,
+		Credentials:     creds,
+		ToolConfigs:     map[string]ToolConfig{},
+		SessionToken:    "session-tok",
+		LLMToken:        "llm-secret-key",
+		LLMProvider:     "anthropic",
+		LLMTokenType:    "api_key",
+		CACertPEM:       certPEM,
+		CAKeyPEM:        keyPEM,
+		EnforcementMode: "monitor",
+	}
+	p := NewProxy(cfg)
+	ts := httptest.NewServer(p.Handler())
+	t.Cleanup(func() { ts.Close(); p.Stop() })
+	return p, ts, certPEM
+}
+
+func TestCONNECT_MonitorMode_MITMsServiceHost(t *testing.T) {
+	// In monitor mode with MITM enabled, a CONNECT to api.github.com should
+	// go through the MITM handler (TLS interception for credential injection)
+	// rather than tunnelDirect (raw passthrough).
+	scope := githubScope([]string{"*"}, []string{"*"})
+	_, ts, certPEM := newTestProxyWithMonitorAndMITM(t, scope, map[string]string{"github": "ghp_real_token"})
+
+	conn, err := net.Dial("tcp", strings.TrimPrefix(ts.URL, "http://"))
+	if err != nil {
+		t.Fatalf("connecting to gate: %v", err)
+	}
+	defer conn.Close()
+
+	// Send CONNECT to api.github.com — this is a service domain that should be MITM'd
+	fmt.Fprintf(conn, "CONNECT api.github.com:443 HTTP/1.1\r\nHost: api.github.com:443\r\n\r\n")
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, nil)
+	if err != nil {
+		t.Fatalf("reading CONNECT response: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 from CONNECT in monitor+MITM mode, got %d", resp.StatusCode)
+	}
+
+	// If MITM is active, the TLS handshake should succeed with our test CA cert.
+	// If it fell through to tunnelDirect, the handshake would fail because the
+	// upstream is the real api.github.com and our CA cert is not in its chain.
+	caPool := x509.NewCertPool()
+	caPool.AppendCertsFromPEM(certPEM)
+	tlsConn := tls.Client(conn, &tls.Config{
+		ServerName: "api.github.com",
+		RootCAs:    caPool,
+		NextProtos: []string{"http/1.1"},
+	})
+	err = tlsConn.Handshake()
+	if err != nil {
+		t.Fatalf("TLS handshake failed — MITM not active in monitor mode for service domain: %v", err)
+	}
+	tlsConn.Close()
+}
