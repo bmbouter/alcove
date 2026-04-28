@@ -3,6 +3,14 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.41.0
+
+### Features
+- Inject JIRA env vars (JIRA_URL, JIRA_USERNAME, JIRA_API_TOKEN) for agent sessions when JIRA is in scope
+
+### Changes
+- Moved to `alcove-ai` GitHub organization — all repo references, Go module path, and container images updated
+
 ## v0.40.1
 
 ### Bug Fixes
