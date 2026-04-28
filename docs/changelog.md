@@ -3,6 +3,18 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.40.0
+
+### Features
+- Triple Team mode — `triple_team: true` on agents/CLI/dashboard enables 3-phase parallel agent approach (Workers, Evaluators, Integrators)
+- Named Repo Groups — `.alcove/repo-groups/*.yml` define named sets of repos, referenced via `repo_group:` in agents
+- `create-prs` bridge action for multi-repo PR creation
+- Prompt engineering documentation (`docs/prompt-engineering.md`)
+
+### Bug Fixes
+- Fix MITM GitHub auth — `github.com` git HTTP requires Basic auth format, not token format (which only works on `api.github.com`)
+- Fix CLAUDE.md ordering — appended to end of prompt instead of prepended, so agents read their task first
+
 ## v0.39.3
 
 ### Bug Fixes
