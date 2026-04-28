@@ -13,14 +13,14 @@ Automatically detect if a new Alcove release is available, audit the changes for
 
 **Latest release:**
 ```bash
-gh release view --repo bmbouter/alcove --json tagName -q '.tagName'
+gh release view --repo alcove-ai/alcove --json tagName -q '.tagName'
 ```
 
 **Currently deployed on staging:**
 ```bash
 oc get deployment alcove-bridge -o jsonpath='{.spec.template.spec.containers[0].image}'
 ```
-Extract the tag from the image URL (e.g., `ghcr.io/bmbouter/alcove-bridge:0.4.15` → `0.4.15`).
+Extract the tag from the image URL (e.g., `ghcr.io/alcove-ai/alcove-bridge:0.4.15` → `0.4.15`).
 
 If $ARGUMENTS is provided, use that version instead of auto-detecting.
 

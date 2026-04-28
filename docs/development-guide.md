@@ -230,8 +230,8 @@ Bridge reads these environment variables:
 | `LEDGER_DATABASE_URL` | PostgreSQL connection string | `postgres://alcove:alcove@localhost:5432/alcove?sslmode=disable` |
 | `HAIL_URL` | NATS server URL | `nats://localhost:4222` |
 | `RUNTIME` | Container runtime to use | `podman` or `kubernetes` |
-| `SKIFF_IMAGE` | Skiff container image | `ghcr.io/bmbouter/alcove-skiff-base:latest` |
-| `GATE_IMAGE` | Gate container image | `ghcr.io/bmbouter/alcove-gate:latest` |
+| `SKIFF_IMAGE` | Skiff container image | `ghcr.io/alcove-ai/alcove-skiff-base:latest` |
+| `GATE_IMAGE` | Gate container image | `ghcr.io/alcove-ai/alcove-gate:latest` |
 | `ALCOVE_WEB_DIR` | Path to dashboard static files | `/web` or `./web` |
 | `ALCOVE_NETWORK` | Podman internal network name | `alcove-internal` |
 | `ALCOVE_EXTERNAL_NETWORK` | Podman external network for Gate egress | `alcove-external` |
@@ -816,7 +816,7 @@ or `dev` if not in a git repository.
 
 ### Publishing to GitHub Container Registry
 
-Pre-built images are available at `ghcr.io/bmbouter/alcove-<component>`.
+Pre-built images are available at `ghcr.io/alcove-ai/alcove-<component>`.
 
 **Pulling images:**
 
@@ -849,9 +849,9 @@ git push origin v0.1.0
 
 | Image | Registry Path |
 |-------|-------------|
-| Bridge | `ghcr.io/bmbouter/alcove-bridge:<version>` |
-| Gate | `ghcr.io/bmbouter/alcove-gate:<version>` |
-| Skiff | `ghcr.io/bmbouter/alcove-skiff-base:<version>` |
+| Bridge | `ghcr.io/alcove-ai/alcove-bridge:<version>` |
+| Gate | `ghcr.io/alcove-ai/alcove-gate:<version>` |
+| Skiff | `ghcr.io/alcove-ai/alcove-skiff-base:<version>` |
 
 Each push also updates the `latest` tag.
 

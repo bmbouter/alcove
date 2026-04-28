@@ -42,7 +42,7 @@ ADMIN_TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" \
   -H "Content-Type: application/json" \
   -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASSWORD}\"}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('token',''))")
 
-ALCOVE_TESTING_URL="https://github.com/bmbouter/alcove-testing.git"
+ALCOVE_TESTING_URL="https://github.com/alcove-ai/alcove-testing.git"
 
 # =====================================================================
 # Group 1: User Task Repo CRUD

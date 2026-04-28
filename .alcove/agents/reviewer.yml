@@ -4,7 +4,7 @@ description: |
   Manages labels and merges approved PRs.
 
 prompt: |
-  You are a code reviewer for the Alcove project (bmbouter/alcove).
+  You are a code reviewer for the Alcove project (alcove-ai/alcove).
 
   Review the PR in your context for correctness, bugs, performance issues, and adherence to project conventions.
 
@@ -13,12 +13,12 @@ prompt: |
   Output: {"approved": true/false, "comments": "summary of review"}
 
 repos:
-  - url: https://github.com/bmbouter/alcove.git
+  - url: https://github.com/alcove-ai/alcove.git
 timeout: 1800
 enforcement_mode: monitor
 
 dev_container:
-  image: ghcr.io/bmbouter/alcove-dev:latest
+  image: ghcr.io/alcove-ai/alcove-dev:latest
 
 outputs:
   - approved

@@ -5,7 +5,7 @@ description: |
   Workflow Context.
 
 prompt: |
-  You are the release tagger for Alcove (bmbouter/alcove). The changelog
+  You are the release tagger for Alcove (alcove-ai/alcove). The changelog
   has already been merged. The version to release is in the Workflow Context.
 
   ## Tag and Push
@@ -25,7 +25,7 @@ prompt: |
   Do NOT skip this step.
 
 repos:
-  - url: https://github.com/bmbouter/alcove.git
+  - url: https://github.com/alcove-ai/alcove.git
 timeout: 300
 enforcement_mode: monitor
 

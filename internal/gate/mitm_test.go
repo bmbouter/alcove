@@ -27,7 +27,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmbouter/alcove/internal"
+	"github.com/alcove-ai/alcove/internal"
 )
 
 func mustGenerateTestCA(t *testing.T) ([]byte, []byte) {

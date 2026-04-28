@@ -42,7 +42,7 @@ This pulls all three images and tags them locally. Then use `make dev-up`
 ### 1. Clone
 
 ```bash
-git clone https://github.com/bmbouter/alcove.git
+git clone https://github.com/alcove-ai/alcove.git
 cd alcove
 ```
 

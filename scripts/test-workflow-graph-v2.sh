@@ -205,7 +205,7 @@ curl -s -X PUT "$BRIDGE_URL/api/v1/user/settings/agent-repos" \
   -H "Authorization: Bearer $ALICE_TOKEN" \
   -H "Content-Type: application/json" \
   -H "X-Alcove-Team: $ALICE_TEAM_ID" \
-  -d '{"repos":[{"url":"https://github.com/bmbouter/alcove-testing.git","name":"alcove-testing"}]}' > /dev/null
+  -d '{"repos":[{"url":"https://github.com/alcove-ai/alcove-testing.git","name":"alcove-testing"}]}' > /dev/null
 
 curl -s -X POST "$BRIDGE_URL/api/v1/agent-definitions/sync" \
   -H "Authorization: Bearer $ALICE_TOKEN" \
@@ -312,7 +312,7 @@ log "  Workflows with conditions: $VALID_CONDITION_WFS"
 VALIDATE_VALID=$(curl -s -w "\n%{http_code}" -X POST "$BRIDGE_URL/api/v1/agent-repos/validate" \
   -H "Authorization: Bearer $ALICE_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"url":"https://github.com/bmbouter/alcove-testing.git"}')
+  -d '{"url":"https://github.com/alcove-ai/alcove-testing.git"}')
 VALIDATE_CODE=$(echo "$VALIDATE_VALID" | tail -1)
 VALIDATE_BODY=$(echo "$VALIDATE_VALID" | sed '$d')
 

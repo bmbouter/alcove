@@ -23,8 +23,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bmbouter/alcove/internal"
-	"github.com/bmbouter/alcove/internal/bridge/condition"
+	"github.com/alcove-ai/alcove/internal"
+	"github.com/alcove-ai/alcove/internal/bridge/condition"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )

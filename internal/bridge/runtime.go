@@ -17,7 +17,7 @@ package bridge
 import (
 	"fmt"
 
-	"github.com/bmbouter/alcove/internal/runtime"
+	"github.com/alcove-ai/alcove/internal/runtime"
 )
 
 // NewRuntime creates a Runtime implementation based on the type string.

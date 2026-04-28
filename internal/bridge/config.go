@@ -22,7 +22,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/bmbouter/alcove/internal"
+	"github.com/alcove-ai/alcove/internal"
 	"gopkg.in/yaml.v3"
 )
 

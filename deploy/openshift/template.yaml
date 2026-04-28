@@ -4,13 +4,13 @@ metadata:
   name: alcove
 parameters:
 - name: BRIDGE_IMAGE
-  value: ghcr.io/bmbouter/alcove-bridge
+  value: ghcr.io/alcove-ai/alcove-bridge
 - name: BRIDGE_IMAGE_TAG
   value: latest
 - name: GATE_IMAGE
-  value: ghcr.io/bmbouter/alcove-gate
+  value: ghcr.io/alcove-ai/alcove-gate
 - name: SKIFF_IMAGE
-  value: ghcr.io/bmbouter/alcove-skiff-base
+  value: ghcr.io/alcove-ai/alcove-skiff-base
 - name: NATS_IMAGE
   value: docker.io/library/nats:latest
 - name: BRIDGE_REPLICAS

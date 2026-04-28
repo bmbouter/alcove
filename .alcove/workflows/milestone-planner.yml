@@ -4,7 +4,7 @@ trigger:
     events: [issues, issue_comment]
     actions: [labeled, created]
     labels: [needs-planning]
-    repos: [bmbouter/alcove]
+    repos: [alcove-ai/alcove]
     delivery_mode: polling
 
 workflow:
@@ -14,4 +14,4 @@ workflow:
     inputs:
       issue_number: "{{trigger.issue_number}}"
       issue_url: "{{trigger.issue_url}}"
-      repo: "bmbouter/alcove"
+      repo: "alcove-ai/alcove"

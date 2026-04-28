@@ -780,7 +780,7 @@ All notable changes to Alcove are documented here. This project uses
 ### CI/CD
 - GitHub Actions CI workflow (test + vet on push/PR)
 - GitHub Actions Release workflow (build binaries, container images, GitHub Release)
-- Container images published to ghcr.io/bmbouter/alcove-{bridge,gate,skiff-base}
+- Container images published to ghcr.io/alcove-ai/alcove-{bridge,gate,skiff-base}
 - Version embedding via ldflags in all binaries
 - Updated to Node.js 24-compatible GitHub Actions
 

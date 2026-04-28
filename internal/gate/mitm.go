@@ -35,7 +35,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bmbouter/alcove/internal"
+	"github.com/alcove-ai/alcove/internal"
 )
 
 const certCacheMaxSize = 256

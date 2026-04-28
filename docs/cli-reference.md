@@ -11,18 +11,18 @@ alcove [command] [flags]
 ### One-Line Install (Linux/macOS)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bmbouter/alcove/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/alcove-ai/alcove/main/scripts/install.sh | bash
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-iex (iwr -useb 'https://raw.githubusercontent.com/bmbouter/alcove/main/scripts/install.ps1').Content
+iex (iwr -useb 'https://raw.githubusercontent.com/alcove-ai/alcove/main/scripts/install.ps1').Content
 ```
 
 ### Manual Download
 
-Download platform-specific binaries from [GitHub Releases](https://github.com/bmbouter/alcove/releases/latest):
+Download platform-specific binaries from [GitHub Releases](https://github.com/alcove-ai/alcove/releases/latest):
 
 - **Linux AMD64**: `alcove-linux-amd64`
 - **Linux ARM64**: `alcove-linux-arm64`  
@@ -34,10 +34,10 @@ Download platform-specific binaries from [GitHub Releases](https://github.com/bm
 
 ```bash
 # Linux/macOS with custom directory
-curl -fsSL https://raw.githubusercontent.com/bmbouter/alcove/main/scripts/install.sh | INSTALL_DIR="$HOME/bin" bash
+curl -fsSL https://raw.githubusercontent.com/alcove-ai/alcove/main/scripts/install.sh | INSTALL_DIR="$HOME/bin" bash
 
 # Windows with custom directory
-$env:INSTALL_DIR = "C:\tools"; iex (iwr -useb 'https://raw.githubusercontent.com/bmbouter/alcove/main/scripts/install.ps1').Content
+$env:INSTALL_DIR = "C:\tools"; iex (iwr -useb 'https://raw.githubusercontent.com/alcove-ai/alcove/main/scripts/install.ps1').Content
 ```
 
 ### Verify Installation

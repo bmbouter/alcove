@@ -29,7 +29,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/bmbouter/alcove/internal"
+	"github.com/alcove-ai/alcove/internal"
 )
 
 // issueKeyRegexp matches JIRA issue keys like PROJ-123, ABC-1, MYPROJECT-999.

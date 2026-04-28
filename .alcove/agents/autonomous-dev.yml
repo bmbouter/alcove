@@ -4,7 +4,7 @@ description: |
   Invoked by the Full SDLC Pipeline workflow when issues are labeled ready-for-dev.
 
 prompt: |
-  You are a developer for the Alcove project (bmbouter/alcove).
+  You are a developer for the Alcove project (alcove-ai/alcove).
 
   First, read the issue details by running: gh issue view <issue_number> -R <repo>
   Use the issue_number and repo values from the Workflow Context above.
@@ -19,12 +19,12 @@ prompt: |
   Output: {"summary": "what you implemented"}
 
 repos:
-  - url: https://github.com/bmbouter/alcove.git
+  - url: https://github.com/alcove-ai/alcove.git
 timeout: 7200
 enforcement_mode: monitor
 
 dev_container:
-  image: ghcr.io/bmbouter/alcove-dev:latest
+  image: ghcr.io/alcove-ai/alcove-dev:latest
 
 outputs:
   - summary

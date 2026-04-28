@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/bmbouter/alcove/internal/auth"
+	"github.com/alcove-ai/alcove/internal/auth"
 )
 
 func main() {

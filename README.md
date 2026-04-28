@@ -62,7 +62,7 @@ validation, and per-task NetworkPolicy enforcement on Kubernetes. See
 ## Quick Start
 
 ```bash
-git clone https://github.com/bmbouter/alcove.git
+git clone https://github.com/alcove-ai/alcove.git
 cd alcove
 make up
 # make up auto-generates alcove.yaml with a random database encryption key
@@ -88,18 +88,18 @@ make k3s-down                 # Stop port-forwards and delete namespace
 ### One-Line Install (Linux/macOS)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bmbouter/alcove/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/alcove-ai/alcove/main/scripts/install.sh | bash
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-iex (iwr -useb 'https://raw.githubusercontent.com/bmbouter/alcove/main/scripts/install.ps1').Content
+iex (iwr -useb 'https://raw.githubusercontent.com/alcove-ai/alcove/main/scripts/install.ps1').Content
 ```
 
 ### Manual Download
 
-Download platform-specific binaries from [GitHub Releases](https://github.com/bmbouter/alcove/releases/latest):
+Download platform-specific binaries from [GitHub Releases](https://github.com/alcove-ai/alcove/releases/latest):
 
 - **Linux AMD64**: `alcove-linux-amd64`
 - **Linux ARM64**: `alcove-linux-arm64`  
