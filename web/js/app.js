@@ -1263,6 +1263,7 @@
             hide($('#task-success'));
             hide($('#task-warnings'));
             loadProviders();
+            loadRepoGroups();
             loadTaskProfiles();
         } else if (route === 'agents' || route === 'schedules') {
             if (route === 'schedules') { window.location.hash = '#agents'; return; }
@@ -1748,6 +1749,23 @@
         }
     }
 
+    async function loadRepoGroups() {
+        var select = document.getElementById('task-repo-group');
+        if (!select) return;
+        try {
+            var resp = await api('GET', '/api/v1/repo-groups');
+            var data = await resp.json();
+            var groups = data.repo_groups || [];
+            select.innerHTML = '<option value="">None (single repo)</option>';
+            groups.forEach(function(g) {
+                var label = g.name + ' (' + (g.repos ? g.repos.length : 0) + ' repos)';
+                select.innerHTML += '<option value="' + escapeHtml(g.name) + '">' + escapeHtml(label) + '</option>';
+            });
+        } catch (err) {
+            // ignore - dropdown stays at default
+        }
+    }
+
     // Timeout slider
     $('#task-timeout').addEventListener('input', (e) => {
         $('#timeout-value').textContent = e.target.value;
@@ -1790,6 +1808,15 @@
         var directOutbound = document.getElementById('direct-outbound-toggle');
         if (directOutbound && directOutbound.checked) {
             payload.direct_outbound = true;
+        }
+        var repoGroup = document.getElementById('task-repo-group');
+        if (repoGroup && repoGroup.value) {
+            payload.repo_group = repoGroup.value;
+            delete payload.repo;
+        }
+        var tripleTeam = document.getElementById('triple-team-toggle');
+        if (tripleTeam && tripleTeam.checked) {
+            payload.triple_team = true;
         }
 
         // Remove undefined keys
@@ -2526,6 +2553,7 @@
         html += '<div class="rc-section"><h4>General</h4><table class="data-table"><tbody>';
         if (config.model) html += '<tr><td>Model</td><td>' + escapeHtml(config.model) + '</td></tr>';
         html += '<tr><td>Network</td><td>' + (config.direct_outbound ? '<span class="badge" style="background:rgba(231,76,60,0.2);color:#e74c3c;">Direct Outbound</span>' : '<span class="badge">Gate Proxied</span>') + '</td></tr>';
+        if (config.triple_team) html += '<tr><td>Mode</td><td><span class="badge" style="background:rgba(155,89,182,0.2);color:#9b59b6;">Triple Team</span></td></tr>';
         html += '</tbody></table></div>';
 
         // Dev Container

@@ -464,8 +464,9 @@ func TestGetAgentDefinitionFieldCopyRoundTrip(t *testing.T) {
 			Args: []string{"--flag"},
 			Env:  map[string]string{"KEY": "VAL"},
 		},
-		Repos:    []internal.RepoSpec{{URL: "https://github.com/org/repo", Name: "repo"}},
-		Provider: "anthropic",
+		Repos:     []internal.RepoSpec{{URL: "https://github.com/org/repo", Name: "repo"}},
+		RepoGroup: "test-group",
+		Provider:  "anthropic",
 		Model:    "claude-opus-4-6",
 		Timeout:  600,
 		BudgetUSD: 5.50,
@@ -493,6 +494,7 @@ func TestGetAgentDefinitionFieldCopyRoundTrip(t *testing.T) {
 			Timeout:    900,
 		},
 		DirectOutbound:  true,
+		TripleTeam:      true,
 		EnforcementMode: "monitor",
 		DevContainer: &DevContainerSpec{
 			Image:         "quay.io/myorg/devenv:latest",
@@ -525,6 +527,7 @@ func TestGetAgentDefinitionFieldCopyRoundTrip(t *testing.T) {
 	td.Prompt = parsed.Prompt
 	td.Executable = parsed.Executable
 	td.Repos = parsed.Repos
+	td.RepoGroup = parsed.RepoGroup
 	td.Provider = parsed.Provider
 	td.Model = parsed.Model
 	td.Timeout = parsed.Timeout
@@ -537,6 +540,7 @@ func TestGetAgentDefinitionFieldCopyRoundTrip(t *testing.T) {
 	td.Plugins = parsed.Plugins
 	td.Credentials = parsed.Credentials
 	td.DirectOutbound = parsed.DirectOutbound
+	td.TripleTeam = parsed.TripleTeam
 	td.EnforcementMode = parsed.EnforcementMode
 	td.CIGate = parsed.CIGate
 	td.DevContainer = parsed.DevContainer
@@ -568,7 +572,7 @@ func TestGetAgentDefinitionFieldCopyRoundTrip(t *testing.T) {
 
 	// Sanity check: make sure we actually checked a meaningful number of fields.
 	// Update this count when adding new yaml-tagged fields to AgentDefinition.
-	const expectedYAMLFields = 20
+	const expectedYAMLFields = 22
 	if yamlFieldCount != expectedYAMLFields {
 		t.Errorf("expected %d yaml-tagged fields in AgentDefinition, found %d; "+
 			"update this test and the copy block in GetAgentDefinition",

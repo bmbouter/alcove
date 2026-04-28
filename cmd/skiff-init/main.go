@@ -1113,7 +1113,8 @@ func repoNameFromURL(rawURL string) string {
 	return strings.TrimSuffix(base, ".git")
 }
 
-// injectClaudeMD reads CLAUDE.md from cloned repos and prepends it to the prompt.
+// injectClaudeMD reads CLAUDE.md from cloned repos and appends it to the prompt.
+// Project instructions go at the end so agents read their actual task first.
 // For single-repo clones, it reads /workspace/CLAUDE.md.
 // For multi-repo clones, it reads /workspace/<name>/CLAUDE.md from each repo.
 func injectClaudeMD(repos []internal.RepoSpec, prompt string) string {
@@ -1148,8 +1149,7 @@ func injectClaudeMD(repos []internal.RepoSpec, prompt string) string {
 		return prompt
 	}
 
-	// Prepend CLAUDE.md content to the prompt
-	return strings.Join(claudeMDs, "\n\n---\n\n") + "\n\n---\n\n" + prompt
+	return prompt + "\n\n---\n\n" + strings.Join(claudeMDs, "\n\n---\n\n")
 }
 
 

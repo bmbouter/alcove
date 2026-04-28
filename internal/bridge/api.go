@@ -60,10 +60,11 @@ type API struct {
 	workflowEngine   *WorkflowEngine
 	teamStore        *TeamStore
 	catalogItemStore *CatalogItemStore
+	repoGroupStore   *RepoGroupStore
 }
 
 // NewAPI creates the API handler set.
-func NewAPI(dispatcher *Dispatcher, db *pgxpool.Pool, cfg *Config, scheduler *Scheduler, credStore *CredentialStore, toolStore *ToolStore, profileStore *ProfileStore, settingsStore *SettingsStore, llm *BridgeLLM, defStore *AgentDefStore, syncer *AgentRepoSyncer, authStore auth.Authenticator, workflowEngine *WorkflowEngine, teamStore *TeamStore) *API {
+func NewAPI(dispatcher *Dispatcher, db *pgxpool.Pool, cfg *Config, scheduler *Scheduler, credStore *CredentialStore, toolStore *ToolStore, profileStore *ProfileStore, settingsStore *SettingsStore, llm *BridgeLLM, defStore *AgentDefStore, syncer *AgentRepoSyncer, authStore auth.Authenticator, workflowEngine *WorkflowEngine, teamStore *TeamStore, repoGroupStore *RepoGroupStore) *API {
 	return &API{
 		dispatcher:       dispatcher,
 		db:               db,
@@ -80,12 +81,14 @@ func NewAPI(dispatcher *Dispatcher, db *pgxpool.Pool, cfg *Config, scheduler *Sc
 		workflowEngine:   workflowEngine,
 		teamStore:        teamStore,
 		catalogItemStore: NewCatalogItemStore(db),
+		repoGroupStore:   repoGroupStore,
 	}
 }
 
 // RegisterRoutes registers all API routes on the given mux.
 func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/health", a.handleHealth)
+	mux.HandleFunc("/api/v1/repo-groups", a.handleRepoGroups)
 	mux.HandleFunc("/api/v1/sessions", a.handleSessions)
 	mux.HandleFunc("/api/v1/sessions/", a.handleSessionByID)
 	mux.HandleFunc("/api/v1/providers", a.handleProviders)
@@ -2712,6 +2715,23 @@ func (a *API) extractIssueContextFromPayload(payload map[string]any, issueNumber
 	}
 
 	return context
+}
+
+func (a *API) handleRepoGroups(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		respondError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	teamID := getActiveTeamID(r)
+	groups, err := a.repoGroupStore.ListRepoGroups(r.Context(), teamID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "listing repo groups: "+err.Error())
+		return
+	}
+	if groups == nil {
+		groups = []RepoGroupDefinition{}
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"count": len(groups), "repo_groups": groups})
 }
 
 func respondJSON(w http.ResponseWriter, code int, v any) {
