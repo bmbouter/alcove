@@ -3,6 +3,11 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.40.1
+
+### Bug Fixes
+- Fix scheduler: cron-dispatched sessions now use the full agent definition (direct_outbound, enforcement_mode, profiles, plugins, credentials, dev_container, triple_team, repo_group)
+
 ## v0.40.0
 
 ### Features
