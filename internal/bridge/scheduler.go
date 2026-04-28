@@ -237,6 +237,7 @@ type Scheduler struct {
 	db            *pgxpool.Pool
 	dispatcher    *Dispatcher
 	cfg           *Config
+	defStore      *AgentDefStore
 	settingsStore *SettingsStore
 	poller        *GitHubPoller
 	stopCh        chan struct{}
@@ -255,6 +256,7 @@ func NewScheduler(db *pgxpool.Pool, dispatcher *Dispatcher, cfg *Config, credSto
 		db:            db,
 		dispatcher:    dispatcher,
 		cfg:           cfg,
+		defStore:      defStore,
 		settingsStore: settingsStore,
 		poller: &GitHubPoller{
 			db:         db,
@@ -369,15 +371,36 @@ func (s *Scheduler) tick(ctx context.Context) {
 	for _, sched := range due {
 		log.Printf("scheduler: dispatching schedule %s (%s)", sched.Name, sched.ID)
 
-		req := TaskRequest{
-			Prompt:      sched.Prompt,
-			Repos:       sched.Repos,
-			Provider:    sched.Provider,
-			Timeout:     sched.Timeout,
-			Debug:       sched.Debug,
-			TaskName:    sched.Name,
-			TriggerType: "cron",
+		var req TaskRequest
+
+		// For YAML-sourced schedules (from agent definitions), load the full
+		// agent definition to get all fields (direct_outbound, enforcement_mode,
+		// profiles, plugins, credentials, dev_container, etc.).
+		if sched.Source == "yaml" && sched.SourceKey != "" {
+			def, err := s.defStore.GetAgentDefinitionBySourceKey(ctx, sched.SourceKey, sched.TeamID)
+			if err == nil {
+				req = def.ToTaskRequest()
+			} else {
+				log.Printf("scheduler: agent definition not found for source_key %s, using schedule fields", sched.SourceKey)
+			}
 		}
+
+		// Override/set fields from the schedule row (these are always authoritative).
+		if sched.Prompt != "" {
+			req.Prompt = sched.Prompt
+		}
+		if len(sched.Repos) > 0 {
+			req.Repos = sched.Repos
+		}
+		if sched.Provider != "" {
+			req.Provider = sched.Provider
+		}
+		if sched.Timeout > 0 {
+			req.Timeout = sched.Timeout
+		}
+		req.Debug = sched.Debug
+		req.TaskName = sched.Name
+		req.TriggerType = "cron"
 
 		if _, err := s.dispatcher.DispatchTask(ctx, req, "scheduler", sched.TeamID); err != nil {
 			log.Printf("scheduler: error dispatching schedule %s: %v", sched.ID, err)

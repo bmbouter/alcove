@@ -336,6 +336,17 @@ func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, teamID strin
 	return &td, nil
 }
 
+// GetAgentDefinitionBySourceKey looks up an agent definition by its source_key
+// (used by the scheduler to resolve the full definition for cron-triggered sessions).
+func (s *AgentDefStore) GetAgentDefinitionBySourceKey(ctx context.Context, sourceKey, teamID string) (*AgentDefinition, error) {
+	var id string
+	err := s.db.QueryRow(ctx, `SELECT id FROM agent_definitions WHERE source_key = $1 AND team_id = $2`, sourceKey, teamID).Scan(&id)
+	if err != nil {
+		return nil, fmt.Errorf("agent definition not found for source_key %s: %w", sourceKey, err)
+	}
+	return s.GetAgentDefinition(ctx, id, teamID)
+}
+
 // UpsertAgentDefinition inserts or updates a agent definition by source_key.
 func (s *AgentDefStore) UpsertAgentDefinition(ctx context.Context, def *AgentDefinition) error {
 	if def.ID == "" {
