@@ -457,14 +457,18 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 			servicesNeeded["gitlab"] = true
 		}
 	}
+	scmAPIHosts := make(map[string]string)
 	for service := range servicesNeeded {
 		if service == "github" || service == "gitlab" || service == "jira" || service == "splunk" {
-			realToken, _, err := d.credStore.AcquireSCMTokenForOwner(ctx, service, activeTeamID)
+			realToken, apiHost, err := d.credStore.AcquireSCMTokenForOwner(ctx, service, activeTeamID)
 			if err != nil {
 				log.Printf("warning: no credential for %s: %v", service, err)
 				continue
 			}
 			scmCredentials[service] = realToken
+			if apiHost != "" {
+				scmAPIHosts[service] = apiHost
+			}
 			dummyToken := "alcove-session-" + uuid.New().String()
 			scmDummyTokens[service] = dummyToken
 			// Ensure the service is in scope so Gate's MITM handler knows to intercept it.
@@ -595,6 +599,11 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 	}
 	if token, ok := scmDummyTokens["jira"]; ok {
 		skiffEnv["JIRA_TOKEN"] = token
+		skiffEnv["JIRA_API_TOKEN"] = token
+		skiffEnv["JIRA_USERNAME"] = "alcove-proxy-user"
+		if host, ok := scmAPIHosts["jira"]; ok {
+			skiffEnv["JIRA_URL"] = strings.TrimRight(host, "/")
+		}
 	}
 	if token, ok := scmDummyTokens["splunk"]; ok {
 		skiffEnv["SPLUNK_TOKEN"] = token
