@@ -1,4 +1,4 @@
-module github.com/bmbouter/alcove
+module github.com/alcove-ai/alcove
 
 go 1.25.0
 

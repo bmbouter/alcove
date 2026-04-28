@@ -26,8 +26,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bmbouter/alcove/internal/auth"
-	"github.com/bmbouter/alcove/internal/bridge"
+	"github.com/alcove-ai/alcove/internal/auth"
+	"github.com/alcove-ai/alcove/internal/bridge"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
 )

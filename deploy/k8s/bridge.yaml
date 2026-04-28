@@ -25,7 +25,7 @@ spec:
       serviceAccountName: alcove-bridge
       containers:
         - name: bridge
-          image: ghcr.io/bmbouter/alcove-bridge:latest
+          image: ghcr.io/alcove-ai/alcove-bridge:latest
           securityContext:
             runAsNonRoot: true
             allowPrivilegeEscalation: false
@@ -45,9 +45,9 @@ spec:
             - name: HAIL_URL
               value: "nats://alcove-hail:4222"
             - name: SKIFF_IMAGE
-              value: "ghcr.io/bmbouter/alcove-skiff-base:latest"
+              value: "ghcr.io/alcove-ai/alcove-skiff-base:latest"
             - name: GATE_IMAGE
-              value: "ghcr.io/bmbouter/alcove-gate:latest"
+              value: "ghcr.io/alcove-ai/alcove-gate:latest"
             - name: ALCOVE_DATABASE_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:

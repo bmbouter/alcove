@@ -20,7 +20,7 @@ systemctl --user enable --now podman.socket
 ### Clone and Build
 
 ```bash
-git clone https://github.com/bmbouter/alcove.git
+git clone https://github.com/alcove-ai/alcove.git
 cd alcove
 make build
 ```
@@ -73,7 +73,7 @@ details.
 
 ## Reporting Bugs
 
-Open an issue at https://github.com/bmbouter/alcove/issues with:
+Open an issue at https://github.com/alcove-ai/alcove/issues with:
 
 - What you were trying to do
 - What happened instead

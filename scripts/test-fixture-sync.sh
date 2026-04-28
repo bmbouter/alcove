@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test-fixture-sync.sh — Comprehensive test of agent repo sync with known fixtures.
 #
-# Syncs bmbouter/alcove-tests and verifies all agent definitions, security
+# Syncs alcove-ai/alcove-tests and verifies all agent definitions, security
 # profiles, and workflows are parsed and stored correctly.
 #
 # Prerequisites:
@@ -16,7 +16,7 @@
 set -euo pipefail
 
 BRIDGE_URL="${BRIDGE_URL:-http://localhost:8080}"
-ALCOVE_TESTS_URL="https://github.com/bmbouter/alcove-tests.git"
+ALCOVE_TESTS_URL="https://github.com/alcove-ai/alcove-tests.git"
 PASS=0
 FAIL=0
 

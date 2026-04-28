@@ -9,7 +9,7 @@ permissions:
   packages: write
 
 env:
-  REGISTRY: ghcr.io/bmbouter
+  REGISTRY: ghcr.io/alcove-ai
 
 jobs:
   # Job 1: Build all Go binaries + create the GitHub Release

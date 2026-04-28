@@ -68,7 +68,7 @@ curl -s -X PUT "$BRIDGE_URL/api/v1/user/settings/agent-repos" \
   -H "Authorization: Bearer $ALICE_TOKEN" \
   -H "Content-Type: application/json" \
   -H "X-Alcove-Team: $ALICE_TEAM_ID" \
-  -d "{\"repos\":[{\"url\":\"https://github.com/bmbouter/alcove/\",\"ref\":\"${ALCOVE_TEST_REF:-main}\",\"name\":\"alcove\"},{\"url\":\"https://github.com/bmbouter/alcove-testing.git\",\"ref\":\"main\",\"name\":\"alcove-testing\"}]}" > /dev/null
+  -d "{\"repos\":[{\"url\":\"https://github.com/alcove-ai/alcove/\",\"ref\":\"${ALCOVE_TEST_REF:-main}\",\"name\":\"alcove\"},{\"url\":\"https://github.com/alcove-ai/alcove-testing.git\",\"ref\":\"main\",\"name\":\"alcove-testing\"}]}" > /dev/null
 
 curl -s -X POST "$BRIDGE_URL/api/v1/agent-definitions/sync" \
   -H "Authorization: Bearer $ALICE_TOKEN" \

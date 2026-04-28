@@ -29,7 +29,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bmbouter/alcove/internal"
+	"github.com/alcove-ai/alcove/internal"
 )
 
 // --------------------------------------------------------------------

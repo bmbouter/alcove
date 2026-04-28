@@ -19,7 +19,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/bmbouter/alcove/internal"
+	"github.com/alcove-ai/alcove/internal"
 )
 
 // CheckPolicyRules evaluates an HTTP request against resolved policy rules.

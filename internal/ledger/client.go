@@ -23,7 +23,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/bmbouter/alcove/internal"
+	"github.com/alcove-ai/alcove/internal"
 )
 
 // Client communicates with the Ledger HTTP API.

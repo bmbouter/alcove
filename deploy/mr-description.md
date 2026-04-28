@@ -1,6 +1,6 @@
 ## Summary
 
-Deploy [Alcove](https://github.com/bmbouter/alcove) into the `pulp-stage` namespace on `crcs02ue1`. Alcove runs sandboxed AI coding agents (Claude Code) in ephemeral, network-isolated containers on OpenShift.
+Deploy [Alcove](https://github.com/alcove-ai/alcove) into the `pulp-stage` namespace on `crcs02ue1`. Alcove runs sandboxed AI coding agents (Claude Code) in ephemeral, network-isolated containers on OpenShift.
 
 ## What is Alcove?
 
@@ -19,7 +19,7 @@ Each task gets a fresh container, a scoped authorization proxy, and a complete s
 
 | File | Purpose |
 |------|---------|
-| `data/services/pulp/deploy-alcove.yml` | SaaS file (saas-file-2 schema) deploying Alcove via the [OpenShift template](https://github.com/bmbouter/alcove/blob/main/deploy/openshift/template.yaml) from the Alcove GitHub repo |
+| `data/services/pulp/deploy-alcove.yml` | SaaS file (saas-file-2 schema) deploying Alcove via the [OpenShift template](https://github.com/alcove-ai/alcove/blob/main/deploy/openshift/template.yaml) from the Alcove GitHub repo |
 | `resources/terraform/resources/pulp/stage/rds-alcove-stage.yml` | RDS defaults — PostgreSQL 16, db.t3.medium, 20GB, encrypted, single-AZ for staging |
 | `resources/pulp-stage/alcove-config.secret.yaml` | Resource template (extracurlyjinja2) that constructs the `alcove-config` Secret from vault + ERv2 RDS outputs |
 
@@ -27,7 +27,7 @@ Each task gets a fresh container, a scoped authorization proxy, and a complete s
 
 | File | Change |
 |------|--------|
-| `data/services/pulp/app.yml` | Add `alcove` codeComponent pointing to github.com/bmbouter/alcove |
+| `data/services/pulp/app.yml` | Add `alcove` codeComponent pointing to github.com/alcove-ai/alcove |
 | `data/services/pulp/namespaces/pulp-stage.yml` | Add `alcove-stage` RDS external resource with ERv2. Output secret: `alcove-db` |
 | `data/services/pulp/namespaces/shared-resources/stage.yml` | Add `alcove-config` resource-template reference |
 
@@ -41,9 +41,9 @@ Bridge reads both values from the resulting Kubernetes Secret via `secretKeyRef`
 
 ## What gets deployed
 
-The [OpenShift template](https://github.com/bmbouter/alcove/blob/main/deploy/openshift/template.yaml) creates:
+The [OpenShift template](https://github.com/alcove-ai/alcove/blob/main/deploy/openshift/template.yaml) creates:
 
-- **Bridge Deployment** (1 replica) — `ghcr.io/bmbouter/alcove-bridge:0.1.0`
+- **Bridge Deployment** (1 replica) — `ghcr.io/alcove-ai/alcove-bridge:0.1.0`
 - **NATS Deployment** (1 replica) — `docker.io/library/nats:latest` (stateless messaging)
 - **Services** — `alcove-bridge:8080`, `alcove-hail:4222`
 - **RBAC** — ServiceAccount `alcove-bridge` with minimal Role (batch/jobs, pods, networkpolicies, secrets)
@@ -54,9 +54,9 @@ Bridge dynamically creates **k8s Jobs** for each task (Skiff worker + Gate sidec
 ## Container images
 
 All images are public on ghcr.io:
-- `ghcr.io/bmbouter/alcove-bridge:0.1.0`
-- `ghcr.io/bmbouter/alcove-gate:0.1.0`
-- `ghcr.io/bmbouter/alcove-skiff-base:0.1.0`
+- `ghcr.io/alcove-ai/alcove-bridge:0.1.0`
+- `ghcr.io/alcove-ai/alcove-gate:0.1.0`
+- `ghcr.io/alcove-ai/alcove-skiff-base:0.1.0`
 
 ## Prerequisites before merge
 

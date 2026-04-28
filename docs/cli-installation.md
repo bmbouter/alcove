@@ -7,20 +7,20 @@ This guide covers all methods for installing the Alcove CLI on different platfor
 ### Linux and macOS
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bmbouter/alcove/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/alcove-ai/alcove/main/scripts/install.sh | bash
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-iex (iwr -useb 'https://raw.githubusercontent.com/bmbouter/alcove/main/scripts/install.ps1').Content
+iex (iwr -useb 'https://raw.githubusercontent.com/alcove-ai/alcove/main/scripts/install.ps1').Content
 ```
 
 ## Manual Installation
 
 ### Download Binaries
 
-Visit the [GitHub Releases page](https://github.com/bmbouter/alcove/releases/latest) and download the appropriate binary for your platform:
+Visit the [GitHub Releases page](https://github.com/alcove-ai/alcove/releases/latest) and download the appropriate binary for your platform:
 
 | Platform | Architecture | Binary Name |
 |----------|--------------|-------------|
@@ -35,10 +35,10 @@ Visit the [GitHub Releases page](https://github.com/bmbouter/alcove/releases/lat
 1. Download the binary:
    ```bash
    # Linux AMD64
-   wget https://github.com/bmbouter/alcove/releases/latest/download/alcove-linux-amd64
+   wget https://github.com/alcove-ai/alcove/releases/latest/download/alcove-linux-amd64
 
    # macOS ARM64 (Apple Silicon)
-   wget https://github.com/bmbouter/alcove/releases/latest/download/alcove-darwin-arm64
+   wget https://github.com/alcove-ai/alcove/releases/latest/download/alcove-darwin-arm64
    ```
 
 2. Make it executable:
@@ -73,7 +73,7 @@ Visit the [GitHub Releases page](https://github.com/bmbouter/alcove/releases/lat
 Set the `INSTALL_DIR` environment variable before running the installation script:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bmbouter/alcove/main/scripts/install.sh | INSTALL_DIR="$HOME/bin" bash
+curl -fsSL https://raw.githubusercontent.com/alcove-ai/alcove/main/scripts/install.sh | INSTALL_DIR="$HOME/bin" bash
 ```
 
 Common installation directories:
@@ -87,7 +87,7 @@ Set the `INSTALL_DIR` environment variable:
 
 ```powershell
 $env:INSTALL_DIR = "C:\tools"
-iex (iwr -useb 'https://raw.githubusercontent.com/bmbouter/alcove/main/scripts/install.ps1').Content
+iex (iwr -useb 'https://raw.githubusercontent.com/alcove-ai/alcove/main/scripts/install.ps1').Content
 ```
 
 ## Verification
@@ -111,7 +111,7 @@ The installation scripts automatically verify checksums when possible. For manua
 
 1. Download the checksums file:
    ```bash
-   wget https://github.com/bmbouter/alcove/releases/latest/download/checksums-sha256.txt
+   wget https://github.com/alcove-ai/alcove/releases/latest/download/checksums-sha256.txt
    ```
 
 2. Verify your binary:
@@ -220,10 +220,10 @@ To update to the latest version, simply run the installation script again:
 
 ```bash
 # Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/bmbouter/alcove/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/alcove-ai/alcove/main/scripts/install.sh | bash
 
 # Windows
-iex (iwr -useb 'https://raw.githubusercontent.com/bmbouter/alcove/main/scripts/install.ps1').Content
+iex (iwr -useb 'https://raw.githubusercontent.com/alcove-ai/alcove/main/scripts/install.ps1').Content
 ```
 
 The installer will automatically replace the existing binary with the latest version.
@@ -267,7 +267,7 @@ Package manager support is planned for future releases:
 If you prefer to build from source:
 
 ```bash
-git clone https://github.com/bmbouter/alcove.git
+git clone https://github.com/alcove-ai/alcove.git
 cd alcove
 make build-cli-all
 ```

@@ -106,7 +106,7 @@ alcove/
 │       └── security-profiles-and-system-llm.md  ✅ Security profiles and system LLM design
 ├── Makefile                    ✅ build, build-images, up, down, logs, dev-up, dev-infra, dev-down, dev-logs, dev-reset, test, lint
 ├── LICENSE                     ✅ Apache-2.0
-├── go.mod                      ✅ github.com/bmbouter/alcove (Go 1.25)
+├── go.mod                      ✅ github.com/alcove-ai/alcove (Go 1.25)
 └── go.sum                      ✅ Dependencies resolved
 ```
 
@@ -281,7 +281,7 @@ alcove/
     Jobs and NetworkPolicies.
 
 22. **CI/CD** — GitHub Actions workflows for testing (`ci.yml`) and releasing
-    (`release.yml`). Container images published to `ghcr.io/bmbouter`.
+    (`release.yml`). Container images published to `ghcr.io/alcove-ai`.
     v0.1.0 released.
 
 23. **YAML Security Profiles** — Security profiles defined in
@@ -405,8 +405,8 @@ LEDGER_DATABASE_URL="postgres://alcove:alcove@localhost:5432/alcove?sslmode=disa
 HAIL_URL="nats://localhost:4222" \
 RUNTIME=podman \
 BRIDGE_PORT=8080 \
-SKIFF_IMAGE="ghcr.io/bmbouter/alcove-skiff-base:latest" \
-GATE_IMAGE="ghcr.io/bmbouter/alcove-gate:latest" \
+SKIFF_IMAGE="ghcr.io/alcove-ai/alcove-skiff-base:latest" \
+GATE_IMAGE="ghcr.io/alcove-ai/alcove-gate:latest" \
 ./bin/bridge
 
 # 4. In another terminal, use the CLI or curl
@@ -475,8 +475,8 @@ See the full roadmap in [architecture-decisions.md](architecture-decisions.md#ro
 | `HAIL_URL` | (required) | NATS server URL |
 | `RUNTIME` | `podman` | Container runtime (`podman` or `kubernetes`) |
 | `BRIDGE_PORT` | `8080` | HTTP server port |
-| `SKIFF_IMAGE` | `ghcr.io/bmbouter/alcove-skiff-base:latest` | Skiff container image |
-| `GATE_IMAGE` | `ghcr.io/bmbouter/alcove-gate:latest` | Gate container image |
+| `SKIFF_IMAGE` | `ghcr.io/alcove-ai/alcove-skiff-base:latest` | Skiff container image |
+| `GATE_IMAGE` | `ghcr.io/alcove-ai/alcove-gate:latest` | Gate container image |
 | `ALCOVE_NETWORK` | `alcove-internal` | Podman internal network name |
 | `ALCOVE_EXTERNAL_NETWORK` | `alcove-external` | Podman external network name (Gate egress) |
 | `AUTH_BACKEND` | `memory` | Auth backend: `memory`, `postgres`, or `rh-identity` |

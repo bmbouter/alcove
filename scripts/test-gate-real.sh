@@ -11,7 +11,7 @@
 # Prerequisites:
 #   - Bridge running at localhost:8080 with AUTH_BACKEND=postgres
 #   - A GitHub PAT registered as credential "github" in the credential store
-#   - The repo bmbouter/alcove-testing exists on GitHub
+#   - The repo alcove-ai/alcove-testing exists on GitHub
 #   - Container images built (make build-images)
 #
 # Usage:
@@ -21,7 +21,7 @@ set -euo pipefail
 
 BRIDGE_URL="${BRIDGE_URL:-http://localhost:8080}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-admin123}"
-TEST_REPO="bmbouter/alcove-testing"
+TEST_REPO="alcove-ai/alcove-testing"
 PROFILE_NAME="gate-test-readonly-$$"
 TEST_IMAGE="localhost/alcove-skiff-base:dev"
 INTERNAL_NET="alcove-internal"

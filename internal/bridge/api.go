@@ -34,8 +34,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bmbouter/alcove/internal"
-	"github.com/bmbouter/alcove/internal/auth"
+	"github.com/alcove-ai/alcove/internal"
+	"github.com/alcove-ai/alcove/internal/auth"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
 )

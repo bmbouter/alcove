@@ -4,7 +4,7 @@ trigger:
     events: [issues]
     actions: [labeled]
     labels: [ready-for-dev]
-    repos: [bmbouter/alcove]
+    repos: [alcove-ai/alcove]
     delivery_mode: polling
 
 workflow:
@@ -15,7 +15,7 @@ workflow:
     inputs:
       branch: "issue-{{trigger.issue_number}}-fix"
       issue_number: "{{trigger.issue_number}}"
-      repo: "bmbouter/alcove"
+      repo: "alcove-ai/alcove"
       issue_title: "{{trigger.issue_title}}"
       issue_body: "{{trigger.issue_body}}"
       issue_url: "{{trigger.issue_url}}"
@@ -26,7 +26,7 @@ workflow:
     action: create-merge-request
     depends: "implement.Succeeded"
     inputs:
-      repo: bmbouter/alcove
+      repo: alcove-ai/alcove
       branch: "{{steps.implement.inputs.branch}}"
       title: "Fix #{{trigger.issue_number}}"
       base: main
@@ -37,7 +37,7 @@ workflow:
     depends: "create-pr.Succeeded || ci-fix.Succeeded"
     max_iterations: 4
     inputs:
-      repo: bmbouter/alcove
+      repo: alcove-ai/alcove
       pr: "{{steps.create-pr.outputs.pr_number}}"
 
   - id: ci-fix
@@ -48,7 +48,7 @@ workflow:
     inputs:
       branch: "{{steps.implement.inputs.branch}}"
       issue_number: "{{trigger.issue_number}}"
-      repo: "bmbouter/alcove"
+      repo: "alcove-ai/alcove"
       issue_title: "{{trigger.issue_title}}"
       issue_body: "{{trigger.issue_body}}"
       issue_url: "{{trigger.issue_url}}"
@@ -81,7 +81,7 @@ workflow:
     inputs:
       branch: "{{steps.implement.inputs.branch}}"
       issue_number: "{{trigger.issue_number}}"
-      repo: "bmbouter/alcove"
+      repo: "alcove-ai/alcove"
       issue_title: "{{trigger.issue_title}}"
       issue_body: "{{trigger.issue_body}}"
       issue_url: "{{trigger.issue_url}}"
@@ -94,5 +94,5 @@ workflow:
     action: merge
     depends: "code-review.Succeeded && security-review.Succeeded"
     inputs:
-      repo: bmbouter/alcove
+      repo: alcove-ai/alcove
       pr: "{{steps.create-pr.outputs.pr_number}}"

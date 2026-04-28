@@ -22,7 +22,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 
-	"github.com/bmbouter/alcove/internal"
+	"github.com/alcove-ai/alcove/internal"
 )
 
 // Client wraps a NATS connection for Alcove-specific messaging patterns.

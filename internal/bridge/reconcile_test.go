@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bmbouter/alcove/internal/runtime"
+	"github.com/alcove-ai/alcove/internal/runtime"
 )
 
 // mockRuntime is a minimal Runtime implementation for testing reconciliation.

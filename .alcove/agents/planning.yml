@@ -85,7 +85,7 @@ prompt: |
 
 repos:
   - name: alcove
-    url: https://github.com/bmbouter/alcove.git
+    url: https://github.com/alcove-ai/alcove.git
 
 
 timeout: 900

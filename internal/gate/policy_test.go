@@ -17,7 +17,7 @@ package gate
 import (
 	"testing"
 
-	"github.com/bmbouter/alcove/internal"
+	"github.com/alcove-ai/alcove/internal"
 )
 
 func TestMatchPathGlob(t *testing.T) {

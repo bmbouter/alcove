@@ -5,15 +5,15 @@
 # for your platform from the latest GitHub release.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/bmbouter/alcove/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/alcove-ai/alcove/main/scripts/install.sh | bash
 #   
 # Or with custom installation directory:
-#   curl -fsSL https://raw.githubusercontent.com/bmbouter/alcove/main/scripts/install.sh | INSTALL_DIR="$HOME/bin" bash
+#   curl -fsSL https://raw.githubusercontent.com/alcove-ai/alcove/main/scripts/install.sh | INSTALL_DIR="$HOME/bin" bash
 
 set -e
 
 # Configuration
-REPO="bmbouter/alcove"
+REPO="alcove-ai/alcove"
 BINARY_NAME="alcove"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 GITHUB_URL="https://api.github.com/repos/${REPO}"

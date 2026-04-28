@@ -11,7 +11,7 @@ trigger:
     events: [issues]
     actions: [labeled]
     labels: [immediate-release]
-    repos: [bmbouter/alcove]
+    repos: [alcove-ai/alcove]
     delivery_mode: polling
 
 workflow:
@@ -27,7 +27,7 @@ workflow:
     action: create-merge-request
     depends: "changelog.Succeeded"
     inputs:
-      repo: bmbouter/alcove
+      repo: alcove-ai/alcove
       branch: "{{steps.changelog.inputs.branch}}"
       title: "Release {{steps.changelog.outputs.version}}"
       base: main
@@ -38,7 +38,7 @@ workflow:
     depends: "changelog-pr.Succeeded"
     max_iterations: 4
     inputs:
-      repo: bmbouter/alcove
+      repo: alcove-ai/alcove
       pr: "{{steps.changelog-pr.outputs.pr_number}}"
 
   - id: changelog-merge
@@ -46,7 +46,7 @@ workflow:
     action: merge
     depends: "changelog-ci.Succeeded"
     inputs:
-      repo: bmbouter/alcove
+      repo: alcove-ai/alcove
       pr: "{{steps.changelog-pr.outputs.pr_number}}"
 
   - id: tag-release
@@ -62,7 +62,7 @@ workflow:
     action: await-release
     depends: "tag-release.Succeeded"
     inputs:
-      repo: bmbouter/alcove
+      repo: alcove-ai/alcove
       tag: "{{steps.changelog.outputs.version}}"
       timeout: 900
 

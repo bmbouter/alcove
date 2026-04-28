@@ -31,7 +31,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bmbouter/alcove/internal"
+	"github.com/alcove-ai/alcove/internal"
 )
 
 // DomainAllowlist contains hosts that are allowed for general HTTP access

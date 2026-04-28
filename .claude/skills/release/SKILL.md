@@ -16,12 +16,12 @@ The release agent (`.alcove/agents/release.yml`) runs daily at 6 AM UTC and chec
 ### 1. Create or find an issue to tag
 If there's already an open issue, use it. Otherwise create one:
 ```bash
-gh issue create --repo bmbouter/alcove --title "Release vX.Y.Z" --body "Triggering immediate release."
+gh issue create --repo alcove-ai/alcove --title "Release vX.Y.Z" --body "Triggering immediate release."
 ```
 
 ### 2. Add the immediate-release label
 ```bash
-gh issue edit ISSUE_NUMBER --repo bmbouter/alcove --add-label "immediate-release"
+gh issue edit ISSUE_NUMBER --repo alcove-ai/alcove --add-label "immediate-release"
 ```
 
 The release agent will:
@@ -38,7 +38,7 @@ Watch for the release agent task to appear in the Alcove staging dashboard. It w
 ### 4. Verify
 After the release agent completes:
 ```bash
-gh release view --repo bmbouter/alcove
+gh release view --repo alcove-ai/alcove
 ```
 
 ## Notes

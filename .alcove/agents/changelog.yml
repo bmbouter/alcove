@@ -4,7 +4,7 @@ description: |
   since the last tag. Determines the semver bump and updates docs/changelog.md.
 
 prompt: |
-  You are a changelog generator for Alcove (bmbouter/alcove).
+  You are a changelog generator for Alcove (alcove-ai/alcove).
 
   Check for unreleased commits on main since the last tag:
     git fetch --tags
@@ -34,7 +34,7 @@ prompt: |
   Replace vX.Y.Z with the actual version you determined. Do NOT skip this step.
 
 repos:
-  - url: https://github.com/bmbouter/alcove.git
+  - url: https://github.com/alcove-ai/alcove.git
 timeout: 1800
 enforcement_mode: monitor
 

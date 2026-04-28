@@ -2543,10 +2543,10 @@ List all catalog sources with category breakdown.
       "description": "Built-in agent collection for common development tasks",
       "category": "agents",
       "source_type": "git",
-      "source_url": "https://github.com/bmbouter/alcove-catalog.git",
+      "source_url": "https://github.com/alcove-ai/alcove-catalog.git",
       "source_path": "agents",
       "ref": "main",
-      "docs_url": "https://github.com/bmbouter/alcove-catalog",
+      "docs_url": "https://github.com/alcove-ai/alcove-catalog",
       "tags": ["official", "agents"]
     }
   ],

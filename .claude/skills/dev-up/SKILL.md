@@ -203,12 +203,12 @@ if r.returncode != 0:
 
 Verify it was created (should print JSON with an `id` field, not an error).
 
-## Step 7: Configure bmbouter/alcove-testing agent repo
+## Step 7: Configure alcove-ai/alcove-testing agent repo
 
 ```bash
 curl -s -X PUT http://localhost:8080/api/v1/user/settings/agent-repos \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"repos":[{"url":"https://github.com/bmbouter/alcove-testing.git","ref":"main","name":"alcove-testing"}]}'
+  -d '{"repos":[{"url":"https://github.com/alcove-ai/alcove-testing.git","ref":"main","name":"alcove-testing"}]}'
 ```
 
 Trigger sync:
@@ -256,7 +256,7 @@ If postgres auth is needed instead of the default memory backend, restart Bridge
 Three things configured:
 1. LLM credential (from .dev-credentials.yaml llm section -- supports anthropic, claude-oauth, or google-vertex)
 2. GitHub PAT (from .dev-credentials.yaml github_token, falling back to gh auth token)
-3. bmbouter/alcove-testing agent repo (synced)
+3. alcove-ai/alcove-testing agent repo (synced)
 
 One thing verified:
 - Agent repo sync shows N > 0 definitions

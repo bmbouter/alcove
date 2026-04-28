@@ -26,8 +26,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/bmbouter/alcove/internal"
-	"github.com/bmbouter/alcove/internal/runtime"
+	"github.com/alcove-ai/alcove/internal"
+	"github.com/alcove-ai/alcove/internal/runtime"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nats-io/nats.go"
@@ -118,7 +118,7 @@ type TaskRequest struct {
 	// Task metadata — set by dispatch code paths, stored in sessions table.
 	TaskName    string `json:"-"` // Schedule/agent definition name
 	TriggerType string `json:"-"` // "event", "cron", "manual", "webhook"
-	TriggerRef  string `json:"-"` // e.g., "bmbouter/alcove#107" for GitHub events
+	TriggerRef  string `json:"-"` // e.g., "alcove-ai/alcove#107" for GitHub events
 }
 
 // ToolConfig specifies per-tool configuration in a task request.
@@ -717,8 +717,8 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 	// Start Skiff pod via Runtime.
 	spec := runtime.TaskSpec{
 		TaskID:         taskID,
-		Image:          envOrDefault("SKIFF_IMAGE", "ghcr.io/bmbouter/alcove-skiff-base:latest"),
-		GateImage:      envOrDefault("GATE_IMAGE", "ghcr.io/bmbouter/alcove-gate:latest"),
+		Image:          envOrDefault("SKIFF_IMAGE", "ghcr.io/alcove-ai/alcove-skiff-base:latest"),
+		GateImage:      envOrDefault("GATE_IMAGE", "ghcr.io/alcove-ai/alcove-gate:latest"),
 		Env:            skiffEnv,
 		GateEnv:        gateEnv,
 		Timeout:        int64(timeout),

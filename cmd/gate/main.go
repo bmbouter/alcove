@@ -49,8 +49,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bmbouter/alcove/internal"
-	"github.com/bmbouter/alcove/internal/gate"
+	"github.com/alcove-ai/alcove/internal"
+	"github.com/alcove-ai/alcove/internal/gate"
 )
 
 // Version is set at build time via -ldflags.

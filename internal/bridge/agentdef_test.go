@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bmbouter/alcove/internal"
+	"github.com/alcove-ai/alcove/internal"
 )
 
 func TestResolvePluginBundles(t *testing.T) {

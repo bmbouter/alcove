@@ -36,7 +36,7 @@ ADMIN_TOKEN=$(curl -s -X POST "$BRIDGE_URL/api/v1/auth/login" \
   -H "Content-Type: application/json" \
   -d "{\"username\":\"admin\",\"password\":\"${ADMIN_PASSWORD}\"}" | python3 -c "import json,sys; print(json.load(sys.stdin).get('token',''))")
 
-ALCOVE_TESTING_URL="https://github.com/bmbouter/alcove-testing.git"
+ALCOVE_TESTING_URL="https://github.com/alcove-ai/alcove-testing.git"
 
 # Clear any existing repos first to start clean
 curl -s -X PUT "$BRIDGE_URL/api/v1/user/settings/agent-repos" \
