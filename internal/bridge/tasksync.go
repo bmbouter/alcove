@@ -43,6 +43,7 @@ type AgentRepoSyncer struct {
 	profileStore     *ProfileStore
 	policyRuleStore  *PolicyRuleStore
 	workflowStore    *WorkflowStore
+	repoGroupStore   *RepoGroupStore
 	catalogItemStore *CatalogItemStore
 	interval         time.Duration
 	stopCh           chan struct{}
@@ -53,7 +54,7 @@ type AgentRepoSyncer struct {
 }
 
 // NewAgentRepoSyncer creates a AgentRepoSyncer with the given dependencies.
-func NewAgentRepoSyncer(db *pgxpool.Pool, settingsStore *SettingsStore, scheduler *Scheduler, defStore *AgentDefStore, dispatcher *Dispatcher, profileStore *ProfileStore, policyRuleStore *PolicyRuleStore, workflowStore *WorkflowStore) *AgentRepoSyncer {
+func NewAgentRepoSyncer(db *pgxpool.Pool, settingsStore *SettingsStore, scheduler *Scheduler, defStore *AgentDefStore, dispatcher *Dispatcher, profileStore *ProfileStore, policyRuleStore *PolicyRuleStore, workflowStore *WorkflowStore, repoGroupStore *RepoGroupStore) *AgentRepoSyncer {
 	interval := 15 * time.Minute
 	if v := os.Getenv("AGENT_REPO_SYNC_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
@@ -70,6 +71,7 @@ func NewAgentRepoSyncer(db *pgxpool.Pool, settingsStore *SettingsStore, schedule
 		profileStore:     profileStore,
 		policyRuleStore:  policyRuleStore,
 		workflowStore:    workflowStore,
+		repoGroupStore:   repoGroupStore,
 		catalogItemStore: NewCatalogItemStore(db),
 		interval:         interval,
 		stopCh:           make(chan struct{}),
@@ -220,6 +222,7 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 					_ = s.profileStore.DeleteYAMLProfilesByRepo(ctx, def.SourceRepo, teamID)
 					_ = s.policyRuleStore.DeleteByRepo(ctx, def.SourceRepo, teamID)
 					_ = s.workflowStore.DeleteWorkflowsByRepo(ctx, def.SourceRepo, teamID)
+					_ = s.repoGroupStore.DeleteRepoGroupsByRepo(ctx, def.SourceRepo, teamID)
 					// Also clean up schedules from this repo.
 					s.db.Exec(ctx, `DELETE FROM schedules WHERE source_key LIKE $1 AND team_id = $2`, username+"::%", teamID)
 					removedRepos[def.SourceRepo] = true
@@ -511,6 +514,11 @@ func (s *AgentRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo, username
 	// Sync workflow definitions from .alcove/workflows/*.yml.
 	if err := s.syncWorkflowDefinitions(ctx, cloneDir, repo, username, teamID); err != nil {
 		log.Printf("agent-repo-syncer: workflow sync error for %s: %v", repo.URL, err)
+	}
+
+	// Sync repo group definitions from .alcove/repo-groups/*.yml.
+	if err := s.syncRepoGroups(ctx, cloneDir, repo, username, teamID); err != nil {
+		log.Printf("agent-repo-syncer: repo group sync error for %s: %v", repo.URL, err)
 	}
 
 	// Validate profile references in agent definitions.
@@ -1060,4 +1068,69 @@ func (s *AgentRepoSyncer) reconcileWorkflowTrigger(ctx context.Context, wd *Work
 		WHERE id = $5 AND source = 'yaml'
 	`, wd.Name, enabled, triggerType, eventConfigJSON, existingID)
 	return err
+}
+
+// syncRepoGroups syncs .alcove/repo-groups/*.yml from a cloned repo.
+func (s *AgentRepoSyncer) syncRepoGroups(ctx context.Context, cloneDir string, repo SkillRepo, username, teamID string) error {
+	dir := filepath.Join(cloneDir, ".alcove", "repo-groups")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return s.repoGroupStore.DeleteRepoGroupsByRepo(ctx, repo.URL, teamID)
+		}
+		return fmt.Errorf("reading repo-groups dir: %w", err)
+	}
+
+	seenKeys := make(map[string]bool)
+
+	for _, entry := range entries {
+		if entry.IsDir() || (!strings.HasSuffix(entry.Name(), ".yml") && !strings.HasSuffix(entry.Name(), ".yaml")) {
+			continue
+		}
+
+		filePath := filepath.Join(dir, entry.Name())
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			log.Printf("agent-repo-syncer: error reading %s: %v", filePath, err)
+			continue
+		}
+
+		sourceKey := fmt.Sprintf("%s::%s::%s", username, repo.URL, entry.Name())
+		seenKeys[sourceKey] = true
+
+		rg, err := ParseRepoGroupDefinition(data)
+		if err != nil {
+			contextualErr := fmt.Sprintf("Failed to parse repo group in %s: %v", entry.Name(), err)
+			log.Printf("agent-repo-syncer: repo group parse error in %s/%s: %v", repo.URL, entry.Name(), contextualErr)
+			errGroup := &RepoGroupDefinition{
+				Name:       entry.Name(),
+				SourceRepo: repo.URL,
+				SourceFile: entry.Name(),
+				TeamID:     teamID,
+			}
+			_ = s.repoGroupStore.UpsertRepoGroup(ctx, errGroup, sourceKey, string(data), contextualErr)
+			continue
+		}
+
+		rg.SourceRepo = repo.URL
+		rg.SourceFile = entry.Name()
+		rg.TeamID = teamID
+
+		if err := s.repoGroupStore.UpsertRepoGroup(ctx, rg, sourceKey, string(data), ""); err != nil {
+			log.Printf("agent-repo-syncer: repo group upsert error for %s: %v", sourceKey, err)
+			continue
+		}
+	}
+
+	existing, err := s.repoGroupStore.ListRepoGroupsByRepo(ctx, repo.URL, teamID)
+	if err != nil {
+		return fmt.Errorf("listing existing repo groups: %w", err)
+	}
+	for _, rg := range existing {
+		if !seenKeys[rg.SourceKey] {
+			s.db.Exec(ctx, `DELETE FROM repo_groups WHERE source_key = $1 AND team_id = $2`, rg.SourceKey, teamID)
+		}
+	}
+
+	return nil
 }

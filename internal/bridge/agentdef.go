@@ -55,6 +55,7 @@ type AgentDefinition struct {
 	Prompt         string                   `json:"prompt,omitempty" yaml:"prompt"`
 	Executable     *internal.ExecutableSpec `json:"executable,omitempty" yaml:"executable"`
 	Repos          []internal.RepoSpec      `json:"repos,omitempty" yaml:"repos"`
+	RepoGroup      string                   `json:"repo_group,omitempty" yaml:"repo_group"`
 	Provider       string                   `json:"provider,omitempty" yaml:"provider"`
 	Model          string                   `json:"model,omitempty" yaml:"model"`
 	Timeout        int                      `json:"timeout,omitempty" yaml:"timeout"`
@@ -68,6 +69,7 @@ type AgentDefinition struct {
 	Trigger        *EventTrigger            `json:"trigger,omitempty" yaml:"trigger"`
 	CIGate         *CIGate                  `json:"ci_gate,omitempty" yaml:"ci_gate"`
 	DirectOutbound  bool                     `json:"direct_outbound,omitempty" yaml:"direct_outbound"`
+	TripleTeam      bool                     `json:"triple_team,omitempty" yaml:"triple_team"`
 	EnforcementMode string                  `json:"enforcement_mode,omitempty" yaml:"enforcement_mode"`
 	DevContainer    *DevContainerSpec       `json:"dev_container,omitempty" yaml:"dev_container"`
 
@@ -141,6 +143,10 @@ func ParseAgentDefinition(data []byte) (*AgentDefinition, error) {
 		td.DevContainer.NetworkAccess = "internal"
 	}
 
+	if td.RepoGroup != "" && len(td.Repos) > 0 {
+		return nil, fmt.Errorf("cannot specify both 'repos' and 'repo_group'")
+	}
+
 	// Validate repos: each must have a non-empty URL, derive Name from URL if not provided, check for duplicates.
 	if len(td.Repos) > 0 {
 		namesSeen := make(map[string]bool)
@@ -168,6 +174,7 @@ func (td *AgentDefinition) ToTaskRequest() TaskRequest {
 		Prompt:         td.Prompt,
 		Executable:     td.Executable,
 		Repos:          td.Repos,
+		RepoGroup:      td.RepoGroup,
 		Provider:       td.Provider,
 		Timeout:        td.Timeout,
 		Tools:          td.Tools,
@@ -178,6 +185,7 @@ func (td *AgentDefinition) ToTaskRequest() TaskRequest {
 		Plugins:        td.Plugins,
 		Credentials:    td.Credentials,
 		DirectOutbound:  td.DirectOutbound,
+		TripleTeam:      td.TripleTeam,
 		EnforcementMode: td.EnforcementMode,
 		DevContainer:    td.DevContainer,
 	}
@@ -305,6 +313,7 @@ func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, teamID strin
 			td.Prompt = parsed.Prompt
 			td.Executable = parsed.Executable
 			td.Repos = parsed.Repos
+			td.RepoGroup = parsed.RepoGroup
 			td.Provider = parsed.Provider
 			td.Model = parsed.Model
 			td.Timeout = parsed.Timeout
@@ -317,6 +326,7 @@ func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, teamID strin
 			td.Plugins = parsed.Plugins
 			td.Credentials = parsed.Credentials
 			td.DirectOutbound = parsed.DirectOutbound
+			td.TripleTeam = parsed.TripleTeam
 			td.EnforcementMode = parsed.EnforcementMode
 			td.CIGate = parsed.CIGate
 			td.DevContainer = parsed.DevContainer

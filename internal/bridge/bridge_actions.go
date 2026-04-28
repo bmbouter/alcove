@@ -50,6 +50,7 @@ func RegisterBridgeActions() map[string]BridgeActionHandler {
 
 		// GitHub-specific aliases.
 		"create-pr":      bridgeActionCreatePR,
+		"create-prs":     bridgeActionCreatePRs,
 		"await-ci":       bridgeActionAwaitCI,
 		"merge-pr":       bridgeActionMergePR,
 		"await-release":  bridgeActionAwaitRelease,

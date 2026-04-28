@@ -577,6 +577,8 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().Bool("watch", false, "Stream transcript via SSE after dispatch")
 	cmd.Flags().Bool("debug", false, "Keep containers after exit for log inspection")
 	cmd.Flags().Bool("direct-outbound", false, "Allow direct outbound network connections (bypasses Gate proxy)")
+	cmd.Flags().Bool("triple-team", false, "Enable triple-team mode (3-phase parallel agent approach)")
+	cmd.Flags().String("repo-group", "", "Named repo group for multi-repo sessions")
 	return cmd
 }
 
@@ -589,6 +591,8 @@ type runRequest struct {
 	Budget         float64 `json:"budget_usd,omitempty"`
 	Debug          bool    `json:"debug,omitempty"`
 	DirectOutbound bool    `json:"direct_outbound,omitempty"`
+	TripleTeam     bool    `json:"triple_team,omitempty"`
+	RepoGroup      string  `json:"repo_group,omitempty"`
 }
 
 type runResponse struct {
@@ -609,6 +613,8 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 	reqBody.Debug, _ = cmd.Flags().GetBool("debug")
 	reqBody.DirectOutbound, _ = cmd.Flags().GetBool("direct-outbound")
+	reqBody.TripleTeam, _ = cmd.Flags().GetBool("triple-team")
+	reqBody.RepoGroup, _ = cmd.Flags().GetString("repo-group")
 
 	// Fall back to active profile defaults
 	if profile, err := resolveProfile(cmd); err == nil {

@@ -476,7 +476,12 @@ func (m *MITMHandler) injectMITMCredential(req *http.Request, hostname string) e
 
 	switch service {
 	case "github":
-		req.Header.Set("Authorization", "token "+cred)
+		hostname := req.URL.Hostname()
+		if hostname == "github.com" {
+			req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("x-access-token:"+cred)))
+		} else {
+			req.Header.Set("Authorization", "token "+cred)
+		}
 	case "gitlab":
 		req.Header.Set("Authorization", "Bearer "+cred)
 	case "jira":

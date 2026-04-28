@@ -45,6 +45,7 @@ type Dispatcher struct {
 	profileStore    *ProfileStore
 	settingsStore   *SettingsStore
 	policyRuleStore *PolicyRuleStore
+	repoGroupStore  *RepoGroupStore
 	mu              sync.Mutex
 	handles         map[string]runtime.TaskHandle // sessionID -> handle
 	ciGate          *CIGateMonitor
@@ -79,6 +80,11 @@ func (d *Dispatcher) SetWorkflowEngine(we *WorkflowEngine) {
 	d.workflowEngine = we
 }
 
+// SetRepoGroupStore attaches a RepoGroupStore for resolving repo_group references.
+func (d *Dispatcher) SetRepoGroupStore(s *RepoGroupStore) {
+	d.repoGroupStore = s
+}
+
 // generateShimToken returns a cryptographically random hex-encoded token
 // of the specified byte length (the resulting string is 2*n hex characters).
 func generateShimToken(n int) string {
@@ -94,6 +100,7 @@ type TaskRequest struct {
 	Prompt         string                   `json:"prompt,omitempty"`
 	Executable     *internal.ExecutableSpec `json:"executable,omitempty"`
 	Repos          []internal.RepoSpec      `json:"repos,omitempty"`
+	RepoGroup      string                   `json:"repo_group,omitempty"`
 	Provider       string                   `json:"provider,omitempty"`
 	Timeout        int                      `json:"timeout,omitempty"` // seconds, default 3600
 	Scope          *internal.Scope          `json:"scope,omitempty"`
@@ -105,6 +112,7 @@ type TaskRequest struct {
 	Plugins        []PluginSpec             `json:"-"` // Set internally from agent definition
 	Credentials    map[string]string        `json:"-"` // ENV_VAR_NAME: credential_provider_name
 	DirectOutbound  bool                     `json:"direct_outbound,omitempty"`
+	TripleTeam      bool                     `json:"triple_team,omitempty"`
 	EnforcementMode string                  `json:"-"` // "enforce" (default) or "monitor"
 	DevContainer    *DevContainerSpec       `json:"dev_container,omitempty"`
 	// Task metadata — set by dispatch code paths, stored in sessions table.
@@ -255,6 +263,11 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		session.Prompt = req.Prompt
 	}
 
+	if req.TripleTeam {
+		req.Prompt = TripleTeamPrompt + req.Prompt
+		session.Prompt = req.Prompt
+	}
+
 	// Generate a session token for the Skiff pod to authenticate to Ledger.
 	sessionToken := uuid.New().String()
 
@@ -354,6 +367,15 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 	}
 	if req.Budget > 0 {
 		skiffEnv["TASK_BUDGET"] = fmt.Sprintf("%.2f", req.Budget)
+	}
+	// Resolve repo_group to repos if specified.
+	if req.RepoGroup != "" && len(req.Repos) == 0 && d.repoGroupStore != nil {
+		group, err := d.repoGroupStore.GetRepoGroup(ctx, req.RepoGroup, activeTeamID)
+		if err != nil {
+			return nil, fmt.Errorf("repo group %q not found: %w", req.RepoGroup, err)
+		}
+		req.Repos = group.Repos
+		session.Repos = group.Repos
 	}
 	if len(req.Repos) > 0 {
 		reposJSON, _ := json.Marshal(req.Repos)
@@ -647,6 +669,8 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 	runtimeConfig := map[string]any{
 		"model":           model,
 		"direct_outbound": req.DirectOutbound,
+		"triple_team":     req.TripleTeam,
+		"repo_group":      req.RepoGroup,
 		"timeout":         timeout,
 	}
 	if len(req.Profiles) > 0 {

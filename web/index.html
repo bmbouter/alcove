@@ -170,6 +170,15 @@
                     </div>
                     <div class="form-row">
                         <div class="form-group form-group-half">
+                            <label for="task-repo-group">Repo Group</label>
+                            <select id="task-repo-group" class="input">
+                                <option value="">None (single repo)</option>
+                            </select>
+                            <small class="form-help">Select a named repo group for multi-repo sessions.</small>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group form-group-half">
                             <label for="task-timeout">Timeout (minutes): <span id="timeout-value">60</span></label>
                             <input type="range" id="task-timeout" class="input-range" min="5" max="240" value="60" step="5">
                             <small class="form-help">Session will be stopped if it exceeds this duration.</small>
@@ -190,6 +199,14 @@
                             </label>
                             <span style="margin-left:8px;">Direct outbound</span>
                             <small class="form-help" style="display:block;margin-top:4px;color:var(--text-muted);">Allow the agent to make direct network connections without routing through Gate proxy.</small>
+                        </div>
+                        <div class="form-group form-group-half">
+                            <label class="toggle-switch" title="Enable triple-team mode: 3-phase parallel agent approach for higher quality results">
+                                <input type="checkbox" id="triple-team-toggle">
+                                <span class="toggle-slider"></span>
+                            </label>
+                            <span style="margin-left:8px;">Triple team</span>
+                            <small class="form-help" style="display:block;margin-top:4px;color:var(--text-muted);">Spawn 3 waves of specialist agents (workers, evaluators, integrators) for more robust solutions.</small>
                         </div>
                     </div>
                     <div class="form-group">

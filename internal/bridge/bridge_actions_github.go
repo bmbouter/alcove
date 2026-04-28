@@ -539,3 +539,120 @@ func githubRequest(ctx context.Context, token, method, url string, body []byte) 
 
 	return respBody, nil
 }
+
+// bridgeActionCreatePRs creates pull requests across multiple repos.
+func bridgeActionCreatePRs(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
+	branch := getStringInput(inputs, "branch")
+	base := getStringInput(inputs, "base")
+	title := getStringInput(inputs, "title")
+	body := getStringInput(inputs, "body")
+	draft := getBoolInput(inputs, "draft")
+
+	if base == "" {
+		base = "main"
+	}
+	if branch == "" || title == "" {
+		return &BridgeActionResult{Status: "failed", Error: "missing required inputs: branch, title"}, nil
+	}
+
+	var repos []string
+	if r, ok := inputs["repos"]; ok {
+		switch v := r.(type) {
+		case []interface{}:
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					repos = append(repos, s)
+				}
+			}
+		case []string:
+			repos = v
+		}
+	}
+	if len(repos) == 0 {
+		return &BridgeActionResult{Status: "failed", Error: "missing required input: repos (array of owner/repo strings)"}, nil
+	}
+
+	token, apiHost, err := credStore.AcquireSCMTokenForOwner(ctx, "github", teamID)
+	if err != nil {
+		return &BridgeActionResult{Status: "failed", Error: fmt.Sprintf("failed to acquire GitHub token: %v", err)}, nil
+	}
+	if apiHost == "" {
+		apiHost = "https://api.github.com"
+	}
+
+	var prNumbers []int
+	var prURLs []string
+	var succeededRepos []string
+	var failedRepos []string
+
+	for _, repo := range repos {
+		// Check if branch exists in this repo.
+		branchURL := fmt.Sprintf("%s/repos/%s/branches/%s", apiHost, repo, branch)
+		_, err := githubRequest(ctx, token, "GET", branchURL, nil)
+		if err != nil {
+			log.Printf("bridge-action create-prs: branch %s not found in %s, skipping", branch, repo)
+			continue
+		}
+
+		prBody := map[string]interface{}{
+			"head":  branch,
+			"base":  base,
+			"title": title,
+		}
+		if body != "" {
+			prBody["body"] = body
+		}
+		if draft {
+			prBody["draft"] = true
+		}
+
+		bodyJSON, _ := json.Marshal(prBody)
+		url := fmt.Sprintf("%s/repos/%s/pulls", apiHost, repo)
+		respBody, err := githubRequest(ctx, token, "POST", url, bodyJSON)
+		if err != nil {
+			if strings.Contains(err.Error(), "422") || strings.Contains(err.Error(), "already exists") {
+				existingURL := fmt.Sprintf("%s/repos/%s/pulls?head=%s:%s&state=open", apiHost, repo, strings.Split(repo, "/")[0], branch)
+				existingBody, findErr := githubRequest(ctx, token, "GET", existingURL, nil)
+				if findErr == nil {
+					var existing []struct {
+						Number  int    `json:"number"`
+						HTMLURL string `json:"html_url"`
+					}
+					if json.Unmarshal(existingBody, &existing) == nil && len(existing) > 0 {
+						prNumbers = append(prNumbers, existing[0].Number)
+						prURLs = append(prURLs, existing[0].HTMLURL)
+						succeededRepos = append(succeededRepos, repo)
+						continue
+					}
+				}
+			}
+			log.Printf("bridge-action create-prs: failed to create PR in %s: %v", repo, err)
+			failedRepos = append(failedRepos, repo)
+			continue
+		}
+
+		var prResp struct {
+			Number  int    `json:"number"`
+			HTMLURL string `json:"html_url"`
+		}
+		if err := json.Unmarshal(respBody, &prResp); err != nil {
+			failedRepos = append(failedRepos, repo)
+			continue
+		}
+
+		log.Printf("bridge-action create-prs: created PR #%d in %s at %s", prResp.Number, repo, prResp.HTMLURL)
+		prNumbers = append(prNumbers, prResp.Number)
+		prURLs = append(prURLs, prResp.HTMLURL)
+		succeededRepos = append(succeededRepos, repo)
+	}
+
+	return &BridgeActionResult{
+		Status: "succeeded",
+		Outputs: map[string]interface{}{
+			"pr_numbers":   prNumbers,
+			"pr_urls":      prURLs,
+			"repos":        succeededRepos,
+			"failed_repos": failedRepos,
+		},
+	}, nil
+}

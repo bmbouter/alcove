@@ -211,6 +211,7 @@ func main() {
 
 	// Create workflow definition store.
 	workflowStore := bridge.NewWorkflowStore(dbpool)
+	repoGroupStore := bridge.NewRepoGroupStore(dbpool)
 
 	// Create workflow engine.
 	workflowEngine := bridge.NewWorkflowEngine(dbpool, dispatcher, workflowStore, defStore, credStore)
@@ -238,7 +239,8 @@ func main() {
 	}()
 
 	// Create agent repo syncer.
-	syncer := bridge.NewAgentRepoSyncer(dbpool, settingsStore, scheduler, defStore, dispatcher, profileStore, policyRuleStore, workflowStore)
+	dispatcher.SetRepoGroupStore(repoGroupStore)
+	syncer := bridge.NewAgentRepoSyncer(dbpool, settingsStore, scheduler, defStore, dispatcher, profileStore, policyRuleStore, workflowStore, repoGroupStore)
 	syncer.Start(context.Background())
 	defer func() {
 		log.Println("shutting down agent repo syncer...")
@@ -248,7 +250,7 @@ func main() {
 	log.Println("agent repo syncer started")
 
 	teamStore := bridge.NewTeamStore(dbpool)
-	api := bridge.NewAPI(dispatcher, dbpool, cfg, scheduler, credStore, toolStore, profileStore, settingsStore, bridgeLLM, defStore, syncer, store, workflowEngine, teamStore)
+	api := bridge.NewAPI(dispatcher, dbpool, cfg, scheduler, credStore, toolStore, profileStore, settingsStore, bridgeLLM, defStore, syncer, store, workflowEngine, teamStore, repoGroupStore)
 
 	// Build HTTP server.
 	mux := http.NewServeMux()
