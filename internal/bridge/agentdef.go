@@ -80,6 +80,7 @@ type AgentDefinition struct {
 	SourceKey    string     `json:"source_key"`
 	RawYAML      string     `json:"raw_yaml,omitempty"`
 	SyncError    string     `json:"sync_error,omitempty"`
+	SyncWarning  string     `json:"sync_warning,omitempty"`
 	LastSynced   time.Time  `json:"last_synced"`
 	NextRun      *time.Time `json:"next_run,omitempty"`
 	LastRun      *time.Time `json:"last_run,omitempty"`
@@ -205,7 +206,7 @@ func NewAgentDefStore(db *pgxpool.Pool) *AgentDefStore {
 func (s *AgentDefStore) ListAgentDefinitions(ctx context.Context, teamID string) ([]AgentDefinition, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT td.id, td.name, td.description, td.source_repo, td.source_file, td.source_key,
-		       td.parsed, td.has_schedule, td.sync_error, td.last_synced,
+		       td.parsed, td.has_schedule, td.sync_error, td.sync_warning, td.last_synced,
 		       td.created_at, td.updated_at,
 		       s.next_run, s.last_run
 		FROM agent_definitions td
@@ -223,12 +224,12 @@ func (s *AgentDefStore) ListAgentDefinitions(ctx context.Context, teamID string)
 		var td AgentDefinition
 		var parsedJSON []byte
 		var hasSchedule bool
-		var syncError *string
+		var syncError, syncWarning *string
 		var createdAt, updatedAt time.Time
 
 		if err := rows.Scan(
 			&td.ID, &td.Name, &td.Description, &td.SourceRepo, &td.SourceFile,
-			&td.SourceKey, &parsedJSON, &hasSchedule, &syncError, &td.LastSynced,
+			&td.SourceKey, &parsedJSON, &hasSchedule, &syncError, &syncWarning, &td.LastSynced,
 			&createdAt, &updatedAt,
 			&td.NextRun, &td.LastRun,
 		); err != nil {
@@ -237,6 +238,9 @@ func (s *AgentDefStore) ListAgentDefinitions(ctx context.Context, teamID string)
 
 		if syncError != nil {
 			td.SyncError = *syncError
+		}
+		if syncWarning != nil {
+			td.SyncWarning = *syncWarning
 		}
 
 		// Deserialize parsed JSONB for profiles, schedule, and trigger data.
@@ -280,13 +284,13 @@ func (s *AgentDefStore) ListAgentDefinitions(ctx context.Context, teamID string)
 func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, teamID string) (*AgentDefinition, error) {
 	var td AgentDefinition
 	var parsedJSON []byte
-	var syncError *string
+	var syncError, syncWarning *string
 	var hasSchedule bool
 	var createdAt, updatedAt time.Time
 
 	err := s.db.QueryRow(ctx, `
 		SELECT td.id, td.name, td.description, td.source_repo, td.source_file, td.source_key,
-		       td.raw_yaml, td.parsed, td.has_schedule, td.sync_error, td.last_synced,
+		       td.raw_yaml, td.parsed, td.has_schedule, td.sync_error, td.sync_warning, td.last_synced,
 		       td.created_at, td.updated_at,
 		       s.next_run, s.last_run
 		FROM agent_definitions td
@@ -294,7 +298,7 @@ func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, teamID strin
 		WHERE (td.id = $1 OR td.name = $1) AND td.team_id = $2
 	`, id, teamID).Scan(
 		&td.ID, &td.Name, &td.Description, &td.SourceRepo, &td.SourceFile,
-		&td.SourceKey, &td.RawYAML, &parsedJSON, &hasSchedule, &syncError,
+		&td.SourceKey, &td.RawYAML, &parsedJSON, &hasSchedule, &syncError, &syncWarning,
 		&td.LastSynced, &createdAt, &updatedAt,
 		&td.NextRun, &td.LastRun,
 	)
@@ -304,6 +308,9 @@ func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, teamID strin
 
 	if syncError != nil {
 		td.SyncError = *syncError
+	}
+	if syncWarning != nil {
+		td.SyncWarning = *syncWarning
 	}
 
 	// Unmarshal the parsed JSON back into the struct fields.
@@ -363,8 +370,8 @@ func (s *AgentDefStore) UpsertAgentDefinition(ctx context.Context, def *AgentDef
 
 	_, err = s.db.Exec(ctx, `
 		INSERT INTO agent_definitions (id, name, description, source_repo, source_file,
-		    source_key, raw_yaml, parsed, has_schedule, sync_error, last_synced, team_id, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		    source_key, raw_yaml, parsed, has_schedule, sync_error, sync_warning, last_synced, team_id, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		ON CONFLICT (source_key, team_id) DO UPDATE SET
 		    name = EXCLUDED.name,
 		    description = EXCLUDED.description,
@@ -374,11 +381,12 @@ func (s *AgentDefStore) UpsertAgentDefinition(ctx context.Context, def *AgentDef
 		    parsed = EXCLUDED.parsed,
 		    has_schedule = EXCLUDED.has_schedule,
 		    sync_error = EXCLUDED.sync_error,
+		    sync_warning = EXCLUDED.sync_warning,
 		    last_synced = EXCLUDED.last_synced,
 		    team_id = EXCLUDED.team_id,
 		    updated_at = EXCLUDED.updated_at
 	`, def.ID, def.Name, def.Description, def.SourceRepo, def.SourceFile,
-		def.SourceKey, def.RawYAML, parsedJSON, hasSchedule, nilIfEmpty(def.SyncError),
+		def.SourceKey, def.RawYAML, parsedJSON, hasSchedule, nilIfEmpty(def.SyncError), nilIfEmpty(def.SyncWarning),
 		now, def.TeamID, now, now,
 	)
 	if err != nil {
@@ -401,7 +409,7 @@ func (s *AgentDefStore) DeleteAgentDefinitionsByRepo(ctx context.Context, repoUR
 func (s *AgentDefStore) ListAgentDefinitionsByRepo(ctx context.Context, repoURL, teamID string) ([]AgentDefinition, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, name, description, source_repo, source_file, source_key,
-		       has_schedule, sync_error, last_synced, created_at, updated_at, parsed
+		       has_schedule, sync_error, sync_warning, last_synced, created_at, updated_at, parsed
 		FROM agent_definitions WHERE source_repo = $1 AND team_id = $2
 		ORDER BY name ASC
 	`, repoURL, teamID)
@@ -414,13 +422,13 @@ func (s *AgentDefStore) ListAgentDefinitionsByRepo(ctx context.Context, repoURL,
 	for rows.Next() {
 		var td AgentDefinition
 		var hasSchedule bool
-		var syncError *string
+		var syncError, syncWarning *string
 		var createdAt, updatedAt time.Time
 		var parsedJSON []byte
 
 		if err := rows.Scan(
 			&td.ID, &td.Name, &td.Description, &td.SourceRepo, &td.SourceFile,
-			&td.SourceKey, &hasSchedule, &syncError, &td.LastSynced,
+			&td.SourceKey, &hasSchedule, &syncError, &syncWarning, &td.LastSynced,
 			&createdAt, &updatedAt, &parsedJSON,
 		); err != nil {
 			return nil, fmt.Errorf("scanning agent definition: %w", err)
@@ -428,6 +436,9 @@ func (s *AgentDefStore) ListAgentDefinitionsByRepo(ctx context.Context, repoURL,
 
 		if syncError != nil {
 			td.SyncError = *syncError
+		}
+		if syncWarning != nil {
+			td.SyncWarning = *syncWarning
 		}
 		if parsedJSON != nil {
 			var parsed AgentDefinition

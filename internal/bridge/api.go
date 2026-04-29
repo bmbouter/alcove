@@ -1737,6 +1737,12 @@ func (a *API) handleAgentDefinitionRun(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 
+	// Check credential requirements (warn, don't block)
+	var warnings []string
+	if warning := a.checkCredentialRequirements(r.Context(), def, teamID); warning != "" {
+		warnings = append(warnings, warning)
+	}
+
 	// Parse optional inputs from request body.
 	var body struct {
 		Inputs map[string]interface{} `json:"inputs,omitempty"`
@@ -1770,7 +1776,113 @@ func (a *API) handleAgentDefinitionRun(w http.ResponseWriter, r *http.Request, i
 		return
 	}
 
-	respondJSON(w, http.StatusCreated, session)
+	// Create response with session and warnings
+	response := map[string]interface{}{
+		"session_id": session.ID,
+		"status":     session.Status,
+		"started_at": session.StartedAt,
+	}
+	if len(warnings) > 0 {
+		response["warnings"] = warnings
+	}
+
+	respondJSON(w, http.StatusCreated, response)
+}
+
+// checkCredentialRequirements validates that the agent's credential requirements
+// can be satisfied by the team's configured credentials. Returns a warning message
+// if any required credentials are missing, or empty string if all requirements are met.
+func (a *API) checkCredentialRequirements(ctx context.Context, def *AgentDefinition, teamID string) string {
+	// If no profiles, no credential requirements
+	if len(def.Profiles) == 0 {
+		return ""
+	}
+
+	// Get the set of credential providers available for this team
+	availableCredentials, err := a.getTeamCredentialProviders(ctx, teamID)
+	if err != nil {
+		log.Printf("error getting team credentials for dispatch validation: %v", err)
+		return ""
+	}
+
+	// Collect all required credential types from all profiles
+	requiredCredentials := make(map[string]map[string][]string) // provider type -> profile -> operations
+
+	for _, profileName := range def.Profiles {
+		profile, err := a.profileStore.GetProfile(ctx, profileName, teamID)
+		if err != nil {
+			// Profile doesn't exist - this will be caught by sync validation
+			continue
+		}
+
+		// Check each tool in the profile's Tools map
+		for toolService, toolConfig := range profile.Tools {
+			// Only check credential-gated services
+			if isCredentialGatedService(toolService) {
+				operations, _ := toolConfig.FlattenRules()
+				if len(operations) > 0 {
+					if requiredCredentials[toolService] == nil {
+						requiredCredentials[toolService] = make(map[string][]string)
+					}
+					requiredCredentials[toolService][profileName] = operations
+				}
+			}
+		}
+	}
+
+	// Check if all required credential types are available
+	var missingCredentials []string
+	for credType, profileOps := range requiredCredentials {
+		if !availableCredentials[credType] {
+			// Format the missing credential message
+			var profileDetails []string
+			for profile, operations := range profileOps {
+				profileDetails = append(profileDetails, fmt.Sprintf("'%s' for operations [%s]",
+					profile, strings.Join(operations, ", ")))
+			}
+			missingCredentials = append(missingCredentials,
+				fmt.Sprintf("%s (required by profile %s)", credType, strings.Join(profileDetails, ", ")))
+		}
+	}
+
+	if len(missingCredentials) > 0 {
+		return fmt.Sprintf("agent requires %s but no matching credential(s) are configured", strings.Join(missingCredentials, "; "))
+	}
+
+	return ""
+}
+
+// getTeamCredentialProviders returns a set of credential provider types available to the team.
+func (a *API) getTeamCredentialProviders(ctx context.Context, teamID string) (map[string]bool, error) {
+	rows, err := a.db.Query(ctx, `
+		SELECT DISTINCT provider FROM provider_credentials
+		WHERE team_id = $1 AND provider IN ('github', 'gitlab', 'jira', 'splunk')
+	`, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("querying team credential providers: %w", err)
+	}
+	defer rows.Close()
+
+	providers := make(map[string]bool)
+	for rows.Next() {
+		var provider string
+		if err := rows.Scan(&provider); err != nil {
+			return nil, fmt.Errorf("scanning credential provider: %w", err)
+		}
+		providers[provider] = true
+	}
+
+	return providers, rows.Err()
+}
+
+// isCredentialGatedService returns true if the service requires credentials.
+func isCredentialGatedService(service string) bool {
+	switch service {
+	case "github", "gitlab", "jira", "splunk":
+		return true
+	default:
+		return false
+	}
 }
 
 // --- Agent Templates ---
