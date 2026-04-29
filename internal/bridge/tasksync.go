@@ -212,21 +212,56 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 		for _, repo := range repos {
 			configuredURLs[repo.URL] = true
 		}
-		teamDefs, err := s.defStore.ListAgentDefinitions(ctx, teamID)
-		if err == nil {
-			removedRepos := make(map[string]bool)
-			for _, def := range teamDefs {
-				if !configuredURLs[def.SourceRepo] && !removedRepos[def.SourceRepo] {
-					log.Printf("agent-repo-syncer: removing agent definitions, workflows, profiles, and policy rules from %s for team %s (no longer configured)", def.SourceRepo, teamID)
-					_ = s.defStore.DeleteAgentDefinitionsByRepo(ctx, def.SourceRepo, teamID)
-					_ = s.profileStore.DeleteYAMLProfilesByRepo(ctx, def.SourceRepo, teamID)
-					_ = s.policyRuleStore.DeleteByRepo(ctx, def.SourceRepo, teamID)
-					_ = s.workflowStore.DeleteWorkflowsByRepo(ctx, def.SourceRepo, teamID)
-					_ = s.repoGroupStore.DeleteRepoGroupsByRepo(ctx, def.SourceRepo, teamID)
-					// Also clean up schedules from this repo.
-					s.db.Exec(ctx, `DELETE FROM schedules WHERE source_key LIKE $1 AND team_id = $2`, username+"::%", teamID)
-					removedRepos[def.SourceRepo] = true
-				}
+
+		// Comprehensive cleanup: collect source repos from all resource types to handle
+		// orphaned resources when repo URLs change after agents have been cleaned up.
+		// This replaces the previous agent-definition-only discovery which had a race condition.
+		allSourceRepos := make(map[string]bool)
+
+		// Get distinct source repos from all stores
+		if agentRepos, err := s.defStore.ListDistinctSourceRepos(ctx, teamID); err == nil {
+			for _, repo := range agentRepos {
+				allSourceRepos[repo] = true
+			}
+		}
+
+		if workflowRepos, err := s.workflowStore.ListDistinctSourceRepos(ctx, teamID); err == nil {
+			for _, repo := range workflowRepos {
+				allSourceRepos[repo] = true
+			}
+		}
+
+		if profileRepos, err := s.profileStore.ListDistinctSourceRepos(ctx, teamID); err == nil {
+			for _, repo := range profileRepos {
+				allSourceRepos[repo] = true
+			}
+		}
+
+		if policyRepos, err := s.policyRuleStore.ListDistinctSourceRepos(ctx, teamID); err == nil {
+			for _, repo := range policyRepos {
+				allSourceRepos[repo] = true
+			}
+		}
+
+		if repoGroupRepos, err := s.repoGroupStore.ListDistinctSourceRepos(ctx, teamID); err == nil {
+			for _, repo := range repoGroupRepos {
+				allSourceRepos[repo] = true
+			}
+		}
+
+		// Clean up resources from repos that are no longer configured
+		removedRepos := make(map[string]bool)
+		for sourceRepo := range allSourceRepos {
+			if !configuredURLs[sourceRepo] && !removedRepos[sourceRepo] {
+				log.Printf("agent-repo-syncer: removing agent definitions, workflows, profiles, and policy rules from %s for team %s (no longer configured)", sourceRepo, teamID)
+				_ = s.defStore.DeleteAgentDefinitionsByRepo(ctx, sourceRepo, teamID)
+				_ = s.profileStore.DeleteYAMLProfilesByRepo(ctx, sourceRepo, teamID)
+				_ = s.policyRuleStore.DeleteByRepo(ctx, sourceRepo, teamID)
+				_ = s.workflowStore.DeleteWorkflowsByRepo(ctx, sourceRepo, teamID)
+				_ = s.repoGroupStore.DeleteRepoGroupsByRepo(ctx, sourceRepo, teamID)
+				// Also clean up schedules from this repo.
+				s.db.Exec(ctx, `DELETE FROM schedules WHERE source_key LIKE $1 AND team_id = $2`, username+"::%", teamID)
+				removedRepos[sourceRepo] = true
 			}
 		}
 	}

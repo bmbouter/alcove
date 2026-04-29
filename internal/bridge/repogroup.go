@@ -195,3 +195,30 @@ func (s *RepoGroupStore) DeleteRepoGroupsByRepo(ctx context.Context, repoURL, te
 	_, err := s.db.Exec(ctx, `DELETE FROM repo_groups WHERE source_repo = $1 AND team_id = $2`, repoURL, teamID)
 	return err
 }
+
+// ListDistinctSourceRepos returns all distinct source_repo values for repo groups belonging to the given team.
+func (s *RepoGroupStore) ListDistinctSourceRepos(ctx context.Context, teamID string) ([]string, error) {
+	query := `
+		SELECT DISTINCT source_repo
+		FROM repo_groups
+		WHERE team_id = $1 AND source_repo != ''
+		ORDER BY source_repo
+	`
+
+	rows, err := s.db.Query(ctx, query, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("querying distinct source repos: %w", err)
+	}
+	defer rows.Close()
+
+	var repos []string
+	for rows.Next() {
+		var repo string
+		if err := rows.Scan(&repo); err != nil {
+			return nil, fmt.Errorf("scanning source repo: %w", err)
+		}
+		repos = append(repos, repo)
+	}
+
+	return repos, rows.Err()
+}
