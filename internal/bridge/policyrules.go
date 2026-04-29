@@ -195,6 +195,33 @@ func (s *PolicyRuleStore) ListSourceKeysByRepo(ctx context.Context, sourceRepo, 
 	return keys, rows.Err()
 }
 
+// ListDistinctSourceRepos returns all distinct source_repo values for policy rule sets belonging to the given team.
+func (s *PolicyRuleStore) ListDistinctSourceRepos(ctx context.Context, teamID string) ([]string, error) {
+	query := `
+		SELECT DISTINCT source_repo
+		FROM policy_rule_sets
+		WHERE team_id = $1 AND source_repo != ''
+		ORDER BY source_repo
+	`
+
+	rows, err := s.db.Query(ctx, query, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("querying distinct source repos: %w", err)
+	}
+	defer rows.Close()
+
+	var repos []string
+	for rows.Next() {
+		var repo string
+		if err := rows.Scan(&repo); err != nil {
+			return nil, fmt.Errorf("scanning source repo: %w", err)
+		}
+		repos = append(repos, repo)
+	}
+
+	return repos, rows.Err()
+}
+
 // StoredRuleSet represents a rule set as stored in the database, including metadata.
 type StoredRuleSet struct {
 	ID         string    `json:"id"`

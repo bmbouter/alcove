@@ -399,6 +399,33 @@ func (ps *ProfileStore) ListYAMLProfileKeysByRepo(ctx context.Context, repoURL, 
 	return keys, rows.Err()
 }
 
+// ListDistinctSourceRepos returns all distinct source_repo values for security profiles belonging to the given team.
+func (ps *ProfileStore) ListDistinctSourceRepos(ctx context.Context, teamID string) ([]string, error) {
+	query := `
+		SELECT DISTINCT source_repo
+		FROM security_profiles
+		WHERE team_id = $1 AND source_repo != '' AND source = 'yaml'
+		ORDER BY source_repo
+	`
+
+	rows, err := ps.db.Query(ctx, query, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("querying distinct source repos: %w", err)
+	}
+	defer rows.Close()
+
+	var repos []string
+	for rows.Next() {
+		var repo string
+		if err := rows.Scan(&repo); err != nil {
+			return nil, fmt.Errorf("scanning source repo: %w", err)
+		}
+		repos = append(repos, repo)
+	}
+
+	return repos, rows.Err()
+}
+
 // containsStr checks if a string slice contains a given string.
 func containsStr(slice []string, s string) bool {
 	for _, v := range slice {
