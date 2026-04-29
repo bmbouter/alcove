@@ -15,6 +15,7 @@
 package bridge
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -1063,5 +1064,131 @@ tools:
 	// The error should also contain details about the YAML issue
 	if !strings.Contains(err.Error(), "yaml:") {
 		t.Errorf("expected detailed YAML error in message, got: %v", err)
+	}
+}
+
+func TestValidateWorkflowAgentReferences_ParseErroredAgent(t *testing.T) {
+	// Test that workflow validation provides helpful error messages for agents with parse errors
+	ctx := context.Background()
+
+	// Mock the validateWorkflowAgentsWithCatalog function by creating a test instance
+	// We need a AgentRepoSyncer instance to call the method
+	syncer := &AgentRepoSyncer{}
+
+	// Create a workflow definition that references an agent by name
+	wd := &WorkflowDefinition{
+		Name: "Test Workflow",
+		Workflow: []WorkflowStep{
+			{
+				ID:    "test-step",
+				Type:  "agent",
+				Agent: "Upgrade Pulp Dependencies",
+			},
+		},
+	}
+
+	// Create agent definitions - one with sync error, one without
+	agentDefs := []AgentDefinition{
+		{
+			Name:      "Upgrade Pulp Dependencies",
+			SyncError: "Failed to parse agent definition in file upgrade-deps.yml: agent definition must have either 'prompt' or 'executable.url' field",
+		},
+		{
+			Name:      "Working Agent",
+			SyncError: "", // No error
+		},
+	}
+
+	errors := syncer.validateWorkflowAgentsWithCatalog(ctx, wd, agentDefs, "test-team")
+
+	// Should get one error mentioning the sync error
+	if len(errors) != 1 {
+		t.Fatalf("expected 1 error, got %d: %v", len(errors), errors)
+	}
+
+	error := errors[0]
+	if !strings.Contains(error, "test-step") {
+		t.Errorf("error should mention step ID, got: %s", error)
+	}
+	if !strings.Contains(error, "Upgrade Pulp Dependencies") {
+		t.Errorf("error should mention agent name, got: %s", error)
+	}
+	if !strings.Contains(error, "sync error") {
+		t.Errorf("error should mention sync error, got: %s", error)
+	}
+	if !strings.Contains(error, "prompt") {
+		t.Errorf("error should contain truncated sync error, got: %s", error)
+	}
+}
+
+func TestValidateWorkflowAgentReferences_SuccessfulAgent(t *testing.T) {
+	// Test that workflow validation passes for agents without sync errors
+	ctx := context.Background()
+
+	syncer := &AgentRepoSyncer{}
+
+	wd := &WorkflowDefinition{
+		Name: "Test Workflow",
+		Workflow: []WorkflowStep{
+			{
+				ID:    "test-step",
+				Type:  "agent",
+				Agent: "Working Agent",
+			},
+		},
+	}
+
+	agentDefs := []AgentDefinition{
+		{
+			Name:      "Working Agent",
+			SyncError: "", // No error
+		},
+	}
+
+	errors := syncer.validateWorkflowAgentsWithCatalog(ctx, wd, agentDefs, "test-team")
+
+	// Should get no errors
+	if len(errors) != 0 {
+		t.Fatalf("expected 0 errors, got %d: %v", len(errors), errors)
+	}
+}
+
+func TestValidateWorkflowAgentReferences_UnknownAgent(t *testing.T) {
+	// Test that workflow validation still reports unknown agents
+	ctx := context.Background()
+
+	syncer := &AgentRepoSyncer{}
+
+	wd := &WorkflowDefinition{
+		Name: "Test Workflow",
+		Workflow: []WorkflowStep{
+			{
+				ID:    "test-step",
+				Type:  "agent",
+				Agent: "Nonexistent Agent",
+			},
+		},
+	}
+
+	agentDefs := []AgentDefinition{
+		{
+			Name:      "Different Agent",
+			SyncError: "", // No error but different name
+		},
+	}
+
+	errors := syncer.validateWorkflowAgentsWithCatalog(ctx, wd, agentDefs, "test-team")
+
+	// Should get one error about unknown agent
+	if len(errors) != 1 {
+		t.Fatalf("expected 1 error, got %d: %v", len(errors), errors)
+	}
+
+	error := errors[0]
+	if !strings.Contains(error, "unknown agent") {
+		t.Errorf("error should mention unknown agent, got: %s", error)
+	}
+	if !strings.Contains(error, "Nonexistent Agent") {
+		t.Errorf("error should mention the agent name, got: %s", error)
 	}
 }

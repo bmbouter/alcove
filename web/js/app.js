@@ -5469,18 +5469,6 @@
             syncError = '<div class="workflow-def-error">⚠️ Sync Error: ' + escapeHtml(workflow.sync_error) + '</div>';
         }
 
-        // Check for disabled/unknown agent references in sync_error
-        var agentWarning = '';
-        if (workflow.sync_error && /unknown|disabled|not found|not enabled/i.test(workflow.sync_error)) {
-            // Extract step name from sync_error if possible (patterns like "step 'foo'" or "agent 'foo'")
-            var stepMatch = workflow.sync_error.match(/(?:step|agent)\s+['"]([^'"]+)['"]/i);
-            var stepRef = stepMatch ? stepMatch[1] : '';
-            agentWarning = '<div class="workflow-agent-warning">' +
-                '⚠ ' + (stepRef ? 'Step \'' + escapeHtml(stepRef) + '\' references a disabled agent' : 'A step references an unknown or disabled agent') +
-                ' — <a href="#catalog" style="color:inherit;text-decoration:underline;">enable it in the catalog</a>' +
-            '</div>';
-        }
-
         card.innerHTML =
             '<div class="workflow-def-header">' +
                 '<div>' +
@@ -5497,8 +5485,7 @@
                 '<span>🔄 Last synced: ' + escapeHtml(lastSynced) + '</span>' +
                 (triggerInfo ? '<span class="workflow-def-trigger-info">' + triggerInfo + '</span>' : '') +
             '</div>' +
-            syncError +
-            agentWarning;
+            syncError;
 
         container.appendChild(card);
 

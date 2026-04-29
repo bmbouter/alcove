@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/alcove-ai/alcove/internal"
+	"gopkg.in/yaml.v3"
 )
 
 func TestResolvePluginBundles(t *testing.T) {
@@ -687,5 +688,50 @@ invalid yaml:
 	// The error should also contain details about the YAML issue
 	if !strings.Contains(err.Error(), "yaml:") {
 		t.Errorf("expected detailed YAML error in message, got: %v", err)
+	}
+}
+
+func TestPartialNameExtraction(t *testing.T) {
+	// Test partial YAML parse for name extraction when full parse fails
+	yamlData := `
+name: Upgrade Pulp Dependencies
+description: |
+  Upgrades pulpcore and/or plugin versions...
+timeout: 7200
+dev_container:
+  image: ghcr.io/pulp/hosted-pulp-dev-env:main
+repos:
+  - url: https://github.com/pulp/pulp-service
+    ref: main
+    name: pulp-service
+# Missing required 'prompt' field - this should cause parse error
+`
+
+	// Simulate the partial parse logic from tasksync.go
+	var partialDef struct {
+		Name        string `yaml:"name"`
+		Description string `yaml:"description"`
+	}
+
+	err := yaml.Unmarshal([]byte(yamlData), &partialDef)
+	if err != nil {
+		t.Fatalf("partial YAML parse should not fail: %v", err)
+	}
+
+	if partialDef.Name != "Upgrade Pulp Dependencies" {
+		t.Errorf("expected name 'Upgrade Pulp Dependencies', got '%s'", partialDef.Name)
+	}
+
+	if !strings.Contains(partialDef.Description, "Upgrades pulpcore") {
+		t.Errorf("expected description to contain 'Upgrades pulpcore', got '%s'", partialDef.Description)
+	}
+
+	// Verify that full parse fails as expected
+	_, fullErr := ParseAgentDefinition([]byte(yamlData))
+	if fullErr == nil {
+		t.Fatal("full parse should fail due to missing prompt field")
+	}
+	if !strings.Contains(fullErr.Error(), "prompt") {
+		t.Errorf("expected error to mention missing prompt field, got: %v", fullErr)
 	}
 }
