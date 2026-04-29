@@ -16,6 +16,7 @@ package bridge
 
 import (
 	"testing"
+	"time"
 )
 
 // TestExpandTemplateWithContext verifies template expansion in workflow inputs,
@@ -166,5 +167,160 @@ func TestCancelWorkflowRunValidation(t *testing.T) {
 
 	for _, status := range invalidStatuses {
 		t.Logf("Status %s should not be cancellable", status)
+	}
+}
+
+func TestParseSinceParam(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantErr  bool
+		expected time.Duration // approximate duration from now
+	}{
+		{"empty", "", false, 0},
+		{"1 day", "1d", false, -24 * time.Hour},
+		{"7 days", "7d", false, -7 * 24 * time.Hour},
+		{"30 days", "30d", false, -30 * 24 * time.Hour},
+		{"ISO date", "2023-01-01T00:00:00Z", false, 0},
+		{"date only", "2023-01-01", false, 0},
+		{"invalid", "invalid", true, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := parseSinceParam(tt.input)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+
+			if tt.input == "" {
+				if result != nil {
+					t.Errorf("expected nil for empty input, got %v", result)
+				}
+				return
+			}
+
+			if result == nil {
+				t.Errorf("expected non-nil result for input %s", tt.input)
+				return
+			}
+
+			// For relative dates, check they are approximately correct
+			if tt.expected != 0 {
+				now := time.Now()
+				expectedTime := now.Add(tt.expected)
+				diff := expectedTime.Sub(*result)
+				if diff > time.Minute || diff < -time.Minute {
+					t.Errorf("time difference too large: expected around %v, got %v (diff: %v)",
+						expectedTime, *result, diff)
+				}
+			}
+		})
+	}
+}
+
+func TestWorkflowRunsFilter_validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		filter  WorkflowRunsFilter
+		wantErr bool
+		checks  func(*testing.T, *WorkflowRunsFilter)
+	}{
+		{
+			name:    "missing team ID",
+			filter:  WorkflowRunsFilter{},
+			wantErr: true,
+		},
+		{
+			name: "default limit applied",
+			filter: WorkflowRunsFilter{
+				TeamID: "team-1",
+				Limit:  0,
+			},
+			wantErr: false,
+			checks: func(t *testing.T, f *WorkflowRunsFilter) {
+				if f.Limit != 25 {
+					t.Errorf("expected default limit 25, got %d", f.Limit)
+				}
+			},
+		},
+		{
+			name: "limit too high",
+			filter: WorkflowRunsFilter{
+				TeamID: "team-1",
+				Limit:  500,
+			},
+			wantErr: false,
+			checks: func(t *testing.T, f *WorkflowRunsFilter) {
+				if f.Limit != 200 {
+					t.Errorf("expected capped limit 200, got %d", f.Limit)
+				}
+			},
+		},
+		{
+			name: "negative offset corrected",
+			filter: WorkflowRunsFilter{
+				TeamID: "team-1",
+				Offset: -5,
+			},
+			wantErr: false,
+			checks: func(t *testing.T, f *WorkflowRunsFilter) {
+				if f.Offset != 0 {
+					t.Errorf("expected corrected offset 0, got %d", f.Offset)
+				}
+			},
+		},
+		{
+			name: "valid since parameter",
+			filter: WorkflowRunsFilter{
+				TeamID: "team-1",
+				Since:  "7d",
+			},
+			wantErr: false,
+			checks: func(t *testing.T, f *WorkflowRunsFilter) {
+				if f.SinceTime == nil {
+					t.Errorf("expected SinceTime to be set")
+				}
+			},
+		},
+		{
+			name: "invalid since parameter",
+			filter: WorkflowRunsFilter{
+				TeamID: "team-1",
+				Since:  "invalid",
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.filter.validate()
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error but got none")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+
+			if tt.checks != nil {
+				tt.checks(t, &tt.filter)
+			}
+		})
 	}
 }
