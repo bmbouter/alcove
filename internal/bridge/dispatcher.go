@@ -659,19 +659,37 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 
 	// Resolve credentials from agent definition.
 	for envVar, credName := range req.Credentials {
-		// Try AcquireToken first (works for LLM and generic secrets).
-		tokenResult, err := d.credStore.AcquireToken(ctx, credName)
-		if err == nil {
-			skiffEnv[envVar] = tokenResult.Token
-			continue
+		// For executable agents with direct_outbound, use raw credentials.
+		// This allows them to perform their own authentication (e.g., with service account JSON).
+		if req.Executable != nil && req.DirectOutbound {
+			rawCred, err := d.credStore.GetRawCredential(ctx, credName)
+			if err == nil {
+				skiffEnv[envVar] = string(rawCred)
+				continue
+			}
+			// Fall back to SCM token path for executable agents
+			token, _, err := d.credStore.AcquireSCMTokenForOwner(ctx, credName, activeTeamID)
+			if err != nil {
+				log.Printf("warning: credential %q not found for env var %s", credName, envVar)
+				continue
+			}
+			skiffEnv[envVar] = token
+		} else {
+			// For non-executable agents (Claude Code), use pre-fetched tokens as before.
+			// Try AcquireToken first (works for LLM and generic secrets).
+			tokenResult, err := d.credStore.AcquireToken(ctx, credName)
+			if err == nil {
+				skiffEnv[envVar] = tokenResult.Token
+				continue
+			}
+			// Fall back to SCM token path.
+			token, _, err := d.credStore.AcquireSCMTokenForOwner(ctx, credName, activeTeamID)
+			if err != nil {
+				log.Printf("warning: credential %q not found for env var %s", credName, envVar)
+				continue
+			}
+			skiffEnv[envVar] = token
 		}
-		// Fall back to SCM token path.
-		token, _, err := d.credStore.AcquireSCMTokenForOwner(ctx, credName, activeTeamID)
-		if err != nil {
-			log.Printf("warning: credential %q not found for env var %s", credName, envVar)
-			continue
-		}
-		skiffEnv[envVar] = token
 	}
 
 	// Build runtime config for session visibility.
