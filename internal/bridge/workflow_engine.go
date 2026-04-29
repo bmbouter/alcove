@@ -32,6 +32,69 @@ import (
 // templateRegex matches template references like {{steps.X.outputs.Y}}.
 var templateRegex = regexp.MustCompile(`\{\{[^}]+\}\}`)
 
+// parseSinceParam parses relative date terms (1d, 7d, 30d) or ISO date strings.
+func parseSinceParam(since string) (*time.Time, error) {
+	if since == "" {
+		return nil, nil
+	}
+
+	// Handle relative terms
+	switch since {
+	case "1d":
+		t := time.Now().AddDate(0, 0, -1)
+		return &t, nil
+	case "7d":
+		t := time.Now().AddDate(0, 0, -7)
+		return &t, nil
+	case "30d":
+		t := time.Now().AddDate(0, 0, -30)
+		return &t, nil
+	default:
+		// Try parsing as RFC3339 date
+		t, err := time.Parse(time.RFC3339, since)
+		if err != nil {
+			// Try parsing as date only
+			if t2, err2 := time.Parse("2006-01-02", since); err2 == nil {
+				return &t2, nil
+			}
+			return nil, fmt.Errorf("invalid date format: use '1d', '7d', '30d', '2006-01-02', or RFC3339")
+		}
+		return &t, nil
+	}
+}
+
+// validateFilter validates and normalizes the filter parameters.
+func (f *WorkflowRunsFilter) validate() error {
+	// Validate and normalize limit
+	if f.Limit <= 0 {
+		f.Limit = 25 // default
+	}
+	if f.Limit > 200 {
+		f.Limit = 200 // max
+	}
+
+	// Validate offset
+	if f.Offset < 0 {
+		f.Offset = 0
+	}
+
+	// Parse since parameter
+	if f.Since != "" {
+		sinceTime, err := parseSinceParam(f.Since)
+		if err != nil {
+			return err
+		}
+		f.SinceTime = sinceTime
+	}
+
+	// TeamID is always required for security
+	if f.TeamID == "" {
+		return fmt.Errorf("team_id is required")
+	}
+
+	return nil
+}
+
 // WorkflowEngine manages workflow execution: DAG evaluation, step dispatch, and completion tracking.
 type WorkflowEngine struct {
 	db               *pgxpool.Pool
@@ -89,6 +152,36 @@ type WorkflowRunStep struct {
 	Depends       string            `json:"depends,omitempty"`
 	MaxIterations int               `json:"max_iterations,omitempty"`
 	Credentials   map[string]string `json:"credentials,omitempty"`
+}
+
+// WorkflowRunsFilter contains filtering options for ListWorkflowRuns.
+type WorkflowRunsFilter struct {
+	Limit      int       `json:"limit"`         // default 25, max 200
+	Offset     int       `json:"offset"`        // default 0
+	Status     string    `json:"status"`        // filter by status
+	Workflow   string    `json:"workflow"`      // partial match against workflow name
+	Since      string    `json:"since"`         // date filter: "1d", "7d", "30d", or ISO date
+	Search     string    `json:"search"`        // exact match against trigger_ref
+	TeamID     string    `json:"team_id"`       // team scope (always required)
+	SinceTime  *time.Time `json:"-"`            // parsed Since value (internal)
+}
+
+// WorkflowRunsSummary contains status counts for filtered workflow runs.
+type WorkflowRunsSummary struct {
+	Running   int `json:"running"`
+	Pending   int `json:"pending"`
+	Completed int `json:"completed"`
+	Failed    int `json:"failed"`
+	Cancelled int `json:"cancelled"`
+	AwaitingApproval int `json:"awaiting_approval"`
+}
+
+// WorkflowRunsResponse contains paginated workflow runs and optional summary.
+type WorkflowRunsResponse struct {
+	WorkflowRuns []WorkflowRun        `json:"workflow_runs"`
+	Count        int                  `json:"count"`
+	Total        int                  `json:"total"`
+	Summary      *WorkflowRunsSummary `json:"summary,omitempty"`
 }
 
 // StartWorkflowRun creates a new workflow run and dispatches initial steps.
@@ -1303,30 +1396,62 @@ func (we *WorkflowEngine) GetWorkflowRun(ctx context.Context, runID string) (*Wo
 	return &run, nil
 }
 
-// ListWorkflowRuns lists workflow runs, optionally filtered by status and owner.
-func (we *WorkflowEngine) ListWorkflowRuns(ctx context.Context, status, teamID string) ([]WorkflowRun, error) {
-	query := `
-		SELECT id, workflow_id, status, trigger_type, trigger_ref, current_step, step_outputs, started_at, finished_at, team_id, created_at
-		FROM workflow_runs
-		WHERE 1=1
+// ListWorkflowRuns lists workflow runs with pagination and advanced filtering.
+func (we *WorkflowEngine) ListWorkflowRuns(ctx context.Context, filter *WorkflowRunsFilter) (*WorkflowRunsResponse, error) {
+	if err := filter.validate(); err != nil {
+		return nil, fmt.Errorf("invalid filter: %w", err)
+	}
+
+	// Build base query
+	baseQuery := `
+		FROM workflow_runs wr
+		LEFT JOIN workflows w ON wr.workflow_id = w.id
+		WHERE wr.team_id = $1
 	`
-	args := []interface{}{}
-	argN := 1
+	args := []interface{}{filter.TeamID}
+	argN := 2
 
-	if teamID != "" {
-		query += fmt.Sprintf(" AND team_id = $%d", argN)
-		args = append(args, teamID)
-		argN++
-	}
-	if status != "" {
-		query += fmt.Sprintf(" AND status = $%d", argN)
-		args = append(args, status)
+	// Add filtering conditions
+	if filter.Status != "" {
+		baseQuery += fmt.Sprintf(" AND wr.status = $%d", argN)
+		args = append(args, filter.Status)
 		argN++
 	}
 
-	query += " ORDER BY created_at DESC LIMIT 100"
+	if filter.Workflow != "" {
+		baseQuery += fmt.Sprintf(" AND w.name ILIKE $%d", argN)
+		args = append(args, "%"+filter.Workflow+"%")
+		argN++
+	}
 
-	rows, err := we.db.Query(ctx, query, args...)
+	if filter.SinceTime != nil {
+		baseQuery += fmt.Sprintf(" AND wr.created_at >= $%d", argN)
+		args = append(args, *filter.SinceTime)
+		argN++
+	}
+
+	if filter.Search != "" {
+		baseQuery += fmt.Sprintf(" AND wr.trigger_ref = $%d", argN)
+		args = append(args, filter.Search)
+		argN++
+	}
+
+	// Count total results
+	countQuery := "SELECT COUNT(*) " + baseQuery
+	var total int
+	if err := we.db.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, fmt.Errorf("counting workflow runs: %w", err)
+	}
+
+	// Get paginated results
+	dataQuery := `
+		SELECT wr.id, wr.workflow_id, wr.status, wr.trigger_type, wr.trigger_ref,
+		       wr.current_step, wr.step_outputs, wr.started_at, wr.finished_at,
+		       wr.team_id, wr.created_at
+	` + baseQuery + fmt.Sprintf(" ORDER BY wr.created_at DESC LIMIT $%d OFFSET $%d", argN, argN+1)
+	args = append(args, filter.Limit, filter.Offset)
+
+	rows, err := we.db.Query(ctx, dataQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("listing workflow runs: %w", err)
 	}
@@ -1371,7 +1496,107 @@ func (we *WorkflowEngine) ListWorkflowRuns(ctx context.Context, status, teamID s
 	if runs == nil {
 		runs = []WorkflowRun{}
 	}
-	return runs, nil
+
+	return &WorkflowRunsResponse{
+		WorkflowRuns: runs,
+		Count:        len(runs),
+		Total:        total,
+	}, nil
+}
+
+// GetWorkflowRunsSummary returns status counts for filtered workflow runs.
+func (we *WorkflowEngine) GetWorkflowRunsSummary(ctx context.Context, filter *WorkflowRunsFilter) (*WorkflowRunsSummary, error) {
+	// Use the same filter logic but aggregate by status
+	if err := filter.validate(); err != nil {
+		return nil, fmt.Errorf("invalid filter: %w", err)
+	}
+
+	// Build base query (same as ListWorkflowRuns)
+	baseQuery := `
+		FROM workflow_runs wr
+		LEFT JOIN workflows w ON wr.workflow_id = w.id
+		WHERE wr.team_id = $1
+	`
+	args := []interface{}{filter.TeamID}
+	argN := 2
+
+	// Add the same filtering conditions as ListWorkflowRuns
+	if filter.Status != "" {
+		baseQuery += fmt.Sprintf(" AND wr.status = $%d", argN)
+		args = append(args, filter.Status)
+		argN++
+	}
+
+	if filter.Workflow != "" {
+		baseQuery += fmt.Sprintf(" AND w.name ILIKE $%d", argN)
+		args = append(args, "%"+filter.Workflow+"%")
+		argN++
+	}
+
+	if filter.SinceTime != nil {
+		baseQuery += fmt.Sprintf(" AND wr.created_at >= $%d", argN)
+		args = append(args, *filter.SinceTime)
+		argN++
+	}
+
+	if filter.Search != "" {
+		baseQuery += fmt.Sprintf(" AND wr.trigger_ref = $%d", argN)
+		args = append(args, filter.Search)
+		argN++
+	}
+
+	// Aggregate by status
+	summaryQuery := `
+		SELECT wr.status, COUNT(*)
+	` + baseQuery + " GROUP BY wr.status"
+
+	rows, err := we.db.Query(ctx, summaryQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("getting workflow runs summary: %w", err)
+	}
+	defer rows.Close()
+
+	summary := &WorkflowRunsSummary{}
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("scanning status count: %w", err)
+		}
+
+		switch status {
+		case "running":
+			summary.Running = count
+		case "pending":
+			summary.Pending = count
+		case "completed":
+			summary.Completed = count
+		case "failed":
+			summary.Failed = count
+		case "cancelled":
+			summary.Cancelled = count
+		case "awaiting_approval":
+			summary.AwaitingApproval = count
+		}
+	}
+
+	return summary, rows.Err()
+}
+
+// ListWorkflowRunsLegacy is the legacy method for backward compatibility.
+func (we *WorkflowEngine) ListWorkflowRunsLegacy(ctx context.Context, status, teamID string) ([]WorkflowRun, error) {
+	filter := &WorkflowRunsFilter{
+		Status: status,
+		TeamID: teamID,
+		Limit:  100, // preserve legacy behavior
+	}
+
+	response, err := we.ListWorkflowRuns(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	return response.WorkflowRuns, nil
 }
 
 // GetWorkflowRunDetail retrieves a workflow run with all its steps, enriched

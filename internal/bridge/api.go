@@ -2513,19 +2513,71 @@ func (a *API) handleWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		status := r.URL.Query().Get("status")
+		// Parse query parameters for pagination and filtering
+		query := r.URL.Query()
 
-		runs, err := a.workflowEngine.ListWorkflowRuns(r.Context(), status, teamID)
-		if err != nil {
-			log.Printf("error listing workflow runs: %v", err)
-			respondError(w, http.StatusInternalServerError, "failed to list workflow runs")
+		// Parse pagination parameters
+		limit, _ := strconv.Atoi(query.Get("limit"))
+		offset, _ := strconv.Atoi(query.Get("offset"))
+
+		// Create filter from query parameters
+		filter := &WorkflowRunsFilter{
+			Limit:    limit,
+			Offset:   offset,
+			Status:   query.Get("status"),
+			Workflow: query.Get("workflow"),
+			Since:    query.Get("since"),
+			Search:   query.Get("search"),
+			TeamID:   teamID,
+		}
+
+		// Check if summary is requested
+		includeSummary := query.Get("summary") == "true"
+
+		// Handle legacy API calls (no new parameters) by using the legacy method
+		isLegacyCall := limit == 0 && offset == 0 && filter.Workflow == "" &&
+			filter.Since == "" && filter.Search == "" && !includeSummary
+
+		if isLegacyCall {
+			// Use legacy method for backward compatibility
+			runs, err := a.workflowEngine.ListWorkflowRunsLegacy(r.Context(), filter.Status, teamID)
+			if err != nil {
+				log.Printf("error listing workflow runs (legacy): %v", err)
+				respondError(w, http.StatusInternalServerError, "failed to list workflow runs")
+				return
+			}
+
+			respondJSON(w, http.StatusOK, map[string]any{
+				"workflow_runs": runs,
+				"count":         len(runs),
+			})
 			return
 		}
 
-		respondJSON(w, http.StatusOK, map[string]any{
-			"workflow_runs": runs,
-			"count":         len(runs),
-		})
+		// Use new enhanced method
+		response, err := a.workflowEngine.ListWorkflowRuns(r.Context(), filter)
+		if err != nil {
+			log.Printf("error listing workflow runs: %v", err)
+			if strings.Contains(err.Error(), "invalid filter") {
+				respondError(w, http.StatusBadRequest, err.Error())
+			} else {
+				respondError(w, http.StatusInternalServerError, "failed to list workflow runs")
+			}
+			return
+		}
+
+		// Add summary if requested
+		if includeSummary {
+			summary, err := a.workflowEngine.GetWorkflowRunsSummary(r.Context(), filter)
+			if err != nil {
+				log.Printf("error getting workflow runs summary: %v", err)
+				// Continue without summary rather than failing the whole request
+			} else {
+				response.Summary = summary
+			}
+		}
+
+		respondJSON(w, http.StatusOK, response)
 
 	case http.MethodPost:
 		var req struct {

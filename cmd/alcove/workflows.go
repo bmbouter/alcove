@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -59,8 +60,20 @@ type workflowRunInfo struct {
 
 // workflowRunsListResponse is the response from GET /api/v1/workflow-runs.
 type workflowRunsListResponse struct {
-	WorkflowRuns []workflowRunInfo `json:"workflow_runs"`
-	Count        int               `json:"count"`
+	WorkflowRuns []workflowRunInfo      `json:"workflow_runs"`
+	Count        int                    `json:"count"`
+	Total        int                    `json:"total"`
+	Summary      *workflowRunsSummary   `json:"summary,omitempty"`
+}
+
+// workflowRunsSummary contains status counts for workflow runs.
+type workflowRunsSummary struct {
+	Running          int `json:"running"`
+	Pending          int `json:"pending"`
+	Completed        int `json:"completed"`
+	Failed           int `json:"failed"`
+	Cancelled        int `json:"cancelled"`
+	AwaitingApproval int `json:"awaiting_approval"`
 }
 
 func newWorkflowsCmd() *cobra.Command {
@@ -237,17 +250,58 @@ func looksLikeUUID(s string) bool {
 func newWorkflowsRunsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "runs",
-		Short: "List workflow runs",
-		RunE:  runWorkflowsRuns,
+		Short: "List workflow runs with pagination and filtering",
+		Long: `List workflow runs with advanced filtering options.
+
+Examples:
+  alcove workflows runs                           # List recent runs (default 25)
+  alcove workflows runs --limit 50 --offset 25   # Pagination
+  alcove workflows runs --status failed          # Failed runs only
+  alcove workflows runs --workflow "SDLC Pipeline" # Filter by workflow name
+  alcove workflows runs --since 7d               # Last 7 days
+  alcove workflows runs --search "owner/repo#42" # Search by trigger ref
+  alcove workflows runs --summary                # Include status summary`,
+		RunE: runWorkflowsRuns,
 	}
 	cmd.Flags().String("status", "", "Filter by status (pending, running, completed, failed, cancelled, awaiting_approval)")
+	cmd.Flags().Int("limit", 0, "Number of results per page (default 25, max 200)")
+	cmd.Flags().Int("offset", 0, "Number of results to skip (default 0)")
+	cmd.Flags().String("workflow", "", "Filter by workflow name (partial match)")
+	cmd.Flags().String("since", "", "Filter by date: 1d, 7d, 30d, or YYYY-MM-DD")
+	cmd.Flags().String("search", "", "Search by trigger ref (exact match)")
+	cmd.Flags().Bool("summary", false, "Include status summary")
 	return cmd
 }
 
 func runWorkflowsRuns(cmd *cobra.Command, _ []string) error {
-	path := "/api/v1/workflow-runs"
+	// Build query parameters
+	params := make([]string, 0)
+
 	if status, _ := cmd.Flags().GetString("status"); status != "" {
-		path += "?status=" + status
+		params = append(params, "status="+status)
+	}
+	if limit, _ := cmd.Flags().GetInt("limit"); limit > 0 {
+		params = append(params, fmt.Sprintf("limit=%d", limit))
+	}
+	if offset, _ := cmd.Flags().GetInt("offset"); offset > 0 {
+		params = append(params, fmt.Sprintf("offset=%d", offset))
+	}
+	if workflow, _ := cmd.Flags().GetString("workflow"); workflow != "" {
+		params = append(params, "workflow="+workflow)
+	}
+	if since, _ := cmd.Flags().GetString("since"); since != "" {
+		params = append(params, "since="+since)
+	}
+	if search, _ := cmd.Flags().GetString("search"); search != "" {
+		params = append(params, "search="+search)
+	}
+	if summary, _ := cmd.Flags().GetBool("summary"); summary {
+		params = append(params, "summary=true")
+	}
+
+	path := "/api/v1/workflow-runs"
+	if len(params) > 0 {
+		path += "?" + strings.Join(params, "&")
 	}
 
 	resp, err := apiRequest(cmd, http.MethodGet, path, nil)
@@ -270,9 +324,35 @@ func runWorkflowsRuns(cmd *cobra.Command, _ []string) error {
 		return outputJSON(result)
 	}
 
+	// Display summary if available
+	if result.Summary != nil {
+		total := result.Summary.Running + result.Summary.Pending + result.Summary.Completed +
+			result.Summary.Failed + result.Summary.Cancelled + result.Summary.AwaitingApproval
+
+		fmt.Printf("Status Summary: %d running · %d pending · %d completed · %d failed",
+			result.Summary.Running, result.Summary.Pending, result.Summary.Completed, result.Summary.Failed)
+		if result.Summary.Cancelled > 0 {
+			fmt.Printf(" · %d cancelled", result.Summary.Cancelled)
+		}
+		if result.Summary.AwaitingApproval > 0 {
+			fmt.Printf(" · %d awaiting approval", result.Summary.AwaitingApproval)
+		}
+		fmt.Printf(" (total: %d)\n\n", total)
+	}
+
 	if len(result.WorkflowRuns) == 0 {
 		fmt.Fprintln(os.Stderr, "No workflow runs found.")
 		return nil
+	}
+
+	// Display pagination info
+	if result.Total > 0 {
+		start := 1
+		if offset, _ := cmd.Flags().GetInt("offset"); offset > 0 {
+			start = offset + 1
+		}
+		end := start + result.Count - 1
+		fmt.Printf("Showing %d-%d of %d workflow runs\n", start, end, result.Total)
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
