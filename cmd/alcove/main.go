@@ -596,8 +596,10 @@ type runRequest struct {
 }
 
 type runResponse struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
+	ID        string   `json:"id,omitempty"`
+	SessionID string   `json:"session_id,omitempty"`
+	Status    string   `json:"status"`
+	Warnings  []string `json:"warnings,omitempty"`
 }
 
 func runRun(cmd *cobra.Command, args []string) error {
@@ -657,14 +659,28 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return outputJSON(result)
 	}
 
-	fmt.Fprintf(os.Stderr, "Session dispatched: %s\n", result.ID)
+	// Handle both old (ID) and new (SessionID) response formats
+	sessionID := result.SessionID
+	if sessionID == "" {
+		sessionID = result.ID
+	}
+
+	// Display warnings first
+	if len(result.Warnings) > 0 {
+		for _, warning := range result.Warnings {
+			fmt.Fprintf(os.Stderr, "⚠ Warning: %s\n", warning)
+		}
+		fmt.Fprintln(os.Stderr)
+	}
+
+	fmt.Fprintf(os.Stderr, "Session dispatched: %s\n", sessionID)
 
 	watch, _ := cmd.Flags().GetBool("watch")
 	if watch {
-		return streamSSE(cmd, result.ID, "/api/v1/sessions/"+result.ID+"/transcript")
+		return streamSSE(cmd, sessionID, "/api/v1/sessions/"+sessionID+"/transcript")
 	}
 
-	fmt.Println(result.ID)
+	fmt.Println(sessionID)
 	return nil
 }
 

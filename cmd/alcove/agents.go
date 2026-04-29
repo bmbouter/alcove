@@ -36,6 +36,7 @@ type agentDefinition struct {
 	SourceRepo   string          `json:"source_repo"`
 	SourceFile   string          `json:"source_file"`
 	SyncError    string          `json:"sync_error,omitempty"`
+	SyncWarning  string          `json:"sync_warning,omitempty"`
 	RepoDisabled bool            `json:"repo_disabled"`
 	LastSynced   string          `json:"last_synced,omitempty"`
 }
@@ -72,6 +73,7 @@ func newAgentsCmd() *cobra.Command {
 	}
 	cmd.AddCommand(
 		newAgentsListCmd(),
+		newAgentsCheckCredentialsCmd(),
 		newAgentsSyncCmd(),
 		newAgentsReposCmd(),
 		newAgentsRunCmd(),
@@ -115,8 +117,25 @@ func runAgentsList(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
+	// Check if any agents have warnings
+	hasWarnings := false
+	warningCount := 0
+	for _, d := range result.AgentDefinitions {
+		if d.SyncWarning != "" {
+			hasWarnings = true
+			warningCount++
+		}
+	}
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tDESCRIPTION\tDEV_CONTAINER\tLAST_SYNCED\tSOURCE")
+
+	// Add WARNING column only if there are warnings
+	if hasWarnings {
+		fmt.Fprintln(w, "NAME\tDESCRIPTION\tDEV_CONTAINER\tLAST_SYNCED\tWARNING\tSOURCE")
+	} else {
+		fmt.Fprintln(w, "NAME\tDESCRIPTION\tDEV_CONTAINER\tLAST_SYNCED\tSOURCE")
+	}
+
 	for _, d := range result.AgentDefinitions {
 		desc := d.Description
 		if len(desc) > 40 {
@@ -133,10 +152,99 @@ func runAgentsList(cmd *cobra.Command, _ []string) error {
 			lastSynced = t.Local().Format("2006-01-02 15:04")
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			d.Name, desc, devContainer, lastSynced, d.SourceRepo)
+		warning := ""
+		if d.SyncWarning != "" {
+			warning = "⚠ " + d.SyncWarning
+			// Truncate long warning text
+			if len(warning) > 50 {
+				warning = warning[:47] + "..."
+			}
+		}
+
+		if hasWarnings {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+				d.Name, desc, devContainer, lastSynced, warning, d.SourceRepo)
+		} else {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+				d.Name, desc, devContainer, lastSynced, d.SourceRepo)
+		}
 	}
-	return w.Flush()
+
+	err := w.Flush()
+	if err != nil {
+		return err
+	}
+
+	// Print warning summary footer if there are warnings
+	if hasWarnings {
+		fmt.Fprintf(os.Stderr, "\n⚠ %d agent(s) have unmet credential requirements. Run `alcove agents check-credentials` for details.\n", warningCount)
+	}
+
+	return nil
+}
+
+// ---------- agents check-credentials ----------
+
+func newAgentsCheckCredentialsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "check-credentials",
+		Short: "Check credential requirements for agents",
+		RunE:  runAgentsCheckCredentials,
+	}
+}
+
+func runAgentsCheckCredentials(cmd *cobra.Command, _ []string) error {
+	resp, err := apiRequest(cmd, http.MethodGet, "/api/v1/agent-definitions", nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result agentDefinitionsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("decoding response: %w", err)
+	}
+
+	if isJSONOutput(cmd) {
+		return outputJSON(result)
+	}
+
+	// Filter agents with credential warnings
+	var agentsWithWarnings []agentDefinition
+	for _, d := range result.AgentDefinitions {
+		if d.SyncWarning != "" {
+			agentsWithWarnings = append(agentsWithWarnings, d)
+		}
+	}
+
+	if len(agentsWithWarnings) == 0 {
+		fmt.Println("All agents have their credential requirements satisfied.")
+		return nil
+	}
+
+	fmt.Printf("Found %d agent(s) with unmet credential requirements:\n\n", len(agentsWithWarnings))
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(w, "AGENT\tSOURCE_FILE\tWARNING")
+	for _, d := range agentsWithWarnings {
+		fmt.Fprintf(w, "%s\t%s\t%s\n", d.Name, d.SourceFile, d.SyncWarning)
+	}
+	err = w.Flush()
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintln(os.Stderr, "\nTo resolve these issues:")
+	fmt.Fprintln(os.Stderr, "1. Run `alcove credentials list` to see available credentials")
+	fmt.Fprintln(os.Stderr, "2. Run `alcove credentials create` to add missing credentials")
+	fmt.Fprintln(os.Stderr, "3. Run `alcove agents sync` to refresh agent definitions")
+
+	return nil
 }
 
 // ---------- agents sync ----------
@@ -438,13 +546,27 @@ func runAgentsRun(cmd *cobra.Command, args []string) error {
 		return outputJSON(runResult)
 	}
 
-	fmt.Fprintf(os.Stderr, "Session dispatched: %s\n", runResult.ID)
+	// Handle both old (ID) and new (SessionID) response formats
+	sessionID := runResult.SessionID
+	if sessionID == "" {
+		sessionID = runResult.ID
+	}
+
+	// Display warnings first
+	if len(runResult.Warnings) > 0 {
+		for _, warning := range runResult.Warnings {
+			fmt.Fprintf(os.Stderr, "⚠ Warning: %s\n", warning)
+		}
+		fmt.Fprintln(os.Stderr)
+	}
+
+	fmt.Fprintf(os.Stderr, "Session dispatched: %s\n", sessionID)
 
 	watch, _ := cmd.Flags().GetBool("watch")
 	if watch {
-		return streamSSE(cmd, runResult.ID, "/api/v1/sessions/"+runResult.ID+"/transcript")
+		return streamSSE(cmd, sessionID, "/api/v1/sessions/"+sessionID+"/transcript")
 	}
 
-	fmt.Println(runResult.ID)
+	fmt.Println(sessionID)
 	return nil
 }

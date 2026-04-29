@@ -574,6 +574,9 @@ func (s *AgentRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo, username
 	// Validate profile references in agent definitions.
 	s.validateProfileReferences(ctx, repo.URL, teamID)
 
+	// Validate credential requirements in agent definitions.
+	s.validateCredentialRequirements(ctx, repo.URL, teamID)
+
 	return nil
 }
 
@@ -757,6 +760,136 @@ func (s *AgentRepoSyncer) validateProfileReferences(ctx context.Context, repoURL
 			def.SyncError = ""
 			_ = s.defStore.UpsertAgentDefinition(ctx, &def)
 		}
+	}
+}
+
+// validateCredentialRequirements checks that all credential requirements in agent definitions
+// from the given repo can be satisfied by the team's configured credentials. Sets sync_warning
+// on definitions with missing credential types.
+func (s *AgentRepoSyncer) validateCredentialRequirements(ctx context.Context, repoURL string, teamID string) {
+	defs, err := s.defStore.ListAgentDefinitionsByRepo(ctx, repoURL, teamID)
+	if err != nil {
+		log.Printf("agent-repo-syncer: error listing definitions for credential validation: %v", err)
+		return
+	}
+
+	if len(defs) == 0 {
+		return
+	}
+
+	// Get the set of credential providers available for this team
+	availableCredentials, err := s.getTeamCredentialProviders(ctx, teamID)
+	if err != nil {
+		log.Printf("agent-repo-syncer: error getting team credentials for validation: %v", err)
+		return
+	}
+
+	for _, def := range defs {
+		def.TeamID = teamID // Ensure team_id is set for any upserts below.
+
+		// Skip definitions with parse errors (sync_error takes precedence)
+		if def.SyncError != "" {
+			continue
+		}
+
+		// If no profiles, no credential requirements
+		if len(def.Profiles) == 0 {
+			// Clear any previous credential warning
+			if def.SyncWarning != "" {
+				def.SyncWarning = ""
+				_ = s.defStore.UpsertAgentDefinition(ctx, &def)
+			}
+			continue
+		}
+
+		// Collect all required credential types from all profiles
+		requiredCredentials := make(map[string]map[string][]string) // provider type -> profile -> operations
+
+		for _, profileName := range def.Profiles {
+			profile, err := s.profileStore.GetProfile(ctx, profileName, teamID)
+			if err != nil {
+				// Profile doesn't exist - this will be caught by validateProfileReferences
+				continue
+			}
+
+			// Check each tool in the profile's Tools map
+			for toolService, toolConfig := range profile.Tools {
+				// Only check credential-gated services
+				if isCredentialGatedService(toolService) {
+					operations, _ := toolConfig.FlattenRules()
+					if len(operations) > 0 {
+						if requiredCredentials[toolService] == nil {
+							requiredCredentials[toolService] = make(map[string][]string)
+						}
+						requiredCredentials[toolService][profileName] = operations
+					}
+				}
+			}
+		}
+
+		// Check if all required credential types are available
+		var missingCredentials []string
+		for credType, profileOps := range requiredCredentials {
+			if !availableCredentials[credType] {
+				// Format the missing credential message
+				var profileDetails []string
+				for profile, operations := range profileOps {
+					profileDetails = append(profileDetails, fmt.Sprintf("'%s' for operations [%s]",
+						profile, strings.Join(operations, ", ")))
+				}
+				missingCredentials = append(missingCredentials,
+					fmt.Sprintf("%s (required by profile %s)", credType, strings.Join(profileDetails, ", ")))
+			}
+		}
+
+		// Update sync_warning based on results
+		var newWarning string
+		if len(missingCredentials) > 0 {
+			newWarning = fmt.Sprintf("missing credentials: %s", strings.Join(missingCredentials, "; "))
+		}
+
+		if def.SyncWarning != newWarning {
+			def.SyncWarning = newWarning
+			if err := s.defStore.UpsertAgentDefinition(ctx, &def); err != nil {
+				log.Printf("agent-repo-syncer: error updating sync warning for %s: %v", def.SourceKey, err)
+			}
+			if newWarning != "" {
+				log.Printf("agent-repo-syncer: %s in %s/%s", newWarning, repoURL, def.SourceFile)
+			}
+		}
+	}
+}
+
+// getTeamCredentialProviders returns a set of credential provider types available to the team.
+func (s *AgentRepoSyncer) getTeamCredentialProviders(ctx context.Context, teamID string) (map[string]bool, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT DISTINCT provider FROM provider_credentials
+		WHERE team_id = $1 AND provider IN ('github', 'gitlab', 'jira', 'splunk')
+	`, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("querying team credential providers: %w", err)
+	}
+	defer rows.Close()
+
+	providers := make(map[string]bool)
+	for rows.Next() {
+		var provider string
+		if err := rows.Scan(&provider); err != nil {
+			return nil, fmt.Errorf("scanning credential provider: %w", err)
+		}
+		providers[provider] = true
+	}
+
+	return providers, rows.Err()
+}
+
+// isCredentialGatedService returns true if the service requires credentials.
+func isCredentialGatedService(service string) bool {
+	switch service {
+	case "github", "gitlab", "jira", "splunk":
+		return true
+	default:
+		return false
 	}
 }
 
