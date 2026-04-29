@@ -700,7 +700,9 @@ func runClaude(
 		outcome = "timeout"
 	} else if sawSuccessResult {
 		outcome = "completed"
-		exitCode = 0 // Override exit code for successful results
+		// Do NOT override exitCode — the agent may have intentionally
+		// exited non-zero (e.g., review rejection, verification failure).
+		// The workflow engine uses exitCode to determine step success/failure.
 	} else if outcome == "completed" {
 		outcome = "error"
 	}
@@ -739,15 +741,34 @@ func readOutputArtifact() map[string]string {
 
 	log.Printf("outputs: read %d bytes from %s: %s", len(data), path, string(data))
 
-	var outputs map[string]string
-	if err := json.Unmarshal(data, &outputs); err != nil {
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
 		log.Printf("warning: invalid %s: %v (raw: %s)", path, err, string(data))
 		return nil
 	}
 
-	if len(outputs) == 0 {
+	if len(raw) == 0 {
 		log.Printf("outputs: file exists but empty map")
 		return nil
+	}
+
+	outputs := make(map[string]string, len(raw))
+	for key, val := range raw {
+		switch typed := val.(type) {
+		case string:
+			outputs[key] = typed
+		case bool:
+			outputs[key] = strconv.FormatBool(typed)
+		case float64:
+			if typed == float64(int64(typed)) {
+				outputs[key] = strconv.FormatInt(int64(typed), 10)
+			} else {
+				outputs[key] = strconv.FormatFloat(typed, 'f', -1, 64)
+			}
+		default:
+			b, _ := json.Marshal(val)
+			outputs[key] = string(b)
+		}
 	}
 
 	log.Printf("outputs detected: %d field(s): %v", len(outputs), outputs)
