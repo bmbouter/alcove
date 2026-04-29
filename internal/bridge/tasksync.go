@@ -494,15 +494,30 @@ func (s *AgentRepoSyncer) syncRepo(ctx context.Context, repo SkillRepo, username
 				// Create a more helpful error message that includes the file context
 				contextualErr := fmt.Sprintf("Failed to parse agent definition in file %s: %v", entry.Name(), err)
 				log.Printf("agent-repo-syncer: parse error in %s/%s: %v", repo.URL, entry.Name(), contextualErr)
+
+				// Try to extract name and description from YAML even when full parse fails
+				var partialDef struct {
+					Name        string `yaml:"name"`
+					Description string `yaml:"description"`
+				}
+
+				agentName := entry.Name() // fallback to filename
+				agentDescription := ""
+				if partialErr := yaml.Unmarshal(data, &partialDef); partialErr == nil && partialDef.Name != "" {
+					agentName = partialDef.Name
+					agentDescription = partialDef.Description
+				}
+
 				// Store the definition with sync error.
 				errDef := &AgentDefinition{
-					ID:         uuid.New().String(),
-					Name:       entry.Name(),
-					SourceRepo: repo.URL,
-					SourceFile: entry.Name(),
-					SourceKey:  sourceKey,
-					RawYAML:    string(data),
-					SyncError:  contextualErr,
+					ID:          uuid.New().String(),
+					Name:        agentName,
+					Description: agentDescription,
+					SourceRepo:  repo.URL,
+					SourceFile:  entry.Name(),
+					SourceKey:   sourceKey,
+					RawYAML:     string(data),
+					SyncError:   contextualErr,
 					TeamID:      teamID,
 				}
 				_ = s.defStore.UpsertAgentDefinition(ctx, errDef)
@@ -1016,7 +1031,9 @@ func (s *AgentRepoSyncer) validateWorkflowAgentReferences(ctx context.Context, r
 func (s *AgentRepoSyncer) validateWorkflowAgentsWithCatalog(ctx context.Context, wd *WorkflowDefinition, agentDefs []AgentDefinition, teamID string) []string {
 	agentNames := make(map[string]bool)
 	for _, def := range agentDefs {
-		agentNames[def.Name] = true
+		if def.SyncError == "" { // Only count successfully synced agents
+			agentNames[def.Name] = true
+		}
 	}
 
 	var errors []string
@@ -1028,6 +1045,19 @@ func (s *AgentRepoSyncer) validateWorkflowAgentsWithCatalog(ctx context.Context,
 		// Try existing agent definitions lookup by name.
 		if agentNames[step.Agent] {
 			continue
+		}
+
+		// Check if agent exists but has a sync error
+		for _, def := range agentDefs {
+			if def.Name == step.Agent && def.SyncError != "" {
+				// Truncate the error message for readability (max 100 chars)
+				errorMsg := def.SyncError
+				if len(errorMsg) > 100 {
+					errorMsg = errorMsg[:97] + "..."
+				}
+				errors = append(errors, fmt.Sprintf("Step '%s' references agent '%s' which has a sync error: %s", step.ID, step.Agent, errorMsg))
+				goto nextStep // Found the agent with error, move to next step
+			}
 		}
 
 		// If agent reference contains "/", try catalog_items lookup.
@@ -1059,6 +1089,7 @@ func (s *AgentRepoSyncer) validateWorkflowAgentsWithCatalog(ctx context.Context,
 		}
 
 		errors = append(errors, fmt.Sprintf("Step '%s' references unknown agent '%s'", step.ID, step.Agent))
+		nextStep:
 	}
 
 	return errors
