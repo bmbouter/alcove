@@ -1,0 +1,18 @@
+name: Backlog Triage
+trigger:
+  github:
+    events: [issues]
+    actions: [opened]
+    repos: [alcove-ai/alcove]
+    delivery_mode: polling
+
+workflow:
+  - id: triage
+    type: agent
+    agent: PM Triage Specialist
+    inputs:
+      issue_number: "{{trigger.issue_number}}"
+      issue_title: "{{trigger.issue_title}}"
+      issue_body: "{{trigger.issue_body}}"
+      repo: "alcove-ai/alcove"
+    outputs: [duplicate_of]
