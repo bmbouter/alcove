@@ -47,6 +47,7 @@ func RegisterBridgeActions() map[string]BridgeActionHandler {
 		"await-checks":         bridgeActionUnifiedAwaitChecks,
 		"merge":                bridgeActionUnifiedMerge,
 		"comment":              bridgeActionUnifiedComment,
+		"update-issue":         bridgeActionUnifiedUpdateIssue,
 
 		// GitHub-specific aliases.
 		"create-pr":      bridgeActionCreatePR,
@@ -54,12 +55,14 @@ func RegisterBridgeActions() map[string]BridgeActionHandler {
 		"await-ci":       bridgeActionAwaitCI,
 		"merge-pr":       bridgeActionMergePR,
 		"await-release":  bridgeActionAwaitRelease,
+		"update-gh-issue": bridgeActionUpdateGHIssue,
 
 		// GitLab-specific aliases.
 		"create-mr":      bridgeActionCreateMR,
 		"await-pipeline": bridgeActionAwaitPipeline,
 		"merge-mr":       bridgeActionMergeMR,
 		"post-note":      bridgeActionPostNote,
+		"update-gl-issue": bridgeActionUpdateGLIssue,
 	}
 }
 
@@ -187,6 +190,23 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 			},
 			Outputs: map[string]string{
 				"release_url": "string - The HTML URL of the release",
+			},
+		},
+		{
+			Name:        "update-issue",
+			Description: "Update issue metadata (assignees, labels, state) for GitHub or GitLab. Auto-detects SCM from inputs.",
+			Inputs: map[string]string{
+				"repo":              "string (GitHub) - Repository in owner/repo format",
+				"project":           "string (GitLab) - Project ID or URL-encoded path",
+				"issue":             "int (required) - Issue number (GitHub) or Issue IID (GitLab)",
+				"add_labels":        "[]string (optional) - Labels to add",
+				"remove_labels":     "[]string (optional) - Labels to remove",
+				"add_assignees":     "[]string (optional) - Assignees to add (usernames)",
+				"remove_assignees":  "[]string (optional) - Assignees to remove (usernames)",
+				"state":             "string (optional) - Issue state: 'open'/'closed' (GitHub) or 'opened'/'closed' (GitLab)",
+			},
+			Outputs: map[string]string{
+				"updated": "bool - Whether the issue was updated",
 			},
 		},
 	}
@@ -336,4 +356,39 @@ func getBoolInput(inputs map[string]interface{}, key string) bool {
 		return false
 	}
 	return b
+}
+
+// getStringSliceInput safely extracts a string slice input value.
+func getStringSliceInput(inputs map[string]interface{}, key string) []string {
+	v, ok := inputs[key]
+	if !ok {
+		return nil
+	}
+	switch val := v.(type) {
+	case []string:
+		return val
+	case []interface{}:
+		var result []string
+		for _, item := range val {
+			if s, ok := item.(string); ok {
+				result = append(result, s)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+// bridgeActionUnifiedUpdateIssue updates issue metadata and auto-detects SCM.
+func bridgeActionUnifiedUpdateIssue(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
+	scm := detectSCM(inputs)
+	switch scm {
+	case "gitlab":
+		return bridgeActionUpdateGLIssue(ctx, inputs, credStore, teamID)
+	case "github":
+		return bridgeActionUpdateGHIssue(ctx, inputs, credStore, teamID)
+	default:
+		return &BridgeActionResult{Status: "failed", Error: "cannot detect SCM: provide 'repo' (GitHub) or 'project' (GitLab)"}, nil
+	}
 }

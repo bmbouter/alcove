@@ -540,6 +540,132 @@ func githubRequest(ctx context.Context, token, method, url string, body []byte) 
 	return respBody, nil
 }
 
+// bridgeActionUpdateGHIssue updates issue metadata on GitHub.
+func bridgeActionUpdateGHIssue(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
+	repo := getStringInput(inputs, "repo")
+	issue := getIntInput(inputs, "issue")
+	addLabels := getStringSliceInput(inputs, "add_labels")
+	removeLabels := getStringSliceInput(inputs, "remove_labels")
+	addAssignees := getStringSliceInput(inputs, "add_assignees")
+	removeAssignees := getStringSliceInput(inputs, "remove_assignees")
+	state := getStringInput(inputs, "state")
+
+	if repo == "" || issue == 0 {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  "missing required inputs: repo, issue",
+		}, nil
+	}
+
+	// Validate state if provided
+	if state != "" && state != "open" && state != "closed" {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  "state must be 'open' or 'closed'",
+		}, nil
+	}
+
+	token, apiHost, err := credStore.AcquireSCMTokenForOwner(ctx, "github", teamID)
+	if err != nil {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  fmt.Sprintf("failed to acquire GitHub token: %v", err),
+		}, nil
+	}
+
+	if apiHost == "" {
+		apiHost = "https://api.github.com"
+	}
+
+	log.Printf("bridge-action update-gh-issue: updating issue #%d in %s", issue, repo)
+
+	// Add labels if requested
+	if len(addLabels) > 0 {
+		labelsBody := map[string]interface{}{"labels": addLabels}
+		bodyJSON, _ := json.Marshal(labelsBody)
+		url := fmt.Sprintf("%s/repos/%s/issues/%d/labels", apiHost, repo, issue)
+		_, err := githubRequest(ctx, token, "POST", url, bodyJSON)
+		if err != nil {
+			return &BridgeActionResult{
+				Status: "failed",
+				Error:  fmt.Sprintf("failed to add labels: %v", err),
+			}, nil
+		}
+		log.Printf("bridge-action update-gh-issue: added labels %v to issue #%d", addLabels, issue)
+	}
+
+	// Remove labels if requested
+	for _, label := range removeLabels {
+		url := fmt.Sprintf("%s/repos/%s/issues/%d/labels/%s", apiHost, repo, issue, label)
+		_, err := githubRequest(ctx, token, "DELETE", url, nil)
+		if err != nil {
+			// Warn but don't fail if label doesn't exist (404)
+			if strings.Contains(err.Error(), "HTTP 404") {
+				log.Printf("bridge-action update-gh-issue: warning: label '%s' not found on issue #%d, skipping", label, issue)
+			} else {
+				return &BridgeActionResult{
+					Status: "failed",
+					Error:  fmt.Sprintf("failed to remove label '%s': %v", label, err),
+				}, nil
+			}
+		} else {
+			log.Printf("bridge-action update-gh-issue: removed label '%s' from issue #%d", label, issue)
+		}
+	}
+
+	// Add assignees if requested
+	if len(addAssignees) > 0 {
+		assigneesBody := map[string]interface{}{"assignees": addAssignees}
+		bodyJSON, _ := json.Marshal(assigneesBody)
+		url := fmt.Sprintf("%s/repos/%s/issues/%d/assignees", apiHost, repo, issue)
+		_, err := githubRequest(ctx, token, "POST", url, bodyJSON)
+		if err != nil {
+			return &BridgeActionResult{
+				Status: "failed",
+				Error:  fmt.Sprintf("failed to add assignees: %v", err),
+			}, nil
+		}
+		log.Printf("bridge-action update-gh-issue: added assignees %v to issue #%d", addAssignees, issue)
+	}
+
+	// Remove assignees if requested
+	if len(removeAssignees) > 0 {
+		assigneesBody := map[string]interface{}{"assignees": removeAssignees}
+		bodyJSON, _ := json.Marshal(assigneesBody)
+		url := fmt.Sprintf("%s/repos/%s/issues/%d/assignees", apiHost, repo, issue)
+		_, err := githubRequest(ctx, token, "DELETE", url, bodyJSON)
+		if err != nil {
+			return &BridgeActionResult{
+				Status: "failed",
+				Error:  fmt.Sprintf("failed to remove assignees: %v", err),
+			}, nil
+		}
+		log.Printf("bridge-action update-gh-issue: removed assignees %v from issue #%d", removeAssignees, issue)
+	}
+
+	// Update state if requested
+	if state != "" {
+		stateBody := map[string]interface{}{"state": state}
+		bodyJSON, _ := json.Marshal(stateBody)
+		url := fmt.Sprintf("%s/repos/%s/issues/%d", apiHost, repo, issue)
+		_, err := githubRequest(ctx, token, "PATCH", url, bodyJSON)
+		if err != nil {
+			return &BridgeActionResult{
+				Status: "failed",
+				Error:  fmt.Sprintf("failed to update state: %v", err),
+			}, nil
+		}
+		log.Printf("bridge-action update-gh-issue: updated state to '%s' for issue #%d", state, issue)
+	}
+
+	return &BridgeActionResult{
+		Status: "succeeded",
+		Outputs: map[string]interface{}{
+			"updated": true,
+		},
+	}, nil
+}
+
 // bridgeActionCreatePRs creates pull requests across multiple repos.
 func bridgeActionCreatePRs(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
 	branch := getStringInput(inputs, "branch")

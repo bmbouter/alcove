@@ -128,6 +128,41 @@ Merges a pull request.
 
 **Outputs:** `merge_sha`
 
+### update-issue
+
+Updates issue metadata (labels, assignees, state) on GitHub or GitLab.
+
+| Input | Required | Description |
+|-------|----------|-------------|
+| `repo` | yes (GitHub) | Repository in `owner/repo` format |
+| `project` | yes (GitLab) | Project ID or URL-encoded path |
+| `issue` | yes | Issue number (GitHub) or Issue IID (GitLab) |
+| `add_labels` | no | Array of label names to add |
+| `remove_labels` | no | Array of label names to remove |
+| `add_assignees` | no | Array of usernames to assign |
+| `remove_assignees` | no | Array of usernames to unassign |
+| `state` | no | Issue state: `open`/`closed` (GitHub) or `opened`/`closed` (GitLab) |
+
+**Outputs:** `updated` (boolean)
+
+The action auto-detects GitHub vs GitLab based on the `repo` or `project` input.
+For GitHub, removing a non-existent label logs a warning but continues. For GitLab,
+the action fetches the current issue state and merges your changes with existing
+metadata.
+
+**Example workflow step that claims an issue:**
+```yaml
+- id: claim-issue
+  type: bridge
+  action: update-issue
+  inputs:
+    repo: "{{trigger.repo_name}}"
+    issue: "{{trigger.issue_number}}"
+    add_assignees: ["alcove-bot"]
+    remove_labels: ["ready-for-dev"]
+    add_labels: ["in-progress"]
+```
+
 ## Dependencies with Depends Expressions
 
 The `depends` field controls when a step runs using boolean expressions.
@@ -345,14 +380,26 @@ trigger:
     labels: [ready-for-dev]
 
 workflow:
-  # 1. Dev agent implements the feature
+  # 1. Bridge claims the issue immediately when labeled
+  - id: claim-issue
+    type: bridge
+    action: update-issue
+    inputs:
+      repo: "org/myproject"
+      issue: "{{trigger.issue_number}}"
+      add_assignees: ["alcove-bot"]
+      remove_labels: ["ready-for-dev"]
+      add_labels: ["in-progress"]
+
+  # 2. Dev agent implements the feature
   - id: implement
     type: agent
     agent: dev
+    depends: "claim-issue.Succeeded"
     inputs:
       branch: "issue-{{trigger.issue_number}}-fix"
 
-  # 2. Bridge creates the PR (no LLM needed)
+  # 3. Bridge creates the PR (no LLM needed)
   - id: create-pr
     type: bridge
     action: create-pr
@@ -363,7 +410,7 @@ workflow:
       title: "Fix #{{trigger.issue_number}}"
       base: main
 
-  # 3. Bridge polls CI status
+  # 4. Bridge polls CI status
   - id: await-ci
     type: bridge
     action: await-ci
@@ -373,7 +420,7 @@ workflow:
       repo: "org/myproject"
       pr: "{{steps.create-pr.outputs.pr_number}}"
 
-  # 4. If await-ci times out, dev agent investigates (up to 3 attempts)
+  # 5. If await-ci times out, dev agent investigates (up to 3 attempts)
   # Note: await-ci succeeds even when CI fails (the CI outcome is in
   # outputs.status). This step only runs if await-ci itself fails
   # (e.g., timeout).
@@ -386,7 +433,7 @@ workflow:
       branch: "{{steps.implement.inputs.branch}}"
       ci_logs: "{{steps.await-ci.outputs.failure_logs}}"
 
-  # 5. Code review runs after CI passes (parallel with security review)
+  # 6. Code review runs after CI passes (parallel with security review)
   - id: code-review
     type: agent
     agent: reviewer
@@ -395,7 +442,7 @@ workflow:
     inputs:
       pr: "{{steps.create-pr.outputs.pr_number}}"
 
-  # 6. Security review runs in parallel with code review
+  # 7. Security review runs in parallel with code review
   - id: security-review
     type: agent
     agent: security-reviewer
@@ -404,7 +451,7 @@ workflow:
     inputs:
       pr: "{{steps.create-pr.outputs.pr_number}}"
 
-  # 7. If either review fails, dev agent revises
+  # 8. If either review fails, dev agent revises
   - id: revision
     type: agent
     agent: dev
@@ -415,7 +462,7 @@ workflow:
       code_feedback: "{{steps.code-review.outputs.comments}}"
       security_feedback: "{{steps.security-review.outputs.comments}}"
 
-  # 8. Bridge merges when both reviews pass
+  # 9. Bridge merges when both reviews pass
   - id: merge
     type: bridge
     action: merge-pr

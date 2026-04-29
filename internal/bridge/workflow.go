@@ -101,20 +101,23 @@ func ParseWorkflowDefinition(data []byte) (*WorkflowDefinition, error) {
 // validBridgeActions lists the allowed bridge action names.
 var validBridgeActions = map[string]bool{
 	// GitHub-specific aliases.
-	"create-pr":     true,
-	"await-ci":      true,
-	"merge-pr":      true,
-	"await-release": true,
+	"create-pr":       true,
+	"await-ci":        true,
+	"merge-pr":        true,
+	"await-release":   true,
+	"update-gh-issue": true,
 	// Unified actions.
 	"create-merge-request": true,
 	"await-checks":         true,
 	"merge":                true,
 	"comment":              true,
+	"update-issue":         true,
 	// GitLab-specific aliases.
-	"create-mr":      true,
-	"await-pipeline": true,
-	"merge-mr":       true,
-	"post-note":      true,
+	"create-mr":       true,
+	"await-pipeline":  true,
+	"merge-mr":        true,
+	"post-note":       true,
+	"update-gl-issue": true,
 }
 
 // validateWorkflowSteps performs comprehensive validation on workflow steps.
