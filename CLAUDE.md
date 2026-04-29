@@ -46,6 +46,20 @@ Read these for full context:
 6. `docs/design/auth-backends.md` — auth backend design (memory, postgres, rh-identity)
 7. `docs/design/gate-scm-authorization.md` — SCM MITM proxy, operation taxonomy, security model
 
+## Skills (Slash Commands)
+
+These are available as `/command` in Claude Code sessions. Use them instead of
+doing these tasks manually.
+
+| Command | When to Use |
+|---------|-------------|
+| `/dev-up` | First-time setup or full reset of local dev environment (wipes database) |
+| `/dev-restart` | Rebuild and restart Bridge after code changes (preserves database) |
+| `/release` | Trigger the automated release pipeline (creates changelog, tags, builds images) |
+| `/deploy-staging` | Audit a release for safety and deploy to OpenShift staging via app-interface |
+
+Skill definitions live in `.claude/skills/` — read them for full details.
+
 ## Quick Commands
 
 ```bash
