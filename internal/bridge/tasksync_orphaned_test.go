@@ -18,7 +18,6 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -47,17 +46,15 @@ func TestOrphanedWorkflowCleanup(t *testing.T) {
 	policyRuleStore := NewPolicyRuleStore(db)
 	repoGroupStore := NewRepoGroupStore(db)
 	settingsStore := NewSettingsStore(db)
-	scheduler := &MockScheduler{}
-	dispatcher := &MockDispatcher{}
-
-	syncer := NewAgentRepoSyncer(db, settingsStore, scheduler, defStore, dispatcher, profileStore, policyRuleStore, workflowStore, repoGroupStore)
+	syncer := NewAgentRepoSyncer(db, settingsStore, nil, defStore, nil, profileStore, policyRuleStore, workflowStore, repoGroupStore)
 
 	// Step 1: Configure initial repo and simulate sync creating resources
 	oldRepoURL := "https://github.com/old-org/repo"
 	newRepoURL := "https://github.com/new-org/repo"
 
 	// Add initial repo configuration
-	repos := []SkillRepo{{URL: oldRepoURL, Enabled: true}}
+	enabled := true
+	repos := []SkillRepo{{URL: oldRepoURL, Enabled: &enabled}}
 	reposJSON, _ := json.Marshal(repos)
 	_, err := db.Exec(ctx, `
 		INSERT INTO team_settings (team_id, key, value)
@@ -116,7 +113,7 @@ func TestOrphanedWorkflowCleanup(t *testing.T) {
 	assert.Len(t, agents, 1)
 
 	// Step 2: Change repo URL configuration to simulate org rename
-	repos = []SkillRepo{{URL: newRepoURL, Enabled: true}}
+	repos = []SkillRepo{{URL: newRepoURL, Enabled: &enabled}}
 	reposJSON, _ = json.Marshal(repos)
 	_, err = db.Exec(ctx, `
 		UPDATE team_settings SET value = $1
@@ -169,18 +166,6 @@ func TestOrphanedWorkflowCleanup(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, profileRepos, oldRepoURL)
 }
-
-// MockScheduler implements Scheduler interface for testing
-type MockScheduler struct{}
-
-func (m *MockScheduler) Start(ctx context.Context) error { return nil }
-func (m *MockScheduler) Stop() error                     { return nil }
-
-// MockDispatcher implements Dispatcher interface for testing  
-type MockDispatcher struct{}
-
-func (m *MockDispatcher) Start(ctx context.Context) error { return nil }
-func (m *MockDispatcher) Stop() error                     { return nil }
 
 // Helper functions for test setup
 func setupTestDB(t *testing.T) *pgxpool.Pool {
