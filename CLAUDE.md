@@ -39,12 +39,13 @@ Bridge → Hail (NATS) → Skiff Pod [skiff container + gate sidecar] → Gate �
 Read these for full context:
 
 1. `docs/design/implementation-status.md` — **START HERE** — current state, what works, what's next
-2. `docs/design/architecture.md` — component design, deployment diagrams, network isolation, roadmap
-3. `docs/design/architecture-decisions.md` — 24 resolved decisions, CLI design, config format, repo layout
-4. `docs/design/problem-statement.md` — why ephemeral agents
-5. `docs/design/credential-management.md` — credential storage, encryption, OAuth2 token flow
-6. `docs/design/auth-backends.md` — auth backend design (memory, postgres, rh-identity)
-7. `docs/design/gate-scm-authorization.md` — SCM MITM proxy, operation taxonomy, security model
+2. `docs/glossary.md` — **TERMINOLOGY** — canonical definitions for workflow, session, task, etc.
+3. `docs/design/architecture.md` — component design, deployment diagrams, network isolation, roadmap
+4. `docs/design/architecture-decisions.md` — 24 resolved decisions, CLI design, config format, repo layout
+5. `docs/design/problem-statement.md` — why ephemeral agents
+6. `docs/design/credential-management.md` — credential storage, encryption, OAuth2 token flow
+7. `docs/design/auth-backends.md` — auth backend design (memory, postgres, rh-identity)
+8. `docs/design/gate-scm-authorization.md` — SCM MITM proxy, operation taxonomy, security model
 
 ## Skills (Slash Commands)
 

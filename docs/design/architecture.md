@@ -11,6 +11,18 @@ with strong security guarantees and human-in-the-loop controls.
 Claude Code is the supported agent runtime. Other agents may be supported in the
 future, but the architecture is not designed around that goal today.
 
+## Terminology
+
+This document uses standardized terminology defined in `docs/glossary.md`. Key terms include:
+
+- **Session**: The execution record for a Task, stored in the database with transcript, logs, and artifacts
+- **Task**: The ephemeral work unit passed to a Skiff pod (prompt, repos, credentials, timeouts)
+- **Workflow**: A reusable YAML pipeline template synced from git repositories
+- **Workflow Run**: One execution of a workflow, triggered by events or manual invocation
+- **Workflow Run Step**: One execution of a step within a workflow run (may link to a Session)
+
+When terms like "session," "workflow," or "step" appear in this document, they refer to the canonical definitions in the glossary.
+
 
 ## Components
 
