@@ -298,3 +298,167 @@ func gitlabRequest(ctx context.Context, token, method, url string, body []byte) 
 	}
 	return respBody, nil
 }
+
+// bridgeActionUpdateGLIssue updates issue metadata on GitLab.
+func bridgeActionUpdateGLIssue(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
+	project := getStringInput(inputs, "project")
+	issue := getIntInput(inputs, "issue")
+	addLabels := getStringSliceInput(inputs, "add_labels")
+	removeLabels := getStringSliceInput(inputs, "remove_labels")
+	addAssignees := getStringSliceInput(inputs, "add_assignees")
+	removeAssignees := getStringSliceInput(inputs, "remove_assignees")
+	state := getStringInput(inputs, "state")
+
+	if project == "" || issue == 0 {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  "missing required inputs: project, issue",
+		}, nil
+	}
+
+	// Validate state if provided (GitLab uses "opened" instead of "open")
+	if state != "" && state != "opened" && state != "closed" {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  "state must be 'opened' or 'closed' for GitLab",
+		}, nil
+	}
+
+	token, apiHost, err := credStore.AcquireSCMTokenForOwner(ctx, "gitlab", teamID)
+	if err != nil {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  fmt.Sprintf("failed to acquire GitLab token: %v", err),
+		}, nil
+	}
+
+	if apiHost == "" {
+		apiHost = "https://gitlab.cee.redhat.com"
+	}
+
+	encodedProject := strings.ReplaceAll(project, "/", "%2F")
+	log.Printf("bridge-action update-gl-issue: updating issue #%d in %s", issue, project)
+
+	// First, get current issue state to merge with requested changes
+	issueURL := fmt.Sprintf("%s/api/v4/projects/%s/issues/%d", apiHost, encodedProject, issue)
+	issueData, err := gitlabRequest(ctx, token, "GET", issueURL, nil)
+	if err != nil {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  fmt.Sprintf("failed to get current issue state: %v", err),
+		}, nil
+	}
+
+	var currentIssue struct {
+		Labels []string `json:"labels"`
+		Assignees []struct {
+			Username string `json:"username"`
+		} `json:"assignees"`
+	}
+	if err := json.Unmarshal(issueData, &currentIssue); err != nil {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  fmt.Sprintf("failed to parse current issue data: %v", err),
+		}, nil
+	}
+
+	// Build update body
+	updateBody := make(map[string]interface{})
+
+	// Handle label changes
+	if len(addLabels) > 0 || len(removeLabels) > 0 {
+		currentLabelsMap := make(map[string]bool)
+		for _, label := range currentIssue.Labels {
+			currentLabelsMap[label] = true
+		}
+
+		// Add new labels
+		for _, label := range addLabels {
+			currentLabelsMap[label] = true
+		}
+
+		// Remove requested labels
+		for _, label := range removeLabels {
+			delete(currentLabelsMap, label)
+		}
+
+		// Convert back to slice
+		var finalLabels []string
+		for label := range currentLabelsMap {
+			finalLabels = append(finalLabels, label)
+		}
+		updateBody["labels"] = strings.Join(finalLabels, ",")
+		log.Printf("bridge-action update-gl-issue: updating labels to %v", finalLabels)
+	}
+
+	// Handle assignee changes (GitLab requires user IDs, not usernames)
+	if len(addAssignees) > 0 || len(removeAssignees) > 0 {
+		currentAssigneeMap := make(map[string]bool)
+		for _, assignee := range currentIssue.Assignees {
+			currentAssigneeMap[assignee.Username] = true
+		}
+
+		// Add new assignees
+		for _, assignee := range addAssignees {
+			currentAssigneeMap[assignee] = true
+		}
+
+		// Remove requested assignees
+		for _, assignee := range removeAssignees {
+			delete(currentAssigneeMap, assignee)
+		}
+
+		// Convert usernames to user IDs
+		var assigneeIDs []int
+		for username := range currentAssigneeMap {
+			userURL := fmt.Sprintf("%s/api/v4/users?username=%s", apiHost, username)
+			userData, err := gitlabRequest(ctx, token, "GET", userURL, nil)
+			if err != nil {
+				log.Printf("bridge-action update-gl-issue: warning: failed to lookup user '%s': %v", username, err)
+				continue
+			}
+
+			var users []struct {
+				ID int `json:"id"`
+			}
+			if err := json.Unmarshal(userData, &users); err != nil || len(users) == 0 {
+				log.Printf("bridge-action update-gl-issue: warning: user '%s' not found", username)
+				continue
+			}
+
+			assigneeIDs = append(assigneeIDs, users[0].ID)
+		}
+		updateBody["assignee_ids"] = assigneeIDs
+		log.Printf("bridge-action update-gl-issue: updating assignee IDs to %v", assigneeIDs)
+	}
+
+	// Handle state change
+	if state != "" {
+		if state == "closed" {
+			updateBody["state_event"] = "close"
+		} else if state == "opened" {
+			updateBody["state_event"] = "reopen"
+		}
+		log.Printf("bridge-action update-gl-issue: updating state to '%s'", state)
+	}
+
+	// Only make the update request if there are changes to apply
+	if len(updateBody) > 0 {
+		bodyJSON, _ := json.Marshal(updateBody)
+		_, err = gitlabRequest(ctx, token, "PUT", issueURL, bodyJSON)
+		if err != nil {
+			return &BridgeActionResult{
+				Status: "failed",
+				Error:  fmt.Sprintf("failed to update issue: %v", err),
+			}, nil
+		}
+		log.Printf("bridge-action update-gl-issue: successfully updated issue #%d", issue)
+	}
+
+	return &BridgeActionResult{
+		Status: "succeeded",
+		Outputs: map[string]interface{}{
+			"updated": true,
+		},
+	}, nil
+}
