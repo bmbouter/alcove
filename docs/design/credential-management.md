@@ -233,3 +233,46 @@ increasing blast radius if a Skiff pod is compromised via prompt injection.
 Separate vault-like service for credential management. Rejected as overkill
 for Phase 1. Can be added later (the Bridge credential API is a natural
 migration path to an external vault).
+
+## Executable Agent Credential Handling
+
+**Date: 2026-04-29 (Issue #445 implementation)**
+
+Executable agents with `direct_outbound: true` have different credential requirements than Claude Code agents routed through Gate:
+
+### Problem
+- Claude Code agents (non-executable) receive pre-fetched OAuth2 tokens from Bridge, which Gate injects into LLM API requests
+- Executable agents need raw credential material to perform their own authentication directly with external services
+- Example: A Splunk agent needs raw GCP service account JSON to authenticate to Vertex AI, not a pre-fetched OAuth2 token
+
+### Solution
+Modified credential resolution in `internal/bridge/dispatcher.go`:
+
+```go
+// For executable agents with direct_outbound, use raw credentials
+if req.Executable != nil && req.DirectOutbound {
+    rawCred, err := d.credStore.GetRawCredential(ctx, credName)
+    if err == nil {
+        skiffEnv[envVar] = string(rawCred)
+        continue
+    }
+    // Fall back to SCM token path for executable agents
+    ...
+} else {
+    // For non-executable agents (Claude Code), use pre-fetched tokens as before
+    tokenResult, err := d.credStore.AcquireToken(ctx, credName)
+    ...
+}
+```
+
+### Credential Resolution Logic
+
+| Agent Type | direct_outbound | Credential Source | Example Value |
+|------------|-----------------|-------------------|---------------|
+| Claude Code | false | `AcquireToken()` (pre-fetched) | `ya29.a0AFwA...` (OAuth2 token) |
+| Executable | true | `GetRawCredential()` (raw value) | `{"type":"service_account","client_id":...}` (SA JSON) |
+
+### Security Considerations
+- Raw credentials are only provided to executable agents with `direct_outbound: true`
+- Non-executable agents continue to receive only pre-fetched tokens, maintaining the security boundary
+- Gate never sees raw credential material for any agent type

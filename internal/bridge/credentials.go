@@ -236,6 +236,26 @@ func (cs *CredentialStore) DeleteCredential(ctx context.Context, id, teamID stri
 	return nil
 }
 
+// GetRawCredential looks up and decrypts a credential by name, returning the
+// raw credential value without any token exchange. This is intended for
+// executable agents that need to perform their own authentication.
+func (cs *CredentialStore) GetRawCredential(ctx context.Context, credentialName string) ([]byte, error) {
+	var encrypted []byte
+	err := cs.db.QueryRow(ctx,
+		`SELECT credential FROM provider_credentials WHERE (provider = $1 OR name = $1) AND team_id IS NOT NULL ORDER BY created_at DESC LIMIT 1`,
+		credentialName).Scan(&encrypted)
+	if err != nil {
+		return nil, fmt.Errorf("credential %q not found: %w", credentialName, err)
+	}
+
+	raw, err := decrypt(cs.key, encrypted)
+	if err != nil {
+		return nil, fmt.Errorf("decrypting credential %q: %w", credentialName, err)
+	}
+
+	return raw, nil
+}
+
 // AcquireToken looks up the credential for the given provider name, decrypts it,
 // and returns a usable token. For API keys this is the raw key; for service
 // accounts and ADC it performs an OAuth2 token exchange.

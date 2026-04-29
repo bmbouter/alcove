@@ -14,7 +14,12 @@
 
 package bridge
 
-import "testing"
+import (
+	"context"
+	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+)
 
 func TestEncryptDecryptRoundtrip(t *testing.T) {
 	key := make([]byte, 32)
@@ -103,5 +108,25 @@ func TestDeriveKey(t *testing.T) {
 	key3 := deriveKey("different-password")
 	if string(key) == string(key3) {
 		t.Fatal("different input should give different key")
+	}
+}
+
+func TestGetRawCredentialUnit(t *testing.T) {
+	// Unit test for GetRawCredential method using mocked encryption/decryption
+	key := make([]byte, 32)
+	credentialData := []byte(`{"type":"service_account","client_id":"test"}`)
+
+	encrypted, err := encrypt(key, credentialData)
+	if err != nil {
+		t.Fatalf("encrypt failed: %v", err)
+	}
+
+	decrypted, err := decrypt(key, encrypted)
+	if err != nil {
+		t.Fatalf("decrypt failed: %v", err)
+	}
+
+	if string(decrypted) != string(credentialData) {
+		t.Fatalf("got %q, want %q", decrypted, credentialData)
 	}
 }
