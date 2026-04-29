@@ -439,6 +439,18 @@ select.input {
     color: var(--status-cancelled);
 }
 
+.workflow-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    background: rgba(116, 84, 255, 0.1);
+    color: #7454ff;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    border: 1px solid rgba(116, 84, 255, 0.2);
+}
+
 .badge-timeout {
     background: rgba(155, 89, 182, 0.15);
     color: #9b59b6;

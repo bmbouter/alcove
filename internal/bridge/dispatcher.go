@@ -116,9 +116,11 @@ type TaskRequest struct {
 	EnforcementMode string                  `json:"-"` // "enforce" (default) or "monitor"
 	DevContainer    *DevContainerSpec       `json:"dev_container,omitempty"`
 	// Task metadata — set by dispatch code paths, stored in sessions table.
-	TaskName    string `json:"-"` // Schedule/agent definition name
-	TriggerType string `json:"-"` // "event", "cron", "manual", "webhook"
-	TriggerRef  string `json:"-"` // e.g., "alcove-ai/alcove#107" for GitHub events
+	TaskName          string `json:"-"` // Schedule/agent definition name
+	TriggerType       string `json:"-"` // "event", "cron", "manual", "webhook"
+	TriggerRef        string `json:"-"` // e.g., "alcove-ai/alcove#107" for GitHub events
+	WorkflowRunID     string `json:"-"` // ID of the workflow run this task is part of (if any)
+	WorkflowRunStepID string `json:"-"` // ID of the workflow run step this task is part of (if any)
 }
 
 // ToolConfig specifies per-tool configuration in a task request.
@@ -242,19 +244,21 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 
 	now := time.Now().UTC()
 	session := &internal.Session{
-		ID:          sessionID,
-		TaskID:      taskID,
-		Submitter:   submitter,
-		Prompt:      req.Prompt,
-		Repos:       req.Repos,
-		Provider:    provider,
-		Scope:       scope,
-		Status:      "running",
-		StartedAt:   now,
-		TaskName:    req.TaskName,
-		TriggerType: req.TriggerType,
-		TriggerRef:  req.TriggerRef,
-		TeamID:      activeTeamID,
+		ID:                sessionID,
+		TaskID:            taskID,
+		Submitter:         submitter,
+		Prompt:            req.Prompt,
+		Repos:             req.Repos,
+		Provider:          provider,
+		Scope:             scope,
+		Status:            "running",
+		StartedAt:         now,
+		TaskName:          req.TaskName,
+		TriggerType:       req.TriggerType,
+		TriggerRef:        req.TriggerRef,
+		TeamID:            activeTeamID,
+		WorkflowRunID:     req.WorkflowRunID,
+		WorkflowRunStepID: req.WorkflowRunStepID,
 	}
 
 	// For executable agents, set a descriptive prompt if empty.
@@ -913,10 +917,11 @@ func (d *Dispatcher) insertSession(ctx context.Context, s *internal.Session, ses
 		reposJSON, _ = json.Marshal(s.Repos)
 	}
 	_, err := d.db.Exec(ctx, `
-		INSERT INTO sessions (id, task_id, submitter, prompt, scope, provider, started_at, outcome, session_token, task_name, trigger_type, trigger_ref, repos, team_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		INSERT INTO sessions (id, task_id, submitter, prompt, scope, provider, started_at, outcome, session_token, task_name, trigger_type, trigger_ref, repos, team_id, workflow_run_id, workflow_run_step_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 	`, s.ID, s.TaskID, s.Submitter, s.Prompt, scopeJSON, s.Provider, s.StartedAt, s.Status, sessionToken,
-		nilIfEmpty(s.TaskName), nilIfEmpty(s.TriggerType), nilIfEmpty(s.TriggerRef), reposJSON, s.TeamID)
+		nilIfEmpty(s.TaskName), nilIfEmpty(s.TriggerType), nilIfEmpty(s.TriggerRef), reposJSON, s.TeamID,
+		nilIfEmpty(s.WorkflowRunID), nilIfEmpty(s.WorkflowRunStepID))
 	return err
 }
 

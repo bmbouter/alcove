@@ -66,9 +66,15 @@ type Session struct {
 	ParentID       string     `json:"parent_id,omitempty"`
 	TaskName       string     `json:"task_name,omitempty"`
 	TriggerContext string     `json:"trigger_context,omitempty"` // keep for backward compat
-	TriggerType    string     `json:"trigger_type,omitempty"`
-	TriggerRef     string     `json:"trigger_ref,omitempty"`
-	TeamID         string     `json:"team_id,omitempty"`
+	TriggerType       string     `json:"trigger_type,omitempty"`
+	TriggerRef        string     `json:"trigger_ref,omitempty"`
+	TeamID            string     `json:"team_id,omitempty"`
+	WorkflowRunID     string     `json:"workflow_run_id,omitempty"`
+	WorkflowRunStepID string     `json:"workflow_run_step_id,omitempty"`
+	// Workflow metadata (enriched from joins, not stored in sessions table)
+	WorkflowName      string     `json:"workflow_name,omitempty"`
+	WorkflowRunStatus string     `json:"workflow_run_status,omitempty"`
+	StepPosition      string     `json:"step_position,omitempty"` // e.g., "2 of 8"
 }
 
 // Artifact represents an output produced by a task (PR, commit, etc.).

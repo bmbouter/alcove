@@ -1333,7 +1333,23 @@
         return { label: firstWord.substring(0, 8), color: 'neutral' };
     }
 
-    function formatTriggerRef(triggerContext) {
+    function formatTriggerRef(triggerContext, session) {
+        // If this session is part of a workflow, show workflow context
+        if (session && session.workflow_name) {
+            var workflowBadge = '<span class="workflow-badge" title="Workflow: ' + escapeHtml(session.workflow_name) + '">' +
+                '<svg width="14" height="14" style="margin-right: 3px;" fill="currentColor" viewBox="0 0 16 16">' +
+                '<path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v1h10V2a1 1 0 0 0-1-1H4zM3 4v9a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4H3z"/>' +
+                '</svg>' +
+                escapeHtml(session.workflow_name) + '</span>';
+
+            var statusText = '';
+            if (session.step_position) {
+                statusText = ' (step ' + escapeHtml(session.step_position) + ')';
+            }
+
+            return workflowBadge + statusText;
+        }
+
         if (!triggerContext || triggerContext === 'Manual') return '<span class="text-muted">Manual</span>';
         if (triggerContext === 'Scheduled' || triggerContext === 'cron') return '<span class="text-muted">Scheduled</span>';
 
@@ -1388,12 +1404,17 @@
 
         try {
             const statusFilter = $('#filter-status').value;
+            const workflowFilter = $('#filter-workflow').value;
             let runningSessions = [];
             let paginated = {};
 
             // Always fetch running sessions separately to pin them at the top
             if (!statusFilter || statusFilter === 'running') {
-                const runningResp = await api('GET', '/api/v1/sessions?status=running&per_page=100');
+                let runningUrl = '/api/v1/sessions?status=running&per_page=100';
+                if (workflowFilter) {
+                    runningUrl += '&workflow=' + encodeURIComponent(workflowFilter);
+                }
+                const runningResp = await api('GET', runningUrl);
                 const runningData = await runningResp.json();
                 runningSessions = Array.isArray(runningData) ? runningData : (runningData.sessions || runningData.items || []);
             }
@@ -1405,6 +1426,9 @@
             } else {
                 // When not filtering, exclude running sessions from pagination since we show them separately
                 paginatedUrl += '&status=completed,error,cancelled,timeout';
+            }
+            if (workflowFilter) {
+                paginatedUrl += '&workflow=' + encodeURIComponent(workflowFilter);
             }
 
             const paginatedResp = await api('GET', paginatedUrl);
@@ -1480,7 +1504,7 @@
         var taskType = getTaskType(s.task_name);
         var submitter = formatSubmitter(s.submitter);
         var when = formatRelativeTime(s.started_at);
-        var triggerHtml = formatTriggerRef(s.trigger_context);
+        var triggerHtml = formatTriggerRef(s.trigger_context, s);
         var isRunning = status === 'running';
 
         // Duration: for running tasks, show live counter
@@ -1697,6 +1721,7 @@
 
     // Filters
     $('#filter-status').addEventListener('change', () => { currentPage = 1; loadSessions(); });
+    $('#filter-workflow').addEventListener('input', debounce(() => { currentPage = 1; loadSessions(); }, 300));
     $('#filter-search').addEventListener('input', debounce(() => { currentPage = 1; loadSessions(); }, 300));
 
     function startAutoRefresh() {

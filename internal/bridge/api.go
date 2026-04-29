@@ -258,6 +258,7 @@ func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
 		agent := query.Get("agent")
 		since := query.Get("since")
 		until := query.Get("until")
+		workflow := query.Get("workflow")
 		teamID := getActiveTeamID(r)
 
 		pageStr := query.Get("page")
@@ -272,7 +273,7 @@ func (a *API) handleSessions(w http.ResponseWriter, r *http.Request) {
 			perPage = pp
 		}
 
-		sessions, total, err := a.listSessions(r.Context(), status, repo, agent, since, until, teamID, page, perPage)
+		sessions, total, err := a.listSessions(r.Context(), status, repo, agent, since, until, workflow, teamID, page, perPage)
 		if err != nil {
 			log.Printf("error: listing sessions: %v", err)
 			respondError(w, http.StatusInternalServerError, "failed to list sessions")
@@ -963,7 +964,7 @@ func parseEventContext(prompt string) string {
 	return "Manual"
 }
 
-func (a *API) listSessions(ctx context.Context, status, repo, agent, since, until, teamID string, page, perPage int) ([]internal.Session, int, error) {
+func (a *API) listSessions(ctx context.Context, status, repo, agent, since, until, workflow, teamID string, page, perPage int) ([]internal.Session, int, error) {
 	whereClause := " WHERE 1=1"
 	args := []any{}
 	argN := 1
@@ -1009,9 +1010,16 @@ func (a *API) listSessions(ctx context.Context, status, repo, agent, since, unti
 		args = append(args, until)
 		argN++
 	}
+	if workflow != "" {
+		whereClause += fmt.Sprintf(" AND w.name ILIKE '%%' || $%d || '%%'", argN)
+		args = append(args, workflow)
+		argN++
+	}
 
-	// Count total matching sessions
-	countQuery := `SELECT COUNT(*) FROM sessions s` + whereClause
+	// Count total matching sessions - need to include JOINs for workflow filtering
+	countQuery := `SELECT COUNT(*) FROM sessions s
+		LEFT JOIN workflow_runs wr ON s.workflow_run_id = wr.id
+		LEFT JOIN workflows w ON wr.workflow_id = w.id` + whereClause
 	countArgs := make([]any, len(args))
 	copy(countArgs, args)
 
@@ -1026,10 +1034,17 @@ func (a *API) listSessions(ctx context.Context, status, repo, agent, since, unti
 		COALESCE(s.task_name, td.name, '') as task_name,
 		COALESCE(s.trigger_type, '') as trigger_type,
 		COALESCE(s.trigger_ref, '') as trigger_ref,
-		s.repos
+		s.repos,
+		s.workflow_run_id,
+		s.workflow_run_step_id,
+		w.name as workflow_name,
+		wr.status as workflow_run_status
 		FROM sessions s
 		LEFT JOIN schedules sc ON s.prompt LIKE '%[' || sc.source_key || ']%' AND sc.source_key IS NOT NULL AND sc.source_key != ''
-		LEFT JOIN agent_definitions td ON sc.source_key = td.source_key` +
+		LEFT JOIN agent_definitions td ON sc.source_key = td.source_key
+		LEFT JOIN workflow_run_steps wrs ON s.workflow_run_step_id = wrs.id
+		LEFT JOIN workflow_runs wr ON s.workflow_run_id = wr.id
+		LEFT JOIN workflows w ON wr.workflow_id = w.id` +
 		whereClause + " ORDER BY s.started_at DESC"
 
 	offset := (page - 1) * perPage
@@ -1050,10 +1065,12 @@ func (a *API) listSessions(ctx context.Context, status, repo, agent, since, unti
 		var exitCode *int
 		var parentID *string
 		var taskName, triggerType, triggerRef string
+		var workflowRunID, workflowRunStepID, workflowName, workflowRunStatus *string
 
 		if err := rows.Scan(&s.ID, &s.TaskID, &s.Submitter, &s.Prompt,
 			&scopeJSON, &s.Provider, &s.Status, &s.StartedAt, &finishedAt,
-			&exitCode, &artifactsJSON, &parentID, &taskName, &triggerType, &triggerRef, &reposJSON); err != nil {
+			&exitCode, &artifactsJSON, &parentID, &taskName, &triggerType, &triggerRef, &reposJSON,
+			&workflowRunID, &workflowRunStepID, &workflowName, &workflowRunStatus); err != nil {
 			return nil, 0, err
 		}
 
@@ -1090,6 +1107,26 @@ func (a *API) listSessions(ctx context.Context, status, repo, agent, since, unti
 		s.TriggerType = triggerType
 		s.TriggerRef = triggerRef
 
+		// Set workflow context
+		if workflowRunID != nil {
+			s.WorkflowRunID = *workflowRunID
+		}
+		if workflowRunStepID != nil {
+			s.WorkflowRunStepID = *workflowRunStepID
+		}
+		if workflowName != nil {
+			s.WorkflowName = *workflowName
+		}
+		if workflowRunStatus != nil {
+			s.WorkflowRunStatus = *workflowRunStatus
+		}
+
+		// Calculate step position if this is part of a workflow
+		if s.WorkflowRunID != "" {
+			stepPosition := a.calculateStepPosition(ctx, s.WorkflowRunID, s.WorkflowRunStepID)
+			s.StepPosition = stepPosition
+		}
+
 		// Parse trigger context from prompt as fallback for old sessions
 		if triggerType != "" {
 			s.TriggerContext = triggerType
@@ -1117,20 +1154,29 @@ func (a *API) getSession(ctx context.Context, id string) (*internal.Session, err
 	var exitCode *int
 	var parentID *string
 	var taskName, triggerType, triggerRef string
+	var workflowRunID, workflowRunStepID, workflowName, workflowRunStatus *string
 
 	err := a.db.QueryRow(ctx,
 		`SELECT s.id, s.task_id, s.submitter, s.prompt, s.scope, s.provider, s.outcome, s.started_at, s.finished_at, s.exit_code, s.artifacts, s.parent_id,
 		COALESCE(s.task_name, td.name, '') as task_name,
 		COALESCE(s.trigger_type, '') as trigger_type,
 		COALESCE(s.trigger_ref, '') as trigger_ref,
-		s.repos
+		s.repos,
+		s.workflow_run_id,
+		s.workflow_run_step_id,
+		w.name as workflow_name,
+		wr.status as workflow_run_status
 		FROM sessions s
 		LEFT JOIN schedules sc ON s.prompt LIKE '%[' || sc.source_key || ']%' AND sc.source_key IS NOT NULL AND sc.source_key != ''
 		LEFT JOIN agent_definitions td ON sc.source_key = td.source_key
+		LEFT JOIN workflow_run_steps wrs ON s.workflow_run_step_id = wrs.id
+		LEFT JOIN workflow_runs wr ON s.workflow_run_id = wr.id
+		LEFT JOIN workflows w ON wr.workflow_id = w.id
 		WHERE s.id = $1`, id,
 	).Scan(&s.ID, &s.TaskID, &s.Submitter, &s.Prompt,
 		&scopeJSON, &s.Provider, &s.Status, &s.StartedAt, &finishedAt,
-		&exitCode, &artifactsJSON, &parentID, &taskName, &triggerType, &triggerRef, &reposJSON)
+		&exitCode, &artifactsJSON, &parentID, &taskName, &triggerType, &triggerRef, &reposJSON,
+		&workflowRunID, &workflowRunStepID, &workflowName, &workflowRunStatus)
 	if err != nil {
 		return nil, err
 	}
@@ -1167,6 +1213,26 @@ func (a *API) getSession(ctx context.Context, id string) (*internal.Session, err
 	// Set trigger type and ref from stored metadata
 	s.TriggerType = triggerType
 	s.TriggerRef = triggerRef
+
+	// Set workflow context
+	if workflowRunID != nil {
+		s.WorkflowRunID = *workflowRunID
+	}
+	if workflowRunStepID != nil {
+		s.WorkflowRunStepID = *workflowRunStepID
+	}
+	if workflowName != nil {
+		s.WorkflowName = *workflowName
+	}
+	if workflowRunStatus != nil {
+		s.WorkflowRunStatus = *workflowRunStatus
+	}
+
+	// Calculate step position if this is part of a workflow
+	if s.WorkflowRunID != "" {
+		stepPosition := a.calculateStepPosition(ctx, s.WorkflowRunID, s.WorkflowRunStepID)
+		s.StepPosition = stepPosition
+	}
 
 	// Parse trigger context from prompt as fallback for old sessions
 	if triggerType != "" {
@@ -2907,4 +2973,72 @@ func respondJSON(w http.ResponseWriter, code int, v any) {
 
 func respondError(w http.ResponseWriter, code int, msg string) {
 	respondJSON(w, code, map[string]string{"error": msg})
+}
+
+// calculateStepPosition calculates the position of a workflow run step (e.g., "2 of 8").
+func (a *API) calculateStepPosition(ctx context.Context, workflowRunID, workflowRunStepID string) string {
+	if workflowRunID == "" || workflowRunStepID == "" {
+		return ""
+	}
+
+	// Get the workflow definition to get the step order and total count
+	var workflowID string
+	var definitionJSON []byte
+	err := a.db.QueryRow(ctx, `
+		SELECT wr.workflow_id, w.definition
+		FROM workflow_runs wr
+		JOIN workflows w ON wr.workflow_id = w.id
+		WHERE wr.id = $1
+	`, workflowRunID).Scan(&workflowID, &definitionJSON)
+
+	if err != nil {
+		return ""
+	}
+
+	// Parse workflow definition to get step order
+	var definition map[string]interface{}
+	if err := json.Unmarshal(definitionJSON, &definition); err != nil {
+		return ""
+	}
+
+	steps, ok := definition["steps"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+
+	totalSteps := len(steps)
+	if totalSteps == 0 {
+		return ""
+	}
+
+	// Get the current step ID from the workflow_run_step
+	var currentStepID string
+	err = a.db.QueryRow(ctx, `
+		SELECT step_id FROM workflow_run_steps WHERE id = $1
+	`, workflowRunStepID).Scan(&currentStepID)
+
+	if err != nil {
+		return ""
+	}
+
+	// Create ordered list of step IDs based on workflow definition
+	stepOrder := make([]string, 0, totalSteps)
+	for stepID := range steps {
+		stepOrder = append(stepOrder, stepID)
+	}
+
+	// Find position of current step
+	position := -1
+	for i, stepID := range stepOrder {
+		if stepID == currentStepID {
+			position = i + 1 // 1-based indexing
+			break
+		}
+	}
+
+	if position == -1 {
+		return ""
+	}
+
+	return fmt.Sprintf("%d of %d", position, totalSteps)
 }

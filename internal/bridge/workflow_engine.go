@@ -423,6 +423,19 @@ func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, st
 	}
 
 	// Dispatch the task
+	taskReq.WorkflowRunID = run.ID
+
+	// Get the workflow run step ID for this step
+	var workflowRunStepID string
+	err = we.db.QueryRow(ctx, `
+		SELECT id FROM workflow_run_steps
+		WHERE run_id = $1 AND step_id = $2
+	`, run.ID, step.ID).Scan(&workflowRunStepID)
+	if err != nil {
+		return fmt.Errorf("getting workflow run step ID for step %s: %w", step.ID, err)
+	}
+	taskReq.WorkflowRunStepID = workflowRunStepID
+
 	session, err := we.dispatcher.DispatchTask(ctx, taskReq, "workflow", run.TeamID)
 	if err != nil {
 		return fmt.Errorf("dispatching task for step %s: %w", step.ID, err)
