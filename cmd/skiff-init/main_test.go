@@ -15,6 +15,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -212,5 +213,150 @@ func TestReadOutputArtifact_MissingFile(t *testing.T) {
 
 	if result != nil {
 		t.Errorf("Expected nil for missing file but got %v", result)
+	}
+}
+
+// TestDetermineOutcome tests the unified outcome determination logic.
+func TestDetermineOutcome(t *testing.T) {
+	// Create a context that's already cancelled for timeout tests
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// Create a context that's not cancelled for normal tests
+	normalCtx := context.Background()
+
+	tests := []struct {
+		name             string
+		ctx              context.Context
+		exitCode         int
+		eventCount       int
+		sawSuccessResult bool
+		currentOutcome   string
+		expectedOutcome  string
+		expectedExitCode int
+	}{
+		{
+			name:             "Rule 1: Context timeout takes priority",
+			ctx:              cancelledCtx,
+			exitCode:         0,
+			eventCount:       5,
+			sawSuccessResult: true,
+			currentOutcome:   "completed",
+			expectedOutcome:  "timeout",
+			expectedExitCode: 0,
+		},
+		{
+			name:             "Rule 2: Cancellation takes priority",
+			ctx:              normalCtx,
+			exitCode:         0,
+			eventCount:       5,
+			sawSuccessResult: true,
+			currentOutcome:   "cancelled",
+			expectedOutcome:  "cancelled",
+			expectedExitCode: 0,
+		},
+		{
+			name:             "Rule 3: Heartbeat timeout takes priority",
+			ctx:              normalCtx,
+			exitCode:         0,
+			eventCount:       5,
+			sawSuccessResult: true,
+			currentOutcome:   "timeout",
+			expectedOutcome:  "timeout",
+			expectedExitCode: 0,
+		},
+		{
+			name:             "Rule 4: Success result indicator (Claude Code) → completed",
+			ctx:              normalCtx,
+			exitCode:         1,
+			eventCount:       5,
+			sawSuccessResult: true,
+			currentOutcome:   "completed",
+			expectedOutcome:  "completed",
+			expectedExitCode: 1, // Preserve exit code for workflow engine
+		},
+		{
+			name:             "Rule 5: No output at all → error (key fix)",
+			ctx:              normalCtx,
+			exitCode:         0,
+			eventCount:       0,
+			sawSuccessResult: false,
+			currentOutcome:   "completed",
+			expectedOutcome:  "error",
+			expectedExitCode: 0,
+		},
+		{
+			name:             "Rule 5: No output at all with non-zero exit → error",
+			ctx:              normalCtx,
+			exitCode:         1,
+			eventCount:       0,
+			sawSuccessResult: false,
+			currentOutcome:   "completed",
+			expectedOutcome:  "error",
+			expectedExitCode: 1,
+		},
+		{
+			name:             "Rule 6: Output but no success result and non-zero exit → error",
+			ctx:              normalCtx,
+			exitCode:         1,
+			eventCount:       5,
+			sawSuccessResult: false,
+			currentOutcome:   "completed",
+			expectedOutcome:  "error",
+			expectedExitCode: 1,
+		},
+		{
+			name:             "Rule 7: Output but no success result and zero exit → completed",
+			ctx:              normalCtx,
+			exitCode:         0,
+			eventCount:       5,
+			sawSuccessResult: false,
+			currentOutcome:   "completed",
+			expectedOutcome:  "completed",
+			expectedExitCode: 0,
+		},
+		{
+			name:             "Edge case: Claude produces output but crashes before sending result event",
+			ctx:              normalCtx,
+			exitCode:         1,
+			eventCount:       10,
+			sawSuccessResult: false,
+			currentOutcome:   "completed",
+			expectedOutcome:  "error",
+			expectedExitCode: 1,
+		},
+		{
+			name:             "Edge case: Zero events with exit 0 (silent crash)",
+			ctx:              normalCtx,
+			exitCode:         0,
+			eventCount:       0,
+			sawSuccessResult: false,
+			currentOutcome:   "completed",
+			expectedOutcome:  "error", // Key fix: no output = error regardless of exit code
+			expectedExitCode: 0,
+		},
+		{
+			name:             "NATS cancel should take priority over success result",
+			ctx:              normalCtx,
+			exitCode:         0,
+			eventCount:       5,
+			sawSuccessResult: true,
+			currentOutcome:   "cancelled",
+			expectedOutcome:  "cancelled",
+			expectedExitCode: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			outcome, exitCode := determineOutcome(tt.ctx, tt.exitCode, tt.eventCount, tt.sawSuccessResult, tt.currentOutcome)
+
+			if outcome != tt.expectedOutcome {
+				t.Errorf("determineOutcome() outcome = %v, want %v", outcome, tt.expectedOutcome)
+			}
+			if exitCode != tt.expectedExitCode {
+				t.Errorf("determineOutcome() exitCode = %v, want %v", exitCode, tt.expectedExitCode)
+			}
+		})
 	}
 }

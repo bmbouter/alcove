@@ -33,6 +33,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -43,6 +44,10 @@ import (
 
 // Version is set at build time via -ldflags.
 var Version = "dev"
+
+// primaryChildPID tracks the main Claude/executable process PID to avoid racing
+// with Go's cmd.Wait() in the SIGCHLD zombie reaper.
+var primaryChildPID int64
 
 // skillPluginDirs holds paths to cloned skill/agent repos for --plugin-dir flags.
 var skillPluginDirs []string
@@ -244,6 +249,44 @@ func main() {
 	os.Exit(exitCode)
 }
 
+// determineOutcome unifies the outcome determination logic for both Claude Code and executable agents.
+// It implements the corrected semantics to properly distinguish between completed, error, timeout, and cancelled states.
+func determineOutcome(ctx context.Context, exitCode int, eventCount int, sawSuccessResult bool, currentOutcome string) (string, int) {
+	// Rule 1: Context timeout takes priority
+	if ctx.Err() != nil {
+		return "timeout", exitCode
+	}
+
+	// Rule 2: Cancellation takes priority
+	if currentOutcome == "cancelled" {
+		return "cancelled", exitCode
+	}
+
+	// Rule 3: Heartbeat timeout takes priority
+	if currentOutcome == "timeout" {
+		return "timeout", exitCode
+	}
+
+	// Rule 4: Success result indicator (Claude Code only) → completed
+	if sawSuccessResult {
+		return "completed", exitCode // Preserve exit code for workflow engine
+	}
+
+	// Rule 5: No output at all → error (key fix for silent crashes)
+	if eventCount == 0 {
+		return "error", exitCode
+	}
+
+	// Rule 6: Output but no success result and non-zero exit → error
+	if !sawSuccessResult && exitCode != 0 {
+		return "error", exitCode
+	}
+
+	// Rule 7: Output but no success result and zero exit → completed
+	// (Some agents don't emit result events)
+	return "completed", exitCode
+}
+
 // runExecutable downloads and executes a pre-compiled executable agent. It returns the exit code,
 // outcome string, artifacts, and any outputs.
 func runExecutable(
@@ -317,6 +360,9 @@ func runExecutable(
 		return 1, "error", nil, nil
 	}
 
+	// Store the primary child PID to avoid SIGCHLD race
+	atomic.StoreInt64(&primaryChildPID, int64(cmd.Process.Pid))
+
 	// WAL file for local transcript persistence
 	walPath := fmt.Sprintf("/tmp/alcove-transcript-%s.jsonl", sessionID)
 	walFile, err := os.Create(walPath)
@@ -375,7 +421,7 @@ func runExecutable(
 		ticker     = time.NewTicker(walFlushInterval)
 		doneCh     = make(chan struct{})
 		outcome    = "completed"
-		lineNumber = 0
+		eventCount = 0
 	)
 	defer ticker.Stop()
 
@@ -414,7 +460,7 @@ func runExecutable(
 	// Process output lines from both stdout and stderr
 	for ol := range ch {
 		lastEvent = time.Now()
-		lineNumber++
+		eventCount++
 
 		// Create transcript event for this line
 		transcriptEvent := map[string]any{
@@ -470,25 +516,24 @@ func runExecutable(
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
 		} else if strings.Contains(err.Error(), "no child processes") {
-			// As PID 1 in a container, the child may already be reaped.
-			// If we captured stdout output, treat as success.
-			exitCode = 0
+			// ECHILD error - the SIGCHLD race should no longer happen due to PID tracking fix
+			log.Printf("warning: cmd.Wait() got ECHILD (should not happen with SIGCHLD fix): %v", err)
+			exitCode = 1 // Treat as unknown error, don't mask as success
 		} else {
 			log.Printf("warning: cmd.Wait() error: %T: %v", err, err)
 			exitCode = 1
 		}
 	}
 
-	log.Printf("executable completed: exit=%d lines=%d", exitCode, lineNumber)
+	log.Printf("executable completed: exit=%d events=%d", exitCode, eventCount)
 
-	// Determine outcome from exit code
-	if ctx.Err() != nil {
-		outcome = "timeout"
-	} else if exitCode == 0 {
-		outcome = "completed"
-	} else if outcome == "completed" {
-		outcome = "error"
+	// Add explicit logging for silent agent crashes
+	if exitCode != 0 && eventCount == 0 {
+		log.Printf("ALERT: executable exited %d with zero output events — likely startup crash (check binary compatibility, dependencies, or container image)", exitCode)
 	}
+
+	// Use unified outcome determination
+	outcome, exitCode = determineOutcome(ctx, exitCode, eventCount, false, outcome)
 
 	// Check for PR artifact from task (same as Claude Code)
 	if prArtifact := readPRArtifact(); prArtifact != nil {
@@ -565,6 +610,9 @@ func runClaude(
 		return 1, "error", nil, nil
 	}
 
+	// Store the primary child PID to avoid SIGCHLD race
+	atomic.StoreInt64(&primaryChildPID, int64(cmd.Process.Pid))
+
 	// WAL file for local transcript persistence
 	walPath := fmt.Sprintf("/tmp/alcove-transcript-%s.jsonl", task.ID)
 	walFile, err := os.Create(walPath)
@@ -589,6 +637,7 @@ func runClaude(
 		ticker           = time.NewTicker(walFlushInterval)
 		doneCh           = make(chan struct{})
 		outcome          = "completed"
+		eventCount       = 0
 		sawSuccessResult bool
 	)
 	defer ticker.Stop()
@@ -630,6 +679,7 @@ func runClaude(
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		lastEvent = time.Now()
+		eventCount++
 
 		// Write to WAL
 		if walFile != nil {
@@ -694,18 +744,15 @@ func runClaude(
 	} else {
 		log.Printf("DEBUG: claude stderr: (empty)")
 	}
-	log.Printf("DEBUG: claude exit code: %d", exitCode)
+	log.Printf("DEBUG: claude exit code: %d, events: %d", exitCode, eventCount)
 
-	if ctx.Err() != nil {
-		outcome = "timeout"
-	} else if sawSuccessResult {
-		outcome = "completed"
-		// Do NOT override exitCode — the agent may have intentionally
-		// exited non-zero (e.g., review rejection, verification failure).
-		// The workflow engine uses exitCode to determine step success/failure.
-	} else if outcome == "completed" {
-		outcome = "error"
+	// Add explicit logging for silent agent crashes
+	if exitCode != 0 && eventCount == 0 {
+		log.Printf("ALERT: claude exited %d with zero output events — likely startup crash (check API key, binary compatibility, or container image)", exitCode)
 	}
+
+	// Use unified outcome determination
+	outcome, exitCode = determineOutcome(ctx, exitCode, eventCount, sawSuccessResult, outcome)
 
 	// Check for PR artifact from task.
 	if prArtifact := readPRArtifact(); prArtifact != nil {
@@ -1173,7 +1220,6 @@ func injectClaudeMD(repos []internal.RepoSpec, prompt string) string {
 	return prompt + "\n\n---\n\n" + strings.Join(claudeMDs, "\n\n---\n\n")
 }
 
-
 // setupCATrust installs the ephemeral CA certificate into the trust store so that
 // tools like gh, curl, git, Python requests, and Node.js fetch all trust Gate's
 // MITM certificates. The CA cert PEM is passed via ALCOVE_CA_CERT_PEM (base64-encoded).
@@ -1289,6 +1335,13 @@ func init() {
 				if pid <= 0 || err != nil {
 					break
 				}
+				// Skip the primary child (Claude/executable) to avoid racing with Go's cmd.Wait()
+				primaryPID := atomic.LoadInt64(&primaryChildPID)
+				if primaryPID > 0 && int64(pid) == primaryPID {
+					log.Printf("debug: skipping primary child PID %d in zombie reaper", pid)
+					continue
+				}
+				log.Printf("debug: reaped zombie PID %d", pid)
 			}
 		}
 	}()

@@ -708,10 +708,13 @@ func (a *API) handleAppendTranscript(w http.ResponseWriter, r *http.Request, ses
 		return
 	}
 
-	// Atomic JSONB append — no read-modify-write race.
+	// Atomic JSONB append with transcript event count increment — no read-modify-write race.
 	_, err = a.db.Exec(ctx,
-		`UPDATE sessions SET transcript = COALESCE(transcript, '[]'::jsonb) || $1::jsonb WHERE id = $2`,
-		newEventsJSON, sessionID)
+		`UPDATE sessions
+		 SET transcript = COALESCE(transcript, '[]'::jsonb) || $1::jsonb,
+		     transcript_event_count = COALESCE(transcript_event_count, 0) + $2
+		 WHERE id = $3`,
+		newEventsJSON, len(req.Events), sessionID)
 	if err != nil {
 		log.Printf("error: updating transcript for session %s: %v", sessionID, err)
 		respondError(w, http.StatusInternalServerError, "failed to update transcript")
@@ -1026,7 +1029,8 @@ func (a *API) listSessions(ctx context.Context, status, repo, agent, since, unti
 		COALESCE(s.task_name, td.name, '') as task_name,
 		COALESCE(s.trigger_type, '') as trigger_type,
 		COALESCE(s.trigger_ref, '') as trigger_ref,
-		s.repos
+		s.repos,
+		COALESCE(s.transcript_event_count, 0) as transcript_event_count
 		FROM sessions s
 		LEFT JOIN schedules sc ON s.prompt LIKE '%[' || sc.source_key || ']%' AND sc.source_key IS NOT NULL AND sc.source_key != ''
 		LEFT JOIN agent_definitions td ON sc.source_key = td.source_key` +
@@ -1050,10 +1054,11 @@ func (a *API) listSessions(ctx context.Context, status, repo, agent, since, unti
 		var exitCode *int
 		var parentID *string
 		var taskName, triggerType, triggerRef string
+		var transcriptEventCount int
 
 		if err := rows.Scan(&s.ID, &s.TaskID, &s.Submitter, &s.Prompt,
 			&scopeJSON, &s.Provider, &s.Status, &s.StartedAt, &finishedAt,
-			&exitCode, &artifactsJSON, &parentID, &taskName, &triggerType, &triggerRef, &reposJSON); err != nil {
+			&exitCode, &artifactsJSON, &parentID, &taskName, &triggerType, &triggerRef, &reposJSON, &transcriptEventCount); err != nil {
 			return nil, 0, err
 		}
 
@@ -1078,6 +1083,9 @@ func (a *API) listSessions(ctx context.Context, status, repo, agent, since, unti
 		if reposJSON != nil {
 			_ = json.Unmarshal(reposJSON, &s.Repos)
 		}
+
+		// Set transcript event count
+		s.TranscriptEventCount = transcriptEventCount
 
 		// Set task name with fallback
 		if taskName != "" {
