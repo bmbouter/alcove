@@ -1116,7 +1116,7 @@ func TestValidateWorkflowAgentReferences_ParseErroredAgent(t *testing.T) {
 	if !strings.Contains(error, "sync error") {
 		t.Errorf("error should mention sync error, got: %s", error)
 	}
-	if !strings.Contains(error, "prompt") {
+	if !strings.Contains(error, "parse agent definition") {
 		t.Errorf("error should contain truncated sync error, got: %s", error)
 	}
 }

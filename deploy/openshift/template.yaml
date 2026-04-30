@@ -27,8 +27,6 @@ parameters:
   value: ""
 - name: BRIDGE_LLM_REGION
   value: ""
-- name: NAMESPACE
-  value: ${NAMESPACE}
 - name: CREATE_ROUTE
   description: Whether to create an OpenShift Route for alcove-bridge
   value: "true"
@@ -371,7 +369,6 @@ objects:
   kind: NetworkPolicy
   metadata:
     name: alcove-allow-direct-outbound
-    namespace: ${NAMESPACE}
     labels:
       app.kubernetes.io/part-of: alcove
   spec:

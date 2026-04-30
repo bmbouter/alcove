@@ -15,10 +15,8 @@
 package bridge
 
 import (
-	"context"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestEncryptDecryptRoundtrip(t *testing.T) {
