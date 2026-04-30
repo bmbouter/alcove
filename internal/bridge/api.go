@@ -1941,15 +1941,6 @@ func (a *API) getTeamCredentialProviders(ctx context.Context, teamID string) (ma
 	return providers, rows.Err()
 }
 
-// isCredentialGatedService returns true if the service requires credentials.
-func isCredentialGatedService(service string) bool {
-	switch service {
-	case "github", "gitlab", "jira", "splunk":
-		return true
-	default:
-		return false
-	}
-}
 
 // --- Agent Templates ---
 

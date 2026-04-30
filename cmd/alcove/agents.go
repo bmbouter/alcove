@@ -170,8 +170,7 @@ func runAgentsList(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	err := w.Flush()
-	if err != nil {
+	if err := w.Flush(); err != nil {
 		return err
 	}
 
