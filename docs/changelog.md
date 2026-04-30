@@ -3,6 +3,27 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.42.0
+
+### Features
+- Sessions show which workflow/step they belong to (#502)
+- Workflow runs list with pagination, filtering, and status summary (#504)
+- Orphaned workflow cleanup on repo URL change (#506)
+- SDLC pipeline PRs include description linking to the issue (#509)
+- `update-issue` bridge action for labels and assignees (#511)
+- Backlog triage workflow with PM agent (#518)
+- Agent output and exit code handling fixes in skiff-init (#500)
+- Agents fail loudly when required credentials are missing (#365)
+- Workflow steps resolve agent definitions from same repo source (#350)
+- Credential map fix for executable agents (#445)
+- Implementation Planner uses Opus model
+- Core terminology documentation (#512)
+
+### Bug Fixes
+- Fix template: remove hardcoded `${NAMESPACE}` from NetworkPolicy (deploy errors)
+- Fix compile errors from conflicting SDLC pipeline merges
+- Fix workflow agent reference validation test
+
 ## v0.41.0
 
 ### Features
