@@ -3,6 +3,11 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.42.1
+
+### Bug Fixes
+- Fix migration 037: remove `CONCURRENTLY` from `CREATE INDEX` (can't run inside transaction, crashes Bridge on startup)
+
 ## v0.42.0
 
 ### Features
