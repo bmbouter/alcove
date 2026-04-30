@@ -8,9 +8,19 @@ trigger:
     delivery_mode: polling
 
 workflow:
+  - id: claim-issue
+    type: bridge
+    action: update-issue
+    inputs:
+      repo: alcove-ai/alcove
+      issue: "{{trigger.issue_number}}"
+      add_assignees: ["alcove-bot"]
+      remove_labels: ["ready-for-dev"]
+
   - id: implement
     type: agent
     agent: Autonomous Developer
+    depends: "claim-issue.Succeeded"
     max_retries: 3
     inputs:
       branch: "issue-{{trigger.issue_number}}-fix"
