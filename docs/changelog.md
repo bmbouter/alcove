@@ -3,6 +3,12 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.42.2
+
+### Bug Fixes
+- Fix duplicate migration 038: rename sync_warning to 039 (agent definitions API was broken)
+- SDLC pipeline: claim issue before starting work (assign bot, remove trigger label)
+
 ## v0.42.1
 
 ### Bug Fixes
