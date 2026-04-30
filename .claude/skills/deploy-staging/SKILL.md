@@ -57,18 +57,24 @@ If config changes are needed beyond image tags and the context doesn't tell you 
 
 ### 4. Deploy via app-interface MR
 
+**IMPORTANT:** The fork's master MUST be synced with upstream before creating a branch. GitLab cross-fork MRs fail with "source branch does not exist" if the fork is behind upstream.
+
 ```bash
 cd ~/devel/pulp/app-interface
-git checkout master && git pull origin master
-git checkout -b alcove-vXYZ master
+git fetch origin master
+git checkout -B master origin/master
+git push fork master --force
+git checkout -B alcove-vXYZ
 ```
 
 Edit `data/services/pulp/deploy-alcove.yml` — update BRIDGE_IMAGE_TAG, GATE_IMAGE, SKIFF_IMAGE tags. Add any new parameters identified by the staging compatibility agent.
 
 ```bash
 git add -A && git commit -m "Upgrade Alcove to vX.Y.Z — summary"
-git push fork BRANCH_NAME
+git push fork alcove-vXYZ --force
 ```
+
+If the MR shows "source branch does not exist", the fork master is out of sync. Re-run the sync steps above, rebase the branch (`git rebase origin/master`), and force push again.
 
 ### 5. Open the MR via GitLab API
 
