@@ -677,7 +677,44 @@ func (s *WorkflowStore) ListWorkflowsByRepo(ctx context.Context, repoURL, teamID
 
 // DeleteWorkflowsByRepo removes all workflow definitions from a given repo URL and owner.
 func (s *WorkflowStore) DeleteWorkflowsByRepo(ctx context.Context, repoURL, teamID string) error {
-	_, err := s.db.Exec(ctx, `DELETE FROM workflows WHERE source_repo = $1 AND team_id = $2`, repoURL, teamID)
+	// Nullify session FK references to run steps and runs being deleted.
+	_, err := s.db.Exec(ctx, `
+		UPDATE sessions SET workflow_run_step_id = NULL WHERE workflow_run_step_id IN (
+			SELECT wrs.id FROM workflow_run_steps wrs
+			JOIN workflow_runs wr ON wrs.run_id = wr.id
+			JOIN workflows w ON wr.workflow_id = w.id
+			WHERE w.source_repo = $1 AND w.team_id = $2
+		)`, repoURL, teamID)
+	if err != nil {
+		return fmt.Errorf("nullifying session step refs for repo %s: %w", repoURL, err)
+	}
+	_, err = s.db.Exec(ctx, `
+		UPDATE sessions SET workflow_run_id = NULL WHERE workflow_run_id IN (
+			SELECT wr.id FROM workflow_runs wr
+			JOIN workflows w ON wr.workflow_id = w.id
+			WHERE w.source_repo = $1 AND w.team_id = $2
+		)`, repoURL, teamID)
+	if err != nil {
+		return fmt.Errorf("nullifying session step refs for repo %s: %w", repoURL, err)
+	}
+	// Delete run steps, then runs, then workflows (FK order).
+	_, err = s.db.Exec(ctx, `
+		DELETE FROM workflow_run_steps WHERE run_id IN (
+			SELECT wr.id FROM workflow_runs wr
+			JOIN workflows w ON wr.workflow_id = w.id
+			WHERE w.source_repo = $1 AND w.team_id = $2
+		)`, repoURL, teamID)
+	if err != nil {
+		return fmt.Errorf("deleting workflow run steps for repo %s: %w", repoURL, err)
+	}
+	_, err = s.db.Exec(ctx, `
+		DELETE FROM workflow_runs WHERE workflow_id IN (
+			SELECT id FROM workflows WHERE source_repo = $1 AND team_id = $2
+		)`, repoURL, teamID)
+	if err != nil {
+		return fmt.Errorf("deleting workflow runs for repo %s: %w", repoURL, err)
+	}
+	_, err = s.db.Exec(ctx, `DELETE FROM workflows WHERE source_repo = $1 AND team_id = $2`, repoURL, teamID)
 	if err != nil {
 		return fmt.Errorf("deleting workflows for repo %s: %w", repoURL, err)
 	}
