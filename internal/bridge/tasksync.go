@@ -260,7 +260,7 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 				_ = s.workflowStore.DeleteWorkflowsByRepo(ctx, sourceRepo, teamID)
 				_ = s.repoGroupStore.DeleteRepoGroupsByRepo(ctx, sourceRepo, teamID)
 				// Also clean up schedules from this repo.
-				s.db.Exec(ctx, `DELETE FROM schedules WHERE source_key LIKE $1 AND team_id = $2`, username+"::%", teamID)
+				s.db.Exec(ctx, `DELETE FROM schedules WHERE source_key LIKE $1 AND team_id = $2`, username+"::"+sourceRepo+"::%", teamID)
 				removedRepos[sourceRepo] = true
 			}
 		}
