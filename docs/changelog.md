@@ -3,6 +3,11 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.42.4
+
+### Bug Fixes
+- Fix orphaned workflow delete: cascade through FK constraints (workflow_runs, workflow_run_steps, sessions)
+
 ## v0.42.3
 
 ### Bug Fixes
