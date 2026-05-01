@@ -3,6 +3,11 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.42.3
+
+### Bug Fixes
+- Fix orphaned cleanup: schedule deletion now scoped to removed repo only (was deleting schedules from all repos)
+
 ## v0.42.2
 
 ### Bug Fixes
