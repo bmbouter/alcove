@@ -257,7 +257,9 @@ func (s *AgentRepoSyncer) SyncAll(ctx context.Context) error {
 				_ = s.defStore.DeleteAgentDefinitionsByRepo(ctx, sourceRepo, teamID)
 				_ = s.profileStore.DeleteYAMLProfilesByRepo(ctx, sourceRepo, teamID)
 				_ = s.policyRuleStore.DeleteByRepo(ctx, sourceRepo, teamID)
-				_ = s.workflowStore.DeleteWorkflowsByRepo(ctx, sourceRepo, teamID)
+				if err := s.workflowStore.DeleteWorkflowsByRepo(ctx, sourceRepo, teamID); err != nil {
+					log.Printf("agent-repo-syncer: error deleting workflows from %s: %v", sourceRepo, err)
+				}
 				_ = s.repoGroupStore.DeleteRepoGroupsByRepo(ctx, sourceRepo, teamID)
 				// Also clean up schedules from this repo.
 				s.db.Exec(ctx, `DELETE FROM schedules WHERE source_key LIKE $1 AND team_id = $2`, username+"::"+sourceRepo+"::%", teamID)
