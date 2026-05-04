@@ -174,8 +174,21 @@ func main() {
 			} else {
 				target = filepath.Join("/workspace", dir)
 			}
-			if err := cloneRepoToDir(r.URL, r.Ref, target); err != nil {
-				log.Printf("warning: repo clone failed for %s: %v", r.URL, err)
+			// Retry clone with backoff — Gate sidecar may not be DNS-resolvable yet.
+			var cloneErr error
+			for attempt := 1; attempt <= 5; attempt++ {
+				cloneErr = cloneRepoToDir(r.URL, r.Ref, target)
+				if cloneErr == nil {
+					break
+				}
+				log.Printf("warning: repo clone attempt %d/5 failed for %s: %v", attempt, r.URL, cloneErr)
+				if attempt < 5 {
+					time.Sleep(time.Duration(attempt) * 2 * time.Second)
+					os.RemoveAll(target)
+				}
+			}
+			if cloneErr != nil {
+				log.Printf("error: repo clone failed after 5 attempts for %s: %v", r.URL, cloneErr)
 				continue
 			}
 			log.Printf("cloned repo %d/%d: %s -> %s", i+1, len(task.Repos), r.URL, target)
