@@ -36,6 +36,7 @@ type JiraPoller struct {
 	credStore      *CredentialStore
 	workflowEngine *WorkflowEngine
 	defStore       *AgentDefStore
+	client         *http.Client  // shared HTTP client
 	baseURL        string // e.g., "https://redhat.atlassian.net"
 	pollInterval   time.Duration
 	lastPollTime   time.Time
@@ -48,6 +49,7 @@ func NewJiraPoller(db *pgxpool.Pool, credStore *CredentialStore, we *WorkflowEng
 		credStore:      credStore,
 		workflowEngine: we,
 		defStore:       defStore,
+		client:         &http.Client{Timeout: 30 * time.Second},
 		baseURL:        "https://redhat.atlassian.net",
 		pollInterval:   2 * time.Minute,
 		lastPollTime:   time.Now().Add(-5 * time.Minute),
@@ -161,8 +163,8 @@ func (jp *JiraPoller) pollForTeam(ctx context.Context, teamID string, targets []
 	jql := fmt.Sprintf("project IN (%s) AND updated >= \"-%dm\" ORDER BY updated DESC",
 		strings.Join(projects, ","), minutesSinceLastPoll)
 
-	// Search JIRA.
-	searchURL := fmt.Sprintf("%s/rest/api/2/search?jql=%s&maxResults=50&fields=key,summary,status,labels,components,description,issuetype",
+	// Search JIRA with expanded fields.
+	searchURL := fmt.Sprintf("%s/rest/api/2/search?jql=%s&maxResults=50&fields=key,summary,status,labels,components,description,issuetype,priority,assignee,reporter,issuelinks",
 		jp.baseURL, url.QueryEscape(jql))
 
 	data, err := jp.jiraRequest(ctx, token, "GET", searchURL, nil)
@@ -187,6 +189,15 @@ func (jp *JiraPoller) pollForTeam(ctx context.Context, teamID string, targets []
 				IssueType struct {
 					Name string `json:"name"`
 				} `json:"issuetype"`
+				Priority struct {
+					Name string `json:"name"`
+				} `json:"priority"`
+				Assignee *struct {
+					DisplayName string `json:"displayName"`
+				} `json:"assignee"`
+				Reporter *struct {
+					DisplayName string `json:"displayName"`
+				} `json:"reporter"`
 			} `json:"fields"`
 		} `json:"issues"`
 	}
@@ -198,6 +209,9 @@ func (jp *JiraPoller) pollForTeam(ctx context.Context, teamID string, targets []
 	log.Printf("jira-poller: found %d recently updated issues in %v", len(searchResult.Issues), projects)
 
 	// Check each issue against each target's trigger.
+	enrichmentCount := 0
+	const maxEnrichmentPerPoll = 10
+
 	for _, issue := range searchResult.Issues {
 		issueProject := strings.Split(issue.Key, "-")[0]
 		var issueComponents []string
@@ -221,14 +235,21 @@ func (jp *JiraPoller) pollForTeam(ctx context.Context, teamID string, targets []
 
 				log.Printf("jira-poller: triggering workflow %s for issue %s", target.workflowID, issue.Key)
 
-				triggerContext := map[string]interface{}{
-					"issue_key":    issue.Key,
-					"issue_title":  issue.Fields.Summary,
-					"issue_body":   issue.Fields.Description,
-					"issue_url":    fmt.Sprintf("%s/browse/%s", jp.baseURL, issue.Key),
-					"issue_status": issue.Fields.Status.Name,
-					"issue_labels": issue.Fields.Labels,
-					"issue_type":   issue.Fields.IssueType.Name,
+				var triggerContext map[string]interface{}
+
+				// Try enrichment if under the rate limit
+				if enrichmentCount < maxEnrichmentPerPoll {
+					enrichedMarkdown, enrichData, err := jp.enrichJiraIssueContext(ctx, token, issue.Key)
+					if err != nil {
+						log.Printf("jira-poller: enrichment failed for %s, using basic context: %v", issue.Key, err)
+						triggerContext = jp.buildBasicTriggerContext(&issue, "")
+					} else {
+						triggerContext = jp.buildJiraTriggerContext(enrichData, enrichedMarkdown)
+						enrichmentCount++
+					}
+				} else {
+					log.Printf("jira-poller: enrichment rate limit reached, using basic context for %s", issue.Key)
+					triggerContext = jp.buildBasicTriggerContext(&issue, "")
 				}
 
 				_, err := jp.workflowEngine.StartWorkflowRun(ctx, target.workflowID, "jira", issue.Key, target.teamID, triggerContext)
@@ -265,8 +286,7 @@ func (jp *JiraPoller) jiraRequest(ctx context.Context, credential, method, reqUR
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := jp.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -282,4 +302,68 @@ func (jp *JiraPoller) jiraRequest(ctx context.Context, credential, method, reqUR
 	}
 
 	return respBody, nil
+}
+
+// buildBasicTriggerContext creates a trigger context from search results without enrichment
+func (jp *JiraPoller) buildBasicTriggerContext(issue *struct {
+	Key    string `json:"key"`
+	Fields struct {
+		Summary     string `json:"summary"`
+		Description string `json:"description"`
+		Status      struct {
+			Name string `json:"name"`
+		} `json:"status"`
+		Labels     []string `json:"labels"`
+		Components []struct {
+			Name string `json:"name"`
+		} `json:"components"`
+		IssueType struct {
+			Name string `json:"name"`
+		} `json:"issuetype"`
+		Priority struct {
+			Name string `json:"name"`
+		} `json:"priority"`
+		Assignee *struct {
+			DisplayName string `json:"displayName"`
+		} `json:"assignee"`
+		Reporter *struct {
+			DisplayName string `json:"displayName"`
+		} `json:"reporter"`
+	} `json:"fields"`
+}, enrichedContext string) map[string]interface{} {
+	triggerContext := map[string]interface{}{
+		"issue_key":    issue.Key,
+		"issue_title":  issue.Fields.Summary,
+		"issue_body":   issue.Fields.Description,
+		"issue_url":    fmt.Sprintf("%s/browse/%s", jp.baseURL, issue.Key),
+		"issue_status": issue.Fields.Status.Name,
+		"issue_labels": issue.Fields.Labels,
+		"issue_type":   issue.Fields.IssueType.Name,
+		"enriched_context": enrichedContext,
+	}
+
+	// Add assignee if present
+	if issue.Fields.Assignee != nil {
+		triggerContext["issue_assignee"] = issue.Fields.Assignee.DisplayName
+	} else {
+		triggerContext["issue_assignee"] = ""
+	}
+
+	// Add reporter if present
+	if issue.Fields.Reporter != nil {
+		triggerContext["issue_reporter"] = issue.Fields.Reporter.DisplayName
+	} else {
+		triggerContext["issue_reporter"] = ""
+	}
+
+	// Add priority if present
+	triggerContext["issue_priority"] = issue.Fields.Priority.Name
+
+	// Empty placeholders for enriched fields
+	triggerContext["issue_comments"] = ""
+	triggerContext["issue_sprint"] = ""
+	triggerContext["issue_linked_issues"] = ""
+	triggerContext["issue_attachments"] = ""
+
+	return triggerContext
 }
