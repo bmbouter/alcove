@@ -280,6 +280,26 @@ inputs:
 | Variable | Description |
 |----------|-------------|
 | `{{trigger.issue_number}}` | Issue/PR number from the triggering event |
+| `{{trigger.enriched_context}}` | Rich markdown context (GitHub/JIRA only) |
+| **GitHub triggers** | |
+| `{{trigger.issue_title}}` | Issue/PR title |
+| `{{trigger.issue_body}}` | Issue/PR description |
+| `{{trigger.issue_url}}` | Issue/PR URL |
+| **JIRA triggers** | |
+| `{{trigger.issue_key}}` | JIRA issue key (e.g., `PROJ-123`) |
+| `{{trigger.issue_title}}` | JIRA issue summary |
+| `{{trigger.issue_body}}` | JIRA issue description |
+| `{{trigger.issue_url}}` | JIRA issue browser URL |
+| `{{trigger.issue_status}}` | JIRA issue status name |
+| `{{trigger.issue_type}}` | JIRA issue type name |
+| `{{trigger.issue_priority}}` | JIRA issue priority name |
+| `{{trigger.issue_assignee}}` | JIRA issue assignee display name |
+| `{{trigger.issue_reporter}}` | JIRA issue reporter display name |
+| `{{trigger.issue_comments}}` | Formatted comments (up to 20 recent) |
+| `{{trigger.issue_sprint}}` | Sprint name and state |
+| `{{trigger.issue_linked_issues}}` | Linked issues with relationship types |
+| `{{trigger.issue_attachments}}` | Comma-separated attachment filenames |
+| **Other templates** | |
 | `{{steps.<id>.inputs.<key>}}` | Input value from another step |
 | `{{steps.<id>.outputs.<key>}}` | Output value from another step |
 
@@ -334,6 +354,25 @@ for details on creating and managing credentials.
 
 Workflows run in response to events or on a schedule.
 
+### JIRA Event Triggers
+
+```yaml
+trigger:
+  jira:
+    projects: [MYPROJ]
+    labels: [ready-for-dev]
+```
+
+Supported projects use JIRA project keys. All JIRA triggers use polling mode
+(webhooks are not supported). The poller checks for recently updated issues
+every 2 minutes.
+
+**Rich context enrichment:** JIRA triggers automatically enrich the context
+with full issue details including description, comments, linked issues, sprint
+information, and attachment metadata. This data is available both as individual
+template variables (e.g., `{{trigger.issue_comments}}`) and as a formatted
+markdown preamble in `{{trigger.enriched_context}}`.
+
 ### GitHub Event Triggers
 
 ```yaml
@@ -369,6 +408,8 @@ Cron syntax. See `docs/configuration.md` for the full agent definition schema.
 
 This workflow implements a complete develop-review-merge pipeline triggered
 when an issue is labeled `ready-for-dev`.
+
+### GitHub-triggered workflow
 
 ```yaml
 name: Feature Pipeline
@@ -470,6 +511,62 @@ workflow:
     inputs:
       repo: "org/myproject"
       pr: "{{steps.create-pr.outputs.pr_number}}"
+```
+
+### JIRA-triggered workflow
+
+This example shows a JIRA-triggered workflow that uses the enriched context:
+
+```yaml
+name: JIRA Feature Pipeline  
+trigger:
+  jira:
+    projects: [MYPROJ]
+    labels: [ready-for-dev]
+
+workflow:
+  # 1. Dev agent implements the feature with full context
+  - id: implement
+    type: agent
+    agent: dev
+    inputs:
+      branch: "{{trigger.issue_key}}-fix"
+      # The enriched_context includes:
+      # - Full issue description and comments
+      # - Sprint context and linked issues  
+      # - Attachment metadata
+      # - Assignee and priority information
+      context: "{{trigger.enriched_context}}"
+
+  # 2. Create PR with JIRA-specific title format
+  - id: create-pr
+    type: bridge
+    action: create-pr
+    depends: "implement.Succeeded" 
+    inputs:
+      repo: "org/myproject"
+      branch: "{{steps.implement.inputs.branch}}"
+      title: "{{trigger.issue_key}}: {{trigger.issue_title}}"
+      body: |
+        Implements {{trigger.issue_url}}
+        
+        **Priority**: {{trigger.issue_priority}}
+        **Assignee**: {{trigger.issue_assignee}}
+        **Sprint**: {{trigger.issue_sprint}}
+        
+        **Linked Issues**:
+        {{trigger.issue_linked_issues}}
+      base: main
+
+  # 3. Reviews can access individual fields as needed
+  - id: code-review
+    type: agent
+    agent: reviewer
+    depends: "create-pr.Succeeded"
+    inputs:
+      pr: "{{steps.create-pr.outputs.pr_number}}"
+      priority: "{{trigger.issue_priority}}"
+      comments: "{{trigger.issue_comments}}"
 ```
 
 **Cycles in this workflow:**
