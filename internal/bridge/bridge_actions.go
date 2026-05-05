@@ -63,6 +63,7 @@ func RegisterBridgeActions() map[string]BridgeActionHandler {
 		"merge-mr":       bridgeActionMergeMR,
 		"post-note":      bridgeActionPostNote,
 		"update-gl-issue": bridgeActionUpdateGLIssue,
+		"search-gl-issues": bridgeActionSearchGLIssues,
 
 		// JIRA-specific actions.
 		"jira-create-issue":     bridgeActionJiraCreateIssue,
@@ -215,8 +216,23 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 				"updated": "bool - Whether the issue was updated",
 			},
 		},
-	{
-		Name:        "jira-create-issue",
+		{
+			Name:        "search-gl-issues",
+			Description: "Search GitLab issues by project, text search, labels, and state",
+			Inputs: map[string]string{
+				"project":     "string (required) - GitLab project ID or URL-encoded path",
+				"search":      "string (optional) - Text search query",
+				"labels":      "string (optional) - Comma-separated list of labels to filter by",
+				"state":       "string (optional) - Issue state: 'opened', 'closed', or 'all' (default: 'opened')",
+				"max_results": "int (optional) - Maximum results to return (default: 20, max: 100)",
+			},
+			Outputs: map[string]string{
+				"issues": "[]object - Array of issue objects with iid, title, state, web_url, labels",
+				"total":  "int - Total number of matching issues",
+			},
+		},
+		{
+			Name:        "jira-create-issue",
 		Description: "Create a new JIRA issue",
 		Inputs: map[string]string{
 			"project":     "string (required) - JIRA project key",

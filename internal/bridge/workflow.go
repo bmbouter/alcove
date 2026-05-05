@@ -121,6 +121,7 @@ var validBridgeActions = map[string]bool{
 	"merge-mr":        true,
 	"post-note":       true,
 	"update-gl-issue": true,
+	"search-gl-issues": true,
 	// JIRA-specific actions.
 	"jira-create-issue":     true,
 	"jira-transition-issue": true,

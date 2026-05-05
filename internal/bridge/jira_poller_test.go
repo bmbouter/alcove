@@ -231,13 +231,16 @@ func (m *mockWorkflowEngine) StartWorkflowRun(ctx context.Context, workflowID, t
 	return fmt.Sprintf("run-%d", len(m.startedRuns)), nil
 }
 
-// mockCredentialStore is a minimal implementation for testing
-type mockCredentialStore struct {
+// mockJiraCredentialStore is a minimal implementation for testing
+type mockJiraCredentialStore struct {
 	tokens map[string]string
 }
 
-func (m *mockCredentialStore) AcquireSCMTokenForOwner(ctx context.Context, service, teamID string) (string, time.Time, error) {
+func (m *mockJiraCredentialStore) AcquireSCMTokenForOwner(ctx context.Context, service, teamID string) (string, time.Time, error) {
 	key := service + ":" + teamID
+	if m.tokens == nil {
+		return "", time.Time{}, fmt.Errorf("no token for %s", key)
+	}
 	if token, ok := m.tokens[key]; ok {
 		return token, time.Now().Add(time.Hour), nil
 	}
@@ -307,7 +310,7 @@ func TestPollForTeam(t *testing.T) {
 	mockDB := &pgxpool.Pool{} // This will cause some methods to fail, but we'll handle it
 
 	// Create mock dependencies
-	mockCredStore := &mockCredentialStore{
+	mockCredStore := &mockJiraCredentialStore{
 		tokens: map[string]string{
 			"jira:team-1": "test-token",
 		},
@@ -387,7 +390,7 @@ func TestJiraPollerHTTPErrors(t *testing.T) {
 	}))
 	defer server.Close()
 
-	mockCredStore := &mockCredentialStore{
+	mockCredStore := &mockJiraCredentialStore{
 		tokens: map[string]string{
 			"jira:team-1": "test-token",
 		},
