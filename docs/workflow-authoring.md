@@ -115,6 +115,41 @@ poll, `await-ci` treats CI as passed. This handles repos that have no CI
 configured -- without this heuristic, the step would wait until the timeout
 expires.
 
+### create-issue
+
+Creates a new issue on GitHub or GitLab. Auto-detects SCM provider from inputs.
+
+| Input | Required | Description |
+|-------|----------|-------------|
+| `repo` | GitHub | Repository in `owner/repo` format |
+| `project` | GitLab | Project ID or URL-encoded path |
+| `title` | yes | Issue title |
+| `body` | no | Issue description (GitHub) |
+| `description` | no | Issue description (GitLab) |
+| `labels` | no | Array of label names |
+| `assignees` | no | Array of usernames to assign |
+| `milestone` | no | Milestone number (GitHub only) |
+
+**Outputs:** `issue_number` (GitHub), `issue_iid` (GitLab), `issue_url`
+
+### create-gh-issue
+
+Creates a new issue on GitHub.
+
+| Input | Required | Description |
+|-------|----------|-------------|
+| `repo` | yes | Repository in `owner/repo` format |
+| `title` | yes | Issue title |
+| `body` | no | Issue description |
+| `labels` | no | Array of label names |
+| `assignees` | no | Array of usernames to assign |
+| `milestone` | no | Milestone number (not name) |
+
+**Outputs:** `issue_number`, `issue_url`
+
+**Note:** The `milestone` input expects a milestone number, not a name. You can
+find milestone numbers in your repository's milestones page or via the GitHub API.
+
 ### merge-pr
 
 Merges a pull request.
