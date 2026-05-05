@@ -41,12 +41,29 @@ prompt: |
     -d '{"cmd":"cd /workspace && go vet ./...","timeout":120}'
   ```
 
+  4. **Run go test (must pass):**
+  ```bash
+  curl -s -X POST http://$DEV_CONTAINER_HOST/exec \
+    -H "Authorization: Bearer $DEV_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"cmd":"cd /workspace && go test ./...","timeout":300}'
+  ```
+
   ### Validation workflow:
   - Implement your changes
   - Run the validation commands above
-  - If either `go build` or `go vet` fails, fix the errors and run the checks again
-  - Only push when BOTH build and vet pass without errors
+  - If any of `go build`, `go vet`, or `go test` fails, fix the errors and run the checks again
+  - Only push when ALL THREE pass without errors
   - Do NOT skip validation or push with failing checks
+
+  ## GO TEST PATTERNS FOR THIS CODEBASE
+
+  When writing tests in `internal/bridge/`:
+  - Bridge action functions take `*CredentialStore` (concrete type), NOT interfaces. You CANNOT pass mock types. Use `httptest.NewServer` to mock the HTTP endpoints instead.
+  - Do NOT declare `mockCredentialStore` or similar mock types — they conflict with existing declarations in other test files in the same package.
+  - Follow the test patterns in `bridge_actions_jira_test.go` which uses `httptest.NewServer` and the existing `mockCredentialStore` type.
+  - Go uses `if/else` statements, NOT Python ternary syntax (`x if cond else y`).
+  - All test files in `internal/bridge/` share one package — type names must be unique across ALL test files.
 
   If the dev container is not healthy, retry the health check. Do not proceed with validation until the dev container responds to `/healthz`.
 
