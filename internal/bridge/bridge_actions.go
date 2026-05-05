@@ -72,6 +72,7 @@ func RegisterBridgeActions() map[string]BridgeActionHandler {
 		"merge-mr":         bridgeActionMergeMR,
 		"post-note":        bridgeActionPostNote,
 		"update-gl-issue":  bridgeActionUpdateGLIssue,
+		"create-gl-issue":  bridgeActionCreateGLIssue,
 		"search-gl-issues": bridgeActionSearchGLIssues,
 
 		// JIRA-specific actions.
@@ -367,16 +368,20 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 			Name:        "create-issue",
 			Description: "Create a new issue for GitHub or GitLab. Auto-detects SCM from inputs.",
 			Inputs: map[string]string{
-				"repo":       "string (GitHub) - Repository in owner/repo format",
-				"project":    "string (GitLab) - Project ID or URL-encoded path",
-				"title":      "string (required) - Issue title",
-				"body":       "string (optional) - Issue body/description",
-				"labels":     "[]string (optional) - Issue labels",
-				"assignees":  "[]string (optional) - Issue assignees (usernames)",
-				"milestone":  "int (optional) - Milestone number (GitHub only)",
+				"repo":         "string (GitHub) - Repository in owner/repo format",
+				"project":      "string (GitLab) - Project ID or URL-encoded path",
+				"title":        "string (required) - Issue title",
+				"body":         "string (GitHub, optional) - Issue body/description",
+				"description":  "string (GitLab, optional) - Issue description",
+				"labels":       "[]string (GitHub, optional) OR string (GitLab, optional) - Issue labels",
+				"assignees":    "[]string (GitHub, optional) - Issue assignees (usernames)",
+				"assignee_ids": "[]int (GitLab, optional) - Array of user IDs to assign",
+				"milestone":    "int (GitHub, optional) - Milestone number",
+				"milestone_id": "int (GitLab, optional) - Milestone ID",
 			},
 			Outputs: map[string]string{
-				"issue_number": "int - Issue number (GitHub) or Issue IID (GitLab)",
+				"issue_number": "int - Issue number (GitHub)",
+				"issue_iid":    "int - Issue IID (GitLab)",
 				"issue_url":    "string - Issue HTML URL",
 			},
 		},
@@ -394,6 +399,22 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 			Outputs: map[string]string{
 				"issue_number": "int - Issue number",
 				"issue_url":    "string - Issue HTML URL",
+			},
+		},
+		{
+			Name:        "create-gl-issue",
+			Description: "Create a new issue on GitLab",
+			Inputs: map[string]string{
+				"project":      "string (required) - Project ID or URL-encoded path",
+				"title":        "string (required) - Issue title",
+				"description":  "string (optional) - Issue description",
+				"labels":       "string (optional) - Comma-separated list of labels",
+				"assignee_ids": "[]int (optional) - Array of user IDs to assign",
+				"milestone_id": "int (optional) - Milestone ID",
+			},
+			Outputs: map[string]string{
+				"issue_iid": "int - Issue IID",
+				"issue_url": "string - Issue web URL",
 			},
 		},
 		{
@@ -669,6 +690,35 @@ func getStringSliceInput(inputs map[string]interface{}, key string) []string {
 	}
 }
 
+// getIntSliceInput safely extracts an integer slice input value.
+func getIntSliceInput(inputs map[string]interface{}, key string) []int {
+	v, ok := inputs[key]
+	if !ok {
+		return nil
+	}
+	switch val := v.(type) {
+	case []int:
+		return val
+	case []interface{}:
+		var result []int
+		for _, item := range val {
+			switch i := item.(type) {
+			case int:
+				result = append(result, i)
+			case float64:
+				result = append(result, int(i))
+			case string:
+				if n, err := strconv.Atoi(i); err == nil {
+					result = append(result, n)
+				}
+			}
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
 // bridgeActionUnifiedUpdateIssue updates issue metadata and auto-detects SCM.
 func bridgeActionUnifiedUpdateIssue(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
 	scm := detectSCM(inputs)
@@ -727,10 +777,7 @@ func bridgeActionUnifiedCreateIssue(ctx context.Context, inputs map[string]inter
 	scm := detectSCM(inputs)
 	switch scm {
 	case "gitlab":
-		return &BridgeActionResult{
-			Status: "failed",
-			Error:  "create-gl-issue is not yet implemented (see #563)",
-		}, nil
+		return bridgeActionCreateGLIssue(ctx, inputs, credStore, teamID)
 	case "github":
 		return bridgeActionCreateGHIssue(ctx, inputs, credStore, teamID)
 	default:
