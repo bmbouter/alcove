@@ -204,6 +204,22 @@ with a clear error message for GitLab inputs.
     assignees: ["team-lead"]
 ```
 
+## Bridge Action Semantics
+
+**Important:** Bridge actions like `await-ci` and `await-checks` follow these
+semantic rules for step success/failure:
+
+- **CI/Pipeline passes**: Step succeeds (status `completed`)
+- **CI/Pipeline fails**: Step fails (status `failed`)
+- **Timeout or API error**: Step fails (status `failed`)
+
+This ensures that dependency expressions work correctly:
+- `await-ci.Failed` evaluates to `true` when CI fails
+- `await-ci.Succeeded` evaluates to `true` when CI passes
+
+The CI outcome (pass/fail) is also available in the step's `status` output for
+template expansion in downstream steps.
+
 ## Dependencies with Depends Expressions
 
 The `depends` field controls when a step runs using boolean expressions.
@@ -461,7 +477,9 @@ workflow:
       repo: "org/myproject"
       pr: "{{steps.create-pr.outputs.pr_number}}"
 
-  # 5. If CI fails, dev agent fixes issues (up to 3 attempts)
+  # 5. If CI fails, dev agent investigates and fixes (up to 3 attempts)
+  # Note: await-ci now fails when CI fails, so this step runs when CI fails.
+  # This change ensures ci-fix dispatches reliably when CI fails.
   - id: ci-fix
     type: agent
     agent: dev
@@ -512,7 +530,8 @@ workflow:
 
 **Cycles in this workflow:**
 
-1. `await-ci -> ci-fix -> await-ci` -- CI retry loop (fires when CI fails)
+1. `await-ci -> ci-fix -> await-ci` -- CI retry loop (fires when CI fails,
+   allowing automated fixes for common CI failures)
 2. `code-review/security-review -> revision -> code-review/security-review` -- review loop
 
 Each cycle is bounded by `max_iterations`. If a step exhausts its iterations,

@@ -258,7 +258,8 @@ func (we *WorkflowEngine) StartWorkflowRun(ctx context.Context, workflowID, trig
 
 // dispatchStep dispatches a single workflow step.
 func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, step *WorkflowStep, workflow *WorkflowDefinition) error {
-	log.Printf("workflow-engine: dispatching step %s for workflow run %s", step.ID, run.ID)
+	currentIter, _ := we.getStepIteration(ctx, run.ID, step.ID)
+	log.Printf("workflow-engine: dispatching step %s for workflow run %s (iteration %d)", step.ID, run.ID, currentIter+1)
 
 	// Check iteration limit before dispatching.
 	maxIter := step.MaxIterations
@@ -486,6 +487,8 @@ func (we *WorkflowEngine) executeBridgeAction(ctx context.Context, run *Workflow
 		return we.checkAndDispatchDependents(ctx, run, step.ID, workflow)
 	}
 
+	log.Printf("workflow-engine: bridge action %s completed with result status=%s for step %s", step.Action, result.Status, step.ID)
+
 	// Record outputs and mark step as completed/failed.
 	finishedNow := time.Now().UTC()
 	var stepStatus string
@@ -511,7 +514,7 @@ func (we *WorkflowEngine) executeBridgeAction(ctx context.Context, run *Workflow
 		log.Printf("error updating run step outputs for bridge step %s: %v", step.ID, err)
 	}
 
-	log.Printf("bridge action %s completed with status %s for step %s", step.Action, stepStatus, step.ID)
+	log.Printf("workflow-engine: bridge action %s completed with status %s for step %s", step.Action, stepStatus, step.ID)
 
 	// Check and dispatch dependents.
 	if err := we.checkAndDispatchDependents(ctx, run, step.ID, workflow); err != nil {
@@ -799,7 +802,7 @@ func (we *WorkflowEngine) checkWorkflowCompletion(ctx context.Context, run *Work
 			}
 			result, err := EvaluateDepends(stepDef.Depends, stepStatuses)
 			if err == nil && !result {
-				log.Printf("marking unreachable step %s as skipped", step.StepID)
+				log.Printf("workflow-engine: marking unreachable step %s as skipped (depends='%s' evaluates to false)", step.StepID, stepDef.Depends)
 				we.updateStepStatus(ctx, run.ID, step.StepID, "skipped", nil, nil)
 			}
 		}

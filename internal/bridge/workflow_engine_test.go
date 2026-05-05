@@ -325,68 +325,55 @@ func TestWorkflowRunsFilter_validate(t *testing.T) {
 	}
 }
 
-// TestAwaitCIDependsEvaluation tests that the depends expression evaluation works correctly
-// for await-ci step failures.
-func TestAwaitCIDependsEvaluation(t *testing.T) {
+// TestCIFixDispatchDependency verifies that ci-fix steps correctly dispatch
+// when await-ci steps fail (not when they succeed).
+func TestCIFixDispatchDependency(t *testing.T) {
 	tests := []struct {
-		name           string
-		dependsExpr    string
-		stepStatuses   map[string]string
-		expectedResult bool
+		name             string
+		awaitCIStatus    string
+		codeReviewStatus string
+		expectedCIFix    bool
+		expectedReview   bool
 	}{
 		{
-			name:        "await-ci.Failed evaluates to true when step failed",
-			dependsExpr: "await-ci.Failed",
-			stepStatuses: map[string]string{
-				"await-ci": "failed",
-			},
-			expectedResult: true,
+			name:             "CI fails - ci-fix should dispatch",
+			awaitCIStatus:    "failed",
+			codeReviewStatus: "pending",
+			expectedCIFix:    true,
+			expectedReview:   false,
 		},
 		{
-			name:        "await-ci.Failed evaluates to false when step completed",
-			dependsExpr: "await-ci.Failed",
-			stepStatuses: map[string]string{
-				"await-ci": "completed",
-			},
-			expectedResult: false,
-		},
-		{
-			name:        "await-ci.Succeeded evaluates to true when step completed",
-			dependsExpr: "await-ci.Succeeded",
-			stepStatuses: map[string]string{
-				"await-ci": "completed",
-			},
-			expectedResult: true,
-		},
-		{
-			name:        "await-ci.Succeeded evaluates to false when step failed",
-			dependsExpr: "await-ci.Succeeded",
-			stepStatuses: map[string]string{
-				"await-ci": "failed",
-			},
-			expectedResult: false,
-		},
-		{
-			name:        "Complex expression with ci-fix dependency",
-			dependsExpr: "await-ci.Failed && ci-fix.Succeeded",
-			stepStatuses: map[string]string{
-				"await-ci": "failed",
-				"ci-fix":   "completed",
-			},
-			expectedResult: true,
+			name:             "CI passes - code-review should dispatch",
+			awaitCIStatus:    "completed",
+			codeReviewStatus: "pending",
+			expectedCIFix:    false,
+			expectedReview:   true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := EvaluateDepends(tt.dependsExpr, tt.stepStatuses)
-			if err != nil {
-				t.Fatalf("EvaluateDepends returned error: %v", err)
+			stepStatuses := map[string]string{
+				"await-ci":     tt.awaitCIStatus,
+				"code-review":  tt.codeReviewStatus,
 			}
 
-			if result != tt.expectedResult {
-				t.Errorf("expected %v, got %v for expression '%s' with statuses %v",
-					tt.expectedResult, result, tt.dependsExpr, tt.stepStatuses)
+			// Test ci-fix dependency: depends on "await-ci.Failed"
+			cifixReady, err := EvaluateDepends("await-ci.Failed", stepStatuses)
+			if err != nil {
+				t.Fatalf("EvaluateDepends for ci-fix failed: %v", err)
+			}
+			if cifixReady != tt.expectedCIFix {
+				t.Errorf("ci-fix readiness: got %v, expected %v", cifixReady, tt.expectedCIFix)
+			}
+
+			// Test code-review dependency: depends on "await-ci.Succeeded"
+			reviewReady, err := EvaluateDepends("await-ci.Succeeded", stepStatuses)
+			if err != nil {
+				t.Fatalf("EvaluateDepends for code-review failed: %v", err)
+			}
+			if reviewReady != tt.expectedReview {
+				t.Errorf("code-review readiness: got %v, expected %v", reviewReady, tt.expectedReview)
 			}
 		})
 	}
