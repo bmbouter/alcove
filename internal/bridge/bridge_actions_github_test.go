@@ -15,6 +15,11 @@
 package bridge
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -105,6 +110,165 @@ func TestEvaluateDependsWithAwaitCIFailed(t *testing.T) {
 			}
 			if result != tt.expected {
 				t.Errorf("EvaluateDepends(%q, %v) = %v, expected %v", tt.expression, tt.stepStatuses, result, tt.expected)
+			}
+		})
+	}
+}
+
+// MockCredStore for testing
+type MockCredStore struct{}
+
+func (m *MockCredStore) AcquireSCMTokenForOwner(ctx context.Context, scm, teamID string) (string, string, error) {
+	return "test-token", "", nil
+}
+
+// Test helper function to set up a test server
+func setupTestServer() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{"test": "response"})
+	}))
+}
+
+func TestGithubPushEmptyCommit(t *testing.T) {
+	tests := []struct {
+		name           string
+		setupServer    func() *httptest.Server
+		repo           string
+		branch         string
+		headSHA        string
+		expectedError  bool
+	}{
+		{
+			name: "successful empty commit",
+			setupServer: func() *httptest.Server {
+				callCount := 0
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					callCount++
+					switch callCount {
+					case 1: // Get commit tree
+						if !strings.Contains(r.URL.Path, "/git/commits/") {
+							http.Error(w, "expected commit path", 400)
+							return
+						}
+						json.NewEncoder(w).Encode(map[string]interface{}{
+							"tree": map[string]string{"sha": "tree-sha-123"},
+						})
+					case 2: // Create new commit
+						if !strings.Contains(r.URL.Path, "/git/commits") {
+							http.Error(w, "expected commits path", 400)
+							return
+						}
+						json.NewEncoder(w).Encode(map[string]interface{}{
+							"sha": "new-commit-sha-456",
+						})
+					case 3: // Update ref
+						if !strings.Contains(r.URL.Path, "/git/refs/heads/") {
+							http.Error(w, "expected ref path", 400)
+							return
+						}
+						json.NewEncoder(w).Encode(map[string]interface{}{
+							"ref": "refs/heads/test-branch",
+							"object": map[string]string{"sha": "new-commit-sha-456"},
+						})
+					}
+				}))
+			},
+			repo:          "owner/repo",
+			branch:        "test-branch",
+			headSHA:       "head-sha-123",
+			expectedError: false,
+		},
+		{
+			name: "commit tree fetch fails",
+			setupServer: func() *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					http.Error(w, "Not Found", 404)
+				}))
+			},
+			repo:          "owner/repo",
+			branch:        "test-branch",
+			headSHA:       "head-sha-123",
+			expectedError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := tt.setupServer()
+			defer server.Close()
+
+			ctx := context.Background()
+			err := githubPushEmptyCommit(ctx, "test-token", server.URL, tt.repo, tt.branch, tt.headSHA)
+
+			if tt.expectedError && err == nil {
+				t.Error("expected error but got none")
+			}
+			if !tt.expectedError && err != nil {
+				t.Errorf("expected no error but got: %v", err)
+			}
+		})
+	}
+}
+
+func TestGithubUpdatePRState(t *testing.T) {
+	tests := []struct {
+		name          string
+		setupServer   func() *httptest.Server
+		repo          string
+		pr            int
+		state         string
+		expectedError bool
+	}{
+		{
+			name: "successful state update",
+			setupServer: func() *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method != "PATCH" {
+						http.Error(w, "expected PATCH", 400)
+						return
+					}
+					if !strings.Contains(r.URL.Path, "/pulls/123") {
+						http.Error(w, "expected PR path", 400)
+						return
+					}
+					json.NewEncoder(w).Encode(map[string]interface{}{
+						"state": "closed",
+					})
+				}))
+			},
+			repo:          "owner/repo",
+			pr:            123,
+			state:         "closed",
+			expectedError: false,
+		},
+		{
+			name: "API error",
+			setupServer: func() *httptest.Server {
+				return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					http.Error(w, "Server Error", 500)
+				}))
+			},
+			repo:          "owner/repo",
+			pr:            123,
+			state:         "closed",
+			expectedError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := tt.setupServer()
+			defer server.Close()
+
+			ctx := context.Background()
+			err := githubUpdatePRState(ctx, "test-token", server.URL, tt.repo, tt.pr, tt.state)
+
+			if tt.expectedError && err == nil {
+				t.Error("expected error but got none")
+			}
+			if !tt.expectedError && err != nil {
+				t.Errorf("expected no error but got: %v", err)
 			}
 		})
 	}

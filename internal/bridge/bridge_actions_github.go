@@ -158,6 +158,11 @@ func bridgeActionAwaitCI(ctx context.Context, inputs map[string]interface{}, cre
 
 	deadline := time.Now().Add(time.Duration(timeout) * time.Second)
 	pollInterval := 30 * time.Second
+	startTime := time.Now()
+
+	var recoveryActions []string
+	recoveryEmptyCommitDone := false
+	recoveryReopenDone := false
 
 	for time.Now().Before(deadline) {
 		// Check for context cancellation.
@@ -182,6 +187,7 @@ func bridgeActionAwaitCI(ctx context.Context, inputs map[string]interface{}, cre
 		var prInfo struct {
 			Head struct {
 				SHA string `json:"sha"`
+				Ref string `json:"ref"`
 			} `json:"head"`
 			State  string `json:"state"`
 			Merged bool   `json:"merged"`
@@ -227,18 +233,43 @@ func bridgeActionAwaitCI(ctx context.Context, inputs map[string]interface{}, cre
 		}
 
 		if len(checks.CheckRuns) == 0 {
-			// If no checks after 90s, treat as passed (repo has no CI configured).
-			if time.Since(deadline.Add(-time.Duration(timeout)*time.Second)) > 90*time.Second {
-				log.Printf("bridge-action await-ci: no check runs found after 90s for %s#%d, treating as passed", repo, pr)
-				return &BridgeActionResult{
-					Status: "succeeded",
-					Outputs: map[string]interface{}{
-						"status":        "passed",
-						"failure_logs":  "",
-						"failed_checks": []string{},
-					},
-				}, nil
+			elapsed := time.Since(startTime)
+
+			// Phase 1: After 60s with no checks, push an empty commit
+			if elapsed > 60*time.Second && !recoveryEmptyCommitDone {
+				log.Printf("bridge-action await-ci: recovery: pushing empty commit for %s#%d (no check runs after 60s)", repo, pr)
+
+				if prInfo.Head.Ref != "" && prInfo.Head.SHA != "" {
+					if err := githubPushEmptyCommit(ctx, token, apiHost, repo, prInfo.Head.Ref, prInfo.Head.SHA); err != nil {
+						log.Printf("bridge-action await-ci: recovery: empty commit failed for %s#%d: %v", repo, pr, err)
+					} else {
+						recoveryActions = append(recoveryActions, "empty_commit")
+						log.Printf("bridge-action await-ci: recovery: empty commit pushed for %s#%d", repo, pr)
+					}
+				}
+				recoveryEmptyCommitDone = true
 			}
+
+			// Phase 2: After 120s with no checks, close and reopen PR
+			if elapsed > 120*time.Second && !recoveryReopenDone {
+				log.Printf("bridge-action await-ci: recovery: closing and reopening PR %s#%d (no check runs after 120s)", repo, pr)
+
+				// Close PR
+				if err := githubUpdatePRState(ctx, token, apiHost, repo, pr, "closed"); err != nil {
+					log.Printf("bridge-action await-ci: recovery: close PR failed for %s#%d: %v", repo, pr, err)
+				} else {
+					time.Sleep(1 * time.Second) // Brief pause
+					// Reopen PR
+					if err := githubUpdatePRState(ctx, token, apiHost, repo, pr, "open"); err != nil {
+						log.Printf("bridge-action await-ci: recovery: reopen PR failed for %s#%d: %v", repo, pr, err)
+					} else {
+						recoveryActions = append(recoveryActions, "close_reopen")
+						log.Printf("bridge-action await-ci: recovery: PR %s#%d closed and reopened", repo, pr)
+					}
+				}
+				recoveryReopenDone = true
+			}
+
 			time.Sleep(pollInterval)
 			continue
 		}
@@ -267,13 +298,17 @@ func bridgeActionAwaitCI(ctx context.Context, inputs map[string]interface{}, cre
 
 		if !anyFailed {
 			log.Printf("bridge-action await-ci: CI passed for %s#%d", repo, pr)
+			outputs := map[string]interface{}{
+				"status":        "passed",
+				"failure_logs":  "",
+				"failed_checks": []string{},
+			}
+			if len(recoveryActions) > 0 {
+				outputs["recovery_actions"] = recoveryActions
+			}
 			return &BridgeActionResult{
-				Status: "succeeded",
-				Outputs: map[string]interface{}{
-					"status":        "passed",
-					"failure_logs":  "",
-					"failed_checks": []string{},
-				},
+				Status:  "succeeded",
+				Outputs: outputs,
 			}, nil
 		}
 
@@ -294,21 +329,30 @@ func bridgeActionAwaitCI(ctx context.Context, inputs map[string]interface{}, cre
 			failureLogs.WriteString(fmt.Sprintf("\n### %s\n```\n%s\n```\n", failedCheckNames[i], logStr))
 		}
 
+		outputs := map[string]interface{}{
+			"status":        "failed",
+			"failure_logs":  failureLogs.String(),
+			"failed_checks": failedCheckNames,
+		}
+		if len(recoveryActions) > 0 {
+			outputs["recovery_actions"] = recoveryActions
+		}
 		return &BridgeActionResult{
-			Status: "failed", // CI failed, so the step should be marked as failed.
-			Outputs: map[string]interface{}{
-				"status":        "failed",
-				"failure_logs":  failureLogs.String(),
-				"failed_checks": failedCheckNames,
-			},
+			Status:  "failed", // CI failed, so the step should be marked as failed.
+			Outputs: outputs,
 		}, nil
 	}
 
 	// Timeout.
 	log.Printf("bridge-action await-ci: timed out waiting for CI on %s#%d", repo, pr)
+	outputs := map[string]interface{}{}
+	if len(recoveryActions) > 0 {
+		outputs["recovery_actions"] = recoveryActions
+	}
 	return &BridgeActionResult{
-		Status: "failed",
-		Error:  fmt.Sprintf("timed out after %d seconds waiting for CI checks", timeout),
+		Status:  "failed",
+		Error:   fmt.Sprintf("timed out after %d seconds waiting for CI checks", timeout),
+		Outputs: outputs,
 	}, nil
 }
 
@@ -539,6 +583,85 @@ func githubRequest(ctx context.Context, token, method, url string, body []byte) 
 	}
 
 	return respBody, nil
+}
+
+// githubPushEmptyCommit pushes an empty commit to a branch to trigger CI
+func githubPushEmptyCommit(ctx context.Context, token, apiHost, repo, branch, headSHA string) error {
+	// Step 1: Get the commit tree SHA
+	commitURL := fmt.Sprintf("%s/repos/%s/git/commits/%s", apiHost, repo, headSHA)
+	commitData, err := githubRequest(ctx, token, "GET", commitURL, nil)
+	if err != nil {
+		return fmt.Errorf("getting commit tree: %w", err)
+	}
+
+	var commit struct {
+		Tree struct {
+			SHA string `json:"sha"`
+		} `json:"tree"`
+	}
+	if err := json.Unmarshal(commitData, &commit); err != nil {
+		return fmt.Errorf("parsing commit response: %w", err)
+	}
+
+	// Step 2: Create a new commit with the same tree
+	newCommitBody := map[string]interface{}{
+		"message": "Trigger CI (empty commit by Alcove)",
+		"tree":    commit.Tree.SHA,
+		"parents": []string{headSHA},
+	}
+	newCommitJSON, err := json.Marshal(newCommitBody)
+	if err != nil {
+		return fmt.Errorf("marshaling new commit: %w", err)
+	}
+
+	commitCreateURL := fmt.Sprintf("%s/repos/%s/git/commits", apiHost, repo)
+	commitRespData, err := githubRequest(ctx, token, "POST", commitCreateURL, newCommitJSON)
+	if err != nil {
+		return fmt.Errorf("creating new commit: %w", err)
+	}
+
+	var newCommit struct {
+		SHA string `json:"sha"`
+	}
+	if err := json.Unmarshal(commitRespData, &newCommit); err != nil {
+		return fmt.Errorf("parsing new commit response: %w", err)
+	}
+
+	// Step 3: Update the branch ref
+	updateRefBody := map[string]interface{}{
+		"sha": newCommit.SHA,
+	}
+	updateRefJSON, err := json.Marshal(updateRefBody)
+	if err != nil {
+		return fmt.Errorf("marshaling ref update: %w", err)
+	}
+
+	refURL := fmt.Sprintf("%s/repos/%s/git/refs/heads/%s", apiHost, repo, branch)
+	_, err = githubRequest(ctx, token, "PATCH", refURL, updateRefJSON)
+	if err != nil {
+		return fmt.Errorf("updating branch ref: %w", err)
+	}
+
+	return nil
+}
+
+// githubUpdatePRState updates a pull request state (closed/open)
+func githubUpdatePRState(ctx context.Context, token, apiHost, repo string, pr int, state string) error {
+	updateBody := map[string]interface{}{
+		"state": state,
+	}
+	updateJSON, err := json.Marshal(updateBody)
+	if err != nil {
+		return fmt.Errorf("marshaling state update: %w", err)
+	}
+
+	prURL := fmt.Sprintf("%s/repos/%s/pulls/%d", apiHost, repo, pr)
+	_, err = githubRequest(ctx, token, "PATCH", prURL, updateJSON)
+	if err != nil {
+		return fmt.Errorf("updating PR state: %w", err)
+	}
+
+	return nil
 }
 
 // bridgeActionUpdateGHIssue updates issue metadata on GitHub.
