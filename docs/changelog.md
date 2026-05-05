@@ -3,6 +3,12 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.42.5
+
+### Bug Fixes
+- Fix dev container reliability: clone retry with backoff, git safe.directory, shim HOME fallback, default CWD to /workspace
+- Shim exec now defaults to /workspace as working directory so agents don't need `cd /workspace &&`
+
 ## v0.42.4
 
 ### Bug Fixes
