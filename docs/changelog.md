@@ -3,6 +3,11 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.42.7
+
+### Bug Fixes
+- Remove broken SDLC-generated test files that block CI
+
 ## v0.42.6
 
 ### Bug Fixes
