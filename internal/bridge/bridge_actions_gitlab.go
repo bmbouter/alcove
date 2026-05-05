@@ -138,7 +138,7 @@ func bridgeActionPostNote(ctx context.Context, inputs map[string]interface{}, cr
 
 	log.Printf("bridge-action post-note: posted note on MR !%d in %s", mrIID, project)
 	return &BridgeActionResult{
-		Status: "succeeded",
+		Status:  "succeeded",
 		Outputs: map[string]interface{}{"posted": true},
 	}, nil
 }
@@ -263,7 +263,7 @@ func bridgeActionMergeMR(ctx context.Context, inputs map[string]interface{}, cre
 
 	log.Printf("bridge-action merge-mr: merged MR !%d in %s (sha: %s)", mrIID, project, mergeResp.MergeCommitSHA)
 	return &BridgeActionResult{
-		Status: "succeeded",
+		Status:  "succeeded",
 		Outputs: map[string]interface{}{"merge_sha": mergeResp.MergeCommitSHA},
 	}, nil
 }
@@ -350,7 +350,7 @@ func bridgeActionUpdateGLIssue(ctx context.Context, inputs map[string]interface{
 	}
 
 	var currentIssue struct {
-		Labels []string `json:"labels"`
+		Labels    []string `json:"labels"`
 		Assignees []struct {
 			Username string `json:"username"`
 		} `json:"assignees"`
@@ -459,6 +459,108 @@ func bridgeActionUpdateGLIssue(ctx context.Context, inputs map[string]interface{
 		Status: "succeeded",
 		Outputs: map[string]interface{}{
 			"updated": true,
+		},
+	}, nil
+}
+
+// bridgeActionSearchGLIssues searches GitLab issues using the Issues API.
+func bridgeActionSearchGLIssues(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
+	project := getStringInput(inputs, "project")
+	search := getStringInput(inputs, "search")
+	labels := getStringInput(inputs, "labels")
+	state := getStringInput(inputs, "state")
+	maxResults := getIntInput(inputs, "max_results")
+
+	if project == "" {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  "missing required inputs: project",
+		}, nil
+	}
+
+	// Set defaults
+	if state == "" {
+		state = "opened"
+	}
+	if maxResults == 0 {
+		maxResults = 20
+	}
+	if maxResults > 100 {
+		maxResults = 100
+	}
+
+	token, apiHost, err := credStore.AcquireSCMTokenForOwner(ctx, "gitlab", teamID)
+	if err != nil {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  fmt.Sprintf("failed to acquire GitLab token: %v", err),
+		}, nil
+	}
+
+	if apiHost == "" {
+		apiHost = "https://gitlab.cee.redhat.com"
+	}
+
+	// URL-encode the project path
+	encodedProject := strings.ReplaceAll(project, "/", "%2F")
+
+	// Build query parameters
+	queryParams := url.Values{}
+	queryParams.Set("state", state)
+	queryParams.Set("per_page", fmt.Sprintf("%d", maxResults))
+
+	if search != "" {
+		queryParams.Set("search", search)
+	}
+	if labels != "" {
+		queryParams.Set("labels", labels)
+	}
+
+	searchURL := fmt.Sprintf("%s/api/v4/projects/%s/issues?%s", apiHost, encodedProject, queryParams.Encode())
+
+	respBody, err := gitlabRequest(ctx, token, "GET", searchURL, nil)
+	if err != nil {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  fmt.Sprintf("GitLab API error searching issues: %v", err),
+		}, nil
+	}
+
+	var issues []struct {
+		IID    int      `json:"iid"`
+		Title  string   `json:"title"`
+		State  string   `json:"state"`
+		WebURL string   `json:"web_url"`
+		Labels []string `json:"labels"`
+	}
+
+	if err := json.Unmarshal(respBody, &issues); err != nil {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  fmt.Sprintf("failed to parse GitLab issues response: %v", err),
+		}, nil
+	}
+
+	// Build structured output
+	var issueObjects []map[string]interface{}
+	for _, issue := range issues {
+		issueObj := map[string]interface{}{
+			"iid":     issue.IID,
+			"title":   issue.Title,
+			"state":   issue.State,
+			"web_url": issue.WebURL,
+			"labels":  issue.Labels,
+		}
+		issueObjects = append(issueObjects, issueObj)
+	}
+
+	log.Printf("bridge-action search-gl-issues: found %d issues in %s", len(issueObjects), project)
+
+	return &BridgeActionResult{
+		Status: "succeeded",
+		Outputs: map[string]interface{}{
+			"issues": issueObjects,
+			"total":  len(issueObjects),
 		},
 	}, nil
 }

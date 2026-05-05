@@ -116,11 +116,12 @@ var validBridgeActions = map[string]bool{
 	"comment":              true,
 	"update-issue":         true,
 	// GitLab-specific aliases.
-	"create-mr":       true,
-	"await-pipeline":  true,
-	"merge-mr":        true,
-	"post-note":       true,
-	"update-gl-issue": true,
+	"create-mr":        true,
+	"await-pipeline":   true,
+	"merge-mr":         true,
+	"post-note":        true,
+	"update-gl-issue":  true,
+	"search-gl-issues": true,
 	// JIRA-specific actions.
 	"jira-create-issue":     true,
 	"jira-transition-issue": true,
