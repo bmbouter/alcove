@@ -58,11 +58,12 @@ func RegisterBridgeActions() map[string]BridgeActionHandler {
 		"update-gh-issue": bridgeActionUpdateGHIssue,
 
 		// GitLab-specific aliases.
-		"create-mr":       bridgeActionCreateMR,
-		"await-pipeline":  bridgeActionAwaitPipeline,
-		"merge-mr":        bridgeActionMergeMR,
-		"post-note":       bridgeActionPostNote,
-		"update-gl-issue": bridgeActionUpdateGLIssue,
+		"create-mr":        bridgeActionCreateMR,
+		"await-pipeline":   bridgeActionAwaitPipeline,
+		"merge-mr":         bridgeActionMergeMR,
+		"post-note":        bridgeActionPostNote,
+		"update-gl-issue":  bridgeActionUpdateGLIssue,
+		"search-gl-issues": bridgeActionSearchGLIssues,
 
 		// JIRA-specific actions.
 		"jira-create-issue":     bridgeActionJiraCreateIssue,
@@ -288,11 +289,15 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 		},
 		{
 			Name:        "search-issues",
-			Description: "Search issues across GitHub or JIRA (auto-detects from inputs)",
+			Description: "Search issues across GitHub, GitLab, or JIRA (auto-detects from inputs)",
 			Inputs: map[string]string{
 				"repo":        "string (GitHub) - Repository in owner/repo format",
+				"project":     "string (GitLab) - Project ID or URL-encoded path",
 				"jql":         "string (JIRA) - JQL query string",
 				"query":       "string (GitHub) - GitHub search query",
+				"search":      "string (GitLab) - Text search within issue title and description",
+				"labels":      "string (GitLab, optional) - Comma-separated list of labels to filter by",
+				"state":       "string (GitLab, optional) - Issue state: 'opened', 'closed', or 'all'",
 				"max_results": "int (optional) - Maximum results to return (default varies by platform)",
 			},
 			Outputs: map[string]string{
@@ -300,6 +305,21 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 				"issue_keys":         "[]string - Array of issue keys (JIRA only)",
 				"total":              "int - Total number of matching issues",
 				"incomplete_results": "bool - Whether search results may be incomplete (GitHub only)",
+			},
+		},
+		{
+			Name:        "search-gl-issues",
+			Description: "Search GitLab issues using GitLab Issues API",
+			Inputs: map[string]string{
+				"project":     "string (required) - GitLab project ID or URL-encoded path",
+				"search":      "string (optional) - Text search within issue title and description",
+				"labels":      "string (optional) - Comma-separated list of labels to filter by",
+				"state":       "string (optional) - Issue state: 'opened', 'closed', or 'all' (default: opened)",
+				"max_results": "int (optional) - Maximum results to return (default 20, max 100)",
+			},
+			Outputs: map[string]string{
+				"issues": "[]object - Array of issue objects with iid/title/state/web_url/labels",
+				"total":  "int - Total number of matching issues in the response",
 			},
 		},
 	}
@@ -486,11 +506,16 @@ func bridgeActionUnifiedUpdateIssue(ctx context.Context, inputs map[string]inter
 	}
 }
 
-// bridgeActionSearchIssues searches issues across GitHub or JIRA based on inputs.
+// bridgeActionSearchIssues searches issues across GitHub, GitLab, or JIRA based on inputs.
 func bridgeActionSearchIssues(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
 	// Check for GitHub inputs
 	if repo := getStringInput(inputs, "repo"); repo != "" {
 		return bridgeActionSearchGHIssues(ctx, inputs, credStore, teamID)
+	}
+
+	// Check for GitLab inputs
+	if project := getStringInput(inputs, "project"); project != "" {
+		return bridgeActionSearchGLIssues(ctx, inputs, credStore, teamID)
 	}
 
 	// Check for JIRA inputs
@@ -500,6 +525,6 @@ func bridgeActionSearchIssues(ctx context.Context, inputs map[string]interface{}
 
 	return &BridgeActionResult{
 		Status: "failed",
-		Error:  "cannot detect search target: provide 'repo' (GitHub) or 'jql' (JIRA)",
+		Error:  "cannot detect search target: provide 'repo' (GitHub), 'project' (GitLab), or 'jql' (JIRA)",
 	}, nil
 }
