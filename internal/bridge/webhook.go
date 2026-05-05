@@ -22,10 +22,68 @@ import (
 // EventTrigger defines when a task should be triggered by external events.
 type EventTrigger struct {
 	GitHub *GitHubTrigger `json:"github,omitempty" yaml:"github"`
+	GitLab *GitLabTrigger `json:"gitlab,omitempty" yaml:"gitlab"`
 	Jira   *JiraTrigger   `json:"jira,omitempty" yaml:"jira"`
 }
 
-// JiraTrigger defines JIRA issue matching criteria for workflow triggers.
+// GitLabTrigger defines GitLab webhook event matching criteria.
+type GitLabTrigger struct {
+	Events   []string `json:"events" yaml:"events"`                       // merge_request, issue, push, comment, pipeline
+	Actions  []string `json:"actions,omitempty" yaml:"actions"`           // opened, merged, labeled, closed, pushed
+	Projects []string `json:"projects,omitempty" yaml:"projects"`         // group/project filters (empty = all)
+	Branches []string `json:"branches,omitempty" yaml:"branches"`         // branch filters (empty = all)
+	Labels   []string `json:"labels,omitempty" yaml:"labels"`             // label filters (empty = all)
+}
+
+// Matches checks if a GitLab event matches this trigger config.
+func (t *GitLabTrigger) Matches(eventType, action, project, branch string, labels []string) bool {
+	if t == nil {
+		return false
+	}
+
+	// eventType must be in t.Events.
+	if !stringInSlice(eventType, t.Events) {
+		return false
+	}
+
+	// If t.Actions is non-empty, action must be in t.Actions.
+	if len(t.Actions) > 0 && !stringInSlice(action, t.Actions) {
+		return false
+	}
+
+	// If t.Projects is non-empty, project must match one of the patterns.
+	if len(t.Projects) > 0 && !matchesAnyPattern(project, t.Projects) {
+		return false
+	}
+
+	// If t.Branches is non-empty, branch must be in t.Branches.
+	if len(t.Branches) > 0 && !stringInSlice(branch, t.Branches) {
+		return false
+	}
+
+	// Labels filter (AND with other filters). If trigger specifies labels,
+	// at least one must be present on the issue/MR.
+	if len(t.Labels) > 0 {
+		matched := false
+		for _, required := range t.Labels {
+			for _, have := range labels {
+				if strings.EqualFold(required, have) {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+
+	return true
+}
+
 type JiraTrigger struct {
 	Projects   []string `json:"projects" yaml:"projects"`                       // JIRA project keys (e.g., "RHCLOUD", "AAP")
 	Components []string `json:"components,omitempty" yaml:"components,omitempty"` // component filters (empty = all)

@@ -129,6 +129,9 @@ func ParseAgentDefinition(data []byte) (*AgentDefinition, error) {
 		if td.Trigger.GitHub != nil && len(td.Trigger.GitHub.Events) == 0 {
 			return nil, fmt.Errorf("trigger.github block present but events list is empty")
 		}
+		if td.Trigger.GitLab != nil && len(td.Trigger.GitLab.Events) == 0 {
+			return nil, fmt.Errorf("trigger.gitlab block present but events list is empty")
+		}
 	}
 
 	if td.DevContainer != nil && td.DevContainer.Image == "" {

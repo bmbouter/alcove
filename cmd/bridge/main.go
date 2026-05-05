@@ -228,6 +228,11 @@ func main() {
 	go jiraPoller.Start(context.Background())
 	log.Println("JIRA poller started")
 
+	// Start GitLab poller for GitLab-triggered workflows and schedules.
+	gitlabPoller := bridge.NewGitLabPoller(dbpool, credStore, workflowEngine, defStore, dispatcher)
+	go gitlabPoller.Start(context.Background())
+	log.Println("GitLab poller started")
+
 	// Create and start the scheduler.
 	scheduler := bridge.NewScheduler(dbpool, dispatcher, cfg, credStore, defStore, settingsStore)
 	scheduler.SetWorkflowEngine(workflowEngine)

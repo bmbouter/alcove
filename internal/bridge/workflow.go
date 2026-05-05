@@ -93,6 +93,9 @@ func ParseWorkflowDefinition(data []byte) (*WorkflowDefinition, error) {
 		if wd.Trigger.GitHub != nil && len(wd.Trigger.GitHub.Events) == 0 {
 			return nil, fmt.Errorf("workflow trigger.github block present but events list is empty")
 		}
+		if wd.Trigger.GitLab != nil && len(wd.Trigger.GitLab.Events) == 0 {
+			return nil, fmt.Errorf("workflow trigger.gitlab block present but events list is empty")
+		}
 	}
 
 	return &wd, nil
