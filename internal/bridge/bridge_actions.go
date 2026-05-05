@@ -62,17 +62,18 @@ func RegisterBridgeActions() map[string]BridgeActionHandler {
 		"await-ci":        bridgeActionAwaitCI,
 		"merge-pr":        bridgeActionMergePR,
 		"rebase-pr":       bridgeActionRebasePR,
-		"await-release":   bridgeActionAwaitRelease,
+		"await-release":   bridgeActionUnifiedAwaitRelease,
 		"update-gh-issue": bridgeActionUpdateGHIssue,
 		"create-gh-issue": bridgeActionCreateGHIssue,
 
 		// GitLab-specific aliases.
-		"create-mr":        bridgeActionCreateMR,
-		"await-pipeline":   bridgeActionAwaitPipeline,
-		"merge-mr":         bridgeActionMergeMR,
-		"post-note":        bridgeActionPostNote,
-		"update-gl-issue":  bridgeActionUpdateGLIssue,
-		"create-gl-issue":  bridgeActionCreateGLIssue,
+		"create-mr":         bridgeActionCreateMR,
+		"await-pipeline":    bridgeActionAwaitPipeline,
+		"merge-mr":          bridgeActionMergeMR,
+		"post-note":         bridgeActionPostNote,
+		"await-gl-release":  bridgeActionAwaitGLRelease,
+		"update-gl-issue":   bridgeActionUpdateGLIssue,
+		"create-gl-issue":   bridgeActionCreateGLIssue,
 		"search-gl-issues": bridgeActionSearchGLIssues,
 
 		// JIRA-specific actions.
@@ -337,9 +338,22 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 		},
 		{
 			Name:        "await-release",
-			Description: "Wait for a GitHub release to exist by tag",
+			Description: "Wait for a release to exist by tag. Auto-detects SCM from inputs.",
 			Inputs: map[string]string{
-				"repo":    "string (required) - Repository in owner/repo format",
+				"repo":    "string (GitHub) - Repository in owner/repo format",
+				"project": "string (GitLab) - Project ID or URL-encoded path",
+				"tag":     "string (required) - Release tag (e.g. v0.35.5)",
+				"timeout": "int (optional) - Timeout in seconds (default 900)",
+			},
+			Outputs: map[string]string{
+				"release_url": "string - The HTML URL of the release",
+			},
+		},
+		{
+			Name:        "await-gl-release",
+			Description: "Wait for a GitLab release to exist by tag",
+			Inputs: map[string]string{
+				"project": "string (required) - Project ID or URL-encoded path",
 				"tag":     "string (required) - Release tag (e.g. v0.35.5)",
 				"timeout": "int (optional) - Timeout in seconds (default 900)",
 			},
@@ -780,6 +794,19 @@ func bridgeActionUnifiedCreateIssue(ctx context.Context, inputs map[string]inter
 		return bridgeActionCreateGLIssue(ctx, inputs, credStore, teamID)
 	case "github":
 		return bridgeActionCreateGHIssue(ctx, inputs, credStore, teamID)
+	default:
+		return &BridgeActionResult{Status: "failed", Error: "cannot detect SCM: provide 'repo' (GitHub) or 'project' (GitLab)"}, nil
+	}
+}
+
+// bridgeActionUnifiedAwaitRelease polls for a release to exist by tag, auto-detecting GitHub or GitLab from inputs.
+func bridgeActionUnifiedAwaitRelease(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
+	scm := detectSCM(inputs)
+	switch scm {
+	case "gitlab":
+		return bridgeActionAwaitGLRelease(ctx, inputs, credStore, teamID)
+	case "github":
+		return bridgeActionAwaitRelease(ctx, inputs, credStore, teamID)
 	default:
 		return &BridgeActionResult{Status: "failed", Error: "cannot detect SCM: provide 'repo' (GitHub) or 'project' (GitLab)"}, nil
 	}
