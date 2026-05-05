@@ -517,3 +517,252 @@ func TestBridgeActionSchemas(t *testing.T) {
 		t.Error("search-issues schema not found")
 	}
 }
+
+func TestBridgeActionCreateGHIssue(t *testing.T) {
+	tests := []struct {
+		name            string
+		inputs          map[string]interface{}
+		expectedStatus  string
+		expectedError   string
+		expectedOutputs map[string]interface{}
+		mockResponse    string
+		mockStatusCode  int
+	}{
+		{
+			name: "happy path with all fields",
+			inputs: map[string]interface{}{
+				"repo":       "owner/repo",
+				"title":      "Test Issue",
+				"body":       "Issue description",
+				"labels":     []string{"bug", "high-priority"},
+				"assignees":  []string{"john", "jane"},
+				"milestone":  5,
+			},
+			expectedStatus: "succeeded",
+			expectedOutputs: map[string]interface{}{
+				"issue_number": 42,
+				"issue_url":    "https://github.com/owner/repo/issues/42",
+			},
+			mockResponse:   `{"number": 42, "html_url": "https://github.com/owner/repo/issues/42"}`,
+			mockStatusCode: 201,
+		},
+		{
+			name: "required fields only",
+			inputs: map[string]interface{}{
+				"repo":  "owner/repo",
+				"title": "Minimal Issue",
+			},
+			expectedStatus: "succeeded",
+			expectedOutputs: map[string]interface{}{
+				"issue_number": 43,
+				"issue_url":    "https://github.com/owner/repo/issues/43",
+			},
+			mockResponse:   `{"number": 43, "html_url": "https://github.com/owner/repo/issues/43"}`,
+			mockStatusCode: 201,
+		},
+		{
+			name: "missing repo",
+			inputs: map[string]interface{}{
+				"title": "Test Issue",
+			},
+			expectedStatus: "failed",
+			expectedError:  "missing required inputs: repo, title",
+		},
+		{
+			name: "missing title",
+			inputs: map[string]interface{}{
+				"repo": "owner/repo",
+			},
+			expectedStatus: "failed",
+			expectedError:  "missing required inputs: repo, title",
+		},
+		{
+			name: "GitHub API error",
+			inputs: map[string]interface{}{
+				"repo":  "owner/repo",
+				"title": "Test Issue",
+			},
+			expectedStatus:  "failed",
+			expectedError:   "GitHub API error creating issue: HTTP 422:",
+			mockResponse:    `{"message": "Validation Failed"}`,
+			mockStatusCode:  422,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var server *httptest.Server
+			if tt.expectedStatus != "failed" || strings.Contains(tt.expectedError, "GitHub API error") {
+				// Set up mock server
+				server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					// Verify request method and path
+					if r.Method != "POST" || !strings.Contains(r.URL.Path, "/issues") {
+						t.Errorf("Expected POST request to /issues endpoint, got %s %s", r.Method, r.URL.Path)
+					}
+
+					// Verify Authorization header
+					auth := r.Header.Get("Authorization")
+					if !strings.HasPrefix(auth, "token ") {
+						t.Errorf("Expected token auth, got: %s", auth)
+					}
+
+					// Verify request body for the full fields test
+					if tt.name == "happy path with all fields" {
+						var body map[string]interface{}
+						if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
+							if body["title"] != "Test Issue" {
+								t.Errorf("Expected title 'Test Issue', got %v", body["title"])
+							}
+							if body["body"] != "Issue description" {
+								t.Errorf("Expected body 'Issue description', got %v", body["body"])
+							}
+							if labels, ok := body["labels"].([]interface{}); !ok || len(labels) != 2 {
+								t.Errorf("Expected 2 labels, got %v", body["labels"])
+							}
+							if assignees, ok := body["assignees"].([]interface{}); !ok || len(assignees) != 2 {
+								t.Errorf("Expected 2 assignees, got %v", body["assignees"])
+							}
+							if milestone, ok := body["milestone"].(float64); !ok || milestone != 5 {
+								t.Errorf("Expected milestone 5, got %v", body["milestone"])
+							}
+						}
+					}
+
+					// Verify required-only test does not include optional fields
+					if tt.name == "required fields only" {
+						var body map[string]interface{}
+						if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
+							if _, exists := body["body"]; exists {
+								t.Error("Expected no body field for required-only test")
+							}
+							if _, exists := body["labels"]; exists {
+								t.Error("Expected no labels field for required-only test")
+							}
+							if _, exists := body["assignees"]; exists {
+								t.Error("Expected no assignees field for required-only test")
+							}
+							if _, exists := body["milestone"]; exists {
+								t.Error("Expected no milestone field for required-only test")
+							}
+						}
+					}
+
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(tt.mockStatusCode)
+					w.Write([]byte(tt.mockResponse))
+				}))
+				defer server.Close()
+			}
+
+			// Create mock credential store
+			credStore := &mockCredentialStore{
+				token:   "test-token",
+				apiHost: server.URL if server != nil else "",
+			}
+
+			// Execute the bridge action
+			ctx := context.Background()
+			result, err := bridgeActionCreateGHIssue(ctx, tt.inputs, credStore, "test-team")
+
+			// Verify the result
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if result.Status != tt.expectedStatus {
+				t.Errorf("Expected status %s, got %s", tt.expectedStatus, result.Status)
+			}
+
+			if tt.expectedError != "" {
+				if !strings.Contains(result.Error, tt.expectedError) {
+					t.Errorf("Expected error containing '%s', got '%s'", tt.expectedError, result.Error)
+				}
+			}
+
+			if tt.expectedOutputs != nil {
+				for key, expectedValue := range tt.expectedOutputs {
+					if result.Outputs[key] != expectedValue {
+						t.Errorf("Expected output %s = %v, got %v", key, expectedValue, result.Outputs[key])
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestBridgeActionUnifiedCreateIssue(t *testing.T) {
+	tests := []struct {
+		name           string
+		inputs         map[string]interface{}
+		expectedStatus string
+		expectedError  string
+	}{
+		{
+			name: "GitHub detection with repo input",
+			inputs: map[string]interface{}{
+				"repo":  "owner/repo",
+				"title": "Test Issue",
+			},
+			expectedStatus: "succeeded", // Assuming GitHub handler succeeds
+		},
+		{
+			name: "GitLab detection with project input",
+			inputs: map[string]interface{}{
+				"project": "group/project",
+				"title":   "Test Issue",
+			},
+			expectedStatus: "failed",
+			expectedError:  "create-gl-issue is not yet implemented (see #563)",
+		},
+		{
+			name: "No SCM detection",
+			inputs: map[string]interface{}{
+				"title": "Test Issue",
+			},
+			expectedStatus: "failed",
+			expectedError:  "cannot detect SCM: provide 'repo' (GitHub) or 'project' (GitLab)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var server *httptest.Server
+			if tt.name == "GitHub detection with repo input" {
+				// Set up mock server for GitHub test
+				server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(201)
+					w.Write([]byte(`{"number": 44, "html_url": "https://github.com/owner/repo/issues/44"}`))
+				}))
+				defer server.Close()
+			}
+
+			// Create mock credential store
+			credStore := &mockCredentialStore{
+				token:   "test-token",
+				apiHost: server.URL if server != nil else "",
+			}
+
+			// Execute the unified bridge action
+			ctx := context.Background()
+			result, err := bridgeActionUnifiedCreateIssue(ctx, tt.inputs, credStore, "test-team")
+
+			// Verify the result
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
+				return
+			}
+
+			if result.Status != tt.expectedStatus {
+				t.Errorf("Expected status %s, got %s", tt.expectedStatus, result.Status)
+			}
+
+			if tt.expectedError != "" {
+				if !strings.Contains(result.Error, tt.expectedError) {
+					t.Errorf("Expected error containing '%s', got '%s'", tt.expectedError, result.Error)
+				}
+			}
+		})
+	}
+}

@@ -667,6 +667,87 @@ func bridgeActionUpdateGHIssue(ctx context.Context, inputs map[string]interface{
 	}, nil
 }
 
+// bridgeActionCreateGHIssue creates a new issue on GitHub.
+func bridgeActionCreateGHIssue(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
+	repo := getStringInput(inputs, "repo")
+	title := getStringInput(inputs, "title")
+	body := getStringInput(inputs, "body")
+	labels := getStringSliceInput(inputs, "labels")
+	assignees := getStringSliceInput(inputs, "assignees")
+	milestone := getIntInput(inputs, "milestone")
+
+	if repo == "" || title == "" {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  "missing required inputs: repo, title",
+		}, nil
+	}
+
+	token, apiHost, err := credStore.AcquireSCMTokenForOwner(ctx, "github", teamID)
+	if err != nil {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  fmt.Sprintf("failed to acquire GitHub token: %v", err),
+		}, nil
+	}
+
+	if apiHost == "" {
+		apiHost = "https://api.github.com"
+	}
+
+	// Create the issue request body.
+	issueBody := map[string]interface{}{
+		"title": title,
+	}
+	if body != "" {
+		issueBody["body"] = body
+	}
+	if len(labels) > 0 {
+		issueBody["labels"] = labels
+	}
+	if len(assignees) > 0 {
+		issueBody["assignees"] = assignees
+	}
+	if milestone > 0 {
+		issueBody["milestone"] = milestone
+	}
+
+	bodyJSON, err := json.Marshal(issueBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling issue body: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/repos/%s/issues", apiHost, repo)
+	respBody, err := githubRequest(ctx, token, "POST", url, bodyJSON)
+	if err != nil {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  fmt.Sprintf("GitHub API error creating issue: %v", err),
+		}, nil
+	}
+
+	var issueResp struct {
+		Number  int    `json:"number"`
+		HTMLURL string `json:"html_url"`
+	}
+	if err := json.Unmarshal(respBody, &issueResp); err != nil {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  fmt.Sprintf("failed to parse GitHub issue response: %v", err),
+		}, nil
+	}
+
+	log.Printf("bridge-action create-gh-issue: created issue #%d at %s", issueResp.Number, issueResp.HTMLURL)
+
+	return &BridgeActionResult{
+		Status: "succeeded",
+		Outputs: map[string]interface{}{
+			"issue_number": issueResp.Number,
+			"issue_url":    issueResp.HTMLURL,
+		},
+	}, nil
+}
+
 // bridgeActionSearchGHIssues searches GitHub issues using the Search API.
 func bridgeActionSearchGHIssues(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
 	repo := getStringInput(inputs, "repo")
