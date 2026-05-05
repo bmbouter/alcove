@@ -3,6 +3,11 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.42.6
+
+### Bug Fixes
+- Fix workflow engine: trust session status over exit code — Claude Code exit 1 no longer blocks create-pr step
+
 ## v0.42.5
 
 ### Bug Fixes
