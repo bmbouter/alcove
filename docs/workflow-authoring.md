@@ -163,6 +163,44 @@ metadata.
     add_labels: ["in-progress"]
 ```
 
+### create-issue
+
+Creates a new issue on GitHub or GitLab.
+
+| Input | Required | Description |
+|-------|----------|-------------|
+| `repo` | yes (GitHub) | Repository in `owner/repo` format |
+| `project` | yes (GitLab) | Project ID or URL-encoded path |
+| `title` | yes | Issue title |
+| `body` | no | Issue body/description |
+| `labels` | no | Array of label names |
+| `assignees` | no | Array of usernames to assign |
+| `milestone` | no | Milestone number (GitHub only) |
+
+**Outputs:** `issue_number` (int), `issue_url` (string)
+
+The action auto-detects GitHub vs GitLab based on the `repo` or `project` input.
+Note: GitLab support is not yet implemented (see #563) — the action will fail
+with a clear error message for GitLab inputs.
+
+**Example workflow step that creates a follow-up issue:**
+```yaml
+- id: create-followup
+  type: bridge
+  action: create-issue
+  inputs:
+    repo: "{{trigger.repo_name}}"
+    title: "Follow-up: {{steps.analysis.outputs.finding_title}}"
+    body: |
+      This issue was created automatically based on analysis findings.
+      
+      Original finding: {{steps.analysis.outputs.summary}}
+      
+      Please review and take appropriate action.
+    labels: ["automated", "needs-review"]
+    assignees: ["team-lead"]
+```
+
 ## Dependencies with Depends Expressions
 
 The `depends` field controls when a step runs using boolean expressions.

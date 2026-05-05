@@ -109,12 +109,14 @@ var validBridgeActions = map[string]bool{
 	"merge-pr":        true,
 	"await-release":   true,
 	"update-gh-issue": true,
+	"create-gh-issue": true,
 	// Unified actions.
 	"create-merge-request": true,
 	"await-checks":         true,
 	"merge":                true,
 	"comment":              true,
 	"update-issue":         true,
+	"create-issue":         true,
 	// GitLab-specific aliases.
 	"create-mr":       true,
 	"await-pipeline":  true,
