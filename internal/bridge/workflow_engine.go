@@ -590,7 +590,7 @@ func (we *WorkflowEngine) OnStepCompletion(ctx context.Context, sessionID string
 	// Update step status
 	now := time.Now().UTC()
 	stepStatus := "completed"
-	if status != "completed" || (exitCode != nil && *exitCode != 0) {
+	if status != "completed" {
 		stepStatus = "failed"
 	}
 
