@@ -219,7 +219,7 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 		},
 		{
 			Name:        "await-checks",
-			Description: "Wait for CI checks (GitHub) or pipeline (GitLab) to complete. Auto-detects SCM from inputs. GitHub auto-recovery: empty commit (60s), close/reopen (120s).",
+			Description: "Wait for CI checks (GitHub) or pipeline (GitLab) to complete. Auto-detects SCM from inputs. GitHub repos include auto-recovery for missing check suites.",
 			Inputs: map[string]string{
 				"repo":    "string (GitHub) - Repository in owner/repo format",
 				"project": "string (GitLab) - Project ID or URL-encoded path",
@@ -232,7 +232,7 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 				"failure_logs":     "string - Concatenated failure logs (GitHub, if failed)",
 				"failed_checks":    "[]string - Names of failed checks (GitHub)",
 				"pipeline_url":     "string - Pipeline URL (GitLab)",
-				"recovery_actions": "[]string - Recovery actions taken (GitHub only): 'empty_commit', 'close_reopen' (optional)",
+				"recovery_actions": "[]string - Recovery actions taken for GitHub repos (if any)",
 			},
 		},
 		{
@@ -298,7 +298,7 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 		},
 		{
 			Name:        "await-ci",
-			Description: "Wait for CI checks to complete on a pull request. Auto-recovers when GitHub drops events by pushing empty commit (60s) and close/reopen (120s).",
+			Description: "Wait for CI checks to complete on a pull request. Auto-recovers if no checks are triggered by pushing empty commit at 60s and closing/reopening PR at 120s.",
 			Inputs: map[string]string{
 				"repo":    "string (required) - Repository in owner/repo format",
 				"pr":      "int (required) - Pull request number",
@@ -308,7 +308,7 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 				"status":           "string - CI result: 'passed' or 'failed'",
 				"failure_logs":     "string - Concatenated failure logs (if failed)",
 				"failed_checks":    "[]string - Names of failed checks",
-				"recovery_actions": "[]string - Recovery actions taken: 'empty_commit', 'close_reopen' (optional)",
+				"recovery_actions": "[]string - Recovery actions taken (if any): 'empty_commit', 'close_reopen'",
 			},
 		},
 		{
