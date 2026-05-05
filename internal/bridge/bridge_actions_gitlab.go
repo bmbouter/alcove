@@ -299,6 +299,97 @@ func gitlabRequest(ctx context.Context, token, method, url string, body []byte) 
 	return respBody, nil
 }
 
+// bridgeActionAwaitGLRelease polls GitLab for a release to exist by tag.
+func bridgeActionAwaitGLRelease(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
+	project := getStringInput(inputs, "project")
+	tag := getStringInput(inputs, "tag")
+	timeout := getIntInput(inputs, "timeout")
+
+	if project == "" || tag == "" {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  "missing required inputs: project, tag",
+		}, nil
+	}
+
+	if timeout <= 0 {
+		timeout = 900 // 15 minutes default
+	}
+
+	token, apiHost, err := credStore.AcquireSCMTokenForOwner(ctx, "gitlab", teamID)
+	if err != nil {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  fmt.Sprintf("failed to acquire GitLab token: %v", err),
+		}, nil
+	}
+
+	if apiHost == "" {
+		apiHost = "https://gitlab.cee.redhat.com"
+	}
+
+	deadline := time.Now().Add(time.Duration(timeout) * time.Second)
+	pollInterval := 30 * time.Second
+
+	// URL-encode the project path and tag for the API URL
+	encodedProject := strings.ReplaceAll(project, "/", "%2F")
+	encodedTag := url.PathEscape(tag)
+
+	for time.Now().Before(deadline) {
+		// Check for context cancellation.
+		select {
+		case <-ctx.Done():
+			return &BridgeActionResult{
+				Status: "failed",
+				Error:  "context cancelled",
+			}, nil
+		default:
+		}
+
+		releaseURL := fmt.Sprintf("%s/api/v4/projects/%s/releases/%s", apiHost, encodedProject, encodedTag)
+		respBody, err := gitlabRequest(ctx, token, "GET", releaseURL, nil)
+		if err != nil {
+			// 404 means the release doesn't exist yet — keep polling.
+			if strings.Contains(err.Error(), "HTTP 404") {
+				log.Printf("bridge-action await-gl-release: release %s not found yet for %s, polling...", tag, project)
+				time.Sleep(pollInterval)
+				continue
+			}
+			// Other errors — log and retry.
+			log.Printf("bridge-action await-gl-release: error checking release %s for %s: %v", tag, project, err)
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		// Release exists — parse the response.
+		var release struct {
+			WebURL  string `json:"web_url"`
+			TagName string `json:"tag_name"`
+		}
+		if err := json.Unmarshal(respBody, &release); err != nil {
+			return &BridgeActionResult{
+				Status: "failed",
+				Error:  fmt.Sprintf("failed to parse release response: %v", err),
+			}, nil
+		}
+
+		log.Printf("bridge-action await-gl-release: release %s found for %s at %s", tag, project, release.WebURL)
+		return &BridgeActionResult{
+			Status: "succeeded",
+			Outputs: map[string]interface{}{
+				"release_url": release.WebURL,
+			},
+		}, nil
+	}
+
+	// Timeout.
+	log.Printf("bridge-action await-gl-release: timed out waiting for release %s on %s", tag, project)
+	return &BridgeActionResult{
+		Status: "failed",
+		Error:  fmt.Sprintf("timed out after %d seconds waiting for release %s", timeout, tag),
+	}, nil
+}
+
 // bridgeActionUpdateGLIssue updates issue metadata on GitLab.
 func bridgeActionUpdateGLIssue(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
 	project := getStringInput(inputs, "project")
