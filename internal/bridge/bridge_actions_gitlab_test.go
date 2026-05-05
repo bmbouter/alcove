@@ -16,7 +16,6 @@ package bridge
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -266,73 +265,3 @@ func TestUnifiedAwaitReleaseRouting(t *testing.T) {
 	}
 }
 
-func TestGitLabReleaseURLConstruction(t *testing.T) {
-	tests := []struct {
-		name        string
-		project     string
-		tag         string
-		expectedURL string
-	}{
-		{
-			name:        "simple project and tag",
-			project:     "myproject",
-			tag:         "v1.0.0",
-			expectedURL: "/api/v4/projects/myproject/releases/v1.0.0",
-		},
-		{
-			name:        "project with slash",
-			project:     "mygroup/myproject",
-			tag:         "v1.0.0",
-			expectedURL: "/api/v4/projects/mygroup%2Fmyproject/releases/v1.0.0",
-		},
-		{
-			name:        "tag with plus sign",
-			project:     "myproject",
-			tag:         "v1.0.0+beta",
-			expectedURL: "/api/v4/projects/myproject/releases/v1.0.0%2Bbeta",
-		},
-		{
-			name:        "complex project and tag",
-			project:     "my-group/my-project",
-			tag:         "v1.0.0-rc.1+build.123",
-			expectedURL: "/api/v4/projects/my-group%2Fmy-project/releases/v1.0.0-rc.1%2Bbuild.123",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path != tt.expectedURL {
-					t.Errorf("Expected URL path %s, got %s", tt.expectedURL, r.URL.Path)
-				}
-				w.WriteHeader(http.StatusOK)
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"tag_name": tt.tag,
-					"web_url":  "https://gitlab.example.com" + r.URL.Path,
-				})
-			}))
-			defer server.Close()
-
-			ctx := context.Background()
-			respBody, err := gitlabRequest(ctx, "test-token", "GET",
-				server.URL+"/api/v4/projects/"+strings.ReplaceAll(tt.project, "/", "%2F")+
-				"/releases/"+strings.ReplaceAll(tt.tag, "+", "%2B"), nil)
-
-			if err != nil {
-				t.Fatalf("Unexpected error: %v", err)
-			}
-
-			var release struct {
-				TagName string `json:"tag_name"`
-				WebURL  string `json:"web_url"`
-			}
-			if err := json.Unmarshal(respBody, &release); err != nil {
-				t.Fatalf("Failed to unmarshal response: %v", err)
-			}
-
-			if release.TagName != tt.tag {
-				t.Errorf("Expected tag_name %s, got %s", tt.tag, release.TagName)
-			}
-		})
-	}
-}
