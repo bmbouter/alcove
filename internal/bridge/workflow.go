@@ -105,6 +105,7 @@ func ParseWorkflowDefinition(data []byte) (*WorkflowDefinition, error) {
 var validBridgeActions = map[string]bool{
 	// GitHub-specific aliases.
 	"create-pr":       true,
+	"create-prs":      true,
 	"await-ci":        true,
 	"merge-pr":        true,
 	"await-release":   true,
@@ -117,6 +118,7 @@ var validBridgeActions = map[string]bool{
 	"update-issue":         true,
 	// GitLab-specific aliases.
 	"create-mr":       true,
+	"create-mrs":      true,
 	"await-pipeline":  true,
 	"merge-mr":        true,
 	"post-note":       true,

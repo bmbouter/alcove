@@ -59,6 +59,7 @@ func RegisterBridgeActions() map[string]BridgeActionHandler {
 
 		// GitLab-specific aliases.
 		"create-mr":       bridgeActionCreateMR,
+		"create-mrs":      bridgeActionCreateMRs,
 		"await-pipeline":  bridgeActionAwaitPipeline,
 		"merge-mr":        bridgeActionMergeMR,
 		"post-note":       bridgeActionPostNote,
@@ -161,6 +162,24 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 			Outputs: map[string]string{
 				"pr_number": "int - Pull request number",
 				"pr_url":    "string - Pull request URL",
+			},
+		},
+		{
+			Name:        "create-prs",
+			Description: "Create pull requests across multiple GitHub repositories",
+			Inputs: map[string]string{
+				"repos":  "[]string (required) - Array of repositories in owner/repo format",
+				"branch": "string (required) - Source branch name",
+				"base":   "string (optional) - Target branch name (default: main)",
+				"title":  "string (required) - PR title",
+				"body":   "string (optional) - PR body/description",
+				"draft":  "bool (optional) - Create as draft PR",
+			},
+			Outputs: map[string]string{
+				"pr_numbers":   "[]int - Pull request numbers",
+				"pr_urls":      "[]string - Pull request URLs",
+				"repos":        "[]string - Successfully processed repositories",
+				"failed_repos": "[]string - Repositories that failed",
 			},
 		},
 		{
@@ -300,6 +319,41 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 				"issue_keys":         "[]string - Array of issue keys (JIRA only)",
 				"total":              "int - Total number of matching issues",
 				"incomplete_results": "bool - Whether search results may be incomplete (GitHub only)",
+			},
+		},
+		{
+			Name:        "create-mr",
+			Description: "Create a merge request on GitLab",
+			Inputs: map[string]string{
+				"project":       "string (required) - Project ID or URL-encoded path",
+				"source_branch": "string (required) - Source branch name",
+				"target_branch": "string (required) - Target branch name",
+				"title":         "string (required) - MR title",
+				"description":   "string (optional) - MR description",
+				"draft":         "bool (optional) - Create as draft MR",
+			},
+			Outputs: map[string]string{
+				"mr_iid": "int - Merge request IID",
+				"mr_url": "string - Merge request URL",
+				"reused": "bool - Whether an existing MR was reused",
+			},
+		},
+		{
+			Name:        "create-mrs",
+			Description: "Create merge requests across multiple GitLab projects",
+			Inputs: map[string]string{
+				"projects":      "[]string (required) - Array of project paths",
+				"source_branch": "string (required) - Source branch name",
+				"target_branch": "string (optional) - Target branch name (default: main)",
+				"title":         "string (required) - MR title",
+				"description":   "string (optional) - MR description",
+				"draft":         "bool (optional) - Create as draft MR",
+			},
+			Outputs: map[string]string{
+				"mr_iids":         "[]int - Merge request IIDs",
+				"mr_urls":         "[]string - Merge request URLs",
+				"projects":        "[]string - Successfully processed projects",
+				"failed_projects": "[]string - Projects that failed",
 			},
 		},
 	}

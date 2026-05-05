@@ -3,6 +3,16 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### New Features
+- Add `create-mrs` bridge action for creating merge requests across multiple GitLab projects, mirroring the existing `create-prs` GitHub action
+- Add `draft` parameter support to the single-project `create-mr` action for consistency
+
+### Bug Fixes
+- Fix bridge action validation: add missing `create-prs` to `validBridgeActions` map (was registered but not validated)
+- Add missing API schemas for `create-prs` and `create-mr`/`create-mrs` GitLab actions
+
 ## v0.42.6
 
 ### Bug Fixes

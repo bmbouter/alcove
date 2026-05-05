@@ -34,6 +34,7 @@ func bridgeActionCreateMR(ctx context.Context, inputs map[string]interface{}, cr
 	targetBranch := getStringInput(inputs, "target_branch")
 	title := getStringInput(inputs, "title")
 	description := getStringInput(inputs, "description")
+	draft := getBoolInput(inputs, "draft")
 
 	if project == "" || sourceBranch == "" || targetBranch == "" || title == "" {
 		return &BridgeActionResult{Status: "failed", Error: "missing required inputs: project, source_branch, target_branch, title"}, nil
@@ -54,6 +55,9 @@ func bridgeActionCreateMR(ctx context.Context, inputs map[string]interface{}, cr
 	}
 	if description != "" {
 		mrBody["description"] = description
+	}
+	if draft {
+		mrBody["draft"] = true
 	}
 
 	bodyJSON, _ := json.Marshal(mrBody)
@@ -138,7 +142,7 @@ func bridgeActionPostNote(ctx context.Context, inputs map[string]interface{}, cr
 
 	log.Printf("bridge-action post-note: posted note on MR !%d in %s", mrIID, project)
 	return &BridgeActionResult{
-		Status: "succeeded",
+		Status:  "succeeded",
 		Outputs: map[string]interface{}{"posted": true},
 	}, nil
 }
@@ -263,7 +267,7 @@ func bridgeActionMergeMR(ctx context.Context, inputs map[string]interface{}, cre
 
 	log.Printf("bridge-action merge-mr: merged MR !%d in %s (sha: %s)", mrIID, project, mergeResp.MergeCommitSHA)
 	return &BridgeActionResult{
-		Status: "succeeded",
+		Status:  "succeeded",
 		Outputs: map[string]interface{}{"merge_sha": mergeResp.MergeCommitSHA},
 	}, nil
 }
@@ -350,7 +354,7 @@ func bridgeActionUpdateGLIssue(ctx context.Context, inputs map[string]interface{
 	}
 
 	var currentIssue struct {
-		Labels []string `json:"labels"`
+		Labels    []string `json:"labels"`
 		Assignees []struct {
 			Username string `json:"username"`
 		} `json:"assignees"`
@@ -459,6 +463,124 @@ func bridgeActionUpdateGLIssue(ctx context.Context, inputs map[string]interface{
 		Status: "succeeded",
 		Outputs: map[string]interface{}{
 			"updated": true,
+		},
+	}, nil
+}
+
+// bridgeActionCreateMRs creates merge requests across multiple projects.
+func bridgeActionCreateMRs(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
+	sourceBranch := getStringInput(inputs, "source_branch")
+	targetBranch := getStringInput(inputs, "target_branch")
+	title := getStringInput(inputs, "title")
+	description := getStringInput(inputs, "description")
+	draft := getBoolInput(inputs, "draft")
+
+	if targetBranch == "" {
+		targetBranch = "main"
+	}
+	if sourceBranch == "" || title == "" {
+		return &BridgeActionResult{Status: "failed", Error: "missing required inputs: source_branch, title"}, nil
+	}
+
+	var projects []string
+	if p, ok := inputs["projects"]; ok {
+		switch v := p.(type) {
+		case []interface{}:
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					projects = append(projects, s)
+				}
+			}
+		case []string:
+			projects = v
+		}
+	}
+	if len(projects) == 0 {
+		return &BridgeActionResult{Status: "failed", Error: "missing required input: projects (array of project paths)"}, nil
+	}
+
+	token, apiHost, err := credStore.AcquireSCMTokenForOwner(ctx, "gitlab", teamID)
+	if err != nil {
+		return &BridgeActionResult{Status: "failed", Error: fmt.Sprintf("failed to acquire GitLab token: %v", err)}, nil
+	}
+	if apiHost == "" {
+		apiHost = "https://gitlab.cee.redhat.com"
+	}
+
+	var mrIIDs []int
+	var mrURLs []string
+	var succeededProjects []string
+	var failedProjects []string
+
+	for _, project := range projects {
+		// Check if branch exists in this project.
+		encodedProject := strings.ReplaceAll(project, "/", "%2F")
+		branchURL := fmt.Sprintf("%s/api/v4/projects/%s/repository/branches/%s", apiHost, encodedProject, sourceBranch)
+		_, err := gitlabRequest(ctx, token, "GET", branchURL, nil)
+		if err != nil {
+			log.Printf("bridge-action create-mrs: branch %s not found in %s, skipping", sourceBranch, project)
+			continue
+		}
+
+		mrBody := map[string]interface{}{
+			"source_branch": sourceBranch,
+			"target_branch": targetBranch,
+			"title":         title,
+		}
+		if description != "" {
+			mrBody["description"] = description
+		}
+		if draft {
+			mrBody["draft"] = true
+		}
+
+		bodyJSON, _ := json.Marshal(mrBody)
+		apiURL := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests", apiHost, encodedProject)
+		respBody, err := gitlabRequest(ctx, token, "POST", apiURL, bodyJSON)
+		if err != nil {
+			if strings.Contains(err.Error(), "409") || strings.Contains(err.Error(), "already exists") {
+				existingURL := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests?source_branch=%s&state=opened", apiHost, encodedProject, url.QueryEscape(sourceBranch))
+				existingBody, findErr := gitlabRequest(ctx, token, "GET", existingURL, nil)
+				if findErr == nil {
+					var existingMRs []struct {
+						IID    int    `json:"iid"`
+						WebURL string `json:"web_url"`
+					}
+					if json.Unmarshal(existingBody, &existingMRs) == nil && len(existingMRs) > 0 {
+						mrIIDs = append(mrIIDs, existingMRs[0].IID)
+						mrURLs = append(mrURLs, existingMRs[0].WebURL)
+						succeededProjects = append(succeededProjects, project)
+						continue
+					}
+				}
+			}
+			log.Printf("bridge-action create-mrs: failed to create MR in %s: %v", project, err)
+			failedProjects = append(failedProjects, project)
+			continue
+		}
+
+		var mrResp struct {
+			IID    int    `json:"iid"`
+			WebURL string `json:"web_url"`
+		}
+		if err := json.Unmarshal(respBody, &mrResp); err != nil {
+			failedProjects = append(failedProjects, project)
+			continue
+		}
+
+		log.Printf("bridge-action create-mrs: created MR !%d in %s at %s", mrResp.IID, project, mrResp.WebURL)
+		mrIIDs = append(mrIIDs, mrResp.IID)
+		mrURLs = append(mrURLs, mrResp.WebURL)
+		succeededProjects = append(succeededProjects, project)
+	}
+
+	return &BridgeActionResult{
+		Status: "succeeded",
+		Outputs: map[string]interface{}{
+			"mr_iids":         mrIIDs,
+			"mr_urls":         mrURLs,
+			"projects":        succeededProjects,
+			"failed_projects": failedProjects,
 		},
 	}, nil
 }
