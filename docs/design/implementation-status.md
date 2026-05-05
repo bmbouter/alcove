@@ -300,10 +300,9 @@ alcove/
     usage. Event deduplication via the `webhook_deliveries` table prevents
     duplicate session dispatches. On first poll, existing events are skipped to
     avoid retroactive dispatches. Works in any environment including local
-    development with no webhook configuration required. **GitLab event
-    enrichment** is implemented and ready — when #544 (GitLab poller) ships,
-    GitLab-triggered sessions will receive the same rich MR/issue/pipeline
-    context as GitHub sessions via `enrichment_gitlab.go`.
+    development with no webhook configuration required. **GitHub enrichment**
+    provides full PR/issue bodies, comments, assignees, CI status, and reviews.
+    GitLab achieves the same enrichment parity via `enrichment_gitlab.go`.
 
 25. **GitLab Event Polling** — Agent definitions and schedules with GitLab event
     triggers are supported via a dedicated GitLab poller that queries the GitLab
@@ -314,7 +313,11 @@ alcove/
     Event deduplication via the same `webhook_deliveries` and `dispatched_dedup`
     tables as GitHub. Supports both workflows and schedules with GitLab triggers.
     Works with self-hosted GitLab instances via `api_host` in credential store.
-    Default API host is `https://gitlab.com`.
+    Default API host is `https://gitlab.com`. **GitLab enrichment achieves parity
+    with GitHub**: MR/issue full descriptions (5000 chars), notes/comments, assignees,
+    diff stats, detailed CI job status with failure logs, and MR approvals (Premium).
+    Enriched context is passed to workflows via `enriched_context` field and
+    prepended to agent task prompts.
 
 26. **Label-Based Trigger Filtering** — Event triggers support an optional
     `labels` field that restricts dispatch to issues or PRs carrying at least

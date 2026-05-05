@@ -69,7 +69,7 @@ func (e *GitLabEnricher) EnrichGitLabEventContext(ctx context.Context, token, ap
 	return sb.String()
 }
 
-// enrichMRContext fetches and formats GitLab merge request details, notes, and pipeline status.
+// enrichMRContext fetches and formats GitLab merge request details, notes, diff stats, CI jobs, and approvals.
 func (e *GitLabEnricher) enrichMRContext(ctx context.Context, token, apiHost, project, mrIID string, sb *strings.Builder) {
 	// URL-encode the project path
 	encodedProject := url.PathEscape(project)
@@ -95,6 +95,9 @@ func (e *GitLabEnricher) enrichMRContext(ctx context.Context, token, apiHost, pr
 		Labels   []string `json:"labels"`
 		WebURL   string   `json:"web_url"`
 		SHA      string   `json:"sha"`
+		Assignees []struct {
+			Username string `json:"username"`
+		} `json:"assignees"`
 	}
 	if err := json.Unmarshal(data, &mr); err != nil {
 		log.Printf("enrichment: error parsing MR !%s: %v", mrIID, err)
@@ -113,6 +116,14 @@ func (e *GitLabEnricher) enrichMRContext(ctx context.Context, token, apiHost, pr
 		sb.WriteString(fmt.Sprintf("**Labels**: %s\n", strings.Join(mr.Labels, ", ")))
 	}
 
+	if len(mr.Assignees) > 0 {
+		var assigneeNames []string
+		for _, a := range mr.Assignees {
+			assigneeNames = append(assigneeNames, "@"+a.Username)
+		}
+		sb.WriteString(fmt.Sprintf("**Assignees**: %s\n", strings.Join(assigneeNames, ", ")))
+	}
+
 	sb.WriteString("\n**Description**:\n")
 	description := mr.Description
 	if len(description) > maxBodyLen {
@@ -122,6 +133,9 @@ func (e *GitLabEnricher) enrichMRContext(ctx context.Context, token, apiHost, pr
 		description = "(empty)"
 	}
 	sb.WriteString(description + "\n")
+
+	// Fetch diff stats
+	e.enrichMRDiffStats(ctx, token, apiHost, encodedProject, mrIID, sb)
 
 	// Fetch notes (comments)
 	notesURL := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%s/notes?per_page=%d", apiHost, encodedProject, mrIID, maxCommentsNum)
@@ -170,21 +184,11 @@ func (e *GitLabEnricher) enrichMRContext(ctx context.Context, token, apiHost, pr
 		}
 	}
 
-	// Fetch pipeline status
-	pipelinesURL := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%s/pipelines", apiHost, encodedProject, mrIID)
-	pipelineData, err := e.gitlabAPIGet(ctx, token, pipelinesURL)
-	if err == nil {
-		var pipelines []struct {
-			ID     int    `json:"id"`
-			Status string `json:"status"`
-			WebURL string `json:"web_url"`
-		}
-		if err := json.Unmarshal(pipelineData, &pipelines); err == nil && len(pipelines) > 0 {
-			sb.WriteString("\n### Pipeline Status\n\n")
-			latest := pipelines[0] // GitLab returns most recent first
-			sb.WriteString(fmt.Sprintf("- Pipeline #%d (%s)\n", latest.ID, latest.Status))
-		}
-	}
+	// Fetch pipeline jobs with detailed CI status
+	e.enrichMRPipelineJobs(ctx, token, apiHost, encodedProject, mrIID, sb)
+
+	// Fetch MR approvals
+	e.enrichMRApprovals(ctx, token, apiHost, encodedProject, mrIID, sb)
 }
 
 // enrichGitLabIssueContext fetches and formats GitLab issue details and notes.
@@ -342,20 +346,342 @@ func (e *GitLabEnricher) ExtractGitLabIssueContext(ctx context.Context, token, a
 		Author      struct {
 			Username string `json:"username"`
 		} `json:"author"`
-		Labels []string `json:"labels"`
+		Labels    []string `json:"labels"`
+		Assignees []struct {
+			Username string `json:"username"`
+		} `json:"assignees"`
 	}
 	if err := json.Unmarshal(data, &issue); err != nil {
 		log.Printf("enrichment: error parsing issue #%s for context extraction: %v", issueIID, err)
 		return nil
 	}
 
+	var assigneeNames []string
+	for _, a := range issue.Assignees {
+		assigneeNames = append(assigneeNames, a.Username)
+	}
+
 	return map[string]interface{}{
 		"issue_id":          issueIID,
 		"issue_title":       issue.Title,
 		"issue_description": issue.Description,
+		"issue_body":        issue.Description, // Alias for compatibility
 		"issue_state":       issue.State,
 		"issue_author":      issue.Author.Username,
+		"issue_assignees":   strings.Join(assigneeNames, ","),
 		"issue_labels":      strings.Join(issue.Labels, ","),
 		"project":           project,
+	}
+}
+
+// ExtractGitLabMRContext extracts trigger context for workflow template expansion
+// from a GitLab merge request.
+func (e *GitLabEnricher) ExtractGitLabMRContext(ctx context.Context, token, apiHost, project, mrIID string) map[string]interface{} {
+	// URL-encode the project path
+	encodedProject := url.PathEscape(project)
+
+	// Fetch MR details
+	mrURL := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%s", apiHost, encodedProject, mrIID)
+	data, err := e.gitlabAPIGet(ctx, token, mrURL)
+	if err != nil {
+		log.Printf("enrichment: could not fetch MR !%s for context extraction: %v", mrIID, err)
+		return nil
+	}
+
+	var mr struct {
+		Title        string   `json:"title"`
+		Description  string   `json:"description"`
+		State        string   `json:"state"`
+		SourceBranch string   `json:"source_branch"`
+		TargetBranch string   `json:"target_branch"`
+		Author       struct {
+			Username string `json:"username"`
+		} `json:"author"`
+		Labels    []string `json:"labels"`
+		Assignees []struct {
+			Username string `json:"username"`
+		} `json:"assignees"`
+	}
+	if err := json.Unmarshal(data, &mr); err != nil {
+		log.Printf("enrichment: error parsing MR !%s for context extraction: %v", mrIID, err)
+		return nil
+	}
+
+	var assigneeNames []string
+	for _, a := range mr.Assignees {
+		assigneeNames = append(assigneeNames, a.Username)
+	}
+
+	return map[string]interface{}{
+		"mr_iid":          mrIID,
+		"mr_title":        mr.Title,
+		"mr_description":  mr.Description,
+		"mr_body":         mr.Description, // Alias for compatibility
+		"mr_state":        mr.State,
+		"mr_author":       mr.Author.Username,
+		"mr_source_branch": mr.SourceBranch,
+		"mr_target_branch": mr.TargetBranch,
+		"mr_labels":       strings.Join(mr.Labels, ","),
+		"mr_assignees":    strings.Join(assigneeNames, ","),
+		"project":         project,
+	}
+}
+
+// enrichMRDiffStats fetches and formats MR diff statistics.
+func (e *GitLabEnricher) enrichMRDiffStats(ctx context.Context, token, apiHost, encodedProject, mrIID string, sb *strings.Builder) {
+	// Fetch MR changes (diff stats)
+	changesURL := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%s/changes", apiHost, encodedProject, mrIID)
+	changesData, err := e.gitlabAPIGet(ctx, token, changesURL)
+	if err != nil {
+		log.Printf("enrichment: could not fetch MR diff stats: %v", err)
+		return
+	}
+
+	var changes struct {
+		ChangesCount string `json:"changes_count"`
+		Changes      []struct {
+			OldPath     string `json:"old_path"`
+			NewPath     string `json:"new_path"`
+			DeletedFile bool   `json:"deleted_file"`
+			NewFile     bool   `json:"new_file"`
+			Diff        string `json:"diff"`
+		} `json:"changes"`
+	}
+
+	if err := json.Unmarshal(changesData, &changes); err != nil {
+		log.Printf("enrichment: error parsing MR diff stats: %v", err)
+		return
+	}
+
+	if len(changes.Changes) == 0 {
+		return // No changes to report
+	}
+
+	// Count files, additions, and deletions
+	filesChanged := len(changes.Changes)
+	var additions, deletions int
+	var changedFiles []string
+
+	for i, change := range changes.Changes {
+		if i < 10 { // Limit to top 10 files for orientation
+			filename := change.NewPath
+			if change.DeletedFile {
+				filename = change.OldPath + " (deleted)"
+			} else if change.NewFile {
+				filename = change.NewPath + " (new)"
+			}
+			changedFiles = append(changedFiles, filename)
+		}
+
+		// Parse diff for line count (simplified - count +/- lines)
+		lines := strings.Split(change.Diff, "\n")
+		for _, line := range lines {
+			if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+				additions++
+			} else if strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---") {
+				deletions++
+			}
+		}
+	}
+
+	sb.WriteString(fmt.Sprintf("\n### Changed Files\n\n"))
+	sb.WriteString(fmt.Sprintf("**Changed files**: %d (+%d, -%d)\n\n", filesChanged, additions, deletions))
+
+	if len(changedFiles) > 0 {
+		sb.WriteString("**Files**:\n")
+		for _, file := range changedFiles {
+			sb.WriteString(fmt.Sprintf("- %s\n", file))
+		}
+		if len(changes.Changes) > 10 {
+			sb.WriteString(fmt.Sprintf("- ... and %d more files\n", len(changes.Changes)-10))
+		}
+	}
+}
+
+// enrichMRPipelineJobs fetches and formats detailed CI pipeline job status and failure logs.
+func (e *GitLabEnricher) enrichMRPipelineJobs(ctx context.Context, token, apiHost, encodedProject, mrIID string, sb *strings.Builder) {
+	// Fetch pipelines for the MR
+	pipelinesURL := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%s/pipelines", apiHost, encodedProject, mrIID)
+	pipelineData, err := e.gitlabAPIGet(ctx, token, pipelinesURL)
+	if err != nil {
+		log.Printf("enrichment: could not fetch pipelines: %v", err)
+		return
+	}
+
+	var pipelines []struct {
+		ID     int    `json:"id"`
+		Status string `json:"status"`
+		WebURL string `json:"web_url"`
+	}
+	if err := json.Unmarshal(pipelineData, &pipelines); err != nil || len(pipelines) == 0 {
+		return // No pipelines or parse error
+	}
+
+	// Get the latest pipeline
+	latest := pipelines[0] // GitLab returns most recent first
+
+	// Fetch jobs for the latest pipeline
+	jobsURL := fmt.Sprintf("%s/api/v4/projects/%s/pipelines/%d/jobs", apiHost, encodedProject, latest.ID)
+	jobsData, err := e.gitlabAPIGet(ctx, token, jobsURL)
+	if err != nil {
+		// Fall back to basic pipeline status
+		sb.WriteString("\n### Pipeline Status\n\n")
+		sb.WriteString(fmt.Sprintf("- Pipeline #%d (%s)\n", latest.ID, latest.Status))
+		return
+	}
+
+	var jobs []struct {
+		ID     int    `json:"id"`
+		Name   string `json:"name"`
+		Status string `json:"status"`
+		Stage  string `json:"stage"`
+		WebURL string `json:"web_url"`
+	}
+	if err := json.Unmarshal(jobsData, &jobs); err != nil {
+		// Fall back to basic pipeline status
+		sb.WriteString("\n### Pipeline Status\n\n")
+		sb.WriteString(fmt.Sprintf("- Pipeline #%d (%s)\n", latest.ID, latest.Status))
+		return
+	}
+
+	sb.WriteString(fmt.Sprintf("\n### CI Status\n\n"))
+	sb.WriteString(fmt.Sprintf("**Pipeline #%d** (%s)\n\n", latest.ID, latest.Status))
+
+	if len(jobs) > 0 {
+		// Group jobs by stage
+		stageJobs := make(map[string][]struct {
+			ID     int
+			Name   string
+			Status string
+		})
+
+		for _, job := range jobs {
+			stageJobs[job.Stage] = append(stageJobs[job.Stage], struct {
+				ID     int
+				Name   string
+				Status string
+			}{job.ID, job.Name, job.Status})
+		}
+
+		// List jobs by stage
+		for stage, stageJobList := range stageJobs {
+			sb.WriteString(fmt.Sprintf("**%s:**\n", stage))
+			for _, job := range stageJobList {
+				sb.WriteString(fmt.Sprintf("- %s (%s)\n", job.Name, job.Status))
+
+				// Fetch failure logs for failed jobs
+				if job.Status == "failed" {
+					e.fetchJobFailureLog(ctx, token, apiHost, encodedProject, job.ID, job.Name, sb)
+				}
+			}
+			sb.WriteString("\n")
+		}
+	}
+}
+
+// fetchJobFailureLog fetches trace logs for failed CI jobs (capped at maxCILogLen).
+func (e *GitLabEnricher) fetchJobFailureLog(ctx context.Context, token, apiHost, encodedProject string, jobID int, jobName string, sb *strings.Builder) {
+	traceURL := fmt.Sprintf("%s/api/v4/projects/%s/jobs/%d/trace", apiHost, encodedProject, jobID)
+
+	// Create custom request for trace endpoint (returns plain text, not JSON)
+	req, err := http.NewRequestWithContext(ctx, "GET", traceURL, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("PRIVATE-TOKEN", token)
+	req.Header.Set("User-Agent", "alcove-enricher")
+
+	resp, err := e.client.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	// Check if it's actually text content
+	contentType := resp.Header.Get("Content-Type")
+	if contentType != "" && !strings.Contains(contentType, "text/") && !strings.Contains(contentType, "application/octet-stream") {
+		// Skip binary content
+		return
+	}
+
+	if resp.StatusCode == 403 || resp.StatusCode == 404 {
+		// Private project logs or job not found
+		return
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+
+	// Read trace content with size limit
+	traceContent, err := io.ReadAll(io.LimitReader(resp.Body, maxCILogLen))
+	if err != nil {
+		return
+	}
+
+	trace := string(traceContent)
+	if trace == "" {
+		return
+	}
+
+	// Trim to maxCILogLen if needed and truncate marker
+	if len(trace) >= maxCILogLen {
+		trace = trace[:maxCILogLen-20] + "\n... (log truncated)"
+	}
+
+	sb.WriteString(fmt.Sprintf("\n**%s failure log:**\n```\n%s\n```\n", jobName, trace))
+}
+
+// enrichMRApprovals fetches and formats MR approval status and reviewers.
+func (e *GitLabEnricher) enrichMRApprovals(ctx context.Context, token, apiHost, encodedProject, mrIID string, sb *strings.Builder) {
+	// Fetch MR approvals (GitLab Premium feature)
+	approvalsURL := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%s/approvals", apiHost, encodedProject, mrIID)
+	approvalsData, err := e.gitlabAPIGet(ctx, token, approvalsURL)
+	if err != nil {
+		// Approvals API may not be available (GitLab CE/Free) - silently skip
+		return
+	}
+
+	var approvals struct {
+		ApprovalsRequired int `json:"approvals_required"`
+		ApprovalsLeft     int `json:"approvals_left"`
+		ApprovedBy        []struct {
+			User struct {
+				Username string `json:"username"`
+			} `json:"user"`
+		} `json:"approved_by"`
+		SuggestedApprovers []struct {
+			Username string `json:"username"`
+		} `json:"suggested_approvers"`
+	}
+
+	if err := json.Unmarshal(approvalsData, &approvals); err != nil {
+		return // Parse error - skip approvals section
+	}
+
+	// Only show approvals section if there's meaningful approval info
+	if approvals.ApprovalsRequired > 0 || len(approvals.ApprovedBy) > 0 {
+		sb.WriteString("\n### Approvals\n\n")
+
+		if approvals.ApprovalsRequired > 0 {
+			sb.WriteString(fmt.Sprintf("**Required approvals**: %d\n", approvals.ApprovalsRequired))
+			sb.WriteString(fmt.Sprintf("**Approvals remaining**: %d\n", approvals.ApprovalsLeft))
+		}
+
+		if len(approvals.ApprovedBy) > 0 {
+			var approvers []string
+			for _, approval := range approvals.ApprovedBy {
+				approvers = append(approvers, "@"+approval.User.Username)
+			}
+			sb.WriteString(fmt.Sprintf("**Approved by**: %s\n", strings.Join(approvers, ", ")))
+		}
+
+		if len(approvals.SuggestedApprovers) > 0 {
+			var suggested []string
+			for _, approver := range approvals.SuggestedApprovers {
+				suggested = append(suggested, "@"+approver.Username)
+			}
+			sb.WriteString(fmt.Sprintf("**Suggested approvers**: %s\n", strings.Join(suggested, ", ")))
+		}
 	}
 }
