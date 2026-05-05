@@ -14,6 +14,42 @@ prompt: |
 
   Follow existing code patterns and conventions. Include tests for new functionality. Update documentation when behavior changes.
 
+  ## MANDATORY PRE-PUSH VALIDATION
+
+  **CRITICAL:** Before running `git push`, you MUST validate your code using the dev container. This is a hard gate - do not push until both checks pass.
+
+  ### Required validation steps:
+
+  1. **Check dev container health:**
+  ```bash
+  curl -s http://$DEV_CONTAINER_HOST/healthz
+  ```
+
+  2. **Run go build (must pass):**
+  ```bash
+  curl -s -X POST http://$DEV_CONTAINER_HOST/exec \
+    -H "Authorization: Bearer $DEV_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"cmd":"cd /workspace && go build ./...","timeout":120}'
+  ```
+
+  3. **Run go vet (must pass):**
+  ```bash
+  curl -s -X POST http://$DEV_CONTAINER_HOST/exec \
+    -H "Authorization: Bearer $DEV_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"cmd":"cd /workspace && go vet ./...","timeout":120}'
+  ```
+
+  ### Validation workflow:
+  - Implement your changes
+  - Run the validation commands above
+  - If either `go build` or `go vet` fails, fix the errors and run the checks again
+  - Only push when BOTH build and vet pass without errors
+  - Do NOT skip validation or push with failing checks
+
+  If the dev container is not healthy, retry the health check. Do not proceed with validation until the dev container responds to `/healthz`.
+
   Use a team of specialist agents working in parallel for independent work streams.
 
   Output: {"summary": "what you implemented"}
