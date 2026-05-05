@@ -346,14 +346,18 @@ alcove/
     bounded cycles and two step types. **Agent steps** (`type: agent`) dispatch
     Skiff pods running Claude Code (existing behavior). **Bridge steps**
     (`type: bridge`) perform deterministic actions inline: `create-pr`,
-    `await-ci`, `merge-pr`, and **JIRA bridge actions** (`jira-create-issue`,
-    `jira-transition-issue`, `jira-add-comment`, `jira-search-issues`) that
-    interact with JIRA Cloud API v3 using team-scoped credentials. JIRA actions
-    support ADF (Atlassian Document Format) conversion for descriptions and
-    comments, transition name-to-ID resolution, structured search outputs,
-    and explicit error handling for missing `api_host` configuration. Steps
-    declare dependencies via boolean expressions (`depends: "A.Succeeded &&
-    B.Succeeded"`) supporting `&&`, `||`, parentheses, and
+    `await-ci`, `merge-pr`, **GitLab bridge actions** (`create-mr`,
+    `await-pipeline`, `merge-mr`, `post-note`, `update-gl-issue`, 
+    `create-gl-issue`, `search-gl-issues`) for GitLab API v4 interactions, and 
+    **JIRA bridge actions** (`jira-create-issue`, `jira-transition-issue`, 
+    `jira-add-comment`, `jira-search-issues`) that interact with JIRA Cloud API v3 
+    using team-scoped credentials. JIRA actions support ADF (Atlassian Document 
+    Format) conversion for descriptions and comments, transition name-to-ID 
+    resolution, structured search outputs, and explicit error handling for 
+    missing `api_host` configuration. GitLab actions use the same credential 
+    flow and URL encoding patterns for project paths. Steps declare dependencies 
+    via boolean expressions (`depends: "A.Succeeded && B.Succeeded"`) supporting 
+    `&&`, `||`, parentheses, and
     `.Succeeded`/`.Failed` conditions. Bounded cycles enable review/revision
     loops with `max_iterations` per step to prevent infinite loops (status
     becomes `max_iterations_exceeded` when exhausted). Iteration tracking is
