@@ -222,7 +222,7 @@ func (jp *JiraPoller) pollForTeam(ctx context.Context, teamID string, targets []
 		Issues []struct {
 			Key    string `json:"key"`
 			Fields struct {
-				Summary     string `json:"summary"`
+				Summary     string          `json:"summary"`
 				Description json.RawMessage `json:"description"`
 				Status      struct {
 					Name string `json:"name"`
