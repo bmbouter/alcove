@@ -133,6 +133,11 @@ var validBridgeActions = map[string]bool{
 	// Search actions.
 	"search-gh-issues": true,
 	"search-issues":    true,
+	// Rebase actions.
+	"rebase":    true,
+	"rebase-pr": true,
+	// Multi-repo actions.
+	"create-prs": true,
 }
 
 // validateWorkflowSteps performs comprehensive validation on workflow steps.
