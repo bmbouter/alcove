@@ -305,15 +305,26 @@ alcove/
     GitLab-triggered sessions will receive the same rich MR/issue/pipeline
     context as GitHub sessions via `enrichment_gitlab.go`.
 
-25. **Label-Based Trigger Filtering** — Event triggers support an optional
+25. **GitLab Event Polling** — Agent definitions and schedules with GitLab event
+    triggers are supported via a dedicated GitLab poller that queries the GitLab
+    Events API (`/api/v4/projects/:id/events`) every 2 minutes for recently
+    updated projects. Supports normalized event names (`merge_request`, `issue`,
+    `push`, `comment`) and GitLab-specific project path filtering. Uses numeric
+    event ID tracking for incremental polling (GitLab doesn't support ETags).
+    Event deduplication via the same `webhook_deliveries` and `dispatched_dedup`
+    tables as GitHub. Supports both workflows and schedules with GitLab triggers.
+    Works with self-hosted GitLab instances via `api_host` in credential store.
+    Default API host is `https://gitlab.com`.
+
+26. **Label-Based Trigger Filtering** — Event triggers support an optional
     `labels` field that restricts dispatch to issues or PRs carrying at least
     one of the listed GitHub labels. This provides a safety gate that prevents
     unauthorized issues from triggering automated sessions.
 
-26. _(Removed — Docker runtime has been dropped; only Podman and Kubernetes
+27. _(Removed — Docker runtime has been dropped; only Podman and Kubernetes
     backends remain.)_
 
-27. **Teams** — Teams are the universal ownership unit. Every resource (sessions,
+28. **Teams** — Teams are the universal ownership unit. Every resource (sessions,
     credentials, security profiles, agent definitions, schedules, workflows,
     tools, agent repos) belongs to a team via a `team_id` column (replacing the
     previous `owner` column). Every user belongs to one or more teams. A personal
@@ -328,7 +339,7 @@ alcove/
     `POST /api/v1/teams/{id}/members`,
     `DELETE /api/v1/teams/{id}/members/{username}`.
 
-28. **Workflow Graph v2** — The workflow engine supports a workflow graph with
+29. **Workflow Graph v2** — The workflow engine supports a workflow graph with
     bounded cycles and two step types. **Agent steps** (`type: agent`) dispatch
     Skiff pods running Claude Code (existing behavior). **Bridge steps**
     (`type: bridge`) perform deterministic actions inline: `create-pr`,
@@ -341,7 +352,7 @@ alcove/
     `028_workflow_graph_v2.sql`). The old `needs` list syntax remains supported
     for backward compatibility.
 
-29. **Dev Containers** — Optional project-provided containers that run alongside
+30. **Dev Containers** — Optional project-provided containers that run alongside
     Skiff so agents can build and test code in a project-specific environment.
     Agent definitions declare `dev_container.image` and optionally
     `dev_container.network_access` (`internal` default, `external` for internet
@@ -359,7 +370,7 @@ alcove/
     binary, and s6-overlay for process supervision. Project `CLAUDE.md` files
     are automatically injected into agent prompts by skiff-init (see item 31).
 
-30. **Multi-Repo Support** — Agent definitions use a `repos:` list (each entry
+31. **Multi-Repo Support** — Agent definitions use a `repos:` list (each entry
     is a `RepoSpec` with `name`, `url`, and optional `ref` fields) instead of
     a single `repo:` string. Skiff receives a `REPOS` JSON env var containing
     the list and clones each repo into `/workspace/<name>/`. If `name` is
@@ -367,7 +378,7 @@ alcove/
     `031_multi_repo.sql` replaces the `repo TEXT` column with `repos JSONB`
     on both `sessions` and `schedules` tables, migrating existing data.
 
-31. **CLAUDE.md Injection** — Claude Code runs with `--bare` which disables
+32. **CLAUDE.md Injection** — Claude Code runs with `--bare` which disables
     native CLAUDE.md file discovery. After cloning repositories, skiff-init
     reads `CLAUDE.md` from the workspace root (single-repo) or from each
     `/workspace/<name>/CLAUDE.md` (multi-repo) and prepends the content to

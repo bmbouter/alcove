@@ -243,3 +243,230 @@ func TestGitHubTriggerMatches(t *testing.T) {
 		})
 	}
 }
+
+func TestGitLabTriggerMatches(t *testing.T) {
+	tests := []struct {
+		name      string
+		trigger   *GitLabTrigger
+		eventType string
+		action    string
+		project   string
+		branch    string
+		labels    []string
+		want      bool
+	}{
+		{
+			name:      "nil trigger",
+			trigger:   nil,
+			eventType: "merge_request",
+			want:      false,
+		},
+		{
+			name:      "matching merge_request event",
+			trigger:   &GitLabTrigger{Events: []string{"merge_request"}},
+			eventType: "merge_request",
+			want:      true,
+		},
+		{
+			name:      "non-matching event type",
+			trigger:   &GitLabTrigger{Events: []string{"merge_request"}},
+			eventType: "issue",
+			want:      false,
+		},
+		{
+			name:      "matching event with action filter",
+			trigger:   &GitLabTrigger{Events: []string{"merge_request"}, Actions: []string{"opened", "merged"}},
+			eventType: "merge_request",
+			action:    "opened",
+			want:      true,
+		},
+		{
+			name:      "non-matching action",
+			trigger:   &GitLabTrigger{Events: []string{"merge_request"}, Actions: []string{"opened"}},
+			eventType: "merge_request",
+			action:    "closed",
+			want:      false,
+		},
+		{
+			name:      "matching project filter",
+			trigger:   &GitLabTrigger{Events: []string{"push"}, Projects: []string{"group/project"}},
+			eventType: "push",
+			project:   "group/project",
+			want:      true,
+		},
+		{
+			name:      "non-matching project filter",
+			trigger:   &GitLabTrigger{Events: []string{"push"}, Projects: []string{"group/project"}},
+			eventType: "push",
+			project:   "other/project",
+			want:      false,
+		},
+		{
+			name:      "wildcard project filter",
+			trigger:   &GitLabTrigger{Events: []string{"push"}, Projects: []string{"*"}},
+			eventType: "push",
+			project:   "any/project",
+			want:      true,
+		},
+		{
+			name:      "matching branch filter",
+			trigger:   &GitLabTrigger{Events: []string{"push"}, Branches: []string{"main", "develop"}},
+			eventType: "push",
+			branch:    "main",
+			want:      true,
+		},
+		{
+			name:      "non-matching branch filter",
+			trigger:   &GitLabTrigger{Events: []string{"push"}, Branches: []string{"main"}},
+			eventType: "push",
+			branch:    "feature-x",
+			want:      false,
+		},
+		{
+			name:      "empty filters match all",
+			trigger:   &GitLabTrigger{Events: []string{"merge_request"}},
+			eventType: "merge_request",
+			action:    "any",
+			project:   "any/project",
+			branch:    "any-branch",
+			want:      true,
+		},
+		{
+			name: "all filters combined - match",
+			trigger: &GitLabTrigger{
+				Events:   []string{"merge_request"},
+				Actions:  []string{"opened"},
+				Projects: []string{"group/project"},
+				Branches: []string{"main"},
+			},
+			eventType: "merge_request",
+			action:    "opened",
+			project:   "group/project",
+			branch:    "main",
+			want:      true,
+		},
+		{
+			name: "all filters combined - project mismatch",
+			trigger: &GitLabTrigger{
+				Events:   []string{"merge_request"},
+				Actions:  []string{"opened"},
+				Projects: []string{"group/project"},
+				Branches: []string{"main"},
+			},
+			eventType: "merge_request",
+			action:    "opened",
+			project:   "other/project",
+			branch:    "main",
+			want:      false,
+		},
+		{
+			name:      "case insensitive event matching",
+			trigger:   &GitLabTrigger{Events: []string{"Push"}},
+			eventType: "push",
+			want:      true,
+		},
+		// Label filter tests
+		{
+			name:      "trigger with labels + event with matching label",
+			trigger:   &GitLabTrigger{Events: []string{"issue"}, Labels: []string{"ready-for-dev"}},
+			eventType: "issue",
+			labels:    []string{"bug", "ready-for-dev"},
+			want:      true,
+		},
+		{
+			name:      "trigger with labels + event with no labels",
+			trigger:   &GitLabTrigger{Events: []string{"issue"}, Labels: []string{"ready-for-dev"}},
+			eventType: "issue",
+			labels:    nil,
+			want:      false,
+		},
+		{
+			name:      "trigger with labels + event with different labels",
+			trigger:   &GitLabTrigger{Events: []string{"issue"}, Labels: []string{"ready-for-dev"}},
+			eventType: "issue",
+			labels:    []string{"bug", "enhancement"},
+			want:      false,
+		},
+		{
+			name:      "trigger with no labels + event with any labels",
+			trigger:   &GitLabTrigger{Events: []string{"issue"}},
+			eventType: "issue",
+			labels:    []string{"bug", "enhancement"},
+			want:      true,
+		},
+		{
+			name:      "case insensitive label matching",
+			trigger:   &GitLabTrigger{Events: []string{"issue"}, Labels: []string{"Ready-For-Dev"}},
+			eventType: "issue",
+			labels:    []string{"ready-for-dev"},
+			want:      true,
+		},
+		{
+			name:      "trigger with multiple labels + event matches one",
+			trigger:   &GitLabTrigger{Events: []string{"issue"}, Labels: []string{"ready-for-dev", "approved"}},
+			eventType: "issue",
+			labels:    []string{"approved"},
+			want:      true,
+		},
+		{
+			name:      "trigger with labels + empty labels slice",
+			trigger:   &GitLabTrigger{Events: []string{"issue"}, Labels: []string{"ready-for-dev"}},
+			eventType: "issue",
+			labels:    []string{},
+			want:      false,
+		},
+		// GitLab-specific event types
+		{
+			name:      "pipeline event",
+			trigger:   &GitLabTrigger{Events: []string{"pipeline"}},
+			eventType: "pipeline",
+			want:      true,
+		},
+		{
+			name:      "comment event",
+			trigger:   &GitLabTrigger{Events: []string{"comment"}},
+			eventType: "comment",
+			want:      true,
+		},
+		// Path-based project matching (GitLab style)
+		{
+			name:      "multi-level project path",
+			trigger:   &GitLabTrigger{Events: []string{"push"}, Projects: []string{"group/subgroup/project"}},
+			eventType: "push",
+			project:   "group/subgroup/project",
+			want:      true,
+		},
+		{
+			name:      "pattern matching for project",
+			trigger:   &GitLabTrigger{Events: []string{"push"}, Projects: []string{"group/*"}},
+			eventType: "push",
+			project:   "group/any-project",
+			want:      true,
+		},
+		// GitLab actions
+		{
+			name:      "gitlab labeled action",
+			trigger:   &GitLabTrigger{Events: []string{"issue"}, Actions: []string{"labeled"}},
+			eventType: "issue",
+			action:    "labeled",
+			want:      true,
+		},
+		{
+			name:      "gitlab pushed action",
+			trigger:   &GitLabTrigger{Events: []string{"push"}, Actions: []string{"pushed"}},
+			eventType: "push",
+			action:    "pushed",
+			want:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.trigger.Matches(tt.eventType, tt.action, tt.project, tt.branch, tt.labels)
+			if got != tt.want {
+				t.Errorf("Matches(%q, %q, %q, %q, %v) = %v, want %v",
+					tt.eventType, tt.action, tt.project, tt.branch, tt.labels, got, tt.want)
+			}
+		})
+	}
+}
