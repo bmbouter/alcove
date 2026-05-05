@@ -345,10 +345,16 @@ alcove/
     (`type: bridge`) perform deterministic actions inline: `create-pr`,
     `await-ci`, `merge-pr`, and **JIRA bridge actions** (`jira-create-issue`,
     `jira-transition-issue`, `jira-add-comment`, `jira-search-issues`) that
-    interact with JIRA Cloud API v3 using team-scoped credentials. JIRA actions
-    support ADF (Atlassian Document Format) conversion for descriptions and
-    comments, transition name-to-ID resolution, structured search outputs,
-    and explicit error handling for missing `api_host` configuration. Steps
+    interact with JIRA Cloud API v3 using team-scoped credentials, and **GitLab
+    bridge actions** (`create-gl-issue`, `create-mr`, `await-pipeline`,
+    `merge-mr`, `post-note`, `update-gl-issue`) for GitLab issue and merge
+    request management. **Unified bridge actions** (`create-issue`,
+    `create-merge-request`, `update-issue`) auto-detect SCM from inputs.
+    JIRA actions support ADF (Atlassian Document Format) conversion for
+    descriptions and comments, transition name-to-ID resolution, structured
+    search outputs, and explicit error handling for missing `api_host`
+    configuration. GitLab actions use the GitLab API v4 with team-scoped
+    tokens and support project path URL encoding. Steps
     declare dependencies via boolean expressions (`depends: "A.Succeeded &&
     B.Succeeded"`) supporting `&&`, `||`, parentheses, and
     `.Succeeded`/`.Failed` conditions. Bounded cycles enable review/revision
