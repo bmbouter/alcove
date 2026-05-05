@@ -517,3 +517,91 @@ dispatch time. Skiff containers never hold LLM API keys.
 | Exec Sidecar | **Shim** | Injected into dev container | No (per-session) | Remote command execution in dev containers |
 | Message Bus | **Hail** | Deployment (NATS) | Yes | Session dispatch, status updates |
 | Session Store | **Ledger** | Deployment + PVC | Yes | Audit trail, session history |
+
+## Workflow Event Triggers and Enrichment
+
+Alcove supports triggering workflows based on external events from GitHub and JIRA. Bridge includes pollers that query these services for recently updated issues/PRs and match them against workflow trigger conditions.
+
+### GitHub Event Enrichment
+
+The GitHub poller (`internal/bridge/poller.go`) fetches rich context when triggering workflows:
+
+- Full issue/PR body and metadata
+- Up to 20 recent comments
+- Review status and CI check results
+- Branch information and assignees
+- Full attachment support
+
+The enriched context is provided as both:
+1. A markdown preamble in `trigger.enriched_context` for agent prompts
+2. Structured variables like `trigger.pr_comments`, `trigger.issue_assignees`
+
+### JIRA Event Enrichment
+
+The JIRA poller (`internal/bridge/jira_poller.go`) provides equivalent enrichment:
+
+#### Available Trigger Context Variables
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `trigger.issue_key` | JIRA issue key | `"PROJ-123"` |
+| `trigger.issue_title` | Issue summary | `"Fix authentication bug"` |
+| `trigger.issue_body` | Issue description (truncated) | `"Users cannot log in..."` |
+| `trigger.issue_url` | Direct link to issue | `"https://company.atlassian.net/browse/PROJ-123"` |
+| `trigger.issue_status` | Current status | `"In Progress"` |
+| `trigger.issue_type` | Issue type | `"Bug"` |
+| `trigger.issue_priority` | Priority level | `"High"` |
+| `trigger.issue_assignee` | Assignee display name | `"John Doe"` |
+| `trigger.issue_reporter` | Reporter display name | `"Jane Smith"` |
+| `trigger.issue_components` | Components list | `"Frontend, API"` |
+| `trigger.issue_labels` | Labels array | `["urgent", "bug-fix"]` |
+| `trigger.issue_comments` | Recent comments (formatted) | `"Bob (2026-05-05): This is urgent..."` |
+| `trigger.issue_sprint` | Sprint information | `"Sprint 15 (active)"` |
+| `trigger.issue_linked_issues` | Related issues | `"[blocks] PROJ-456: Related fix"` |
+| `trigger.issue_attachments` | Attachment filenames | `"screenshot.png, logs.txt"` |
+| `trigger.enriched_context` | Full markdown context | Complete enriched markdown |
+
+#### Enrichment Scope
+
+JIRA enrichment fetches:
+- **Full issue details**: All standard fields plus priority, assignee, reporter
+- **Comments**: Up to 20 recent comments with author and timestamp
+- **Sprint context**: Active and planned sprints via Agile API
+- **Linked issues**: Related issues with relationship types
+- **Attachment metadata**: Filenames, sizes, MIME types (content not fetched)
+
+#### Rate Limiting
+
+To prevent API overload, enrichment is limited to 10 issues per poll cycle (2-minute intervals). Additional matched issues fall back to basic context with core fields only.
+
+#### Graceful Degradation
+
+If enrichment API calls fail (e.g., Agile API unavailable, network issues), the workflow still triggers with available data. Missing sections are omitted from the markdown context.
+
+#### Usage Example
+
+```yaml
+# .alcove/workflows/jira-triage.yml
+trigger:
+  jira:
+    projects: ["PROJ"]
+    labels: ["needs-triage"]
+
+steps:
+  - name: analyze
+    agent: team/code-reviewer
+    prompt: |
+      Analyze this JIRA issue and provide triage recommendations:
+      
+      {{trigger.enriched_context}}
+      
+      Priority: {{trigger.issue_priority}}
+      Components: {{trigger.issue_components}}
+      
+      {% if trigger.issue_comments %}
+      Recent Discussion:
+      {{trigger.issue_comments}}
+      {% endif %}
+```
+
+The enriched context provides agents with complete issue context without requiring additional API calls during execution.

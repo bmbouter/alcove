@@ -39,6 +39,7 @@ type JiraPoller struct {
 	baseURL        string // e.g., "https://redhat.atlassian.net"
 	pollInterval   time.Duration
 	lastPollTime   time.Time
+	client         *http.Client
 }
 
 // NewJiraPoller creates a JiraPoller with the given dependencies.
@@ -51,6 +52,7 @@ func NewJiraPoller(db *pgxpool.Pool, credStore *CredentialStore, we *WorkflowEng
 		baseURL:        "https://redhat.atlassian.net",
 		pollInterval:   2 * time.Minute,
 		lastPollTime:   time.Now().Add(-5 * time.Minute),
+		client:         &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -209,7 +211,7 @@ func (jp *JiraPoller) pollForTeam(ctx context.Context, teamID string, targets []
 		strings.Join(projects, ","), minutesSinceLastPoll)
 
 	// Search JIRA.
-	searchURL := fmt.Sprintf("%s/rest/api/3/search/jql?jql=%s&maxResults=50&fields=key,summary,status,labels,components,description,issuetype",
+	searchURL := fmt.Sprintf("%s/rest/api/3/search/jql?jql=%s&maxResults=50&fields=key,summary,status,labels,components,description,issuetype,priority,assignee,reporter,issuelinks",
 		jp.baseURL, url.QueryEscape(jql))
 
 	data, err := jp.jiraRequest(ctx, token, "GET", searchURL, nil)
@@ -244,6 +246,10 @@ func (jp *JiraPoller) pollForTeam(ctx context.Context, teamID string, targets []
 
 	log.Printf("jira-poller: found %d recently updated issues in %v", len(searchResult.Issues), projects)
 
+	// Cap enrichment at 10 issues per poll cycle to prevent API overload
+	enrichmentCount := 0
+	maxEnrichmentPerPoll := 10
+
 	// Check each issue against each target's trigger.
 	for _, issue := range searchResult.Issues {
 		issueProject := strings.Split(issue.Key, "-")[0]
@@ -268,14 +274,45 @@ func (jp *JiraPoller) pollForTeam(ctx context.Context, teamID string, targets []
 
 				log.Printf("jira-poller: triggering workflow %s for issue %s", target.workflowID, issue.Key)
 
-				triggerContext := map[string]interface{}{
-					"issue_key":    issue.Key,
-					"issue_title":  issue.Fields.Summary,
-					"issue_body":   extractADFText(issue.Fields.Description),
-					"issue_url":    fmt.Sprintf("%s/browse/%s", jp.baseURL, issue.Key),
-					"issue_status": issue.Fields.Status.Name,
-					"issue_labels": issue.Fields.Labels,
-					"issue_type":   issue.Fields.IssueType.Name,
+				var triggerContext map[string]interface{}
+
+				// Try enrichment if we haven't hit the limit
+				if enrichmentCount < maxEnrichmentPerPoll {
+					enrichedMarkdown, additionalContext := jp.enrichJiraIssueContext(ctx, token, issue.Key)
+
+					// Create basic trigger context and add enriched fields
+					triggerContext = map[string]interface{}{
+						"issue_key":        issue.Key,
+						"issue_title":      issue.Fields.Summary,
+						"issue_body":       extractADFText(issue.Fields.Description),
+						"issue_url":        fmt.Sprintf("%s/browse/%s", jp.baseURL, issue.Key),
+						"issue_status":     issue.Fields.Status.Name,
+						"issue_labels":     issue.Fields.Labels,
+						"issue_type":       issue.Fields.IssueType.Name,
+						"enriched_context": enrichedMarkdown,
+					}
+
+					// Merge additional enriched context fields
+					for key, value := range additionalContext {
+						triggerContext[key] = value
+					}
+
+					enrichmentCount++
+				} else {
+					// Fall back to basic context if we've hit the enrichment limit
+					if enrichmentCount == maxEnrichmentPerPoll {
+						log.Printf("jira-poller: enrichment limit reached (%d), using basic context for remaining issues", maxEnrichmentPerPoll)
+					}
+
+					triggerContext = map[string]interface{}{
+						"issue_key":    issue.Key,
+						"issue_title":  issue.Fields.Summary,
+						"issue_body":   extractADFText(issue.Fields.Description),
+						"issue_url":    fmt.Sprintf("%s/browse/%s", jp.baseURL, issue.Key),
+						"issue_status": issue.Fields.Status.Name,
+						"issue_labels": issue.Fields.Labels,
+						"issue_type":   issue.Fields.IssueType.Name,
+					}
 				}
 
 				_, err := jp.workflowEngine.StartWorkflowRun(ctx, target.workflowID, "jira", issue.Key, target.teamID, triggerContext)
@@ -312,8 +349,7 @@ func (jp *JiraPoller) jiraRequest(ctx context.Context, credential, method, reqUR
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := jp.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
