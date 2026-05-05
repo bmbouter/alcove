@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -29,11 +30,11 @@ jobs:
         env:
           GOPROXY: direct
 
-  # Everything below only runs on pushes to main (post-merge).
+  # Everything below only runs on pushes to main (post-merge) or manual workflow dispatch.
   # These are heavier tests that validate the full stack but don't block PRs.
 
   functional-tests-podman:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -231,7 +232,7 @@ jobs:
           podman network rm alcove-external 2>/dev/null || true
 
   functional-tests-k8s:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -509,7 +510,7 @@ jobs:
           kubectl delete namespace alcove --timeout=60s 2>/dev/null || true
 
   dev-container-tests:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
