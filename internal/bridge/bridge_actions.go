@@ -488,3 +488,4 @@ func bridgeActionUnifiedUpdateIssue(ctx context.Context, inputs map[string]inter
 		return &BridgeActionResult{Status: "failed", Error: "cannot detect SCM: provide 'repo' (GitHub) or 'project' (GitLab)"}, nil
 	}
 }
+
