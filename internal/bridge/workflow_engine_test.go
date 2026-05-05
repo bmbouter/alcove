@@ -324,3 +324,80 @@ func TestWorkflowRunsFilter_validate(t *testing.T) {
 		})
 	}
 }
+
+
+func TestEvaluateDependsAwaitCIFailed(t *testing.T) {
+	// Test the key scenario: ci-fix should dispatch when await-ci fails
+	tests := []struct {
+		name         string
+		expression   string
+		stepStatuses map[string]string
+		expected     bool
+	}{
+		{
+			name:       "ci-fix dispatches when await-ci failed",
+			expression: "await-ci.Failed",
+			stepStatuses: map[string]string{
+				"await-ci": "failed",
+			},
+			expected: true,
+		},
+		{
+			name:       "ci-fix does not dispatch when await-ci completed",
+			expression: "await-ci.Failed",
+			stepStatuses: map[string]string{
+				"await-ci": "completed",
+			},
+			expected: false,
+		},
+		{
+			name:       "code-review dispatches when await-ci succeeded",
+			expression: "await-ci.Succeeded",
+			stepStatuses: map[string]string{
+				"await-ci": "completed",
+			},
+			expected: true,
+		},
+		{
+			name:       "code-review does not dispatch when await-ci failed",
+			expression: "await-ci.Succeeded",
+			stepStatuses: map[string]string{
+				"await-ci": "failed",
+			},
+			expected: false,
+		},
+		{
+			name:       "complex expression with OR",
+			expression: "await-ci.Succeeded || revision.Succeeded",
+			stepStatuses: map[string]string{
+				"await-ci": "failed",
+				"revision": "completed",
+			},
+			expected: true,
+		},
+		{
+			name:       "complex expression with AND", 
+			expression: "await-ci.Succeeded && code-review.Succeeded",
+			stepStatuses: map[string]string{
+				"await-ci":     "completed",
+				"code-review":  "failed",
+			},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := EvaluateDepends(tt.expression, tt.stepStatuses)
+			if err != nil {
+				t.Errorf("EvaluateDepends failed: %v", err)
+				return
+			}
+
+			if result != tt.expected {
+				t.Errorf("EvaluateDepends(%q, %v) = %t, want %t", 
+					tt.expression, tt.stepStatuses, result, tt.expected)
+			}
+		})
+	}
+}

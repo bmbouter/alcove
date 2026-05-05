@@ -766,3 +766,152 @@ func TestBridgeActionUnifiedCreateIssue(t *testing.T) {
 		})
 	}
 }
+
+
+func TestBridgeActionAwaitCIFailureSemantics(t *testing.T) {
+	// Test CI passes - should return Status "succeeded"
+	t.Run("ci passes returns status succeeded", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Mock successful CI response
+			if strings.Contains(r.URL.Path, "/check-runs") {
+				resp := map[string]interface{}{
+					"check_runs": []map[string]interface{}{
+						{
+							"id":         12345,
+							"name":       "CI",
+							"status":     "completed",
+							"conclusion": "success",
+						},
+					},
+				}
+				json.NewEncoder(w).Encode(resp)
+			}
+		}))
+		defer server.Close()
+
+		credStore := NewCredentialStore("test-key")
+		credStore.StoreSCMToken(context.Background(), "github", "test-team", "test-token", server.URL)
+
+		inputs := map[string]interface{}{
+			"repo": "owner/repo",
+			"pr":   123,
+		}
+
+		ctx := context.Background()
+		result, err := bridgeActionAwaitCI(ctx, inputs, credStore, "test-team")
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		if result.Status != "succeeded" {
+			t.Errorf("Expected status \"succeeded\" when CI passes, got: %s", result.Status)
+		}
+
+		if result.Outputs["status"] != "passed" {
+			t.Errorf("Expected output status \"passed\", got: %v", result.Outputs["status"])
+		}
+	})
+
+	// Test CI fails - should return Status "failed" (the core fix)
+	t.Run("ci fails returns status failed", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "/check-runs") {
+				resp := map[string]interface{}{
+					"check_runs": []map[string]interface{}{
+						{
+							"id":         12345,
+							"name":       "CI",
+							"status":     "completed",
+							"conclusion": "failure",
+						},
+					},
+				}
+				json.NewEncoder(w).Encode(resp)
+			} else if strings.Contains(r.URL.Path, "/actions/jobs/12345/logs") {
+				// Mock failure logs
+				w.Write([]byte("Error: build failed\\nmockCredentialStore redeclared in this block"))
+			}
+		}))
+		defer server.Close()
+
+		credStore := NewCredentialStore("test-key")
+		credStore.StoreSCMToken(context.Background(), "github", "test-team", "test-token", server.URL)
+
+		inputs := map[string]interface{}{
+			"repo": "owner/repo",
+			"pr":   123,
+		}
+
+		ctx := context.Background()
+		result, err := bridgeActionAwaitCI(ctx, inputs, credStore, "test-team")
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		// The key fix: when CI fails, return Status "failed" so ci-fix can dispatch
+		if result.Status != "failed" {
+			t.Errorf("Expected status \"failed\" when CI fails, got: %s", result.Status)
+		}
+
+		if result.Outputs["status"] != "failed" {
+			t.Errorf("Expected output status \"failed\", got: %v", result.Outputs["status"])
+		}
+
+		// Verify failure_logs is populated
+		failureLogs, ok := result.Outputs["failure_logs"].(string)
+		if !ok || failureLogs == "" {
+			t.Errorf("Expected failure_logs to be populated, got: %v", result.Outputs["failure_logs"])
+		}
+
+		if !strings.Contains(failureLogs, "mockCredentialStore redeclared") {
+			t.Errorf("Expected failure logs to contain specific error, got: %s", failureLogs)
+		}
+	})
+
+	// Test CI timeout - should return Status "failed"
+	t.Run("ci timeout returns status failed", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "/check-runs") {
+				// Return ongoing CI that will timeout
+				resp := map[string]interface{}{
+					"check_runs": []map[string]interface{}{
+						{
+							"id":         12345,
+							"name":       "CI",
+							"status":     "in_progress",
+							"conclusion": nil,
+						},
+					},
+				}
+				json.NewEncoder(w).Encode(resp)
+			}
+		}))
+		defer server.Close()
+
+		credStore := NewCredentialStore("test-key")
+		credStore.StoreSCMToken(context.Background(), "github", "test-team", "test-token", server.URL)
+
+		inputs := map[string]interface{}{
+			"repo":    "owner/repo",
+			"pr":      123,
+			"timeout": 1, // 1 second timeout for fast test
+		}
+
+		ctx := context.Background()
+		result, err := bridgeActionAwaitCI(ctx, inputs, credStore, "test-team")
+
+		if err != nil {
+			t.Errorf("Unexpected error: %v", err)
+		}
+
+		if result.Status != "failed" {
+			t.Errorf("Expected status \"failed\" when CI times out, got: %s", result.Status)
+		}
+
+		if !strings.Contains(result.Error, "timed out") {
+			t.Errorf("Expected timeout error message, got: %s", result.Error)
+		}
+	})
+}

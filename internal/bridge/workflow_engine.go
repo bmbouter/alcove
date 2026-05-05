@@ -258,7 +258,7 @@ func (we *WorkflowEngine) StartWorkflowRun(ctx context.Context, workflowID, trig
 
 // dispatchStep dispatches a single workflow step.
 func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, step *WorkflowStep, workflow *WorkflowDefinition) error {
-	log.Printf("dispatching step %s for workflow run %s", step.ID, run.ID)
+	log.Printf("workflow-engine: dispatching step %s for workflow run %s", step.ID, run.ID)
 
 	// Check iteration limit before dispatching.
 	maxIter := step.MaxIterations
@@ -270,7 +270,7 @@ func (we *WorkflowEngine) dispatchStep(ctx context.Context, run *WorkflowRun, st
 		return fmt.Errorf("getting iteration count for step %s: %w", step.ID, err)
 	}
 	if currentIter >= maxIter {
-		log.Printf("step %s reached max_iterations (%d), marking as failed", step.ID, maxIter)
+		log.Printf("workflow-engine: step %s reached max_iterations (%d), marking as failed", step.ID, maxIter)
 		now := time.Now().UTC()
 		outputs := map[string]interface{}{"error": "max_iterations_exceeded"}
 		if err := we.updateStepStatus(ctx, run.ID, step.ID, "failed", &now, outputs); err != nil {
@@ -500,6 +500,7 @@ func (we *WorkflowEngine) executeBridgeAction(ctx context.Context, run *Workflow
 			result.Outputs["error"] = result.Error
 		}
 	}
+	log.Printf("workflow-engine: bridge action %s returned status=%s, mapping to step_status=%s", step.Action, result.Status, stepStatus)
 
 	if err := we.updateStepStatus(ctx, run.ID, step.ID, stepStatus, &finishedNow, result.Outputs); err != nil {
 		return fmt.Errorf("updating bridge step status: %w", err)
@@ -560,6 +561,7 @@ func (we *WorkflowEngine) resetStepForReexecution(ctx context.Context, runID, st
 
 // OnStepCompletion is called when a session completes to handle workflow step completion.
 func (we *WorkflowEngine) OnStepCompletion(ctx context.Context, sessionID string, status string, exitCode *int) error {
+	log.Printf("workflow-engine: step completion callback for session %s, status=%s, exitCode=%v", sessionID, status, exitCode)
 	// Find the workflow run step by session ID
 	step, run, err := we.getStepAndRunBySessionID(ctx, sessionID)
 	if err != nil {
@@ -661,10 +663,11 @@ func (we *WorkflowEngine) checkAndDispatchDependents(ctx context.Context, run *W
 			// Evaluate the full expression.
 			result, err := EvaluateDepends(dependent.Depends, stepStatuses)
 			if err != nil {
-				log.Printf("error evaluating depends for step %s: %v", dependent.ID, err)
+				log.Printf("workflow-engine: error evaluating depends for step %s: %v", dependent.ID, err)
 				continue
 			}
 			ready = result
+			log.Printf("workflow-engine: evaluated depends for step %s: '%s' -> %t (completed step: %s)", dependent.ID, dependent.Depends, result, completedStepID)
 		} else if len(dependent.Needs) > 0 {
 			// Legacy: check if all Needs are completed.
 			references := false
@@ -703,6 +706,7 @@ func (we *WorkflowEngine) checkAndDispatchDependents(ctx context.Context, run *W
 		}
 
 		if stepStatus == "pending" {
+			log.Printf("workflow-engine: dependencies met for pending step %s, dispatching (iteration will be 1)", dependent.ID)
 			if err := we.dispatchStep(ctx, run, &dependent, workflow); err != nil {
 				log.Printf("error dispatching dependent step %s: %v", dependent.ID, err)
 				if err := we.updateStepStatus(ctx, run.ID, dependent.ID, "failed", nil, nil); err != nil {
@@ -717,7 +721,7 @@ func (we *WorkflowEngine) checkAndDispatchDependents(ctx context.Context, run *W
 				continue
 			}
 			if currentIter < maxIter {
-				log.Printf("re-dispatching step %s for iteration %d/%d", dependent.ID, currentIter+1, maxIter)
+				log.Printf("workflow-engine: re-dispatching step %s for iteration %d/%d", dependent.ID, currentIter+1, maxIter)
 				if err := we.resetStepForReexecution(ctx, run.ID, dependent.ID); err != nil {
 					log.Printf("error resetting step %s for re-execution: %v", dependent.ID, err)
 					continue
@@ -727,6 +731,8 @@ func (we *WorkflowEngine) checkAndDispatchDependents(ctx context.Context, run *W
 					if err := we.updateStepStatus(ctx, run.ID, dependent.ID, "failed", nil, nil); err != nil {
 						log.Printf("error marking step %s as failed: %v", dependent.ID, err)
 					}
+				} else {
+					log.Printf("workflow-engine: step %s exhausted max_iterations (%d), not re-dispatching", dependent.ID, maxIter)
 				}
 			}
 		}

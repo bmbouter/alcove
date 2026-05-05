@@ -105,10 +105,15 @@ Polls CI status on a PR until all checks complete.
 
 **Outputs:** `status` (`passed` or `failed`), `failure_logs`, `failed_checks`
 
-The step succeeds (status `completed`) when it gets a CI result. The CI
-outcome is in the `status` output: `passed` if all checks succeed or are
-skipped, `failed` if any check fails. When CI fails, `failure_logs` contains
-the last 3000 characters of each failed check's log output.
+The step status reflects the CI outcome: when CI passes, the step succeeds 
+(status `completed`); when CI fails, the step fails (status `failed`). The 
+CI outcome is also available in the `status` output: `passed` if all checks 
+succeed or are skipped, `failed` if any check fails. When CI fails, 
+`failure_logs` contains the last 3000 characters of each failed check's log 
+output.
+
+**Note:** `await-ci.Failed` means "CI failed" (not "the API call failed"). 
+This allows steps like `ci-fix` to dispatch when CI actually fails.
 
 **No-CI heuristic:** If no check runs appear within 90 seconds of the first
 poll, `await-ci` treats CI as passed. This handles repos that have no CI
@@ -458,10 +463,7 @@ workflow:
       repo: "org/myproject"
       pr: "{{steps.create-pr.outputs.pr_number}}"
 
-  # 5. If await-ci times out, dev agent investigates (up to 3 attempts)
-  # Note: await-ci succeeds even when CI fails (the CI outcome is in
-  # outputs.status). This step only runs if await-ci itself fails
-  # (e.g., timeout).
+  # 5. If CI fails, dev agent investigates and fixes (up to 3 attempts)
   - id: ci-fix
     type: agent
     agent: dev
@@ -512,8 +514,7 @@ workflow:
 
 **Cycles in this workflow:**
 
-1. `await-ci -> ci-fix -> await-ci` -- CI retry loop (fires only on
-   await-ci timeout; see await-ci reference above)
+1. `await-ci -> ci-fix -> await-ci` -- CI failure handling (fires when CI fails)
 2. `code-review/security-review -> revision -> code-review/security-review` -- review loop
 
 Each cycle is bounded by `max_iterations`. If a step exhausts its iterations,
