@@ -136,6 +136,53 @@ func (jp *JiraPoller) PollAll(ctx context.Context) {
 	jp.lastPollTime = time.Now()
 }
 
+// extractADFText extracts plain text from an Atlassian Document Format (ADF) JSON object.
+// If the input is not valid ADF JSON, it falls back to treating it as plain text.
+// This provides compatibility with JIRA Server/DC instances that may still return
+// plain text descriptions.
+func extractADFText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+
+	// Try to parse as ADF JSON first
+	var adfDoc map[string]interface{}
+	if err := json.Unmarshal(raw, &adfDoc); err != nil {
+		// Fallback: treat as plain text
+		return string(raw)
+	}
+
+	// Extract text from ADF document
+	return extractTextFromADFNode(adfDoc)
+}
+
+// extractTextFromADFNode recursively extracts text from an ADF node
+func extractTextFromADFNode(node map[string]interface{}) string {
+	var text strings.Builder
+
+	// If this node has text, add it
+	if nodeText, ok := node["text"].(string); ok {
+		text.WriteString(nodeText)
+	}
+
+	// If this node has content, recursively process child nodes
+	if content, ok := node["content"].([]interface{}); ok {
+		for _, child := range content {
+			if childNode, ok := child.(map[string]interface{}); ok {
+				childText := extractTextFromADFNode(childNode)
+				if childText != "" {
+					if text.Len() > 0 {
+						text.WriteString(" ")
+					}
+					text.WriteString(childText)
+				}
+			}
+		}
+	}
+
+	return text.String()
+}
+
 func (jp *JiraPoller) pollForTeam(ctx context.Context, teamID string, targets []jiraPollTarget) {
 	token, _, err := jp.credStore.AcquireSCMTokenForOwner(ctx, "jira", teamID)
 	if err != nil {
@@ -162,7 +209,7 @@ func (jp *JiraPoller) pollForTeam(ctx context.Context, teamID string, targets []
 		strings.Join(projects, ","), minutesSinceLastPoll)
 
 	// Search JIRA.
-	searchURL := fmt.Sprintf("%s/rest/api/2/search?jql=%s&maxResults=50&fields=key,summary,status,labels,components,description,issuetype",
+	searchURL := fmt.Sprintf("%s/rest/api/3/search/jql?jql=%s&maxResults=50&fields=key,summary,status,labels,components,description,issuetype",
 		jp.baseURL, url.QueryEscape(jql))
 
 	data, err := jp.jiraRequest(ctx, token, "GET", searchURL, nil)
@@ -176,7 +223,7 @@ func (jp *JiraPoller) pollForTeam(ctx context.Context, teamID string, targets []
 			Key    string `json:"key"`
 			Fields struct {
 				Summary     string `json:"summary"`
-				Description string `json:"description"`
+				Description json.RawMessage `json:"description"`
 				Status      struct {
 					Name string `json:"name"`
 				} `json:"status"`
@@ -224,7 +271,7 @@ func (jp *JiraPoller) pollForTeam(ctx context.Context, teamID string, targets []
 				triggerContext := map[string]interface{}{
 					"issue_key":    issue.Key,
 					"issue_title":  issue.Fields.Summary,
-					"issue_body":   issue.Fields.Description,
+					"issue_body":   extractADFText(issue.Fields.Description),
 					"issue_url":    fmt.Sprintf("%s/browse/%s", jp.baseURL, issue.Key),
 					"issue_status": issue.Fields.Status.Name,
 					"issue_labels": issue.Fields.Labels,
