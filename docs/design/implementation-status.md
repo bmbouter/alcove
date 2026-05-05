@@ -300,7 +300,10 @@ alcove/
     usage. Event deduplication via the `webhook_deliveries` table prevents
     duplicate session dispatches. On first poll, existing events are skipped to
     avoid retroactive dispatches. Works in any environment including local
-    development with no webhook configuration required.
+    development with no webhook configuration required. **GitLab event
+    enrichment** is implemented and ready — when #544 (GitLab poller) ships,
+    GitLab-triggered sessions will receive the same rich MR/issue/pipeline
+    context as GitHub sessions via `enrichment_gitlab.go`.
 
 25. **Label-Based Trigger Filtering** — Event triggers support an optional
     `labels` field that restricts dispatch to issues or PRs carrying at least
