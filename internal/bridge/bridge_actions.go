@@ -68,6 +68,7 @@ func RegisterBridgeActions() map[string]BridgeActionHandler {
 
 		// GitLab-specific aliases.
 		"create-mr":         bridgeActionCreateMR,
+		"create-mrs":        bridgeActionCreateMRs,
 		"await-pipeline":    bridgeActionAwaitPipeline,
 		"merge-mr":          bridgeActionMergeMR,
 		"post-note":         bridgeActionPostNote,
@@ -208,7 +209,7 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 				"title":         "string (required) - MR/PR title",
 				"body":          "string (GitHub, optional) - PR body/description",
 				"description":   "string (GitLab, optional) - MR description",
-				"draft":         "bool (GitHub, optional) - Create as draft PR",
+				"draft":         "bool (optional) - Create as draft PR (GitHub) or draft MR (GitLab)",
 			},
 			Outputs: map[string]string{
 				"pr_number": "int - Pull request number (GitHub)",
@@ -293,6 +294,42 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 			Outputs: map[string]string{
 				"pr_number": "int - Pull request number",
 				"pr_url":    "string - Pull request URL",
+			},
+		},
+		{
+			Name:        "create-prs",
+			Description: "Create pull requests across multiple GitHub repositories",
+			Inputs: map[string]string{
+				"repos":  "[]string (required) - Array of repositories in owner/repo format",
+				"branch": "string (required) - Source branch name",
+				"base":   "string (optional) - Target branch name (default: main)",
+				"title":  "string (required) - PR title",
+				"body":   "string (optional) - PR body/description",
+				"draft":  "bool (optional) - Create as draft PR",
+			},
+			Outputs: map[string]string{
+				"pr_numbers":   "[]int - Array of pull request numbers",
+				"pr_urls":      "[]string - Array of pull request URLs",
+				"repos":        "[]string - Array of repositories where PRs were created",
+				"failed_repos": "[]string - Array of repositories where PR creation failed",
+			},
+		},
+		{
+			Name:        "create-mrs",
+			Description: "Create merge requests across multiple GitLab projects",
+			Inputs: map[string]string{
+				"projects":      "[]string (required) - Array of GitLab project paths",
+				"source_branch": "string (required) - Source branch name",
+				"target_branch": "string (optional) - Target branch name (default: main)",
+				"title":         "string (required) - MR title",
+				"description":   "string (optional) - MR description",
+				"draft":         "bool (optional) - Create as draft MR",
+			},
+			Outputs: map[string]string{
+				"mr_iids":          "[]int - Array of merge request IIDs",
+				"mr_urls":          "[]string - Array of merge request URLs",
+				"projects":         "[]string - Array of projects where MRs were created",
+				"failed_projects":  "[]string - Array of projects where MR creation failed",
 			},
 		},
 		{

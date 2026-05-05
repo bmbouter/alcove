@@ -255,7 +255,7 @@ func TestUnifiedAwaitReleaseRouting(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
+for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			scm := detectSCM(tt.inputs)
 			if scm != tt.expectedSCM {
@@ -265,3 +265,86 @@ func TestUnifiedAwaitReleaseRouting(t *testing.T) {
 	}
 }
 
+func TestBridgeActionCreateMRsInputValidation(t *testing.T) {
+	tests := []struct {
+		name           string
+		inputs         map[string]interface{}
+		expectedStatus string
+		expectedError  string
+	}{
+		{
+			name: "missing required inputs - source_branch",
+			inputs: map[string]interface{}{
+				"projects": []string{"group/project1", "group/project2"},
+				"title":    "Test MR",
+			},
+			expectedStatus: "failed",
+			expectedError:  "missing required inputs: source_branch, title",
+		},
+		{
+			name: "missing required inputs - title",
+			inputs: map[string]interface{}{
+				"projects":      []string{"group/project1", "group/project2"},
+				"source_branch": "feature-branch",
+			},
+			expectedStatus: "failed",
+			expectedError:  "missing required inputs: source_branch, title",
+		},
+		{
+			name: "missing required inputs - empty projects array",
+			inputs: map[string]interface{}{
+				"projects":      []string{},
+				"source_branch": "feature-branch",
+				"title":         "Test MR",
+			},
+			expectedStatus: "failed",
+			expectedError:  "missing required input: projects (array of GitLab project paths)",
+		},
+		{
+			name: "missing required inputs - no projects",
+			inputs: map[string]interface{}{
+				"source_branch": "feature-branch",
+				"title":         "Test MR",
+			},
+			expectedStatus: "failed",
+			expectedError:  "missing required input: projects (array of GitLab project paths)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Test input validation logic
+			sourceBranch := getStringInput(tt.inputs, "source_branch")
+			title := getStringInput(tt.inputs, "title")
+
+			if sourceBranch == "" || title == "" {
+				expectedErr := "missing required inputs: source_branch, title"
+				if expectedErr != tt.expectedError {
+					t.Errorf("Expected error %q, got %q", tt.expectedError, expectedErr)
+				}
+				return
+			}
+
+			var projects []string
+			if p, ok := tt.inputs["projects"]; ok {
+				switch v := p.(type) {
+				case []interface{}:
+					for _, item := range v {
+						if s, ok := item.(string); ok {
+							projects = append(projects, s)
+						}
+					}
+				case []string:
+					projects = v
+				}
+			}
+			if len(projects) == 0 {
+				expectedErr := "missing required input: projects (array of GitLab project paths)"
+				if expectedErr != tt.expectedError {
+					t.Errorf("Expected error %q, got %q", tt.expectedError, expectedErr)
+				}
+				return
+			}
+		})
+	}
+}

@@ -3,6 +3,14 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.42.8
+
+### Features
+- Add `create-mrs` bridge action for multi-repo GitLab MR creation
+- Add `draft` parameter support to single `create-mr` action for consistency
+- Fix missing `create-prs` and `create-gl-issue` in workflow validation map
+- Add API schemas for `create-prs` and `create-mrs` actions
+
 ## v0.42.7
 
 ### Bug Fixes
