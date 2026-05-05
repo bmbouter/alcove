@@ -43,21 +43,21 @@ type WorkflowDefinition struct {
 
 // WorkflowStep represents a single step in a workflow.
 type WorkflowStep struct {
-	ID            string                 `json:"id" yaml:"id"`
-	Agent         string                 `json:"agent,omitempty" yaml:"agent,omitempty"`
-	Type          string                 `json:"type,omitempty" yaml:"type,omitempty"`                     // "agent" (default) or "bridge"
-	Action        string                 `json:"action,omitempty" yaml:"action,omitempty"`                 // Bridge action name (create-pr, await-ci, merge-pr)
-	Repos         []internal.RepoSpec    `json:"repos,omitempty" yaml:"repos,omitempty"`
-	Trigger       *EventTrigger          `json:"trigger,omitempty" yaml:"trigger,omitempty"`
-	Needs         []string               `json:"needs,omitempty" yaml:"needs,omitempty"`
-	Depends       string                 `json:"depends,omitempty" yaml:"depends,omitempty"`               // Enhanced dependency expression
-	Condition     string                 `json:"condition,omitempty" yaml:"condition,omitempty"`
-	Approval      string                 `json:"approval,omitempty" yaml:"approval,omitempty"`             // "required" or empty
-	Outputs       []string               `json:"outputs,omitempty" yaml:"outputs,omitempty"`
-	Inputs        map[string]interface{} `json:"inputs,omitempty" yaml:"inputs,omitempty"`
-	RouteField    string                 `json:"route_field,omitempty" yaml:"route_field,omitempty"`       // Field name for routing decisions
-	RouteMap      map[string]string      `json:"route_map,omitempty" yaml:"route_map,omitempty"`           // Value -> next step mapping
-	MaxIterations int                    `json:"max_iterations,omitempty" yaml:"max_iterations,omitempty"` // Max times this step can execute (default 1)
+	ID             string                 `json:"id" yaml:"id"`
+	Agent          string                 `json:"agent,omitempty" yaml:"agent,omitempty"`
+	Type           string                 `json:"type,omitempty" yaml:"type,omitempty"`     // "agent" (default) or "bridge"
+	Action         string                 `json:"action,omitempty" yaml:"action,omitempty"` // Bridge action name (create-pr, await-ci, merge-pr)
+	Repos          []internal.RepoSpec    `json:"repos,omitempty" yaml:"repos,omitempty"`
+	Trigger        *EventTrigger          `json:"trigger,omitempty" yaml:"trigger,omitempty"`
+	Needs          []string               `json:"needs,omitempty" yaml:"needs,omitempty"`
+	Depends        string                 `json:"depends,omitempty" yaml:"depends,omitempty"` // Enhanced dependency expression
+	Condition      string                 `json:"condition,omitempty" yaml:"condition,omitempty"`
+	Approval       string                 `json:"approval,omitempty" yaml:"approval,omitempty"` // "required" or empty
+	Outputs        []string               `json:"outputs,omitempty" yaml:"outputs,omitempty"`
+	Inputs         map[string]interface{} `json:"inputs,omitempty" yaml:"inputs,omitempty"`
+	RouteField     string                 `json:"route_field,omitempty" yaml:"route_field,omitempty"`       // Field name for routing decisions
+	RouteMap       map[string]string      `json:"route_map,omitempty" yaml:"route_map,omitempty"`           // Value -> next step mapping
+	MaxIterations  int                    `json:"max_iterations,omitempty" yaml:"max_iterations,omitempty"` // Max times this step can execute (default 1)
 	MaxRetries     int                    `json:"max_retries,omitempty" yaml:"max_retries,omitempty"`       // Max retries on failure within one iteration
 	Credentials    map[string]string      `json:"credentials,omitempty" yaml:"credentials,omitempty"`
 	DirectOutbound bool                   `json:"direct_outbound,omitempty" yaml:"direct_outbound,omitempty"`
@@ -126,6 +126,10 @@ var validBridgeActions = map[string]bool{
 	"jira-transition-issue": true,
 	"jira-add-comment":      true,
 	"jira-search-issues":    true,
+
+	// Search actions.
+	"search-gh-issues": true,
+	"search-issues":    true,
 }
 
 // validateWorkflowSteps performs comprehensive validation on workflow steps.
