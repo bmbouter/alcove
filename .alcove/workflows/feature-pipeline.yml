@@ -52,7 +52,7 @@ workflow:
   - id: await-ci
     type: bridge
     action: await-checks
-    depends: "create-pr.Succeeded || ci-fix.Succeeded"
+    depends: "create-pr.Succeeded || ci-fix.Succeeded || rebase.Succeeded || conflict-resolve.Succeeded"
     max_iterations: 4
     inputs:
       repo: alcove-ai/alcove
@@ -107,10 +107,37 @@ workflow:
       security_feedback: "{{steps.security-review.outputs.comments}}"
     outputs: [summary]
 
+  - id: rebase
+    type: bridge
+    action: rebase
+    depends: "code-review.Succeeded && security-review.Succeeded"
+    max_iterations: 3
+    inputs:
+      repo: alcove-ai/alcove
+      pr: "{{steps.create-pr.outputs.pr_number}}"
+      update_method: merge
+    outputs: [status, new_head_sha]
+
+  - id: conflict-resolve
+    type: agent
+    agent: Autonomous Developer
+    depends: "rebase.Failed"
+    max_iterations: 2
+    inputs:
+      branch: "{{steps.implement.inputs.branch}}"
+      issue_number: "{{trigger.issue_number}}"
+      repo: "alcove-ai/alcove"
+      issue_title: "{{trigger.issue_title}}"
+      issue_body: "{{trigger.issue_body}}"
+      issue_url: "{{trigger.issue_url}}"
+      merge_conflict_details: "{{steps.rebase.outputs.error}}"
+      task_context: "Resolve merge conflicts detected during rebase step. The branch needs to be updated to work with the latest main branch."
+    outputs: [summary]
+
   - id: merge
     type: bridge
     action: merge
-    depends: "code-review.Succeeded && security-review.Succeeded"
+    depends: "rebase.Succeeded || (conflict-resolve.Succeeded && await-ci.Succeeded)"
     inputs:
       repo: alcove-ai/alcove
       pr: "{{steps.create-pr.outputs.pr_number}}"

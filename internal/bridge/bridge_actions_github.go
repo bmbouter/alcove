@@ -854,6 +854,121 @@ func bridgeActionSearchGHIssues(ctx context.Context, inputs map[string]interface
 	}, nil
 }
 
+// bridgeActionRebasePR rebases a pull request on GitHub using the update-branch API.
+func bridgeActionRebasePR(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
+	repo := getStringInput(inputs, "repo")
+	pr := getIntInput(inputs, "pr")
+	updateMethod := getStringInput(inputs, "update_method")
+
+	if repo == "" || pr == 0 {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  "missing required inputs: repo, pr",
+		}, nil
+	}
+
+	if updateMethod == "" {
+		updateMethod = "merge" // Default to merge method (safer than rebase)
+	}
+	if updateMethod != "merge" && updateMethod != "rebase" {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  "update_method must be 'merge' or 'rebase'",
+		}, nil
+	}
+
+	token, apiHost, err := credStore.AcquireSCMTokenForOwner(ctx, "github", teamID)
+	if err != nil {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  fmt.Sprintf("failed to acquire GitHub token: %v", err),
+		}, nil
+	}
+
+	if apiHost == "" {
+		apiHost = "https://api.github.com"
+	}
+
+	// Call GitHub's update-branch API
+	updateBody := map[string]interface{}{
+		"update_method": updateMethod,
+	}
+	bodyJSON, err := json.Marshal(updateBody)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling update body: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/repos/%s/pulls/%d/update-branch", apiHost, repo, pr)
+	respBody, err := githubRequest(ctx, token, "PUT", url, bodyJSON)
+	if err != nil {
+		// Check for specific error conditions
+		if strings.Contains(err.Error(), "422") {
+			// 422 typically indicates merge conflicts or other update issues
+			log.Printf("bridge-action rebase: conflicts detected for PR #%d in %s", pr, repo)
+			return &BridgeActionResult{
+				Status: "failed",
+				Outputs: map[string]interface{}{
+					"status": "conflict",
+					"error":  "Merge conflicts detected — requires manual resolution",
+				},
+				Error: "Merge conflicts detected during rebase",
+			}, nil
+		}
+		// Check for up-to-date condition
+		if strings.Contains(err.Error(), "Branch is up to date") || strings.Contains(strings.ToLower(err.Error()), "already up to date") {
+			log.Printf("bridge-action rebase: PR #%d in %s is already up to date", pr, repo)
+			return &BridgeActionResult{
+				Status: "succeeded",
+				Outputs: map[string]interface{}{
+					"status": "up_to_date",
+				},
+			}, nil
+		}
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  fmt.Sprintf("GitHub API error updating branch: %v", err),
+		}, nil
+	}
+
+	var updateResp struct {
+		Message string `json:"message"`
+		URL     string `json:"url"`
+	}
+	if err := json.Unmarshal(respBody, &updateResp); err != nil {
+		// Even if parsing fails, the update likely succeeded if we got here
+		log.Printf("bridge-action rebase: branch updated for PR #%d in %s (could not parse response)", pr, repo)
+	} else {
+		log.Printf("bridge-action rebase: %s for PR #%d in %s", updateResp.Message, pr, repo)
+	}
+
+	// Get the updated PR to find the new head SHA
+	prURL := fmt.Sprintf("%s/repos/%s/pulls/%d", apiHost, repo, pr)
+	prData, err := githubRequest(ctx, token, "GET", prURL, nil)
+	var newHeadSHA string
+	if err == nil {
+		var prInfo struct {
+			Head struct {
+				SHA string `json:"sha"`
+			} `json:"head"`
+		}
+		if json.Unmarshal(prData, &prInfo) == nil {
+			newHeadSHA = prInfo.Head.SHA
+		}
+	}
+
+	outputs := map[string]interface{}{
+		"status": "rebased",
+	}
+	if newHeadSHA != "" {
+		outputs["new_head_sha"] = newHeadSHA
+	}
+
+	return &BridgeActionResult{
+		Status:  "succeeded",
+		Outputs: outputs,
+	}, nil
+}
+
 // bridgeActionCreatePRs creates pull requests across multiple repos.
 func bridgeActionCreatePRs(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
 	branch := getStringInput(inputs, "branch")

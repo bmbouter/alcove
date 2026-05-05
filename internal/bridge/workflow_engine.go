@@ -115,7 +115,7 @@ func NewWorkflowEngine(db *pgxpool.Pool, dispatcher *Dispatcher, workflowStore *
 		defStore:         defStore,
 		credStore:        credStore,
 		catalogItemStore: NewCatalogItemStore(db),
-		bridgeActions:    RegisterBridgeActions(),
+		bridgeActions:    RegisterBridgeActionsWithDB(db),
 	}
 }
 

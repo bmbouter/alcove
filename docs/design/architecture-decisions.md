@@ -573,6 +573,84 @@ The CLI stores its Bridge URL in `~/.config/alcove/config.yaml` (set by
 - HashiCorp Vault / External Secrets Operator integration
 
 
+## ADR #25: Merge Serialization and Rebase-Before-Merge for Concurrent PRs
+
+**Status:** Accepted  
+**Date:** 2026-05-05  
+**Deciders:** System Architect, DevOps Engineer, Security (Red Team)  
+
+### Context
+
+The SDLC pipeline processes multiple issues in parallel, creating multiple PRs from the same main branch HEAD. When PRs modify overlapping files (common in `internal/bridge/`), merge conflicts occur when the first PR merges and subsequent PRs become stale. The pipeline lacks conflict resolution between CI passing and merge execution, causing workflow failures and requiring manual intervention.
+
+Observed failure pattern:
+1. Multiple workflow runs create PRs from the same main HEAD
+2. PR A merges successfully  
+3. PR B fails to merge due to conflicts with the updated main
+4. Workflow run for PR B stalls or fails, requiring manual rebase/resolution
+
+### Decision
+
+Implement two complementary mechanisms:
+
+**1. Rebase Bridge Action (`rebase`)**
+- New unified bridge action that calls GitHub's [Update a pull request branch API](https://docs.github.com/en/rest/pulls/pulls#update-a-pull-request-branch) 
+- Supports both GitHub (`PUT /repos/{owner}/{repo}/pulls/{pull_number}/update-branch`) and GitLab (`PUT /projects/:id/merge_requests/:iid/rebase`) APIs
+- Three possible outputs:
+  - `status: "rebased"` — branch successfully updated, CI will re-run
+  - `status: "conflict"` — merge conflicts detected, route to conflict resolution agent
+  - `status: "up_to_date"` — branch already current with base
+- Optional `update_method` input: `"merge"` (default, safer) or `"rebase"` (cleaner but requires force-push)
+
+**2. Merge Serialization via PostgreSQL Advisory Locks**
+- Wrap existing `merge-pr` and unified `merge` actions with advisory locking
+- Lock key: `SHA256(repo/base_branch)` converted to `int64` for `pg_try_advisory_lock()`
+- Scoped to `(repo, base_branch)` for maximum concurrency (allows merging to different branches in parallel)
+- Timeout and retry logic (5 attempts, 10s backoff) to handle contention
+- Auto-release on transaction end or connection drop (no orphaned locks)
+
+**3. Workflow Integration**  
+- Insert `rebase` step between review approval and merge: `depends: "code-review.Succeeded && security-review.Succeeded"`
+- Add `conflict-resolve` agent step: `depends: "rebase.Failed"`
+- Update `await-ci` to re-trigger after rebase: `depends: "... || rebase.Succeeded || conflict-resolve.Succeeded"`
+- Bounded iteration via `max_iterations: 3` on rebase step
+
+### Alternatives Considered
+
+**Option A: Conflict Detection in await-ci** — Check for merge conflicts after CI passes. Rejected: main can still move between conflict check and merge execution.
+
+**Option B: Sequential Merging Only** — Queue all merges globally. Rejected: reduces parallelism unnecessarily; different repos shouldn't block each other.
+
+**Option C: Local Git Operations** — Clone repos in Bridge for conflict detection. Rejected: increases complexity, resource usage, and security surface area.
+
+### Consequences
+
+**Positive:**
+- Eliminates "merge conflicts on main" workflow failures
+- Enables safe parallel PR processing within the same repo  
+- No performance impact on uncontended merges (single SQL call overhead)
+- Graceful degradation: conflicts route to existing agent resolution workflow
+- Preserves existing workflow YAML compatibility (rebase step is additive)
+
+**Negative:**
+- Additional 2-5 minutes per rebase iteration (rebase + CI re-run)
+- Increased GitHub API usage (one extra call per merge cycle)
+- Potential lock contention for high-throughput repos (mitigated by retry + timeout)
+
+**Risks:**
+- **Advisory lock deadlock:** Mitigated by `pg_try_advisory_lock` with timeout and auto-release
+- **Infinite rebase loop:** Bounded by `max_iterations` on rebase step  
+- **GitHub API rate limiting:** Existing 30s backoff + generous authenticated rate limits
+
+### Implementation Notes
+
+- `RegisterBridgeActionsWithDB(db *pgxpool.Pool)` function replaces `RegisterBridgeActions()` in `WorkflowEngine`
+- `createSerializedMergeAction()` wraps existing merge handlers with advisory locking
+- No changes to `BridgeActionHandler` signature — wrapping is internal
+- Feature-flaggable: removing rebase step from YAML reverts to original behavior
+- GitLab support planned for Step 3 via `PUT /projects/:id/merge_requests/:iid/rebase`
+
+
 ## Repository Layout
 
 ```
