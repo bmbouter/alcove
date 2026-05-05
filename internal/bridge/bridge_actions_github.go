@@ -295,7 +295,7 @@ func bridgeActionAwaitCI(ctx context.Context, inputs map[string]interface{}, cre
 		}
 
 		return &BridgeActionResult{
-			Status: "succeeded", // The action itself succeeded; the CI status is in the outputs.
+			Status: "failed", // CI failed, so the step should be marked as failed.
 			Outputs: map[string]interface{}{
 				"status":        "failed",
 				"failure_logs":  failureLogs.String(),

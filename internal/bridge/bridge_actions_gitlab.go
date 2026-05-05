@@ -211,7 +211,7 @@ func bridgeActionAwaitPipeline(ctx context.Context, inputs map[string]interface{
 			return &BridgeActionResult{Status: "succeeded", Outputs: map[string]interface{}{"status": "passed", "pipeline_url": latest.WebURL}}, nil
 		case "failed", "canceled":
 			log.Printf("bridge-action await-pipeline: pipeline %d %s for MR !%d", latest.ID, latest.Status, mrIID)
-			return &BridgeActionResult{Status: "succeeded", Outputs: map[string]interface{}{"status": "failed", "pipeline_url": latest.WebURL}}, nil
+			return &BridgeActionResult{Status: "failed", Outputs: map[string]interface{}{"status": "failed", "pipeline_url": latest.WebURL, "failure_logs": ""}}, nil
 		}
 		// Still running/pending
 		time.Sleep(pollInterval)

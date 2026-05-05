@@ -105,10 +105,13 @@ Polls CI status on a PR until all checks complete.
 
 **Outputs:** `status` (`passed` or `failed`), `failure_logs`, `failed_checks`
 
-The step succeeds (status `completed`) when it gets a CI result. The CI
-outcome is in the `status` output: `passed` if all checks succeed or are
-skipped, `failed` if any check fails. When CI fails, `failure_logs` contains
-the last 3000 characters of each failed check's log output.
+**Step Status:** `await-ci` succeeds (status `completed`) when CI passes, and fails 
+(status `failed`) when CI fails. This allows dependent steps to use `await-ci.Succeeded` 
+and `await-ci.Failed` to express workflow logic based on CI outcomes.
+
+When CI passes, `failure_logs` and `failed_checks` are empty. When CI fails, 
+`failure_logs` contains the last 3000 characters of each failed check's log output, 
+and `failed_checks` lists the names of failed check runs.
 
 **No-CI heuristic:** If no check runs appear within 90 seconds of the first
 poll, `await-ci` treats CI as passed. This handles repos that have no CI
@@ -200,6 +203,22 @@ with a clear error message for GitLab inputs.
     labels: ["automated", "needs-review"]
     assignees: ["team-lead"]
 ```
+
+## Bridge Action Semantics
+
+**Important:** Bridge actions like `await-ci` and `await-checks` follow these
+semantic rules for step success/failure:
+
+- **CI/Pipeline passes**: Step succeeds (status `completed`)
+- **CI/Pipeline fails**: Step fails (status `failed`)
+- **Timeout or API error**: Step fails (status `failed`)
+
+This ensures that dependency expressions work correctly:
+- `await-ci.Failed` evaluates to `true` when CI fails
+- `await-ci.Succeeded` evaluates to `true` when CI passes
+
+The CI outcome (pass/fail) is also available in the step's `status` output for
+template expansion in downstream steps.
 
 ## Dependencies with Depends Expressions
 
@@ -458,10 +477,9 @@ workflow:
       repo: "org/myproject"
       pr: "{{steps.create-pr.outputs.pr_number}}"
 
-  # 5. If await-ci times out, dev agent investigates (up to 3 attempts)
-  # Note: await-ci succeeds even when CI fails (the CI outcome is in
-  # outputs.status). This step only runs if await-ci itself fails
-  # (e.g., timeout).
+  # 5. If CI fails, dev agent investigates and fixes (up to 3 attempts)
+  # Note: await-ci now fails when CI fails, so this step runs when CI fails.
+  # This change ensures ci-fix dispatches reliably when CI fails.
   - id: ci-fix
     type: agent
     agent: dev
@@ -512,8 +530,8 @@ workflow:
 
 **Cycles in this workflow:**
 
-1. `await-ci -> ci-fix -> await-ci` -- CI retry loop (fires only on
-   await-ci timeout; see await-ci reference above)
+1. `await-ci -> ci-fix -> await-ci` -- CI retry loop (fires when CI fails,
+   allowing automated fixes for common CI failures)
 2. `code-review/security-review -> revision -> code-review/security-review` -- review loop
 
 Each cycle is bounded by `max_iterations`. If a step exhausts its iterations,

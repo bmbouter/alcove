@@ -324,3 +324,57 @@ func TestWorkflowRunsFilter_validate(t *testing.T) {
 		})
 	}
 }
+
+// TestCIFixDispatchDependency verifies that ci-fix steps correctly dispatch
+// when await-ci steps fail (not when they succeed).
+func TestCIFixDispatchDependency(t *testing.T) {
+	tests := []struct {
+		name             string
+		awaitCIStatus    string
+		codeReviewStatus string
+		expectedCIFix    bool
+		expectedReview   bool
+	}{
+		{
+			name:             "CI fails - ci-fix should dispatch",
+			awaitCIStatus:    "failed",
+			codeReviewStatus: "pending",
+			expectedCIFix:    true,
+			expectedReview:   false,
+		},
+		{
+			name:             "CI passes - code-review should dispatch",
+			awaitCIStatus:    "completed",
+			codeReviewStatus: "pending",
+			expectedCIFix:    false,
+			expectedReview:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stepStatuses := map[string]string{
+				"await-ci":     tt.awaitCIStatus,
+				"code-review":  tt.codeReviewStatus,
+			}
+
+			// Test ci-fix dependency: depends on "await-ci.Failed"
+			cifixReady, err := EvaluateDepends("await-ci.Failed", stepStatuses)
+			if err != nil {
+				t.Fatalf("EvaluateDepends for ci-fix failed: %v", err)
+			}
+			if cifixReady != tt.expectedCIFix {
+				t.Errorf("ci-fix readiness: got %v, expected %v", cifixReady, tt.expectedCIFix)
+			}
+
+			// Test code-review dependency: depends on "await-ci.Succeeded"
+			reviewReady, err := EvaluateDepends("await-ci.Succeeded", stepStatuses)
+			if err != nil {
+				t.Fatalf("EvaluateDepends for code-review failed: %v", err)
+			}
+			if reviewReady != tt.expectedReview {
+				t.Errorf("code-review readiness: got %v, expected %v", reviewReady, tt.expectedReview)
+			}
+		})
+	}
+}
