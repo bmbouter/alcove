@@ -9,6 +9,12 @@
 
 echo "[entrypoint] starting dev container (pid $$, uid $(id -u))"
 
+# Mark /workspace as a safe git directory — the workspace volume may be
+# owned by a different UID (skiff clones as 1001, dev container may run
+# as a different UID). Without this, git operations and go build fail
+# with "dubious ownership" errors.
+git config --global --add safe.directory '*'
+
 # Use /tmp for all PostgreSQL state — it's always writable regardless of UID.
 # /var/lib/postgresql and /var/run/postgresql are on the overlay filesystem
 # and not reliably writable by OpenShift's random UIDs.

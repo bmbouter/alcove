@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"os/user"
 	"strconv"
 	"sync"
 	"syscall"
@@ -44,6 +45,7 @@ type shimServer struct {
 type execRequest struct {
 	Cmd     string `json:"cmd"`
 	Timeout int    `json:"timeout"`
+	Cwd     string `json:"cwd,omitempty"`
 }
 
 type streamLine struct {
@@ -120,6 +122,12 @@ func (s *shimServer) handleExec(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "sh", "-c", req.Cmd)
+	// Set working directory: explicit cwd field, or /workspace if it exists.
+	if req.Cwd != "" {
+		cmd.Dir = req.Cwd
+	} else if info, err := os.Stat("/workspace"); err == nil && info.IsDir() {
+		cmd.Dir = "/workspace"
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
 		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
@@ -258,6 +266,18 @@ func newMux(s *shimServer) http.Handler {
 }
 
 func main() {
+	// Ensure HOME is set — some container init systems strip environment
+	// variables, leaving HOME empty. Go toolchain needs HOME to locate
+	// the module cache ($HOME/go/pkg/mod).
+	if os.Getenv("HOME") == "" {
+		if u, err := user.Current(); err == nil && u.HomeDir != "" {
+			os.Setenv("HOME", u.HomeDir)
+		} else {
+			os.Setenv("HOME", "/tmp")
+		}
+		log.Printf("HOME was empty, set to %s", os.Getenv("HOME"))
+	}
+
 	token := os.Getenv("SHIM_TOKEN")
 	if token == "" {
 		log.Fatal("SHIM_TOKEN is required")
