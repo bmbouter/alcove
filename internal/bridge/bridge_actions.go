@@ -220,7 +220,7 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 		},
 		{
 			Name:        "await-checks",
-			Description: "Wait for CI checks (GitHub) or pipeline (GitLab) to complete. Auto-detects SCM from inputs.",
+			Description: "Wait for CI checks (GitHub) or pipeline (GitLab) to complete. Auto-detects SCM from inputs. GitHub: auto-recovery if check suites missing (empty commit at 60s, close+reopen PR at 120s).",
 			Inputs: map[string]string{
 				"repo":    "string (GitHub) - Repository in owner/repo format",
 				"project": "string (GitLab) - Project ID or URL-encoded path",
@@ -229,10 +229,11 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 				"timeout": "int (optional) - Timeout in seconds (default 900)",
 			},
 			Outputs: map[string]string{
-				"status":        "string - CI result: 'passed' or 'failed'",
-				"failure_logs":  "string - Concatenated failure logs (GitHub, if failed)",
-				"failed_checks": "[]string - Names of failed checks (GitHub)",
-				"pipeline_url":  "string - Pipeline URL (GitLab)",
+				"status":           "string - CI result: 'passed' or 'failed'",
+				"failure_logs":     "string - Concatenated failure logs (GitHub, if failed)",
+				"failed_checks":    "[]string - Names of failed checks (GitHub)",
+				"pipeline_url":     "string - Pipeline URL (GitLab)",
+				"recovery_actions": "[]string - Recovery actions performed (GitHub): 'empty_commit', 'close_reopen'",
 			},
 		},
 		{
@@ -334,16 +335,17 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 		},
 		{
 			Name:        "await-ci",
-			Description: "Wait for CI checks to complete on a pull request",
+			Description: "Wait for CI checks to complete on a pull request. Auto-recovery if check suites missing (empty commit at 60s, close+reopen PR at 120s).",
 			Inputs: map[string]string{
 				"repo":    "string (required) - Repository in owner/repo format",
 				"pr":      "int (required) - Pull request number",
 				"timeout": "int (optional) - Timeout in seconds (default 900)",
 			},
 			Outputs: map[string]string{
-				"status":        "string - CI result: 'passed' or 'failed'",
-				"failure_logs":  "string - Concatenated failure logs (if failed)",
-				"failed_checks": "[]string - Names of failed checks",
+				"status":           "string - CI result: 'passed' or 'failed'",
+				"failure_logs":     "string - Concatenated failure logs (if failed)",
+				"failed_checks":    "[]string - Names of failed checks",
+				"recovery_actions": "[]string - Recovery actions performed: 'empty_commit', 'close_reopen'",
 			},
 		},
 		{
