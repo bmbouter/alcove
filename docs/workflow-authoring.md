@@ -354,6 +354,65 @@ Use `labels` and `users` fields for safety filtering.
 are automatically skipped. This is always on and prevents wasted compute from
 dispatching agents against items that are no longer actionable.
 
+### JIRA Event Triggers
+
+```yaml
+trigger:
+  jira:
+    projects: [PROJECT-A, PROJECT-B]
+    labels: [bug, customer-issue]
+    components: [UI, Backend]
+```
+
+JIRA triggers poll for recently updated issues that match the specified criteria. 
+All fields are optional, but at least one must be provided:
+
+- **`projects`** — Issue project keys (e.g., `PROJ-123`)
+- **`labels`** — Issue labels to match
+- **`components`** — Issue components to match
+
+Matching is **OR-based** within each field and **AND-based** across fields.
+For example, the above trigger matches issues that are in `(PROJECT-A OR PROJECT-B)` 
+**AND** have `(bug OR customer-issue)` labels **AND** have `(UI OR Backend)` components.
+
+#### JIRA Trigger Variables
+
+JIRA-triggered workflows have access to rich context about the triggering issue:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `{{trigger.issue_key}}` | Full JIRA issue key | `PROJ-123` |
+| `{{trigger.issue_title}}` | Issue summary | `Fix login bug` |
+| `{{trigger.issue_body}}` | Issue description | `Users cannot log in when...` |
+| `{{trigger.issue_url}}` | JIRA issue URL | `https://company.atlassian.net/browse/PROJ-123` |
+| `{{trigger.issue_status}}` | Current issue status | `In Progress` |
+| `{{trigger.issue_type}}` | Issue type | `Bug` |
+| `{{trigger.issue_priority}}` | Issue priority | `High` |
+| `{{trigger.issue_assignee}}` | Assigned user display name | `John Doe` |
+| `{{trigger.issue_reporter}}` | Reporter display name | `Jane Smith` |
+| `{{trigger.issue_labels}}` | Comma-separated labels | `urgent, customer-issue` |
+| `{{trigger.issue_comments}}` | Recent comments (formatted) | Multi-line formatted comments |
+| `{{trigger.issue_sprint}}` | Sprint name and state | `Sprint 24 (ACTIVE)` |
+| `{{trigger.issue_linked_issues}}` | Related issues | `[blocks] PROJ-124: Related Issue` |
+| `{{trigger.issue_attachments}}` | Attachment filenames | `error_log.txt, screenshot.png` |
+| `{{trigger.enriched_context}}` | Full markdown context | Complete issue details for agent prompts |
+
+The `enriched_context` variable provides a comprehensive markdown-formatted summary
+including the full issue description, recent comments (up to 20), linked issues,
+sprint information, and attachment metadata. This gives agents complete context
+without needing to make JIRA API calls.
+
+Example usage:
+```yaml
+- id: analyze
+  type: agent
+  agent: jira-analyzer
+  inputs:
+    context: "{{trigger.enriched_context}}"
+    issue_key: "{{trigger.issue_key}}"
+    priority: "{{trigger.issue_priority}}"
+```
+
 ### Schedule Triggers
 
 Schedules are defined via the `schedule:` field in `.alcove/agents/*.yml` files.

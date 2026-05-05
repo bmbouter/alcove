@@ -36,6 +36,7 @@ type JiraPoller struct {
 	credStore      *CredentialStore
 	workflowEngine *WorkflowEngine
 	defStore       *AgentDefStore
+	client         *http.Client
 	baseURL        string // e.g., "https://redhat.atlassian.net"
 	pollInterval   time.Duration
 	lastPollTime   time.Time
@@ -48,6 +49,7 @@ func NewJiraPoller(db *pgxpool.Pool, credStore *CredentialStore, we *WorkflowEng
 		credStore:      credStore,
 		workflowEngine: we,
 		defStore:       defStore,
+		client:         &http.Client{Timeout: 30 * time.Second},
 		baseURL:        "https://redhat.atlassian.net",
 		pollInterval:   2 * time.Minute,
 		lastPollTime:   time.Now().Add(-5 * time.Minute),
@@ -162,7 +164,7 @@ func (jp *JiraPoller) pollForTeam(ctx context.Context, teamID string, targets []
 		strings.Join(projects, ","), minutesSinceLastPoll)
 
 	// Search JIRA.
-	searchURL := fmt.Sprintf("%s/rest/api/2/search?jql=%s&maxResults=50&fields=key,summary,status,labels,components,description,issuetype",
+	searchURL := fmt.Sprintf("%s/rest/api/2/search?jql=%s&maxResults=50&fields=key,summary,status,labels,components,description,issuetype,priority,assignee,reporter,issuelinks",
 		jp.baseURL, url.QueryEscape(jql))
 
 	data, err := jp.jiraRequest(ctx, token, "GET", searchURL, nil)
@@ -195,49 +197,62 @@ func (jp *JiraPoller) pollForTeam(ctx context.Context, teamID string, targets []
 		return
 	}
 
-	log.Printf("jira-poller: found %d recently updated issues in %v", len(searchResult.Issues), projects)
+		log.Printf("jira-poller: found %d recently updated issues in %v", len(searchResult.Issues), projects)
 
-	// Check each issue against each target's trigger.
-	for _, issue := range searchResult.Issues {
-		issueProject := strings.Split(issue.Key, "-")[0]
-		var issueComponents []string
-		for _, c := range issue.Fields.Components {
-			issueComponents = append(issueComponents, c.Name)
-		}
+		// Check each issue against each target's trigger.
+		enrichedCount := 0
+		for _, issue := range searchResult.Issues {
+			issueProject := strings.Split(issue.Key, "-")[0]
+			var issueComponents []string
+			for _, c := range issue.Fields.Components {
+				issueComponents = append(issueComponents, c.Name)
+			}
 
-		for _, target := range targets {
-			if target.trigger.Matches(issueProject, issueComponents, issue.Fields.Labels) {
-				// Check dedup — don't dispatch the same issue twice for the same workflow.
-				var count int
-				jp.db.QueryRow(ctx, `
-					SELECT COUNT(*) FROM workflow_runs
-					WHERE workflow_id = $1 AND trigger_ref = $2
-					AND created_at > NOW() - INTERVAL '24 hours'
-				`, target.workflowID, issue.Key).Scan(&count)
+			for _, target := range targets {
+				if target.trigger.Matches(issueProject, issueComponents, issue.Fields.Labels) {
+					// Check dedup — don't dispatch the same issue twice for the same workflow.
+					var count int
+					jp.db.QueryRow(ctx, `
+						SELECT COUNT(*) FROM workflow_runs
+						WHERE workflow_id = $1 AND trigger_ref = $2
+						AND created_at > NOW() - INTERVAL '24 hours'
+					`, target.workflowID, issue.Key).Scan(&count)
 
-				if count > 0 {
-					continue // Already dispatched recently
-				}
+					if count > 0 {
+						continue // Already dispatched recently
+					}
 
-				log.Printf("jira-poller: triggering workflow %s for issue %s", target.workflowID, issue.Key)
+					log.Printf("jira-poller: triggering workflow %s for issue %s", target.workflowID, issue.Key)
 
-				triggerContext := map[string]interface{}{
-					"issue_key":    issue.Key,
-					"issue_title":  issue.Fields.Summary,
-					"issue_body":   issue.Fields.Description,
-					"issue_url":    fmt.Sprintf("%s/browse/%s", jp.baseURL, issue.Key),
-					"issue_status": issue.Fields.Status.Name,
-					"issue_labels": issue.Fields.Labels,
-					"issue_type":   issue.Fields.IssueType.Name,
-				}
+					var triggerContext map[string]interface{}
 
-				_, err := jp.workflowEngine.StartWorkflowRun(ctx, target.workflowID, "jira", issue.Key, target.teamID, triggerContext)
-				if err != nil {
-					log.Printf("jira-poller: error starting workflow for %s: %v", issue.Key, err)
+					// Try enrichment if under the limit
+					if enrichedCount < 10 {
+						enrichedMarkdown, comments, sprintInfo := jp.enrichJiraIssueContextWithData(ctx, token, issue.Key)
+						fullIssue, err := jp.fetchFullIssue(ctx, token, issue.Key)
+						if err == nil {
+							triggerContext = jp.buildJiraTriggerContextWithData(fullIssue, enrichedMarkdown, comments, sprintInfo)
+							enrichedCount++
+						} else {
+							// Fallback to basic context on enrichment failure
+							log.Printf("jira-poller: enrichment failed for %s, using basic context: %v", issue.Key, err)
+							triggerContext = jp.buildBasicTriggerContext(issue)
+						}
+					} else {
+						// Rate limit reached, use basic context
+						if enrichedCount == 10 {
+							log.Printf("jira-poller: enrichment rate limit reached, using basic context for remaining issues")
+						}
+						triggerContext = jp.buildBasicTriggerContext(issue)
+					}
+
+					_, err := jp.workflowEngine.StartWorkflowRun(ctx, target.workflowID, "jira", issue.Key, target.teamID, triggerContext)
+					if err != nil {
+						log.Printf("jira-poller: error starting workflow for %s: %v", issue.Key, err)
+					}
 				}
 			}
 		}
-	}
 }
 
 func (jp *JiraPoller) jiraRequest(ctx context.Context, credential, method, reqURL string, body []byte) ([]byte, error) {
@@ -265,8 +280,7 @@ func (jp *JiraPoller) jiraRequest(ctx context.Context, credential, method, reqUR
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := jp.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -282,4 +296,42 @@ func (jp *JiraPoller) jiraRequest(ctx context.Context, credential, method, reqUR
 	}
 
 	return respBody, nil
+}
+
+// buildBasicTriggerContext creates a basic trigger context from the search result
+// when enrichment fails or is rate limited.
+func (jp *JiraPoller) buildBasicTriggerContext(issue struct {
+	Key    string `json:"key"`
+	Fields struct {
+		Summary     string `json:"summary"`
+		Description string `json:"description"`
+		Status      struct {
+			Name string `json:"name"`
+		} `json:"status"`
+		Labels     []string `json:"labels"`
+		Components []struct {
+			Name string `json:"name"`
+		} `json:"components"`
+		IssueType struct {
+			Name string `json:"name"`
+		} `json:"issuetype"`
+	} `json:"fields"`
+}) map[string]interface{} {
+	return map[string]interface{}{
+		"issue_key":           issue.Key,
+		"issue_title":         issue.Fields.Summary,
+		"issue_body":          issue.Fields.Description,
+		"issue_url":           fmt.Sprintf("%s/browse/%s", jp.baseURL, issue.Key),
+		"issue_status":        issue.Fields.Status.Name,
+		"issue_labels":        issue.Fields.Labels,
+		"issue_type":          issue.Fields.IssueType.Name,
+		"enriched_context":    "",
+		"issue_assignee":      "",
+		"issue_reporter":      "",
+		"issue_priority":      "",
+		"issue_comments":      "",
+		"issue_sprint":        "",
+		"issue_linked_issues": "",
+		"issue_attachments":   "",
+	}
 }
