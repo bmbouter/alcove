@@ -3,6 +3,24 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.43.0
+
+### Features
+- GitLab enrichment parity: full MR/issue context with comments, diff stats, CI logs, approvals
+- GitHub `create-issue` and `search-issues` bridge actions
+- GitLab `search-issues` bridge action
+- JIRA bridge actions: create-issue, transition-issue, add-comment, search-issues
+- JIRA poller v3 API migration with ADF description handling
+- JIRA event enrichment: priority, sprint, linked issues, attachments, comments
+- GitLab event polling and trigger support
+- GitLab event enrichment module
+- Rebase bridge action and merge serialization for concurrent PR conflicts
+- CI workflow_dispatch trigger for manual CI runs
+
+### Bug Fixes
+- SDLC agents now validate code locally (go build + go vet) before pushing
+- Remove broken SDLC-generated test files that blocked CI
+
 ## v0.42.6
 
 ### Bug Fixes
