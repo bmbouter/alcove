@@ -50,18 +50,19 @@ func RegisterBridgeActions() map[string]BridgeActionHandler {
 		"update-issue":         bridgeActionUnifiedUpdateIssue,
 
 		// GitHub-specific aliases.
-		"create-pr":      bridgeActionCreatePR,
-		"create-prs":     bridgeActionCreatePRs,
-		"await-ci":       bridgeActionAwaitCI,
-		"merge-pr":       bridgeActionMergePR,
-		"await-release":  bridgeActionAwaitRelease,
+		"create-pr":       bridgeActionCreatePR,
+		"create-prs":      bridgeActionCreatePRs,
+		"await-ci":        bridgeActionAwaitCI,
+		"merge-pr":        bridgeActionMergePR,
+		"await-release":   bridgeActionAwaitRelease,
 		"update-gh-issue": bridgeActionUpdateGHIssue,
 
 		// GitLab-specific aliases.
-		"create-mr":      bridgeActionCreateMR,
-		"await-pipeline": bridgeActionAwaitPipeline,
-		"merge-mr":       bridgeActionMergeMR,
-		"post-note":      bridgeActionPostNote,
+		"create-mr":       bridgeActionCreateMR,
+		"create-mrs":      bridgeActionCreateMRs,
+		"await-pipeline":  bridgeActionAwaitPipeline,
+		"merge-mr":        bridgeActionMergeMR,
+		"post-note":       bridgeActionPostNote,
 		"update-gl-issue": bridgeActionUpdateGLIssue,
 
 		// JIRA-specific actions.
@@ -160,6 +161,24 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 			},
 		},
 		{
+			Name:        "create-prs",
+			Description: "Create pull requests across multiple GitHub repositories",
+			Inputs: map[string]string{
+				"repos":  "[]string (required) - Array of repositories in owner/repo format",
+				"branch": "string (required) - Source branch name",
+				"base":   "string (optional) - Target branch name (default: main)",
+				"title":  "string (required) - PR title",
+				"body":   "string (optional) - PR body/description",
+				"draft":  "bool (optional) - Create as draft PRs",
+			},
+			Outputs: map[string]string{
+				"pr_numbers":   "[]int - Array of pull request numbers",
+				"pr_urls":      "[]string - Array of pull request URLs",
+				"repos":        "[]string - Array of repositories where PRs were created",
+				"failed_repos": "[]string - Array of repositories where PR creation failed",
+			},
+		},
+		{
 			Name:        "await-ci",
 			Description: "Wait for CI checks to complete on a pull request",
 			Inputs: map[string]string{
@@ -202,73 +221,91 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 			Name:        "update-issue",
 			Description: "Update issue metadata (assignees, labels, state) for GitHub or GitLab. Auto-detects SCM from inputs.",
 			Inputs: map[string]string{
-				"repo":              "string (GitHub) - Repository in owner/repo format",
-				"project":           "string (GitLab) - Project ID or URL-encoded path",
-				"issue":             "int (required) - Issue number (GitHub) or Issue IID (GitLab)",
-				"add_labels":        "[]string (optional) - Labels to add",
-				"remove_labels":     "[]string (optional) - Labels to remove",
-				"add_assignees":     "[]string (optional) - Assignees to add (usernames)",
-				"remove_assignees":  "[]string (optional) - Assignees to remove (usernames)",
-				"state":             "string (optional) - Issue state: 'open'/'closed' (GitHub) or 'opened'/'closed' (GitLab)",
+				"repo":             "string (GitHub) - Repository in owner/repo format",
+				"project":          "string (GitLab) - Project ID or URL-encoded path",
+				"issue":            "int (required) - Issue number (GitHub) or Issue IID (GitLab)",
+				"add_labels":       "[]string (optional) - Labels to add",
+				"remove_labels":    "[]string (optional) - Labels to remove",
+				"add_assignees":    "[]string (optional) - Assignees to add (usernames)",
+				"remove_assignees": "[]string (optional) - Assignees to remove (usernames)",
+				"state":            "string (optional) - Issue state: 'open'/'closed' (GitHub) or 'opened'/'closed' (GitLab)",
 			},
 			Outputs: map[string]string{
 				"updated": "bool - Whether the issue was updated",
 			},
 		},
-	{
-		Name:        "jira-create-issue",
-		Description: "Create a new JIRA issue",
-		Inputs: map[string]string{
-			"project":     "string (required) - JIRA project key",
-			"summary":     "string (required) - Issue summary/title",
-			"issue_type":  "string (optional) - Issue type name (default: 'Task')",
-			"description": "string (optional) - Issue description (converted to ADF)",
-			"priority":    "string (optional) - Issue priority name",
-			"labels":      "[]string (optional) - Issue labels",
-			"components":  "[]string (optional) - Component names",
+		{
+			Name:        "create-mrs",
+			Description: "Create merge requests across multiple GitLab projects",
+			Inputs: map[string]string{
+				"projects":      "[]string (required) - Array of GitLab project paths",
+				"source_branch": "string (required) - Source branch name",
+				"target_branch": "string (optional) - Target branch name (default: main)",
+				"title":         "string (required) - MR title",
+				"description":   "string (optional) - MR description",
+				"draft":         "bool (optional) - Create as draft MRs",
+			},
+			Outputs: map[string]string{
+				"mr_iids":         "[]int - Array of merge request IIDs",
+				"mr_urls":         "[]string - Array of merge request URLs",
+				"projects":        "[]string - Array of projects where MRs were created",
+				"failed_projects": "[]string - Array of projects where MR creation failed",
+			},
 		},
-		Outputs: map[string]string{
-			"issue_key": "string - Created issue key (e.g., 'PROJ-123')",
-			"issue_url": "string - Direct link to the created issue",
+		{
+			Name:        "jira-create-issue",
+			Description: "Create a new JIRA issue",
+			Inputs: map[string]string{
+				"project":     "string (required) - JIRA project key",
+				"summary":     "string (required) - Issue summary/title",
+				"issue_type":  "string (optional) - Issue type name (default: 'Task')",
+				"description": "string (optional) - Issue description (converted to ADF)",
+				"priority":    "string (optional) - Issue priority name",
+				"labels":      "[]string (optional) - Issue labels",
+				"components":  "[]string (optional) - Component names",
+			},
+			Outputs: map[string]string{
+				"issue_key": "string - Created issue key (e.g., 'PROJ-123')",
+				"issue_url": "string - Direct link to the created issue",
+			},
 		},
-	},
-	{
-		Name:        "jira-transition-issue",
-		Description: "Transition a JIRA issue to a new status",
-		Inputs: map[string]string{
-			"issue_key":  "string (required) - JIRA issue key (e.g., 'PROJ-123')",
-			"transition": "string (required) - Transition name (e.g., 'In Progress') or numeric ID",
+		{
+			Name:        "jira-transition-issue",
+			Description: "Transition a JIRA issue to a new status",
+			Inputs: map[string]string{
+				"issue_key":  "string (required) - JIRA issue key (e.g., 'PROJ-123')",
+				"transition": "string (required) - Transition name (e.g., 'In Progress') or numeric ID",
+			},
+			Outputs: map[string]string{
+				"transitioned": "bool - Whether the transition succeeded",
+			},
 		},
-		Outputs: map[string]string{
-			"transitioned": "bool - Whether the transition succeeded",
+		{
+			Name:        "jira-add-comment",
+			Description: "Add a comment to a JIRA issue",
+			Inputs: map[string]string{
+				"issue_key": "string (required) - JIRA issue key (e.g., 'PROJ-123')",
+				"body":      "string (required) - Comment text (converted to ADF)",
+			},
+			Outputs: map[string]string{
+				"comment_id":  "string - ID of the created comment",
+				"comment_url": "string - Direct link to the comment",
+			},
 		},
-	},
-	{
-		Name:        "jira-add-comment",
-		Description: "Add a comment to a JIRA issue",
-		Inputs: map[string]string{
-			"issue_key": "string (required) - JIRA issue key (e.g., 'PROJ-123')",
-			"body":      "string (required) - Comment text (converted to ADF)",
+		{
+			Name:        "jira-search-issues",
+			Description: "Search JIRA issues using JQL (JIRA Query Language)",
+			Inputs: map[string]string{
+				"jql":         "string (required) - JQL query string",
+				"max_results": "int (optional) - Maximum results to return (default: 50, max: 100)",
+			},
+			Outputs: map[string]string{
+				"issues":     "[]object - Array of issue objects with key/summary/status/type/priority/url",
+				"issue_keys": "[]string - Array of issue keys for easy iteration",
+				"total":      "int - Total number of matching issues",
+			},
 		},
-		Outputs: map[string]string{
-			"comment_id":  "string - ID of the created comment",
-			"comment_url": "string - Direct link to the comment",
-		},
-	},
-	{
-		Name:        "jira-search-issues",
-		Description: "Search JIRA issues using JQL (JIRA Query Language)",
-		Inputs: map[string]string{
-			"jql":         "string (required) - JQL query string",
-			"max_results": "int (optional) - Maximum results to return (default: 50, max: 100)",
-		},
-		Outputs: map[string]string{
-			"issues":     "[]object - Array of issue objects with key/summary/status/type/priority/url",
-			"issue_keys": "[]string - Array of issue keys for easy iteration",
-			"total":      "int - Total number of matching issues",
-		},
-	},
-}
+	}
 }
 
 // detectSCM determines whether inputs are for GitHub or GitLab.
