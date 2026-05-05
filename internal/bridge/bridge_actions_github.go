@@ -127,6 +127,77 @@ func bridgeActionCreatePR(ctx context.Context, inputs map[string]interface{}, cr
 	}, nil
 }
 
+// githubPushEmptyCommit creates an empty commit on the PR branch to trigger CI events.
+func githubPushEmptyCommit(ctx context.Context, token, apiHost, repo, branch, headSHA string) error {
+	// Step 1: Get the tree SHA from the current HEAD commit
+	commitURL := fmt.Sprintf("%s/repos/%s/git/commits/%s", apiHost, repo, headSHA)
+	commitData, err := githubRequest(ctx, token, "GET", commitURL, nil)
+	if err != nil {
+		return fmt.Errorf("getting commit for tree SHA: %w", err)
+	}
+
+	var commitInfo struct {
+		Tree struct {
+			SHA string `json:"sha"`
+		} `json:"tree"`
+	}
+	if err := json.Unmarshal(commitData, &commitInfo); err != nil {
+		return fmt.Errorf("parsing commit response: %w", err)
+	}
+
+	// Step 2: Create a new commit with the same tree (empty commit)
+	commitMessage := "Trigger CI (empty commit by Alcove)"
+	createCommitBody := map[string]interface{}{
+		"message": commitMessage,
+		"tree":    commitInfo.Tree.SHA,
+		"parents": []string{headSHA},
+	}
+	bodyJSON, _ := json.Marshal(createCommitBody)
+
+	createCommitURL := fmt.Sprintf("%s/repos/%s/git/commits", apiHost, repo)
+	newCommitData, err := githubRequest(ctx, token, "POST", createCommitURL, bodyJSON)
+	if err != nil {
+		return fmt.Errorf("creating empty commit: %w", err)
+	}
+
+	var newCommit struct {
+		SHA string `json:"sha"`
+	}
+	if err := json.Unmarshal(newCommitData, &newCommit); err != nil {
+		return fmt.Errorf("parsing new commit response: %w", err)
+	}
+
+	// Step 3: Update the branch reference to point to the new commit
+	updateRefBody := map[string]interface{}{
+		"sha": newCommit.SHA,
+	}
+	refBodyJSON, _ := json.Marshal(updateRefBody)
+
+	updateRefURL := fmt.Sprintf("%s/repos/%s/git/refs/heads/%s", apiHost, repo, branch)
+	_, err = githubRequest(ctx, token, "PATCH", updateRefURL, refBodyJSON)
+	if err != nil {
+		return fmt.Errorf("updating branch ref: %w", err)
+	}
+
+	return nil
+}
+
+// githubUpdatePRState updates the state of a pull request (close/reopen).
+func githubUpdatePRState(ctx context.Context, token, apiHost, repo string, pr int, state string) error {
+	updateBody := map[string]interface{}{
+		"state": state,
+	}
+	bodyJSON, _ := json.Marshal(updateBody)
+
+	updateURL := fmt.Sprintf("%s/repos/%s/pulls/%d", apiHost, repo, pr)
+	_, err := githubRequest(ctx, token, "PATCH", updateURL, bodyJSON)
+	if err != nil {
+		return fmt.Errorf("updating PR state to %s: %w", state, err)
+	}
+
+	return nil
+}
+
 // bridgeActionAwaitCI waits for CI checks to complete on a pull request.
 func bridgeActionAwaitCI(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
 	repo := getStringInput(inputs, "repo")
@@ -157,7 +228,13 @@ func bridgeActionAwaitCI(ctx context.Context, inputs map[string]interface{}, cre
 	}
 
 	deadline := time.Now().Add(time.Duration(timeout) * time.Second)
+	startTime := time.Now()
 	pollInterval := 30 * time.Second
+
+	// Recovery state tracking
+	recoveryEmptyCommitDone := false
+	recoveryReopenDone := false
+	var recoveryActions []string
 
 	for time.Now().Before(deadline) {
 		// Check for context cancellation.
@@ -170,7 +247,7 @@ func bridgeActionAwaitCI(ctx context.Context, inputs map[string]interface{}, cre
 		default:
 		}
 
-		// Get PR to find head SHA.
+		// Get PR to find head SHA and branch.
 		prURL := fmt.Sprintf("%s/repos/%s/pulls/%d", apiHost, repo, pr)
 		prData, err := githubRequest(ctx, token, "GET", prURL, nil)
 		if err != nil {
@@ -182,6 +259,7 @@ func bridgeActionAwaitCI(ctx context.Context, inputs map[string]interface{}, cre
 		var prInfo struct {
 			Head struct {
 				SHA string `json:"sha"`
+				Ref string `json:"ref"`
 			} `json:"head"`
 			State  string `json:"state"`
 			Merged bool   `json:"merged"`
@@ -193,13 +271,18 @@ func bridgeActionAwaitCI(ctx context.Context, inputs map[string]interface{}, cre
 		}
 
 		if prInfo.State != "open" || prInfo.Merged {
+			// Prepare outputs
+			outputs := map[string]interface{}{
+				"status":        "passed",
+				"failure_logs":  "",
+				"failed_checks": []string{},
+			}
+			if len(recoveryActions) > 0 {
+				outputs["recovery_actions"] = recoveryActions
+			}
 			return &BridgeActionResult{
-				Status: "succeeded",
-				Outputs: map[string]interface{}{
-					"status":        "passed",
-					"failure_logs":  "",
-					"failed_checks": []string{},
-				},
+				Status:  "succeeded",
+				Outputs: outputs,
 			}, nil
 		}
 
@@ -227,18 +310,38 @@ func bridgeActionAwaitCI(ctx context.Context, inputs map[string]interface{}, cre
 		}
 
 		if len(checks.CheckRuns) == 0 {
-			// If no checks after 90s, treat as passed (repo has no CI configured).
-			if time.Since(deadline.Add(-time.Duration(timeout)*time.Second)) > 90*time.Second {
-				log.Printf("bridge-action await-ci: no check runs found after 90s for %s#%d, treating as passed", repo, pr)
-				return &BridgeActionResult{
-					Status: "succeeded",
-					Outputs: map[string]interface{}{
-						"status":        "passed",
-						"failure_logs":  "",
-						"failed_checks": []string{},
-					},
-				}, nil
+			elapsed := time.Since(startTime)
+
+			// Recovery phase 1: Push empty commit after 60s with no check suites
+			if elapsed > 60*time.Second && !recoveryEmptyCommitDone {
+				log.Printf("bridge-action await-ci: recovery: no check runs found after 60s for %s#%d, pushing empty commit", repo, pr)
+				if err := githubPushEmptyCommit(ctx, token, apiHost, repo, prInfo.Head.Ref, prInfo.Head.SHA); err != nil {
+					log.Printf("bridge-action await-ci: recovery warning: failed to push empty commit: %v", err)
+				} else {
+					recoveryActions = append(recoveryActions, "pushed_empty_commit")
+					log.Printf("bridge-action await-ci: recovery: empty commit pushed successfully")
+				}
+				recoveryEmptyCommitDone = true
 			}
+
+			// Recovery phase 2: Close and reopen PR after 120s with no check suites
+			if elapsed > 120*time.Second && !recoveryReopenDone {
+				log.Printf("bridge-action await-ci: recovery: no check runs found after 120s for %s#%d, closing and reopening PR", repo, pr)
+				// Close PR
+				if err := githubUpdatePRState(ctx, token, apiHost, repo, pr, "closed"); err != nil {
+					log.Printf("bridge-action await-ci: recovery warning: failed to close PR: %v", err)
+				} else {
+					// Reopen PR
+					if err := githubUpdatePRState(ctx, token, apiHost, repo, pr, "open"); err != nil {
+						log.Printf("bridge-action await-ci: recovery warning: failed to reopen PR: %v", err)
+					} else {
+						recoveryActions = append(recoveryActions, "closed_and_reopened_pr")
+						log.Printf("bridge-action await-ci: recovery: PR closed and reopened successfully")
+					}
+				}
+				recoveryReopenDone = true
+			}
+
 			time.Sleep(pollInterval)
 			continue
 		}
@@ -267,13 +370,17 @@ func bridgeActionAwaitCI(ctx context.Context, inputs map[string]interface{}, cre
 
 		if !anyFailed {
 			log.Printf("bridge-action await-ci: CI passed for %s#%d", repo, pr)
+			outputs := map[string]interface{}{
+				"status":        "passed",
+				"failure_logs":  "",
+				"failed_checks": []string{},
+			}
+			if len(recoveryActions) > 0 {
+				outputs["recovery_actions"] = recoveryActions
+			}
 			return &BridgeActionResult{
-				Status: "succeeded",
-				Outputs: map[string]interface{}{
-					"status":        "passed",
-					"failure_logs":  "",
-					"failed_checks": []string{},
-				},
+				Status:  "succeeded",
+				Outputs: outputs,
 			}, nil
 		}
 
@@ -294,13 +401,17 @@ func bridgeActionAwaitCI(ctx context.Context, inputs map[string]interface{}, cre
 			failureLogs.WriteString(fmt.Sprintf("\n### %s\n```\n%s\n```\n", failedCheckNames[i], logStr))
 		}
 
+		outputs := map[string]interface{}{
+			"status":        "failed",
+			"failure_logs":  failureLogs.String(),
+			"failed_checks": failedCheckNames,
+		}
+		if len(recoveryActions) > 0 {
+			outputs["recovery_actions"] = recoveryActions
+		}
 		return &BridgeActionResult{
-			Status: "succeeded", // The action itself succeeded; the CI status is in the outputs.
-			Outputs: map[string]interface{}{
-				"status":        "failed",
-				"failure_logs":  failureLogs.String(),
-				"failed_checks": failedCheckNames,
-			},
+			Status:  "succeeded", // The action itself succeeded; the CI status is in the outputs.
+			Outputs: outputs,
 		}, nil
 	}
 

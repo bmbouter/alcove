@@ -655,9 +655,13 @@ func TestBridgeActionCreateGHIssue(t *testing.T) {
 			}
 
 			// Create mock credential store
+			var apiHost string
+			if server != nil {
+				apiHost = server.URL
+			}
 			credStore := &mockCredentialStore{
 				token:   "test-token",
-				apiHost: server.URL if server != nil else "",
+				apiHost: apiHost,
 			}
 
 			// Execute the bridge action
@@ -739,9 +743,13 @@ func TestBridgeActionUnifiedCreateIssue(t *testing.T) {
 			}
 
 			// Create mock credential store
+			var apiHost string
+			if server != nil {
+				apiHost = server.URL
+			}
 			credStore := &mockCredentialStore{
 				token:   "test-token",
-				apiHost: server.URL if server != nil else "",
+				apiHost: apiHost,
 			}
 
 			// Execute the unified bridge action
