@@ -24,6 +24,223 @@ import (
 	"testing"
 )
 
+// mockCredentialStore is a test mock for credential acquisition
+type mockCredentialStore struct {
+	token   string
+	apiHost string
+	err     error
+}
+
+func (m *mockCredentialStore) AcquireSCMTokenForOwner(ctx context.Context, service, teamID string) (string, string, error) {
+	return m.token, m.apiHost, m.err
+}
+
+func TestBridgeActionRebasePR(t *testing.T) {
+	// Test successful rebase
+	t.Run("successful rebase", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/repos/owner/repo/pulls/123/update-branch" {
+				// Verify request
+				if r.Method != "PUT" {
+					t.Errorf("Expected PUT request, got %s", r.Method)
+				}
+
+				var body map[string]interface{}
+				json.NewDecoder(r.Body).Decode(&body)
+				if body["update_method"] != "merge" {
+					t.Errorf("Expected update_method=merge, got %v", body["update_method"])
+				}
+
+				// Mock response
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"message": "Branch updated successfully",
+					"url":     "https://github.com/owner/repo/pull/123",
+				})
+				return
+			}
+
+			if r.URL.Path == "/repos/owner/repo/pulls/123" {
+				// Mock PR details response for getting new HEAD SHA
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"head": map[string]interface{}{
+						"sha": "abc123new",
+					},
+				})
+				return
+			}
+
+			t.Errorf("Unexpected request path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		credStore := &mockCredentialStore{
+			token:   "test-token",
+			apiHost: server.URL,
+		}
+
+		inputs := map[string]interface{}{
+			"repo":          "owner/repo",
+			"pr":            123,
+			"update_method": "merge",
+		}
+
+		result, err := bridgeActionRebasePR(context.Background(), inputs, credStore, "test-team")
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result.Status != "succeeded" {
+			t.Errorf("Expected status 'succeeded', got: %s", result.Status)
+		}
+
+		if result.Outputs["status"] != "rebased" {
+			t.Errorf("Expected status 'rebased', got: %v", result.Outputs["status"])
+		}
+
+		if result.Outputs["new_head_sha"] != "abc123new" {
+			t.Errorf("Expected new_head_sha 'abc123new', got: %v", result.Outputs["new_head_sha"])
+		}
+	})
+
+	// Test merge conflicts (422 response)
+	t.Run("merge conflicts", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnprocessableEntity) // 422
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"message": "Merge conflicts detected",
+			})
+		}))
+		defer server.Close()
+
+		credStore := &mockCredentialStore{
+			token:   "test-token",
+			apiHost: server.URL,
+		}
+
+		inputs := map[string]interface{}{
+			"repo": "owner/repo",
+			"pr":   123,
+		}
+
+		result, err := bridgeActionRebasePR(context.Background(), inputs, credStore, "test-team")
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result.Status != "failed" {
+			t.Errorf("Expected status 'failed', got: %s", result.Status)
+		}
+
+		if result.Outputs["status"] != "conflict" {
+			t.Errorf("Expected output status 'conflict', got: %v", result.Outputs["status"])
+		}
+
+		if !strings.Contains(result.Error, "Merge conflicts detected") {
+			t.Errorf("Expected conflict error message, got: %s", result.Error)
+		}
+	})
+
+	// Test already up to date
+	t.Run("already up to date", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnprocessableEntity) // 422 but with different message
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"message": "Branch is up to date",
+			})
+		}))
+		defer server.Close()
+
+		credStore := &mockCredentialStore{
+			token:   "test-token",
+			apiHost: server.URL,
+		}
+
+		inputs := map[string]interface{}{
+			"repo": "owner/repo",
+			"pr":   123,
+		}
+
+		result, err := bridgeActionRebasePR(context.Background(), inputs, credStore, "test-team")
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result.Status != "succeeded" {
+			t.Errorf("Expected status 'succeeded', got: %s", result.Status)
+		}
+
+		if result.Outputs["status"] != "up_to_date" {
+			t.Errorf("Expected output status 'up_to_date', got: %v", result.Outputs["status"])
+		}
+	})
+
+	// Test missing inputs
+	t.Run("missing inputs", func(t *testing.T) {
+		credStore := &mockCredentialStore{
+			token:   "test-token",
+			apiHost: "http://test.example.com",
+		}
+
+		// Missing repo
+		inputs1 := map[string]interface{}{
+			"pr": 123,
+		}
+		result1, err := bridgeActionRebasePR(context.Background(), inputs1, credStore, "test-team")
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result1.Status != "failed" {
+			t.Errorf("Expected status 'failed' for missing repo, got: %s", result1.Status)
+		}
+		if !strings.Contains(result1.Error, "missing required inputs") {
+			t.Errorf("Expected missing inputs error, got: %s", result1.Error)
+		}
+
+		// Missing PR number
+		inputs2 := map[string]interface{}{
+			"repo": "owner/repo",
+		}
+		result2, err := bridgeActionRebasePR(context.Background(), inputs2, credStore, "test-team")
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result2.Status != "failed" {
+			t.Errorf("Expected status 'failed' for missing PR, got: %s", result2.Status)
+		}
+		if !strings.Contains(result2.Error, "missing required inputs") {
+			t.Errorf("Expected missing inputs error, got: %s", result2.Error)
+		}
+	})
+
+	// Test invalid update_method
+	t.Run("invalid update_method", func(t *testing.T) {
+		credStore := &mockCredentialStore{
+			token:   "test-token",
+			apiHost: "http://test.example.com",
+		}
+
+		inputs := map[string]interface{}{
+			"repo":          "owner/repo",
+			"pr":            123,
+			"update_method": "invalid",
+		}
+
+		result, err := bridgeActionRebasePR(context.Background(), inputs, credStore, "test-team")
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+		if result.Status != "failed" {
+			t.Errorf("Expected status 'failed' for invalid method, got: %s", result.Status)
+		}
+		if !strings.Contains(result.Error, "update_method must be 'merge' or 'rebase'") {
+			t.Errorf("Expected invalid method error, got: %s", result.Error)
+		}
+	})
+}
+
 func TestBridgeActionSearchGHIssues(t *testing.T) {
 	// Test successful search with results
 	t.Run("successful search with results", func(t *testing.T) {
@@ -765,4 +982,35 @@ func TestBridgeActionUnifiedCreateIssue(t *testing.T) {
 			}
 		})
 	}
+}
+
+// This is a basic unit test for the merge serialization wrapper.
+// For more comprehensive tests, integration tests would be needed with a real database.
+func TestSerializedMergeActionLogic(t *testing.T) {
+	// Test fallback when no repo can be determined
+	t.Run("fallback for unknown repo", func(t *testing.T) {
+		originalAction := func(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
+			return &BridgeActionResult{Status: "succeeded", Outputs: map[string]interface{}{"test": "passed"}}, nil
+		}
+
+		// Use nil db to simulate no database - the wrapper should fallback to original action
+		wrapper := createSerializedMergeAction(nil, originalAction)
+
+		inputs := map[string]interface{}{
+			"unknown": "value",
+		}
+
+		result, err := wrapper(context.Background(), inputs, &mockCredentialStore{}, "test-team")
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if result.Status != "succeeded" {
+			t.Errorf("Expected status 'succeeded', got: %s", result.Status)
+		}
+
+		if result.Outputs["test"] != "passed" {
+			t.Errorf("Expected output test=passed, got: %v", result.Outputs["test"])
+		}
+	})
 }

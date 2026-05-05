@@ -16,9 +16,14 @@ package bridge
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // BridgeActionResult is the result of executing a bridge action.
@@ -49,12 +54,14 @@ func RegisterBridgeActions() map[string]BridgeActionHandler {
 		"comment":              bridgeActionUnifiedComment,
 		"update-issue":         bridgeActionUnifiedUpdateIssue,
 		"create-issue":         bridgeActionUnifiedCreateIssue,
+		"rebase":               bridgeActionUnifiedRebase,
 
 		// GitHub-specific aliases.
 		"create-pr":       bridgeActionCreatePR,
 		"create-prs":      bridgeActionCreatePRs,
 		"await-ci":        bridgeActionAwaitCI,
 		"merge-pr":        bridgeActionMergePR,
+		"rebase-pr":       bridgeActionRebasePR,
 		"await-release":   bridgeActionAwaitRelease,
 		"update-gh-issue": bridgeActionUpdateGHIssue,
 		"create-gh-issue": bridgeActionCreateGHIssue,
@@ -76,6 +83,110 @@ func RegisterBridgeActions() map[string]BridgeActionHandler {
 		// Search actions.
 		"search-gh-issues": bridgeActionSearchGHIssues,
 		"search-issues":    bridgeActionSearchIssues,
+	}
+}
+
+// RegisterBridgeActionsWithDB returns a map of bridge actions with database-enabled merge serialization.
+func RegisterBridgeActionsWithDB(db *pgxpool.Pool) map[string]BridgeActionHandler {
+	// Create the serialized merge action with advisory lock
+	serializedMergePR := createSerializedMergeAction(db, bridgeActionMergePR)
+	serializedUnifiedMerge := createSerializedMergeAction(db, bridgeActionUnifiedMerge)
+
+	actions := RegisterBridgeActions()
+	// Override merge actions with serialized versions
+	actions["merge-pr"] = serializedMergePR
+	actions["merge"] = serializedUnifiedMerge
+
+	return actions
+}
+
+// createSerializedMergeAction wraps a merge action with PostgreSQL advisory locking.
+func createSerializedMergeAction(db *pgxpool.Pool, originalAction BridgeActionHandler) BridgeActionHandler {
+	return func(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
+		// Extract repo information for lock key
+		repo := getStringInput(inputs, "repo")
+		project := getStringInput(inputs, "project")
+		base := getStringInput(inputs, "base")
+
+		var lockKey string
+		if repo != "" {
+			// GitHub repo format: owner/repo
+			if base == "" {
+				base = "main" // default base branch
+			}
+			lockKey = repo + "/" + base
+		} else if project != "" {
+			// GitLab project format
+			if base == "" {
+				base = "main" // default base branch
+			}
+			lockKey = project + "/" + base
+		} else {
+			// If we can't determine repo, fallback to original action without locking
+			return originalAction(ctx, inputs, credStore, teamID)
+		}
+
+		// Generate a hash-based lock ID for the repo+base combination
+		hasher := sha256.New()
+		hasher.Write([]byte(lockKey))
+		lockHash := hex.EncodeToString(hasher.Sum(nil))
+
+		// Convert first 8 bytes of hash to int64 for advisory lock
+		var lockID int64
+		for i := 0; i < 8 && i < len(lockHash)/2; i++ {
+			b, _ := hex.DecodeString(lockHash[i*2 : i*2+2])
+			lockID = (lockID << 8) | int64(b[0])
+		}
+
+		// Try to acquire advisory lock with timeout and retry
+		maxAttempts := 5
+		backoffSeconds := 10
+
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			// Try to acquire the lock
+			var acquired bool
+			err := db.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", lockID).Scan(&acquired)
+			if err != nil {
+				return &BridgeActionResult{
+					Status: "failed",
+					Error:  fmt.Sprintf("failed to acquire merge lock: %v", err),
+				}, nil
+			}
+
+			if acquired {
+				// Successfully acquired lock - execute the action and release lock
+				result, actionErr := originalAction(ctx, inputs, credStore, teamID)
+
+				// Always release the lock, even if the action failed
+				_, releaseErr := db.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockID)
+				if releaseErr != nil {
+					// Log but don't override the original action error
+					fmt.Printf("warning: failed to release merge lock %d: %v\n", lockID, releaseErr)
+				}
+
+				return result, actionErr
+			}
+
+			// Lock not acquired - wait and retry if not the last attempt
+			if attempt < maxAttempts {
+				fmt.Printf("merge lock not available for %s (attempt %d/%d), retrying in %ds...\n", lockKey, attempt, maxAttempts, backoffSeconds)
+				select {
+				case <-ctx.Done():
+					return &BridgeActionResult{
+						Status: "failed",
+						Error:  "context cancelled while waiting for merge lock",
+					}, nil
+				case <-time.After(time.Duration(backoffSeconds) * time.Second):
+					// Continue to next attempt
+				}
+			}
+		}
+
+		// Failed to acquire lock after all attempts
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  fmt.Sprintf("failed to acquire merge lock for %s after %d attempts", lockKey, maxAttempts),
+		}, nil
 	}
 }
 
@@ -151,6 +262,22 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 			},
 		},
 		{
+			Name:        "rebase",
+			Description: "Update/rebase a pull request (GitHub) or merge request (GitLab) branch to latest base. Auto-detects SCM from inputs.",
+			Inputs: map[string]string{
+				"repo":          "string (GitHub) - Repository in owner/repo format",
+				"project":       "string (GitLab) - Project ID or URL-encoded path",
+				"pr":            "int (GitHub) - Pull request number",
+				"mr_iid":        "int (GitLab) - Merge request IID",
+				"update_method": "string (GitHub, optional) - Update method: merge, rebase (default merge)",
+			},
+			Outputs: map[string]string{
+				"status":       "string - Update result: 'rebased', 'conflict', 'up_to_date'",
+				"new_head_sha": "string - The SHA of the new HEAD after rebase (if rebased)",
+				"error":        "string - Error details if status is 'conflict'",
+			},
+		},
+		{
 			Name:        "create-pr",
 			Description: "Create a pull request on GitHub",
 			Inputs: map[string]string{
@@ -191,6 +318,20 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 			},
 			Outputs: map[string]string{
 				"merge_sha": "string - The SHA of the merge commit",
+			},
+		},
+		{
+			Name:        "rebase-pr",
+			Description: "Update/rebase a pull request branch to latest base on GitHub",
+			Inputs: map[string]string{
+				"repo":          "string (required) - Repository in owner/repo format",
+				"pr":            "int (required) - Pull request number",
+				"update_method": "string (optional) - Update method: merge, rebase (default merge)",
+			},
+			Outputs: map[string]string{
+				"status":       "string - Update result: 'rebased', 'conflict', 'up_to_date'",
+				"new_head_sha": "string - The SHA of the new HEAD after rebase (if rebased)",
+				"error":        "string - Error details if status is 'conflict'",
 			},
 		},
 		{
@@ -562,6 +703,23 @@ func bridgeActionSearchIssues(ctx context.Context, inputs map[string]interface{}
 		Status: "failed",
 		Error:  "cannot detect search target: provide 'repo' (GitHub), 'project' (GitLab), or 'jql' (JIRA)",
 	}, nil
+}
+
+// bridgeActionUnifiedRebase rebases a pull/merge request and auto-detects SCM.
+func bridgeActionUnifiedRebase(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
+	scm := detectSCM(inputs)
+	switch scm {
+	case "gitlab":
+		// GitLab rebase will be implemented in Step 3
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  "GitLab rebase is not yet implemented (see implementation plan Step 3)",
+		}, nil
+	case "github":
+		return bridgeActionRebasePR(ctx, inputs, credStore, teamID)
+	default:
+		return &BridgeActionResult{Status: "failed", Error: "cannot detect SCM: provide 'repo' (GitHub) or 'project' (GitLab)"}, nil
+	}
 }
 
 // bridgeActionUnifiedCreateIssue creates an issue and auto-detects SCM.
