@@ -329,14 +329,19 @@ alcove/
     bounded cycles and two step types. **Agent steps** (`type: agent`) dispatch
     Skiff pods running Claude Code (existing behavior). **Bridge steps**
     (`type: bridge`) perform deterministic actions inline: `create-pr`,
-    `await-ci`, and `merge-pr`. Steps declare dependencies via boolean
-    expressions (`depends: "A.Succeeded && B.Succeeded"`) supporting `&&`,
-    `||`, parentheses, and `.Succeeded`/`.Failed` conditions. Bounded cycles
-    enable review/revision loops with `max_iterations` per step to prevent
-    infinite loops (status becomes `max_iterations_exceeded` when exhausted).
-    Iteration tracking is stored in `workflow_run_steps` (migration
-    `028_workflow_graph_v2.sql`). The old `needs` list syntax remains supported
-    for backward compatibility.
+    `await-ci`, `merge-pr`, and **JIRA bridge actions** (`jira-create-issue`,
+    `jira-transition-issue`, `jira-add-comment`, `jira-search-issues`) that
+    interact with JIRA Cloud API v3 using team-scoped credentials. JIRA actions
+    support ADF (Atlassian Document Format) conversion for descriptions and
+    comments, transition name-to-ID resolution, structured search outputs,
+    and explicit error handling for missing `api_host` configuration. Steps
+    declare dependencies via boolean expressions (`depends: "A.Succeeded &&
+    B.Succeeded"`) supporting `&&`, `||`, parentheses, and
+    `.Succeeded`/`.Failed` conditions. Bounded cycles enable review/revision
+    loops with `max_iterations` per step to prevent infinite loops (status
+    becomes `max_iterations_exceeded` when exhausted). Iteration tracking is
+    stored in `workflow_run_steps` (migration `028_workflow_graph_v2.sql`).
+    The old `needs` list syntax remains supported for backward compatibility.
 
 29. **Dev Containers** — Optional project-provided containers that run alongside
     Skiff so agents can build and test code in a project-specific environment.

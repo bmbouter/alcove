@@ -63,6 +63,12 @@ func RegisterBridgeActions() map[string]BridgeActionHandler {
 		"merge-mr":       bridgeActionMergeMR,
 		"post-note":      bridgeActionPostNote,
 		"update-gl-issue": bridgeActionUpdateGLIssue,
+
+		// JIRA-specific actions.
+		"jira-create-issue":     bridgeActionJiraCreateIssue,
+		"jira-transition-issue": bridgeActionJiraTransitionIssue,
+		"jira-add-comment":      bridgeActionJiraAddComment,
+		"jira-search-issues":    bridgeActionJiraSearchIssues,
 	}
 }
 
@@ -209,7 +215,60 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 				"updated": "bool - Whether the issue was updated",
 			},
 		},
-	}
+	{
+		Name:        "jira-create-issue",
+		Description: "Create a new JIRA issue",
+		Inputs: map[string]string{
+			"project":     "string (required) - JIRA project key",
+			"summary":     "string (required) - Issue summary/title",
+			"issue_type":  "string (optional) - Issue type name (default: 'Task')",
+			"description": "string (optional) - Issue description (converted to ADF)",
+			"priority":    "string (optional) - Issue priority name",
+			"labels":      "[]string (optional) - Issue labels",
+			"components":  "[]string (optional) - Component names",
+		},
+		Outputs: map[string]string{
+			"issue_key": "string - Created issue key (e.g., 'PROJ-123')",
+			"issue_url": "string - Direct link to the created issue",
+		},
+	},
+	{
+		Name:        "jira-transition-issue",
+		Description: "Transition a JIRA issue to a new status",
+		Inputs: map[string]string{
+			"issue_key":  "string (required) - JIRA issue key (e.g., 'PROJ-123')",
+			"transition": "string (required) - Transition name (e.g., 'In Progress') or numeric ID",
+		},
+		Outputs: map[string]string{
+			"transitioned": "bool - Whether the transition succeeded",
+		},
+	},
+	{
+		Name:        "jira-add-comment",
+		Description: "Add a comment to a JIRA issue",
+		Inputs: map[string]string{
+			"issue_key": "string (required) - JIRA issue key (e.g., 'PROJ-123')",
+			"body":      "string (required) - Comment text (converted to ADF)",
+		},
+		Outputs: map[string]string{
+			"comment_id":  "string - ID of the created comment",
+			"comment_url": "string - Direct link to the comment",
+		},
+	},
+	{
+		Name:        "jira-search-issues",
+		Description: "Search JIRA issues using JQL (JIRA Query Language)",
+		Inputs: map[string]string{
+			"jql":         "string (required) - JQL query string",
+			"max_results": "int (optional) - Maximum results to return (default: 50, max: 100)",
+		},
+		Outputs: map[string]string{
+			"issues":     "[]object - Array of issue objects with key/summary/status/type/priority/url",
+			"issue_keys": "[]string - Array of issue keys for easy iteration",
+			"total":      "int - Total number of matching issues",
+		},
+	},
+}
 }
 
 // detectSCM determines whether inputs are for GitHub or GitLab.
