@@ -58,6 +58,7 @@ type GitLabPoller struct {
 	workflowEngine *WorkflowEngine
 	defStore       *AgentDefStore
 	dispatcher     *Dispatcher
+	enricher       *GitLabEnricher
 	pollInterval   time.Duration
 	lastPollTime   time.Time
 }
@@ -70,6 +71,7 @@ func NewGitLabPoller(db *pgxpool.Pool, credStore *CredentialStore, we *WorkflowE
 		workflowEngine: we,
 		defStore:       defStore,
 		dispatcher:     dispatcher,
+		enricher:       NewGitLabEnricher(nil),
 		pollInterval:   2 * time.Minute,
 		lastPollTime:   time.Now().Add(-5 * time.Minute),
 	}
@@ -492,8 +494,18 @@ func (gp *GitLabPoller) pollProject(ctx context.Context, token, apiHost, project
 				}
 			}
 
-			// Extract enriched context for the event
-			enrichedContext := gp.enrichEventContext(ctx, token, apiHost, eventType, action, event, projectPath)
+			// Extract enriched context for the event using the GitLabEnricher
+			meta := map[string]string{
+				"GITLAB_PROJECT": projectPath,
+			}
+			if itemNumber != "" {
+				if eventType == "issue" {
+					meta["GITLAB_ISSUE_IID"] = itemNumber
+				} else if eventType == "merge_request" {
+					meta["GITLAB_MR_IID"] = itemNumber
+				}
+			}
+			enrichedContext := gp.enricher.EnrichGitLabEventContext(ctx, token, apiHost, eventType, action, meta)
 
 			if target.isWorkflow {
 				// Dispatch workflow
@@ -503,10 +515,11 @@ func (gp *GitLabPoller) pollProject(ctx context.Context, token, apiHost, project
 				}
 
 				triggerContext := map[string]interface{}{
-					"event_type": eventType,
-					"action":     action,
-					"project":    projectPath,
-					"branch":     branch,
+					"event_type":       eventType,
+					"action":           action,
+					"project":          projectPath,
+					"branch":           branch,
+					"enriched_context": enrichedContext,
 				}
 
 				// Add event-specific context
@@ -603,56 +616,6 @@ func (gp *GitLabPoller) pollProject(ctx context.Context, token, apiHost, project
 	if dispatched > 0 {
 		log.Printf("gitlab-poller: dispatched %d task(s) from %s", dispatched, projectPath)
 	}
-}
-
-// enrichEventContext fetches full issue/MR details from GitLab API to build enriched context string.
-func (gp *GitLabPoller) enrichEventContext(ctx context.Context, token, apiHost, eventType, action string, event gitlabEvent, projectPath string) string {
-	var context strings.Builder
-
-	context.WriteString(fmt.Sprintf("GitLab %s event: %s\n", eventType, action))
-	context.WriteString(fmt.Sprintf("Project: %s\n", projectPath))
-
-	if event.TargetTitle != "" {
-		context.WriteString(fmt.Sprintf("Title: %s\n", event.TargetTitle))
-	}
-
-	// For issues and merge requests, fetch additional details
-	if (eventType == "issue" || eventType == "merge_request") && event.TargetIID != nil {
-		itemType := "issues"
-		if eventType == "merge_request" {
-			itemType = "merge_requests"
-		}
-
-		encodedProject := strings.ReplaceAll(projectPath, "/", "%2F")
-		itemURL := fmt.Sprintf("%s/api/v4/projects/%s/%s/%d", apiHost, encodedProject, itemType, *event.TargetIID)
-
-		if itemData, err := gitlabRequest(ctx, token, "GET", itemURL, nil); err == nil {
-			var item struct {
-				Title       string   `json:"title"`
-				Description string   `json:"description"`
-				WebURL      string   `json:"web_url"`
-				Labels      []string `json:"labels"`
-				State       string   `json:"state"`
-			}
-			if json.Unmarshal(itemData, &item) == nil {
-				context.WriteString(fmt.Sprintf("URL: %s\n", item.WebURL))
-				context.WriteString(fmt.Sprintf("State: %s\n", item.State))
-				if len(item.Labels) > 0 {
-					context.WriteString(fmt.Sprintf("Labels: %s\n", strings.Join(item.Labels, ", ")))
-				}
-				if item.Description != "" {
-					// Truncate long descriptions
-					desc := item.Description
-					if len(desc) > 500 {
-						desc = desc[:500] + "..."
-					}
-					context.WriteString(fmt.Sprintf("Description: %s\n", desc))
-				}
-			}
-		}
-	}
-
-	return context.String()
 }
 
 // convertRepoStringsToSpecs converts a slice of repo URLs to RepoSpec objects.
