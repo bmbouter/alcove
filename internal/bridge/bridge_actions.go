@@ -48,6 +48,7 @@ func RegisterBridgeActions() map[string]BridgeActionHandler {
 		"merge":                bridgeActionUnifiedMerge,
 		"comment":              bridgeActionUnifiedComment,
 		"update-issue":         bridgeActionUnifiedUpdateIssue,
+		"create-issue":         bridgeActionUnifiedCreateIssue,
 
 		// GitHub-specific aliases.
 		"create-pr":       bridgeActionCreatePR,
@@ -63,6 +64,7 @@ func RegisterBridgeActions() map[string]BridgeActionHandler {
 		"merge-mr":        bridgeActionMergeMR,
 		"post-note":       bridgeActionPostNote,
 		"update-gl-issue": bridgeActionUpdateGLIssue,
+		"create-gl-issue": bridgeActionCreateGLIssue,
 
 		// JIRA-specific actions.
 		"jira-create-issue":     bridgeActionJiraCreateIssue,
@@ -217,6 +219,41 @@ func ListBridgeActionSchemas() []BridgeActionSchema {
 			},
 			Outputs: map[string]string{
 				"updated": "bool - Whether the issue was updated",
+			},
+		},
+		{
+			Name:        "create-issue",
+			Description: "Create a new issue on GitHub or GitLab. Auto-detects SCM from inputs.",
+			Inputs: map[string]string{
+				"repo":         "string (GitHub) - Repository in owner/repo format",
+				"project":      "string (GitLab) - Project ID or URL-encoded path",
+				"title":        "string (required) - Issue title",
+				"body":         "string (GitHub, optional) - Issue body/description",
+				"description":  "string (GitLab, optional) - Issue description",
+				"labels":       "string (GitLab, optional) - Comma-separated labels",
+				"assignee_ids": "[]int (GitLab, optional) - Array of GitLab user IDs to assign",
+				"milestone_id": "int (GitLab, optional) - GitLab milestone ID",
+			},
+			Outputs: map[string]string{
+				"issue_number": "int - Issue number (GitHub)",
+				"issue_url":    "string - Issue URL (GitHub)",
+				"issue_iid":    "int - Issue IID (GitLab)",
+			},
+		},
+		{
+			Name:        "create-gl-issue",
+			Description: "Create a new issue on GitLab",
+			Inputs: map[string]string{
+				"project":      "string (required) - GitLab project ID or URL-encoded path",
+				"title":        "string (required) - Issue title",
+				"description":  "string (optional) - Issue description",
+				"labels":       "string (optional) - Comma-separated labels",
+				"assignee_ids": "[]int (optional) - Array of GitLab user IDs to assign",
+				"milestone_id": "int (optional) - GitLab milestone ID",
+			},
+			Outputs: map[string]string{
+				"issue_iid": "int - Issue IID",
+				"issue_url": "string - Issue URL",
 			},
 		},
 		{
@@ -473,6 +510,35 @@ func getStringSliceInput(inputs map[string]interface{}, key string) []string {
 	}
 }
 
+// getIntSliceInput safely extracts an integer slice input value.
+func getIntSliceInput(inputs map[string]interface{}, key string) []int {
+	v, ok := inputs[key]
+	if !ok {
+		return nil
+	}
+	switch val := v.(type) {
+	case []int:
+		return val
+	case []interface{}:
+		var result []int
+		for _, item := range val {
+			switch num := item.(type) {
+			case int:
+				result = append(result, num)
+			case float64:
+				result = append(result, int(num))
+			case string:
+				if n, err := strconv.Atoi(num); err == nil {
+					result = append(result, n)
+				}
+			}
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
 // bridgeActionUnifiedUpdateIssue updates issue metadata and auto-detects SCM.
 func bridgeActionUnifiedUpdateIssue(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
 	scm := detectSCM(inputs)
@@ -481,6 +547,20 @@ func bridgeActionUnifiedUpdateIssue(ctx context.Context, inputs map[string]inter
 		return bridgeActionUpdateGLIssue(ctx, inputs, credStore, teamID)
 	case "github":
 		return bridgeActionUpdateGHIssue(ctx, inputs, credStore, teamID)
+	default:
+		return &BridgeActionResult{Status: "failed", Error: "cannot detect SCM: provide 'repo' (GitHub) or 'project' (GitLab)"}, nil
+	}
+}
+
+// bridgeActionUnifiedCreateIssue creates an issue and auto-detects SCM.
+func bridgeActionUnifiedCreateIssue(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
+	scm := detectSCM(inputs)
+	switch scm {
+	case "gitlab":
+		return bridgeActionCreateGLIssue(ctx, inputs, credStore, teamID)
+	case "github":
+		// Note: This will be handled by issue #561 - for now return an error
+		return &BridgeActionResult{Status: "failed", Error: "GitHub issue creation not yet implemented - see issue #561"}, nil
 	default:
 		return &BridgeActionResult{Status: "failed", Error: "cannot detect SCM: provide 'repo' (GitHub) or 'project' (GitLab)"}, nil
 	}

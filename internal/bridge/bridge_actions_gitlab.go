@@ -462,3 +462,72 @@ func bridgeActionUpdateGLIssue(ctx context.Context, inputs map[string]interface{
 		},
 	}, nil
 }
+
+// bridgeActionCreateGLIssue creates a new issue on GitLab.
+func bridgeActionCreateGLIssue(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
+	project := getStringInput(inputs, "project")
+	title := getStringInput(inputs, "title")
+	description := getStringInput(inputs, "description")
+	labels := getStringInput(inputs, "labels")
+	assigneeIDs := getIntSliceInput(inputs, "assignee_ids")
+	milestoneID := getIntInput(inputs, "milestone_id")
+
+	if project == "" || title == "" {
+		return &BridgeActionResult{Status: "failed", Error: "missing required inputs: project, title"}, nil
+	}
+
+	token, apiHost, err := credStore.AcquireSCMTokenForOwner(ctx, "gitlab", teamID)
+	if err != nil {
+		return &BridgeActionResult{Status: "failed", Error: fmt.Sprintf("failed to acquire GitLab token: %v", err)}, nil
+	}
+	if apiHost == "" {
+		apiHost = "https://gitlab.cee.redhat.com"
+	}
+
+	issueBody := map[string]interface{}{
+		"title": title,
+	}
+
+	if description != "" {
+		issueBody["description"] = description
+	}
+
+	if labels != "" {
+		issueBody["labels"] = labels
+	}
+
+	if len(assigneeIDs) > 0 {
+		issueBody["assignee_ids"] = assigneeIDs
+	}
+
+	if milestoneID > 0 {
+		issueBody["milestone_id"] = milestoneID
+	}
+
+	bodyJSON, _ := json.Marshal(issueBody)
+	// URL-encode the project path for the API URL
+	encodedProject := strings.ReplaceAll(project, "/", "%2F")
+	apiURL := fmt.Sprintf("%s/api/v4/projects/%s/issues", apiHost, encodedProject)
+
+	respBody, err := gitlabRequest(ctx, token, "POST", apiURL, bodyJSON)
+	if err != nil {
+		return &BridgeActionResult{Status: "failed", Error: fmt.Sprintf("GitLab API error creating issue: %v", err)}, nil
+	}
+
+	var issueResp struct {
+		IID    int    `json:"iid"`
+		WebURL string `json:"web_url"`
+	}
+	if err := json.Unmarshal(respBody, &issueResp); err != nil {
+		return &BridgeActionResult{Status: "failed", Error: fmt.Sprintf("failed to parse GitLab issue response: %v", err)}, nil
+	}
+
+	log.Printf("bridge-action create-gl-issue: created issue #%d at %s", issueResp.IID, issueResp.WebURL)
+	return &BridgeActionResult{
+		Status: "succeeded",
+		Outputs: map[string]interface{}{
+			"issue_iid": issueResp.IID,
+			"issue_url": issueResp.WebURL,
+		},
+	}, nil
+}
