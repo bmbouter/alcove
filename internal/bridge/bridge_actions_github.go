@@ -22,6 +22,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -663,6 +664,112 @@ func bridgeActionUpdateGHIssue(ctx context.Context, inputs map[string]interface{
 		Outputs: map[string]interface{}{
 			"updated": true,
 		},
+	}, nil
+}
+
+// bridgeActionSearchGHIssues searches GitHub issues using the Search API.
+func bridgeActionSearchGHIssues(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
+	repo := getStringInput(inputs, "repo")
+	query := getStringInput(inputs, "query")
+	maxResults := getIntInput(inputs, "max_results")
+
+	if repo == "" || query == "" {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  "missing required inputs: repo, query",
+		}, nil
+	}
+
+	if maxResults == 0 {
+		maxResults = 20
+	}
+	if maxResults > 100 {
+		maxResults = 100
+	}
+
+	token, apiHost, err := credStore.AcquireSCMTokenForOwner(ctx, "github", teamID)
+	if err != nil {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  fmt.Sprintf("failed to acquire GitHub token: %v", err),
+		}, nil
+	}
+
+	if apiHost == "" {
+		apiHost = "https://api.github.com"
+	}
+
+	// Build search URL with repo qualifier prepended
+	searchURL := fmt.Sprintf("%s/search/issues?q=repo:%s+%s&per_page=%d",
+		apiHost, repo, url.QueryEscape(query), maxResults)
+
+	respBody, err := githubRequest(ctx, token, "GET", searchURL, nil)
+	if err != nil {
+		// Log rate limit errors clearly for debugging
+		if strings.Contains(err.Error(), "HTTP 403") {
+			log.Printf("bridge-action search-gh-issues: GitHub search API rate limit may be reached for %s", repo)
+		}
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  fmt.Sprintf("GitHub Search API error: %v", err),
+		}, nil
+	}
+
+	var searchResp struct {
+		TotalCount        int  `json:"total_count"`
+		IncompleteResults bool `json:"incomplete_results"`
+		Items             []struct {
+			Number  int    `json:"number"`
+			Title   string `json:"title"`
+			State   string `json:"state"`
+			HTMLURL string `json:"html_url"`
+			Labels  []struct {
+				Name string `json:"name"`
+			} `json:"labels"`
+		} `json:"items"`
+	}
+
+	if err := json.Unmarshal(respBody, &searchResp); err != nil {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  fmt.Sprintf("failed to parse GitHub search response: %v", err),
+		}, nil
+	}
+
+	// Build structured output
+	var issues []map[string]interface{}
+	for _, item := range searchResp.Items {
+		// Flatten labels to string array for ergonomics
+		var labels []string
+		for _, label := range item.Labels {
+			labels = append(labels, label.Name)
+		}
+
+		issue := map[string]interface{}{
+			"number": item.Number,
+			"title":  item.Title,
+			"state":  item.State,
+			"url":    item.HTMLURL,
+			"labels": labels,
+		}
+		issues = append(issues, issue)
+	}
+
+	log.Printf("bridge-action search-gh-issues: found %d issues in %s (total: %d)", len(issues), repo, searchResp.TotalCount)
+
+	outputs := map[string]interface{}{
+		"issues": issues,
+		"total":  searchResp.TotalCount,
+	}
+
+	// Include incomplete_results in outputs for caller awareness
+	if searchResp.IncompleteResults {
+		outputs["incomplete_results"] = true
+	}
+
+	return &BridgeActionResult{
+		Status:  "succeeded",
+		Outputs: outputs,
 	}, nil
 }
 
