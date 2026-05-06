@@ -1,0 +1,100 @@
+name: GitLab SDLC Pipeline
+trigger:
+  gitlab:
+    events: [issue]
+    actions: [update]
+    labels: [ready-for-dev]
+    delivery_mode: polling
+
+workflow:
+  - id: claim-issue
+    type: bridge
+    action: update-issue
+    inputs:
+      project: "{{trigger.gitlab_project}}"
+      issue: "{{trigger.issue_iid}}"
+      add_labels: ["in-progress"]
+      remove_labels: ["ready-for-dev"]
+
+  - id: implement
+    type: agent
+    agent: Autonomous Developer
+    depends: "claim-issue.Succeeded"
+    max_retries: 3
+    inputs:
+      branch: "issue-{{trigger.issue_iid}}-fix"
+      issue_number: "{{trigger.issue_iid}}"
+      repo: "{{trigger.gitlab_project}}"
+      issue_title: "{{trigger.issue_title}}"
+      issue_body: "{{trigger.issue_description}}"
+      issue_url: "{{trigger.issue_url}}"
+    outputs: [summary]
+
+  - id: create-mr
+    type: bridge
+    action: create-merge-request
+    depends: "implement.Succeeded"
+    inputs:
+      project: "{{trigger.gitlab_project}}"
+      branch: "{{steps.implement.inputs.branch}}"
+      title: "Fix #{{trigger.issue_iid}}"
+      base: main
+      body: |
+        Closes #{{trigger.issue_iid}}
+
+        ## {{trigger.issue_title}}
+
+        ## Summary
+
+        {{steps.implement.outputs.summary}}
+
+  - id: await-ci
+    type: bridge
+    action: await-checks
+    depends: "create-mr.Succeeded || ci-fix.Succeeded || rebase.Succeeded"
+    max_iterations: 4
+    inputs:
+      project: "{{trigger.gitlab_project}}"
+      mr: "{{steps.create-mr.outputs.mr_iid}}"
+
+  - id: ci-fix
+    type: agent
+    agent: Autonomous Developer
+    depends: "await-ci.Failed"
+    max_iterations: 3
+    inputs:
+      branch: "{{steps.implement.inputs.branch}}"
+      issue_number: "{{trigger.issue_iid}}"
+      repo: "{{trigger.gitlab_project}}"
+      issue_title: "{{trigger.issue_title}}"
+      issue_body: "{{trigger.issue_description}}"
+      issue_url: "{{trigger.issue_url}}"
+      ci_logs: "{{steps.await-ci.outputs.failure_logs}}"
+    outputs: [summary]
+
+  - id: code-review
+    type: agent
+    agent: PR Reviewer
+    depends: "await-ci.Succeeded"
+    max_iterations: 3
+    inputs:
+      mr: "{{steps.create-mr.outputs.mr_iid}}"
+      project: "{{trigger.gitlab_project}}"
+    outputs: [approved, comments]
+
+  - id: rebase
+    type: bridge
+    action: rebase
+    depends: "code-review.Succeeded"
+    max_iterations: 3
+    inputs:
+      project: "{{trigger.gitlab_project}}"
+      mr: "{{steps.create-mr.outputs.mr_iid}}"
+
+  - id: merge
+    type: bridge
+    action: merge
+    depends: "rebase.Succeeded"
+    inputs:
+      project: "{{trigger.gitlab_project}}"
+      mr: "{{steps.create-mr.outputs.mr_iid}}"
