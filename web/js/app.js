@@ -5975,8 +5975,31 @@
                     localStorage.setItem('alcove_active_team', teamId);
                     renderTeamSwitcher();
                     hide($('#team-switcher-menu'));
-                    // Navigate to sessions list — don't stay on a detail page from the old team
-                    navigate('sessions');
+
+                    // Check current route and reload team-scoped data if staying on the same page
+                    var currentRoute = getRoute();
+                    if (currentRoute === 'sessions') {
+                        // Already on sessions page - reload sessions with new team
+                        loadSessions();
+                    } else if (currentRoute === 'agents' || currentRoute === 'schedules') {
+                        // Already on agents page - reload schedules with new team
+                        loadUnifiedSchedules();
+                    } else if (currentRoute === 'credentials') {
+                        // Already on credentials page - reload credentials with new team
+                        loadCredentials();
+                    } else if (currentRoute === 'security') {
+                        // Already on security page - reload with new team
+                        loadSecurityPage();
+                    } else if (currentRoute === 'tools' || currentRoute === 'tools-admin') {
+                        // Already on tools page - reload with new team
+                        loadToolsPage();
+                    } else if (currentRoute === 'workflows') {
+                        // Already on workflows page - reload with new team
+                        loadWorkflowsPage();
+                    } else {
+                        // Navigate to sessions list — don't stay on a detail page from the old team
+                        navigate('sessions');
+                    }
                 } else {
                     hide($('#team-switcher-menu'));
                 }
