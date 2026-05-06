@@ -1,0 +1,113 @@
+name: JIRA SDLC Pipeline
+trigger:
+  jira:
+    projects: []  # Configure with your JIRA project key
+    labels: [ready-for-dev]
+
+workflow:
+  - id: claim-issue
+    type: bridge
+    action: jira-transition-issue
+    inputs:
+      issue_key: "{{trigger.issue_key}}"
+      transition: "In Progress"
+
+  - id: implement
+    type: agent
+    agent: Autonomous Developer
+    depends: "claim-issue.Succeeded"
+    max_retries: 3
+    inputs:
+      branch: "{{trigger.issue_key}}"
+      issue_number: "{{trigger.issue_key}}"
+      repo: "{{trigger.repo}}"
+      issue_title: "{{trigger.issue_title}}"
+      issue_body: "{{trigger.issue_description}}"
+      issue_url: "{{trigger.issue_url}}"
+    outputs: [summary]
+
+  - id: create-pr
+    type: bridge
+    action: create-merge-request
+    depends: "implement.Succeeded"
+    inputs:
+      repo: "{{trigger.repo}}"
+      branch: "{{steps.implement.inputs.branch}}"
+      title: "{{trigger.issue_key}}: {{trigger.issue_title}}"
+      base: main
+      body: |
+        JIRA: {{trigger.issue_url}}
+
+        ## {{trigger.issue_title}}
+
+        ## Summary
+
+        {{steps.implement.outputs.summary}}
+
+  - id: await-ci
+    type: bridge
+    action: await-checks
+    depends: "create-pr.Succeeded || ci-fix.Succeeded || rebase.Succeeded"
+    max_iterations: 4
+    inputs:
+      repo: "{{trigger.repo}}"
+      pr: "{{steps.create-pr.outputs.pr_number}}"
+
+  - id: ci-fix
+    type: agent
+    agent: Autonomous Developer
+    depends: "await-ci.Failed"
+    max_iterations: 3
+    inputs:
+      branch: "{{steps.implement.inputs.branch}}"
+      issue_number: "{{trigger.issue_key}}"
+      repo: "{{trigger.repo}}"
+      issue_title: "{{trigger.issue_title}}"
+      issue_body: "{{trigger.issue_description}}"
+      issue_url: "{{trigger.issue_url}}"
+      ci_logs: "{{steps.await-ci.outputs.failure_logs}}"
+    outputs: [summary]
+
+  - id: code-review
+    type: agent
+    agent: PR Reviewer
+    depends: "await-ci.Succeeded"
+    max_iterations: 3
+    inputs:
+      pr: "{{steps.create-pr.outputs.pr_number}}"
+      repo: "{{trigger.repo}}"
+    outputs: [approved, comments]
+
+  - id: rebase
+    type: bridge
+    action: rebase
+    depends: "code-review.Succeeded"
+    max_iterations: 3
+    inputs:
+      repo: "{{trigger.repo}}"
+      pr: "{{steps.create-pr.outputs.pr_number}}"
+      update_method: merge
+
+  - id: merge
+    type: bridge
+    action: merge
+    depends: "rebase.Succeeded"
+    inputs:
+      repo: "{{trigger.repo}}"
+      pr: "{{steps.create-pr.outputs.pr_number}}"
+
+  - id: close-jira
+    type: bridge
+    action: jira-transition-issue
+    depends: "merge.Succeeded"
+    inputs:
+      issue_key: "{{trigger.issue_key}}"
+      transition: "Done"
+
+  - id: comment-jira
+    type: bridge
+    action: jira-add-comment
+    depends: "merge.Succeeded"
+    inputs:
+      issue_key: "{{trigger.issue_key}}"
+      body: "Implemented and merged via SDLC pipeline. PR: {{steps.create-pr.outputs.pr_url}}"

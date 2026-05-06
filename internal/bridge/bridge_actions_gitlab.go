@@ -224,6 +224,100 @@ func bridgeActionAwaitPipeline(ctx context.Context, inputs map[string]interface{
 	return &BridgeActionResult{Status: "failed", Error: fmt.Sprintf("timed out after %d seconds", timeout)}, nil
 }
 
+// bridgeActionRebaseMR rebases a merge request branch on GitLab.
+func bridgeActionRebaseMR(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
+	project := getStringInput(inputs, "project")
+	mr := getIntInput(inputs, "mr")
+
+	if project == "" || mr == 0 {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  "missing required inputs: project, mr",
+		}, nil
+	}
+
+	token, apiHost, err := credStore.AcquireSCMTokenForOwner(ctx, "gitlab", teamID)
+	if err != nil {
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  fmt.Sprintf("failed to acquire GitLab token: %v", err),
+		}, nil
+	}
+	if apiHost == "" {
+		apiHost = "https://gitlab.com"
+	}
+
+	encodedProject := strings.ReplaceAll(project, "/", "%2F")
+
+	// Call GitLab's rebase API
+	url := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%d/rebase", apiHost, encodedProject, mr)
+	_, err = gitlabRequest(ctx, token, "PUT", url, nil)
+	if err != nil {
+		if strings.Contains(err.Error(), "409") || strings.Contains(err.Error(), "conflict") {
+			log.Printf("bridge-action rebase-mr: conflicts detected for MR !%d in %s", mr, project)
+			return &BridgeActionResult{
+				Status: "failed",
+				Outputs: map[string]interface{}{
+					"status": "conflict",
+				},
+				Error: "Merge conflicts detected during rebase",
+			}, nil
+		}
+		return &BridgeActionResult{
+			Status: "failed",
+			Error:  fmt.Sprintf("GitLab API error rebasing MR: %v", err),
+		}, nil
+	}
+
+	// Poll for rebase completion — GitLab rebase is async
+	for i := 0; i < 30; i++ {
+		mrURL := fmt.Sprintf("%s/api/v4/projects/%s/merge_requests/%d", apiHost, encodedProject, mr)
+		mrData, err := gitlabRequest(ctx, token, "GET", mrURL, nil)
+		if err != nil {
+			return &BridgeActionResult{
+				Status: "failed",
+				Error:  fmt.Sprintf("error checking rebase status: %v", err),
+			}, nil
+		}
+
+		var mrInfo struct {
+			RebaseInProgress bool   `json:"rebase_in_progress"`
+			MergeError       string `json:"merge_error"`
+			SHA              string `json:"sha"`
+			DiffHeadSHA      string `json:"diff_refs.head_sha"`
+		}
+		json.Unmarshal(mrData, &mrInfo)
+
+		if mrInfo.MergeError != "" {
+			return &BridgeActionResult{
+				Status: "failed",
+				Outputs: map[string]interface{}{
+					"status": "conflict",
+				},
+				Error: fmt.Sprintf("Rebase failed: %s", mrInfo.MergeError),
+			}, nil
+		}
+
+		if !mrInfo.RebaseInProgress {
+			log.Printf("bridge-action rebase-mr: MR !%d in %s rebased successfully (SHA: %s)", mr, project, mrInfo.SHA)
+			return &BridgeActionResult{
+				Status: "succeeded",
+				Outputs: map[string]interface{}{
+					"status":       "rebased",
+					"new_head_sha": mrInfo.SHA,
+				},
+			}, nil
+		}
+
+		time.Sleep(5 * time.Second)
+	}
+
+	return &BridgeActionResult{
+		Status: "failed",
+		Error:  "rebase timed out after 150 seconds",
+	}, nil
+}
+
 // bridgeActionMergeMR merges a merge request on GitLab.
 func bridgeActionMergeMR(ctx context.Context, inputs map[string]interface{}, credStore *CredentialStore, teamID string) (*BridgeActionResult, error) {
 	project := getStringInput(inputs, "project")

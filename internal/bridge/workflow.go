@@ -139,6 +139,7 @@ var validBridgeActions = map[string]bool{
 	// Rebase actions.
 	"rebase":    true,
 	"rebase-pr": true,
+	"rebase-mr": true,
 	// Multi-repo actions.
 	"create-prs": true,
 }

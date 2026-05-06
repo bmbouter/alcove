@@ -76,6 +76,7 @@ func RegisterBridgeActions() map[string]BridgeActionHandler {
 		"update-gl-issue":   bridgeActionUpdateGLIssue,
 		"create-gl-issue":   bridgeActionCreateGLIssue,
 		"search-gl-issues": bridgeActionSearchGLIssues,
+		"rebase-mr":        bridgeActionRebaseMR,
 
 		// JIRA-specific actions.
 		"jira-create-issue":     bridgeActionJiraCreateIssue,
@@ -95,9 +96,12 @@ func RegisterBridgeActionsWithDB(db *pgxpool.Pool) map[string]BridgeActionHandle
 	serializedMergePR := createSerializedMergeAction(db, bridgeActionMergePR)
 	serializedUnifiedMerge := createSerializedMergeAction(db, bridgeActionUnifiedMerge)
 
+	serializedMergeMR := createSerializedMergeAction(db, bridgeActionMergeMR)
+
 	actions := RegisterBridgeActions()
 	// Override merge actions with serialized versions
 	actions["merge-pr"] = serializedMergePR
+	actions["merge-mr"] = serializedMergeMR
 	actions["merge"] = serializedUnifiedMerge
 
 	return actions
@@ -813,11 +817,7 @@ func bridgeActionUnifiedRebase(ctx context.Context, inputs map[string]interface{
 	scm := detectSCM(inputs)
 	switch scm {
 	case "gitlab":
-		// GitLab rebase will be implemented in Step 3
-		return &BridgeActionResult{
-			Status: "failed",
-			Error:  "GitLab rebase is not yet implemented (see implementation plan Step 3)",
-		}, nil
+		return bridgeActionRebaseMR(ctx, inputs, credStore, teamID)
 	case "github":
 		return bridgeActionRebasePR(ctx, inputs, credStore, teamID)
 	default:
