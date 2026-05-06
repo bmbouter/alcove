@@ -47,7 +47,7 @@ workflow:
   - id: await-ci
     type: bridge
     action: await-checks
-    depends: "create-pr.Succeeded || ci-fix.Succeeded || rebase.Succeeded"
+    depends: "create-pr.Succeeded || ci-fix.Succeeded || rebase.Succeeded || conflict-resolve.Succeeded"
     max_iterations: 4
     inputs:
       repo: "{{trigger.repo}}"
@@ -71,27 +71,70 @@ workflow:
   - id: code-review
     type: agent
     agent: PR Reviewer
-    depends: "await-ci.Succeeded"
+    depends: "await-ci.Succeeded || revision.Succeeded"
     max_iterations: 3
     inputs:
       pr: "{{steps.create-pr.outputs.pr_number}}"
       repo: "{{trigger.repo}}"
     outputs: [approved, comments]
 
+  - id: security-review
+    type: agent
+    agent: Security Reviewer
+    depends: "await-ci.Succeeded || revision.Succeeded"
+    max_iterations: 3
+    inputs:
+      pr: "{{steps.create-pr.outputs.pr_number}}"
+      repo: "{{trigger.repo}}"
+    outputs: [approved, comments]
+
+  - id: revision
+    type: agent
+    agent: Autonomous Developer
+    depends: "code-review.Failed || security-review.Failed"
+    max_iterations: 3
+    inputs:
+      branch: "{{steps.implement.inputs.branch}}"
+      issue_number: "{{trigger.issue_key}}"
+      repo: "{{trigger.repo}}"
+      issue_title: "{{trigger.issue_title}}"
+      issue_body: "{{trigger.issue_description}}"
+      issue_url: "{{trigger.issue_url}}"
+      code_feedback: "{{steps.code-review.outputs.comments}}"
+      security_feedback: "{{steps.security-review.outputs.comments}}"
+    outputs: [summary]
+
   - id: rebase
     type: bridge
     action: rebase
-    depends: "code-review.Succeeded"
+    depends: "code-review.Succeeded && security-review.Succeeded"
     max_iterations: 3
     inputs:
       repo: "{{trigger.repo}}"
       pr: "{{steps.create-pr.outputs.pr_number}}"
       update_method: merge
+    outputs: [status, new_head_sha]
+
+  - id: conflict-resolve
+    type: agent
+    agent: Autonomous Developer
+    depends: "rebase.Failed"
+    max_iterations: 2
+    inputs:
+      branch: "{{steps.implement.inputs.branch}}"
+      issue_number: "{{trigger.issue_key}}"
+      repo: "{{trigger.repo}}"
+      issue_title: "{{trigger.issue_title}}"
+      issue_body: "{{trigger.issue_description}}"
+      issue_url: "{{trigger.issue_url}}"
+      merge_conflict_details: "{{steps.rebase.outputs.error}}"
+      task_context: "Resolve merge conflicts detected during rebase step."
+    outputs: [summary]
 
   - id: merge
     type: bridge
     action: merge
-    depends: "rebase.Succeeded"
+    depends: "rebase.Succeeded || (conflict-resolve.Succeeded && await-ci.Succeeded)"
     inputs:
       repo: "{{trigger.repo}}"
       pr: "{{steps.create-pr.outputs.pr_number}}"
