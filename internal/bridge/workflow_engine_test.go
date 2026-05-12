@@ -378,3 +378,98 @@ func TestCIFixDispatchDependency(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateStepOutputs(t *testing.T) {
+	we := &WorkflowEngine{}
+
+	tests := []struct {
+		name      string
+		contract  *OutputContract
+		outputs   map[string]interface{}
+		expectErr bool
+		errMsg    string
+	}{
+		{
+			name: "valid outputs with all required fields",
+			contract: &OutputContract{
+				Required: []string{"verdict", "fixes_required"},
+				AllowedValues: map[string][]string{
+					"verdict": {"pass", "fail"},
+				},
+			},
+			outputs: map[string]interface{}{
+				"verdict":        "pass",
+				"fixes_required": []string{"fix1", "fix2"},
+			},
+			expectErr: false,
+		},
+		{
+			name: "missing required field",
+			contract: &OutputContract{
+				Required: []string{"verdict", "fixes_required"},
+			},
+			outputs: map[string]interface{}{
+				"verdict": "pass",
+			},
+			expectErr: true,
+			errMsg:    "required field 'fixes_required' is missing",
+		},
+		{
+			name: "invalid value not in allowed_values",
+			contract: &OutputContract{
+				Required: []string{"verdict"},
+				AllowedValues: map[string][]string{
+					"verdict": {"pass", "fail"},
+				},
+			},
+			outputs: map[string]interface{}{
+				"verdict": "unknown",
+			},
+			expectErr: true,
+			errMsg:    "not in allowed values",
+		},
+		{
+			name: "valid with extra fields not in contract",
+			contract: &OutputContract{
+				Required: []string{"verdict"},
+				AllowedValues: map[string][]string{
+					"verdict": {"pass", "fail"},
+				},
+			},
+			outputs: map[string]interface{}{
+				"verdict":    "pass",
+				"extra_info": "some additional data",
+			},
+			expectErr: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := we.validateStepOutputs(test.contract, test.outputs)
+
+			if test.expectErr {
+				if err == nil {
+					t.Fatalf("expected error but got none")
+				}
+				if !stringContains(err.Error(), test.errMsg) {
+					t.Errorf("error should contain '%s', got: %v", test.errMsg, err)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// stringContains is a helper to check substring presence
+func stringContains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

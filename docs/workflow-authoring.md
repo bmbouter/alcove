@@ -356,6 +356,71 @@ Other steps reference this as `{{steps.code-review.outputs.comments}}`.
 Bridge actions produce outputs automatically (see the reference above for
 each action's output fields).
 
+### Output Contracts
+
+Steps can declare output contracts to validate agent outputs and enable 
+deterministic routing based on output values. This is more reliable than 
+routing based on exit codes, which agents often don't set consistently.
+
+```yaml
+workflow:
+  - id: verify
+    type: agent
+    agent: Implementation Verifier
+    outputs: [verdict, fixes_required, code_issues]
+    output_contract:
+      allowed_values:
+        verdict: ["pass", "fail"]
+      routing_field: verdict
+      success_value: "pass"
+
+  - id: patch
+    type: agent
+    agent: Bug Patcher
+    depends: "verify.Failed"
+    inputs:
+      issues: "{{steps.verify.outputs.code_issues}}"
+
+  - id: merge
+    type: bridge
+    action: merge-pr
+    depends: "verify.Succeeded"
+```
+
+**Output Contract Fields:**
+
+| Field | Description |
+|-------|-------------|
+| `required` | List of required output fields (inferred from `outputs` if not set) |
+| `allowed_values` | Map of field → allowed values for validation |
+| `routing_field` | Field name to use for step success/failure routing |
+| `success_value` | Value of routing_field that marks the step as Succeeded |
+
+**Contract-based Routing:**
+
+When `routing_field` and `success_value` are configured:
+- If `outputs[routing_field] == success_value` → step marked **Succeeded**
+- Otherwise → step marked **Failed**
+- This overrides exit code-based status determination
+
+This enables reliable routing patterns like:
+- `verify.Succeeded` triggers merge when verification passes
+- `verify.Failed` triggers patching when verification fails
+
+**Required Field Inference:**
+
+If `output_contract` is present but `required` is not set, the `required` fields 
+are automatically inferred from the step's `outputs` list. To validate only a 
+subset of outputs, explicitly set `required`:
+
+```yaml
+outputs: [verdict, fixes_required, code_issues, metadata]
+output_contract:
+  required: [verdict]  # Only verdict is required, others are optional
+  routing_field: verdict
+  success_value: "pass"
+```
+
 ## Step Credentials
 
 Steps can declare credentials that override or augment the referenced agent's

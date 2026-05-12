@@ -1192,3 +1192,219 @@ func TestValidateWorkflowAgentReferences_UnknownAgent(t *testing.T) {
 		t.Errorf("error should mention the agent name, got: %s", error)
 	}
 }
+
+func TestParseWorkflowDefinition_OutputContract(t *testing.T) {
+	tests := []struct {
+		name      string
+		yaml      string
+		expectErr bool
+		errMsg    string
+	}{
+		{
+			name: "valid output contract with routing",
+			yaml: `
+name: Test Workflow
+workflow:
+  - id: verify
+    agent: verifier
+    outputs: [verdict, fixes_required]
+    output_contract:
+      allowed_values:
+        verdict: ["pass", "fail"]
+      routing_field: verdict
+      success_value: "pass"
+`,
+			expectErr: false,
+		},
+		{
+			name: "valid output contract without routing",
+			yaml: `
+name: Test Workflow
+workflow:
+  - id: verify
+    agent: verifier
+    outputs: [verdict, fixes_required]
+    output_contract:
+      allowed_values:
+        verdict: ["pass", "fail"]
+`,
+			expectErr: false,
+		},
+		{
+			name: "inferred required fields from outputs",
+			yaml: `
+name: Test Workflow
+workflow:
+  - id: verify
+    agent: verifier
+    outputs: [verdict, fixes_required]
+    output_contract:
+      routing_field: verdict
+      success_value: "pass"
+`,
+			expectErr: false,
+		},
+		{
+			name: "routing_field without success_value",
+			yaml: `
+name: Test Workflow
+workflow:
+  - id: verify
+    agent: verifier
+    outputs: [verdict]
+    output_contract:
+      routing_field: verdict
+`,
+			expectErr: true,
+			errMsg:    "success_value is empty",
+		},
+		{
+			name: "routing_field not in required",
+			yaml: `
+name: Test Workflow
+workflow:
+  - id: verify
+    agent: verifier
+    outputs: [verdict]
+    output_contract:
+      required: [other_field]
+      routing_field: verdict
+      success_value: "pass"
+`,
+			expectErr: true,
+			errMsg:    "must be in the required list",
+		},
+		{
+			name: "success_value not in allowed_values",
+			yaml: `
+name: Test Workflow
+workflow:
+  - id: verify
+    agent: verifier
+    outputs: [verdict]
+    output_contract:
+      allowed_values:
+        verdict: ["pass", "fail"]
+      routing_field: verdict
+      success_value: "success"
+`,
+			expectErr: true,
+			errMsg:    "must be in allowed_values",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			wd, err := ParseWorkflowDefinition([]byte(test.yaml))
+
+			if test.expectErr {
+				if err == nil {
+					t.Fatalf("expected error but got none")
+				}
+				if !strings.Contains(err.Error(), test.errMsg) {
+					t.Errorf("error should contain '%s', got: %v", test.errMsg, err)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+
+				// Verify the contract was parsed correctly
+				step := wd.GetStepByID("verify")
+				if step == nil {
+					t.Fatalf("could not find verify step")
+				}
+
+				if step.OutputContract == nil {
+					t.Fatalf("output contract should not be nil")
+				}
+
+				// Check that required was inferred from outputs if not explicitly set
+				if test.name == "inferred required fields from outputs" {
+					if len(step.OutputContract.Required) != 2 ||
+						step.OutputContract.Required[0] != "verdict" ||
+						step.OutputContract.Required[1] != "fixes_required" {
+						t.Errorf("required fields should be inferred from outputs, got: %v", step.OutputContract.Required)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestValidateOutputContract(t *testing.T) {
+	tests := []struct {
+		name      string
+		contract  *OutputContract
+		expectErr bool
+		errMsg    string
+	}{
+		{
+			name: "valid contract with routing",
+			contract: &OutputContract{
+				Required:      []string{"verdict"},
+				AllowedValues: map[string][]string{"verdict": {"pass", "fail"}},
+				RoutingField:  "verdict",
+				SuccessValue:  "pass",
+			},
+			expectErr: false,
+		},
+		{
+			name: "valid contract without routing",
+			contract: &OutputContract{
+				Required:      []string{"verdict"},
+				AllowedValues: map[string][]string{"verdict": {"pass", "fail"}},
+			},
+			expectErr: false,
+		},
+		{
+			name: "routing_field without success_value",
+			contract: &OutputContract{
+				Required:     []string{"verdict"},
+				RoutingField: "verdict",
+			},
+			expectErr: true,
+			errMsg:    "success_value is empty",
+		},
+		{
+			name: "routing_field not in required",
+			contract: &OutputContract{
+				Required:     []string{"other"},
+				RoutingField: "verdict",
+				SuccessValue: "pass",
+			},
+			expectErr: true,
+			errMsg:    "must be in the required list",
+		},
+		{
+			name: "success_value not in allowed_values",
+			contract: &OutputContract{
+				Required:      []string{"verdict"},
+				AllowedValues: map[string][]string{"verdict": {"pass", "fail"}},
+				RoutingField:  "verdict",
+				SuccessValue:  "success",
+			},
+			expectErr: true,
+			errMsg:    "must be in allowed_values",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateOutputContract(test.contract)
+
+			if test.expectErr {
+				if err == nil {
+					t.Fatalf("expected error but got none")
+				}
+				if !strings.Contains(err.Error(), test.errMsg) {
+					t.Errorf("error should contain '%s', got: %v", test.errMsg, err)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
