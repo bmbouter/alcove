@@ -15,6 +15,7 @@
 package bridge
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -378,3 +379,160 @@ func TestCIFixDispatchDependency(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateOutputContract(t *testing.T) {
+	testCases := []struct {
+		name         string
+		contract     *OutputContract
+		outputs      map[string]interface{}
+		expectValid  bool
+		expectReason string
+	}{
+		{
+			name: "contract satisfied - all required fields present",
+			contract: &OutputContract{
+				Required: []string{"verdict", "fixes_required"},
+				AllowedValues: map[string][]string{
+					"verdict": {"pass", "fail"},
+				},
+			},
+			outputs: map[string]interface{}{
+				"verdict":        "pass",
+				"fixes_required": "none",
+				"extra_field":    "optional",
+			},
+			expectValid: true,
+		},
+		{
+			name: "missing required field",
+			contract: &OutputContract{
+				Required: []string{"verdict", "fixes_required"},
+			},
+			outputs: map[string]interface{}{
+				"verdict": "pass",
+				// fixes_required is missing
+			},
+			expectValid:  false,
+			expectReason: "required output field 'fixes_required' is missing",
+		},
+		{
+			name: "nil required field",
+			contract: &OutputContract{
+				Required: []string{"verdict"},
+			},
+			outputs: map[string]interface{}{
+				"verdict": nil,
+			},
+			expectValid:  false,
+			expectReason: "required output field 'verdict' is missing",
+		},
+		{
+			name: "empty string required field",
+			contract: &OutputContract{
+				Required: []string{"verdict"},
+			},
+			outputs: map[string]interface{}{
+				"verdict": "",
+			},
+			expectValid:  false,
+			expectReason: "required output field 'verdict' is empty",
+		},
+		{
+			name: "whitespace-only required field",
+			contract: &OutputContract{
+				Required: []string{"verdict"},
+			},
+			outputs: map[string]interface{}{
+				"verdict": "   ",
+			},
+			expectValid:  false,
+			expectReason: "required output field 'verdict' is empty",
+		},
+		{
+			name: "invalid allowed value",
+			contract: &OutputContract{
+				Required: []string{"verdict"},
+				AllowedValues: map[string][]string{
+					"verdict": {"pass", "fail"},
+				},
+			},
+			outputs: map[string]interface{}{
+				"verdict": "maybe",
+			},
+			expectValid:  false,
+			expectReason: "output field 'verdict' has value 'maybe', allowed: [pass fail]",
+		},
+		{
+			name: "valid allowed value",
+			contract: &OutputContract{
+				Required: []string{"verdict"},
+				AllowedValues: map[string][]string{
+					"verdict": {"pass", "fail"},
+				},
+			},
+			outputs: map[string]interface{}{
+				"verdict": "fail",
+			},
+			expectValid: true,
+		},
+		{
+			name: "allowed values for non-existent field (should be ignored)",
+			contract: &OutputContract{
+				Required: []string{"verdict"},
+				AllowedValues: map[string][]string{
+					"automatable": {"true", "false"}, // field not present in outputs
+				},
+			},
+			outputs: map[string]interface{}{
+				"verdict": "pass",
+			},
+			expectValid: true,
+		},
+		{
+			name: "non-string values converted properly",
+			contract: &OutputContract{
+				Required: []string{"score"},
+				AllowedValues: map[string][]string{
+					"score": {"100", "0"},
+				},
+			},
+			outputs: map[string]interface{}{
+				"score": 100, // integer value
+			},
+			expectValid: true,
+		},
+		{
+			name: "boolean values converted properly",
+			contract: &OutputContract{
+				Required: []string{"passed"},
+				AllowedValues: map[string][]string{
+					"passed": {"true", "false"},
+				},
+			},
+			outputs: map[string]interface{}{
+				"passed": true,
+			},
+			expectValid: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			valid, reason := validateOutputContract(tc.contract, tc.outputs)
+			if valid != tc.expectValid {
+				t.Errorf("expected valid=%v, got %v (reason: %s)", tc.expectValid, valid, reason)
+			}
+			if !tc.expectValid && !strings.Contains(reason, tc.expectReason) {
+				t.Errorf("expected reason to contain '%s', got '%s'", tc.expectReason, reason)
+			}
+			if tc.expectValid && reason != "" {
+				t.Errorf("expected no error reason for valid contract, got '%s'", reason)
+			}
+		})
+	}
+}
+
+// Note: Integration tests for the retry mechanism would require a full database setup
+// and session dispatch infrastructure. The core contract validation logic is tested above.
+// The integration with OnStepCompletion follows the existing pattern in cigate.go
+// and can be verified through end-to-end workflow tests.

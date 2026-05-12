@@ -1192,3 +1192,217 @@ func TestValidateWorkflowAgentReferences_UnknownAgent(t *testing.T) {
 		t.Errorf("error should mention the agent name, got: %s", error)
 	}
 }
+
+func TestParseWorkflowDefinition_OutputContract_Valid(t *testing.T) {
+	yamlData := `
+name: Test Workflow with Output Contract
+workflow:
+  - id: verify
+    type: agent
+    agent: Implementation Verifier
+    output_contract:
+      required:
+        - verdict
+        - fixes_required
+        - code_issues
+      allowed_values:
+        verdict: ["pass", "fail"]
+        automatable: ["true", "false"]
+  - id: simple
+    type: agent
+    agent: Simple Agent
+    output_contract:
+      required:
+        - result
+`
+
+	wd, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("ParseWorkflowDefinition failed: %v", err)
+	}
+
+	if len(wd.Workflow) != 2 {
+		t.Fatalf("expected 2 workflow steps, got %d", len(wd.Workflow))
+	}
+
+	verifyStep := wd.Workflow[0]
+	if verifyStep.OutputContract == nil {
+		t.Fatal("expected verify step to have output contract")
+	}
+	if len(verifyStep.OutputContract.Required) != 3 {
+		t.Errorf("expected 3 required fields, got %d", len(verifyStep.OutputContract.Required))
+	}
+	expectedRequired := []string{"verdict", "fixes_required", "code_issues"}
+	for i, field := range expectedRequired {
+		if i >= len(verifyStep.OutputContract.Required) || verifyStep.OutputContract.Required[i] != field {
+			t.Errorf("expected required field %d to be %s, got %s", i, field, verifyStep.OutputContract.Required[i])
+		}
+	}
+
+	if len(verifyStep.OutputContract.AllowedValues) != 2 {
+		t.Errorf("expected 2 allowed_values fields, got %d", len(verifyStep.OutputContract.AllowedValues))
+	}
+	verdictValues := verifyStep.OutputContract.AllowedValues["verdict"]
+	if len(verdictValues) != 2 || verdictValues[0] != "pass" || verdictValues[1] != "fail" {
+		t.Errorf("expected verdict allowed_values to be [pass, fail], got %v", verdictValues)
+	}
+
+	simpleStep := wd.Workflow[1]
+	if simpleStep.OutputContract == nil {
+		t.Fatal("expected simple step to have output contract")
+	}
+	if len(simpleStep.OutputContract.Required) != 1 || simpleStep.OutputContract.Required[0] != "result" {
+		t.Errorf("expected simple step to have required=[result], got %v", simpleStep.OutputContract.Required)
+	}
+}
+
+func TestParseWorkflowDefinition_OutputContract_Invalid(t *testing.T) {
+	testCases := []struct {
+		name     string
+		yaml     string
+		expected string
+	}{
+		{
+			name: "empty required field",
+			yaml: `
+name: Test Workflow
+workflow:
+  - id: test
+    agent: test-agent
+    output_contract:
+      required: [""]
+`,
+			expected: "empty field name in required list",
+		},
+		{
+			name: "invalid field name in required",
+			yaml: `
+name: Test Workflow
+workflow:
+  - id: test
+    agent: test-agent
+    output_contract:
+      required: ["invalid-field-name"]
+`,
+			expected: "invalid field name 'invalid-field-name' in required list",
+		},
+		{
+			name: "empty allowed_values",
+			yaml: `
+name: Test Workflow
+workflow:
+  - id: test
+    agent: test-agent
+    output_contract:
+      required: ["result"]
+      allowed_values:
+        result: []
+`,
+			expected: "allowed_values for field 'result' is empty",
+		},
+		{
+			name: "empty value in allowed_values",
+			yaml: `
+name: Test Workflow
+workflow:
+  - id: test
+    agent: test-agent
+    output_contract:
+      required: ["result"]
+      allowed_values:
+        result: ["valid", ""]
+`,
+			expected: "empty value in allowed_values for field 'result'",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParseWorkflowDefinition([]byte(tc.yaml))
+			if err == nil {
+				t.Fatal("expected ParseWorkflowDefinition to fail")
+			}
+			if !strings.Contains(err.Error(), tc.expected) {
+				t.Errorf("expected error to contain '%s', got: %s", tc.expected, err.Error())
+			}
+		})
+	}
+}
+
+func TestValidateOutputContractDefinition(t *testing.T) {
+	testCases := []struct {
+		name        string
+		contract    *OutputContract
+		shouldError bool
+		expected    string
+	}{
+		{
+			name: "valid contract",
+			contract: &OutputContract{
+				Required:      []string{"verdict", "fixes_required"},
+				AllowedValues: map[string][]string{"verdict": {"pass", "fail"}},
+			},
+			shouldError: false,
+		},
+		{
+			name: "empty required field",
+			contract: &OutputContract{
+				Required: []string{""},
+			},
+			shouldError: true,
+			expected:    "empty field name in required list",
+		},
+		{
+			name: "whitespace-only required field",
+			contract: &OutputContract{
+				Required: []string{"  "},
+			},
+			shouldError: true,
+			expected:    "empty field name in required list",
+		},
+		{
+			name: "invalid identifier in required",
+			contract: &OutputContract{
+				Required: []string{"invalid-field"},
+			},
+			shouldError: true,
+			expected:    "invalid field name 'invalid-field' in required list",
+		},
+		{
+			name: "empty allowed_values",
+			contract: &OutputContract{
+				Required:      []string{"result"},
+				AllowedValues: map[string][]string{"result": {}},
+			},
+			shouldError: true,
+			expected:    "allowed_values for field 'result' is empty",
+		},
+		{
+			name: "empty value in allowed_values",
+			contract: &OutputContract{
+				Required:      []string{"result"},
+				AllowedValues: map[string][]string{"result": {"valid", ""}},
+			},
+			shouldError: true,
+			expected:    "empty value in allowed_values for field 'result'",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateOutputContractDefinition("test-step", tc.contract)
+			if tc.shouldError {
+				if err == nil {
+					t.Fatal("expected validateOutputContractDefinition to fail")
+				}
+				if !strings.Contains(err.Error(), tc.expected) {
+					t.Errorf("expected error to contain '%s', got: %s", tc.expected, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("expected validateOutputContractDefinition to succeed, got: %s", err.Error())
+				}
+			}
+		})
+	}
+}

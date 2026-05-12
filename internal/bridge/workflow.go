@@ -41,6 +41,12 @@ type WorkflowDefinition struct {
 	TeamID     string `json:"team_id,omitempty"`
 }
 
+// OutputContract defines validation rules for step outputs.
+type OutputContract struct {
+	Required      []string            `json:"required,omitempty" yaml:"required,omitempty"`
+	AllowedValues map[string][]string `json:"allowed_values,omitempty" yaml:"allowed_values,omitempty"`
+}
+
 // WorkflowStep represents a single step in a workflow.
 type WorkflowStep struct {
 	ID             string                 `json:"id" yaml:"id"`
@@ -59,6 +65,7 @@ type WorkflowStep struct {
 	RouteMap       map[string]string      `json:"route_map,omitempty" yaml:"route_map,omitempty"`           // Value -> next step mapping
 	MaxIterations  int                    `json:"max_iterations,omitempty" yaml:"max_iterations,omitempty"` // Max times this step can execute (default 1)
 	MaxRetries     int                    `json:"max_retries,omitempty" yaml:"max_retries,omitempty"`       // Max retries on failure within one iteration
+	OutputContract *OutputContract        `json:"output_contract,omitempty" yaml:"output_contract,omitempty"`
 	Credentials    map[string]string      `json:"credentials,omitempty" yaml:"credentials,omitempty"`
 	DirectOutbound bool                   `json:"direct_outbound,omitempty" yaml:"direct_outbound,omitempty"`
 }
@@ -216,6 +223,13 @@ func validateWorkflowSteps(steps []WorkflowStep) error {
 		// Validate max_iterations
 		if step.MaxIterations < 0 {
 			return fmt.Errorf("workflow step '%s' has invalid max_iterations: must be positive", step.ID)
+		}
+
+		// Validate output contract if defined
+		if step.OutputContract != nil {
+			if err := validateOutputContractDefinition(step.ID, step.OutputContract); err != nil {
+				return fmt.Errorf("workflow step '%s' has invalid output contract: %w", step.ID, err)
+			}
 		}
 
 		// Backward compat: if Needs is populated and Depends is empty, auto-generate Depends.
@@ -843,4 +857,40 @@ func (s *WorkflowStore) ValidateWorkflowAgentReferences(ctx context.Context, wd 
 	}
 
 	return missing
+}
+
+// validateOutputContractDefinition validates an output contract definition at parse time.
+func validateOutputContractDefinition(stepID string, contract *OutputContract) error {
+	// Validate required fields are non-empty strings
+	for _, field := range contract.Required {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			return fmt.Errorf("empty field name in required list")
+		}
+		if !isValidIdentifier(field) {
+			return fmt.Errorf("invalid field name '%s' in required list (must be valid identifier)", field)
+		}
+	}
+
+	// Validate allowed_values keys should ideally be in the required list
+	// (this is a warning, not an error, as optional fields can have constraints too)
+	for field, values := range contract.AllowedValues {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			return fmt.Errorf("empty field name in allowed_values")
+		}
+		if !isValidIdentifier(field) {
+			return fmt.Errorf("invalid field name '%s' in allowed_values (must be valid identifier)", field)
+		}
+		if len(values) == 0 {
+			return fmt.Errorf("allowed_values for field '%s' is empty (should contain at least one value)", field)
+		}
+		for _, value := range values {
+			if value == "" {
+				return fmt.Errorf("empty value in allowed_values for field '%s'", field)
+			}
+		}
+	}
+
+	return nil
 }
