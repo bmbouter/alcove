@@ -1408,3 +1408,63 @@ func TestValidateOutputContract(t *testing.T) {
 		})
 	}
 }
+
+
+func TestParseWorkflowDefinition_OutputContractWithRetry(t *testing.T) {
+	yamlData := `
+name: Test Workflow With Retries
+workflow:
+  - id: verify
+    agent: Implementation Verifier
+    output_contract:
+      required:
+        - verdict
+        - fixes_required
+        - code_issues
+      allowed_values:
+        verdict: ["pass", "fail"]
+        automatable: ["true", "false"]
+    max_retries: 3
+  - id: implement
+    agent: Implementation Agent
+    depends: verify
+`
+
+	wd, err := ParseWorkflowDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("Expected successful parsing but got error: %v", err)
+	}
+
+	if len(wd.Workflow) != 2 {
+		t.Fatalf("Expected 2 steps but got %d", len(wd.Workflow))
+	}
+
+	verifyStep := wd.Workflow[0]
+	if verifyStep.ID != "verify" {
+		t.Errorf("Expected step ID 'verify' but got '%s'", verifyStep.ID)
+	}
+
+	if verifyStep.OutputContract == nil {
+		t.Fatal("Expected output_contract to be present")
+	}
+
+	contract := verifyStep.OutputContract
+	expectedRequired := []string{"verdict", "fixes_required", "code_issues"}
+	if len(contract.Required) != len(expectedRequired) {
+		t.Errorf("Expected %d required fields but got %d", len(expectedRequired), len(contract.Required))
+	}
+
+	for i, field := range expectedRequired {
+		if contract.Required[i] != field {
+			t.Errorf("Expected required field '%s' at index %d but got '%s'", field, i, contract.Required[i])
+		}
+	}
+
+	if len(contract.AllowedValues) != 2 {
+		t.Errorf("Expected 2 allowed_values entries but got %d", len(contract.AllowedValues))
+	}
+
+	if verifyStep.MaxRetries != 3 {
+		t.Errorf("Expected max_retries to be 3 but got %d", verifyStep.MaxRetries)
+	}
+}
