@@ -592,11 +592,40 @@ func (we *WorkflowEngine) OnStepCompletion(ctx context.Context, sessionID string
 		outputs = make(map[string]interface{})
 	}
 
-	// Update step status
+	// Get the workflow definition to check for output contracts
+	workflow, err := we.getWorkflowByID(ctx, run.WorkflowID)
+	if err != nil {
+		return fmt.Errorf("getting workflow definition: %w", err)
+	}
+
+	// Find the step definition
+	stepDef := workflow.GetStepByID(step.StepID)
+
+	// Validate output contract if present
+	if stepDef != nil && stepDef.OutputContract != nil {
+		if err := we.validateStepOutputs(stepDef.OutputContract, outputs); err != nil {
+			log.Printf("output contract validation failed for step %s: %v", step.StepID, err)
+			// Continue with failed status
+		}
+	}
+
+	// Update step status (exit code based by default)
 	now := time.Now().UTC()
 	stepStatus := "completed"
 	if status != "completed" {
 		stepStatus = "failed"
+	}
+
+	// Override with contract-based routing if configured
+	if stepDef != nil && stepDef.OutputContract != nil && stepDef.OutputContract.RoutingField != "" {
+		routeValue := fmt.Sprintf("%v", outputs[stepDef.OutputContract.RoutingField])
+		if routeValue == stepDef.OutputContract.SuccessValue {
+			stepStatus = "completed" // Succeeded
+		} else {
+			stepStatus = "failed" // Failed
+		}
+		log.Printf("contract routing: step %s %s (field %s=%s, success_value=%s)",
+			step.StepID, stepStatus, stepDef.OutputContract.RoutingField, routeValue, stepDef.OutputContract.SuccessValue)
 	}
 
 	if err := we.updateStepStatus(ctx, run.ID, step.StepID, stepStatus, &now, outputs); err != nil {
@@ -608,16 +637,9 @@ func (we *WorkflowEngine) OnStepCompletion(ctx context.Context, sessionID string
 		return fmt.Errorf("updating run step outputs: %w", err)
 	}
 
-	// Get the workflow definition to find dependents
-	workflow, err := we.getWorkflowByID(ctx, run.WorkflowID)
-	if err != nil {
-		return fmt.Errorf("getting workflow definition: %w", err)
-	}
-
 	// Handle field-based routing if configured for the completed step
-	completedStepDef := workflow.GetStepByID(step.StepID)
-	if completedStepDef != nil && completedStepDef.RouteField != "" {
-		if err := we.handleFieldBasedRouting(ctx, run, completedStepDef, outputs, workflow); err != nil {
+	if stepDef != nil && stepDef.RouteField != "" {
+		if err := we.handleFieldBasedRouting(ctx, run, stepDef, outputs, workflow); err != nil {
 			log.Printf("error handling field-based routing for step %s: %v", step.StepID, err)
 			// Don't fail the workflow, just log the error
 		}
@@ -2049,6 +2071,36 @@ func (we *WorkflowEngine) handleFieldBasedRouting(ctx context.Context, run *Work
 	log.Printf("field-based routing: dispatching step %s based on %s=%s", nextStepID, step.RouteField, routeValueStr)
 	if err := we.dispatchStep(ctx, run, nextStepDef, workflow); err != nil {
 		return fmt.Errorf("dispatching routed step %s: %w", nextStepID, err)
+	}
+
+	return nil
+}
+
+// validateStepOutputs validates step outputs against the output contract.
+func (we *WorkflowEngine) validateStepOutputs(contract *OutputContract, outputs map[string]interface{}) error {
+	// Check required fields
+	for _, required := range contract.Required {
+		if _, exists := outputs[required]; !exists {
+			return fmt.Errorf("required field '%s' is missing from outputs", required)
+		}
+	}
+
+	// Check allowed values
+	for field, allowedVals := range contract.AllowedValues {
+		if value, exists := outputs[field]; exists {
+			valueStr := fmt.Sprintf("%v", value)
+			found := false
+			for _, allowedVal := range allowedVals {
+				if valueStr == allowedVal {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("field '%s' has value '%s' which is not in allowed values %v",
+					field, valueStr, allowedVals)
+			}
+		}
 	}
 
 	return nil

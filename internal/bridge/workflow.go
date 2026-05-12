@@ -61,11 +61,20 @@ type WorkflowStep struct {
 	MaxRetries     int                    `json:"max_retries,omitempty" yaml:"max_retries,omitempty"`       // Max retries on failure within one iteration
 	Credentials    map[string]string      `json:"credentials,omitempty" yaml:"credentials,omitempty"`
 	DirectOutbound bool                   `json:"direct_outbound,omitempty" yaml:"direct_outbound,omitempty"`
+	OutputContract *OutputContract        `json:"output_contract,omitempty" yaml:"output_contract,omitempty"`
 }
 
 // WorkflowTrigger defines when a workflow should be triggered.
 type WorkflowTrigger struct {
 	GitHub *GitHubTrigger `json:"github,omitempty" yaml:"github,omitempty"`
+}
+
+// OutputContract defines validation and routing rules for step outputs.
+type OutputContract struct {
+	Required      []string            `json:"required,omitempty" yaml:"required,omitempty"`
+	AllowedValues map[string][]string `json:"allowed_values,omitempty" yaml:"allowed_values,omitempty"`
+	RoutingField  string              `json:"routing_field,omitempty" yaml:"routing_field,omitempty"`
+	SuccessValue  string              `json:"success_value,omitempty" yaml:"success_value,omitempty"`
 }
 
 // ParseWorkflowDefinition parses a YAML byte slice into a WorkflowDefinition and
@@ -96,6 +105,11 @@ func ParseWorkflowDefinition(data []byte) (*WorkflowDefinition, error) {
 		if wd.Trigger.GitLab != nil && len(wd.Trigger.GitLab.Events) == 0 {
 			return nil, fmt.Errorf("workflow trigger.gitlab block present but events list is empty")
 		}
+	}
+
+	// Process and validate output contracts
+	if err := processAndValidateOutputContracts(wd.Workflow); err != nil {
+		return nil, fmt.Errorf("output contract validation error: %w", err)
 	}
 
 	return &wd, nil
@@ -843,4 +857,62 @@ func (s *WorkflowStore) ValidateWorkflowAgentReferences(ctx context.Context, wd 
 	}
 
 	return missing
+}
+
+// processAndValidateOutputContracts processes and validates output contracts for all steps.
+func processAndValidateOutputContracts(steps []WorkflowStep) error {
+	for i := range steps {
+		step := &steps[i]
+		if step.OutputContract != nil {
+			// Infer required fields from outputs if not explicitly set
+			if len(step.OutputContract.Required) == 0 && len(step.Outputs) > 0 {
+				step.OutputContract.Required = append([]string(nil), step.Outputs...)
+			}
+
+			// Validate the contract
+			if err := validateOutputContract(step.OutputContract); err != nil {
+				return fmt.Errorf("step %s: %w", step.ID, err)
+			}
+		}
+	}
+	return nil
+}
+
+// validateOutputContract validates an output contract's configuration.
+func validateOutputContract(contract *OutputContract) error {
+	// If routing_field is specified, success_value is required
+	if contract.RoutingField != "" {
+		if contract.SuccessValue == "" {
+			return fmt.Errorf("routing_field specified but success_value is empty")
+		}
+
+		// routing_field must be in the required list
+		found := false
+		for _, field := range contract.Required {
+			if field == contract.RoutingField {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("routing_field '%s' must be in the required list", contract.RoutingField)
+		}
+
+		// If allowed_values is defined for the routing field, success_value must be in it
+		if allowedVals, exists := contract.AllowedValues[contract.RoutingField]; exists {
+			found := false
+			for _, val := range allowedVals {
+				if val == contract.SuccessValue {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("success_value '%s' must be in allowed_values for routing_field '%s'",
+					contract.SuccessValue, contract.RoutingField)
+			}
+		}
+	}
+
+	return nil
 }
