@@ -3,6 +3,23 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.44.0
+
+### Features
+- GitLab rebase bridge action (`rebase-mr`) with async polling for completion
+- Unified `rebase` router now works for both GitHub and GitLab
+- Merge serialization (advisory lock) extended to `merge-mr` for GitLab
+- GitLab SDLC pipeline workflow template with full step parity
+- JIRA SDLC pipeline workflow template with close and comment steps
+- `await-ci` auto-recovery: push empty commit at 60s, close/reopen PR at 120s when check suites are missing
+- `await-ci`/`await-pipeline` now return `failed` status when CI fails (fixes ci-fix step never dispatching)
+
+### Bug Fixes
+- Fix `rebase`, `rebase-pr`, `rebase-mr`, `create-prs` missing from workflow validation map
+- Fix team switcher not refreshing session list when switching teams (#507)
+- SDLC agents now run `go test` in addition to `go build`/`go vet` before pushing
+- SDLC agent prompt includes Go test patterns to prevent broken test files
+
 ## v0.42.8
 
 ### Features
