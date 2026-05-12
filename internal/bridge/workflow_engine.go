@@ -143,6 +143,7 @@ type WorkflowRunStep struct {
 	Status     string                 `json:"status"` // pending, running, completed, failed, skipped, awaiting_approval
 	Outputs    map[string]interface{} `json:"outputs,omitempty"`
 	Iteration  int                    `json:"iteration"`
+	RetryCount int                    `json:"retry_count"`
 	StartedAt  *time.Time             `json:"started_at,omitempty"`
 	FinishedAt *time.Time             `json:"finished_at,omitempty"`
 
@@ -601,19 +602,37 @@ func (we *WorkflowEngine) OnStepCompletion(ctx context.Context, sessionID string
 	// Find the step definition
 	stepDef := workflow.GetStepByID(step.StepID)
 
-	// Validate output contract if present
-	if stepDef != nil && stepDef.OutputContract != nil {
-		if err := we.validateStepOutputs(stepDef.OutputContract, outputs); err != nil {
-			log.Printf("output contract validation failed for step %s: %v", step.StepID, err)
-			// Continue with failed status
-		}
-	}
-
 	// Update step status (exit code based by default)
 	now := time.Now().UTC()
 	stepStatus := "completed"
 	if status != "completed" {
 		stepStatus = "failed"
+	}
+
+	// Validate output contract if defined
+	if stepDef != nil && stepDef.OutputContract != nil {
+		valid, reason := we.validateOutputContract(stepDef.OutputContract, outputs)
+		if !valid {
+			retryCount, retryErr := we.getStepRetryCount(ctx, run.ID, step.StepID)
+			if retryErr != nil {
+				log.Printf("error getting retry count for step %s: %v", step.StepID, retryErr)
+				retryCount = 0
+			}
+
+			maxRetries := stepDef.MaxRetries
+			if retryCount < maxRetries {
+				log.Printf("output contract violation for step %s: %s (retry %d/%d)",
+					step.StepID, reason, retryCount+1, maxRetries)
+				// Retry the step
+				return we.retryStep(ctx, run, stepDef, workflow, retryCount+1)
+			}
+
+			// Max retries exceeded - fail the step
+			log.Printf("output contract violation for step %s: %s (max retries %d exceeded)",
+				step.StepID, reason, maxRetries)
+			outputs["_contract_violation"] = reason
+			stepStatus = "failed"
+		}
 	}
 
 	// Override with contract-based routing if configured
@@ -1725,9 +1744,9 @@ func (we *WorkflowEngine) insertWorkflowRunStep(ctx context.Context, step *Workf
 	}
 
 	_, err = we.db.Exec(ctx, `
-		INSERT INTO workflow_run_steps (id, run_id, step_id, session_id, status, outputs, iteration, started_at, finished_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, step.ID, step.RunID, step.StepID, step.SessionID, step.Status, outputsJSON, step.Iteration, step.StartedAt, step.FinishedAt)
+		INSERT INTO workflow_run_steps (id, run_id, step_id, session_id, status, outputs, iteration, retry_count, started_at, finished_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, step.ID, step.RunID, step.StepID, step.SessionID, step.Status, outputsJSON, step.Iteration, step.RetryCount, step.StartedAt, step.FinishedAt)
 
 	return err
 }
@@ -1788,7 +1807,7 @@ func (we *WorkflowEngine) getStepStatus(ctx context.Context, runID, stepID strin
 // getWorkflowRunSteps gets all steps for a workflow run.
 func (we *WorkflowEngine) getWorkflowRunSteps(ctx context.Context, runID string) ([]WorkflowRunStep, error) {
 	rows, err := we.db.Query(ctx, `
-		SELECT id, run_id, step_id, session_id, status, outputs, iteration, started_at, finished_at
+		SELECT id, run_id, step_id, session_id, status, outputs, iteration, retry_count, started_at, finished_at
 		FROM workflow_run_steps
 		WHERE run_id = $1
 	`, runID)
@@ -1804,7 +1823,7 @@ func (we *WorkflowEngine) getWorkflowRunSteps(ctx context.Context, runID string)
 		var outputsJSON []byte
 		var startedAt, finishedAt *time.Time
 
-		if err := rows.Scan(&step.ID, &step.RunID, &step.StepID, &sessionID, &step.Status, &outputsJSON, &step.Iteration, &startedAt, &finishedAt); err != nil {
+		if err := rows.Scan(&step.ID, &step.RunID, &step.StepID, &sessionID, &step.Status, &outputsJSON, &step.Iteration, &step.RetryCount, &startedAt, &finishedAt); err != nil {
 			return nil, err
 		}
 
@@ -2015,6 +2034,48 @@ func (we *WorkflowEngine) incrementStepIteration(ctx context.Context, runID, ste
 	return err
 }
 
+// getStepRetryCount retrieves the current retry count for a workflow run step.
+func (we *WorkflowEngine) getStepRetryCount(ctx context.Context, runID, stepID string) (int, error) {
+	var retryCount int
+	err := we.db.QueryRow(ctx, `
+		SELECT retry_count FROM workflow_run_steps
+		WHERE run_id = $1 AND step_id = $2
+	`, runID, stepID).Scan(&retryCount)
+	return retryCount, err
+}
+
+// incrementStepRetryCount increments the retry counter for a workflow run step.
+func (we *WorkflowEngine) incrementStepRetryCount(ctx context.Context, runID, stepID string) error {
+	_, err := we.db.Exec(ctx, `
+		UPDATE workflow_run_steps
+		SET retry_count = retry_count + 1
+		WHERE run_id = $1 AND step_id = $2
+	`, runID, stepID)
+	return err
+}
+
+// retryStep resets a step to pending state and re-dispatches it after incrementing retry count.
+func (we *WorkflowEngine) retryStep(ctx context.Context, run *WorkflowRun, stepDef *WorkflowStep, workflow *WorkflowDefinition, retryCount int) error {
+	// Increment retry count in the database
+	if err := we.incrementStepRetryCount(ctx, run.ID, stepDef.ID); err != nil {
+		return fmt.Errorf("incrementing retry count: %w", err)
+	}
+
+	// Reset step status to pending, clear session_id, started_at, finished_at, outputs
+	_, err := we.db.Exec(ctx, `
+		UPDATE workflow_run_steps
+		SET status = 'pending', session_id = NULL, started_at = NULL, finished_at = NULL, outputs = NULL
+		WHERE run_id = $1 AND step_id = $2
+	`, run.ID, stepDef.ID)
+	if err != nil {
+		return fmt.Errorf("resetting step for retry: %w", err)
+	}
+
+	// Re-dispatch the step
+	log.Printf("retrying step %s (%d/%d)", stepDef.ID, retryCount, stepDef.MaxRetries)
+	return we.dispatchStep(ctx, run, stepDef, workflow)
+}
+
 // handleFieldBasedRouting processes field-based routing for a completed step.
 // This implements the simpler routing approach suggested by MC feedback.
 func (we *WorkflowEngine) handleFieldBasedRouting(ctx context.Context, run *WorkflowRun, step *WorkflowStep, outputs map[string]interface{}, workflow *WorkflowDefinition) error {
@@ -2076,32 +2137,36 @@ func (we *WorkflowEngine) handleFieldBasedRouting(ctx context.Context, run *Work
 	return nil
 }
 
-// validateStepOutputs validates step outputs against the output contract.
-func (we *WorkflowEngine) validateStepOutputs(contract *OutputContract, outputs map[string]interface{}) error {
+// validateOutputContract validates step outputs against the output contract.
+// Returns (valid, reason) where valid indicates if contract is satisfied,
+// and reason provides details when validation fails.
+func (we *WorkflowEngine) validateOutputContract(contract *OutputContract, outputs map[string]interface{}) (bool, string) {
 	// Check required fields
 	for _, required := range contract.Required {
-		if _, exists := outputs[required]; !exists {
-			return fmt.Errorf("required field '%s' is missing from outputs", required)
+		val, exists := outputs[required]
+		if !exists || val == nil {
+			return false, fmt.Sprintf("required output field '%s' is missing", required)
 		}
 	}
 
 	// Check allowed values
 	for field, allowedVals := range contract.AllowedValues {
-		if value, exists := outputs[field]; exists {
-			valueStr := fmt.Sprintf("%v", value)
-			found := false
-			for _, allowedVal := range allowedVals {
-				if valueStr == allowedVal {
-					found = true
-					break
-				}
+		val, exists := outputs[field]
+		if !exists {
+			continue // already covered by required check if field is required
+		}
+		valueStr := fmt.Sprintf("%v", val)
+		found := false
+		for _, allowedVal := range allowedVals {
+			if valueStr == allowedVal {
+				found = true
+				break
 			}
-			if !found {
-				return fmt.Errorf("field '%s' has value '%s' which is not in allowed values %v",
-					field, valueStr, allowedVals)
-			}
+		}
+		if !found {
+			return false, fmt.Sprintf("output field '%s' has value '%s', allowed: %v", field, valueStr, allowedVals)
 		}
 	}
 
-	return nil
+	return true, ""
 }

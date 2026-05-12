@@ -412,7 +412,7 @@ func TestValidateStepOutputs(t *testing.T) {
 				"verdict": "pass",
 			},
 			expectErr: true,
-			errMsg:    "required field 'fixes_required' is missing",
+			errMsg:    "required output field 'fixes_required' is missing",
 		},
 		{
 			name: "invalid value not in allowed_values",
@@ -426,7 +426,7 @@ func TestValidateStepOutputs(t *testing.T) {
 				"verdict": "unknown",
 			},
 			expectErr: true,
-			errMsg:    "not in allowed values",
+			errMsg:    "allowed: [pass fail]",
 		},
 		{
 			name: "valid with extra fields not in contract",
@@ -446,18 +446,136 @@ func TestValidateStepOutputs(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := we.validateStepOutputs(test.contract, test.outputs)
+			valid, reason := we.validateOutputContract(test.contract, test.outputs)
 
 			if test.expectErr {
-				if err == nil {
-					t.Fatalf("expected error but got none")
+				if valid {
+					t.Fatalf("expected validation to fail but it passed")
 				}
-				if !stringContains(err.Error(), test.errMsg) {
-					t.Errorf("error should contain '%s', got: %v", test.errMsg, err)
+				if !stringContains(reason, test.errMsg) {
+					t.Errorf("error reason should contain '%s', got: %s", test.errMsg, reason)
 				}
 			} else {
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
+				if !valid {
+					t.Fatalf("expected validation to pass but it failed: %s", reason)
+				}
+			}
+		})
+	}
+}
+
+// TestWorkflowEngineValidateOutputContract tests the output contract validation logic in the workflow engine.
+func TestWorkflowEngineValidateOutputContract(t *testing.T) {
+	we := &WorkflowEngine{}
+
+	tests := []struct {
+		name      string
+		contract  *OutputContract
+		outputs   map[string]interface{}
+		expectErr bool
+		errMsg    string
+	}{
+		{
+			name: "contract satisfied - all required fields present",
+			contract: &OutputContract{
+				Required: []string{"verdict", "fixes_required"},
+				AllowedValues: map[string][]string{
+					"verdict": {"pass", "fail"},
+				},
+			},
+			outputs: map[string]interface{}{
+				"verdict":        "pass",
+				"fixes_required": true,
+			},
+			expectErr: false,
+		},
+		{
+			name: "missing required field",
+			contract: &OutputContract{
+				Required: []string{"verdict", "fixes_required"},
+			},
+			outputs: map[string]interface{}{
+				"verdict": "pass",
+				// fixes_required is missing
+			},
+			expectErr: true,
+			errMsg:    "required output field 'fixes_required' is missing",
+		},
+		{
+			name: "nil value for required field",
+			contract: &OutputContract{
+				Required: []string{"verdict"},
+			},
+			outputs: map[string]interface{}{
+				"verdict": nil,
+			},
+			expectErr: true,
+			errMsg:    "required output field 'verdict' is missing",
+		},
+		{
+			name: "invalid allowed value",
+			contract: &OutputContract{
+				Required: []string{"verdict"},
+				AllowedValues: map[string][]string{
+					"verdict": {"pass", "fail"},
+				},
+			},
+			outputs: map[string]interface{}{
+				"verdict": "maybe",
+			},
+			expectErr: true,
+			errMsg:    "output field 'verdict' has value 'maybe', allowed: [pass fail]",
+		},
+		{
+			name: "valid allowed value",
+			contract: &OutputContract{
+				Required: []string{"verdict"},
+				AllowedValues: map[string][]string{
+					"verdict": {"pass", "fail"},
+				},
+			},
+			outputs: map[string]interface{}{
+				"verdict": "fail",
+			},
+			expectErr: false,
+		},
+		{
+			name: "allowed values check skips non-existent fields",
+			contract: &OutputContract{
+				AllowedValues: map[string][]string{
+					"optional_field": {"value1", "value2"},
+				},
+			},
+			outputs: map[string]interface{}{
+				// optional_field is not present, should not fail
+			},
+			expectErr: false,
+		},
+		{
+			name: "empty outputs with contract",
+			contract: &OutputContract{
+				Required: []string{"verdict"},
+			},
+			outputs:   map[string]interface{}{},
+			expectErr: true,
+			errMsg:    "required output field 'verdict' is missing",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			valid, reason := we.validateOutputContract(test.contract, test.outputs)
+
+			if test.expectErr {
+				if valid {
+					t.Fatalf("expected validation to fail but it passed")
+				}
+				if !stringContains(reason, test.errMsg) {
+					t.Errorf("error reason should contain '%s', got: %s", test.errMsg, reason)
+				}
+			} else {
+				if !valid {
+					t.Fatalf("expected validation to pass but it failed: %s", reason)
 				}
 			}
 		})
