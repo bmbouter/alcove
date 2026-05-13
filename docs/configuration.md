@@ -1174,6 +1174,36 @@ outputs from previous steps:
 
 ---
 
+---
+
+## Output Contracts
+
+Output contracts define the expected structure and validation rules for workflow step outputs. They enable engine-enforced routing based on output values instead of relying on fragile exit-code-based logic in agent prompts.
+
+When a step is retried due to a contract violation, the engine injects a `_retry_reason` input field containing the validation error. Agent prompts can reference this to fix the specific issue.
+
+### Contract Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `required` | string[] | no | List of required output fields |
+| `allowed_values` | map[string]string[] | no | Allowed values for specific fields |
+| `routing_field` | string | no | Field name used for routing decisions |
+| `success_value` | string | no | Value of routing field that indicates success |
+
+Example output contract:
+
+```yaml
+output_contract:
+  required: [approved, comments]
+  allowed_values:
+    approved: ["true", "false"]
+  routing_field: approved
+  success_value: "true"
+```
+
+---
+
 ## Complete Environment Variable Example
 
 ```bash

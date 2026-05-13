@@ -421,6 +421,10 @@ output_contract:
   success_value: "pass"
 ```
 
+**Retry Reason Convention:**
+
+When a step is retried due to a contract violation, the engine injects a `_retry_reason` input field containing the validation error. Agent prompts can reference this to fix the specific issue.
+
 ## Step Credentials
 
 Steps can declare credentials that override or augment the referenced agent's

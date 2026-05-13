@@ -65,6 +65,12 @@ workflow:
     inputs:
       pr: "{{steps.create-pr.outputs.pr_number}}"
     outputs: [approved, comments]
+    output_contract:
+      required: [approved, comments]
+      allowed_values:
+        approved: ["true", "false"]
+      routing_field: approved
+      success_value: "true"
 
   # Step 6: Security review. Runs in parallel with code review.
   - id: security-review
@@ -75,6 +81,12 @@ workflow:
     inputs:
       pr: "{{steps.create-pr.outputs.pr_number}}"
     outputs: [approved, comments]
+    output_contract:
+      required: [approved, comments]
+      allowed_values:
+        approved: ["true", "false"]
+      routing_field: approved
+      success_value: "true"
 
   # Step 7: Revision. Runs when either review rejects, addresses feedback,
   # then loops back to reviews via the depends expression.
