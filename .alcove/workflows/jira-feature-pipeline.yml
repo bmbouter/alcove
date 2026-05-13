@@ -77,6 +77,12 @@ workflow:
       pr: "{{steps.create-pr.outputs.pr_number}}"
       repo: "{{trigger.repo}}"
     outputs: [approved, comments]
+    output_contract:
+      required: [approved, comments]
+      allowed_values:
+        approved: ["true", "false"]
+      routing_field: approved
+      success_value: "true"
 
   - id: security-review
     type: agent
@@ -87,6 +93,12 @@ workflow:
       pr: "{{steps.create-pr.outputs.pr_number}}"
       repo: "{{trigger.repo}}"
     outputs: [approved, comments]
+    output_contract:
+      required: [approved, comments]
+      allowed_values:
+        approved: ["true", "false"]
+      routing_field: approved
+      success_value: "true"
 
   - id: revision
     type: agent

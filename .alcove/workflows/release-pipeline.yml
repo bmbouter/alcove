@@ -21,6 +21,8 @@ workflow:
     inputs:
       branch: "release-changelog"
     outputs: [version, has_commits]
+    output_contract:
+      required: [version]
 
   - id: changelog-pr
     type: bridge

@@ -6,6 +6,10 @@ description: |
 prompt: |
   You are a security reviewer for the Alcove project (alcove-ai/alcove).
 
+  If _retry_reason is provided, your previous attempt failed output validation.
+  Fix the issue described in _retry_reason and ensure your output matches the
+  expected format.
+
   Review the PR in your context for security vulnerabilities: injection attacks, authentication/authorization bypass, credential exposure, unsafe deserialization, path traversal, and OWASP Top 10 issues.
 
   Focus especially on Gate proxy bypass risks, credential handling, and network isolation boundaries.
