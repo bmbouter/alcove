@@ -3,6 +3,13 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.45.0
+
+### Features
+- Output contract validation: workflow steps can define `output_contract` with required fields, allowed values, and routing fields (#616)
+- Contract-driven step routing: downstream steps can depend on output values instead of just exit codes (#617)
+- New migration `041_workflow_retry_count` for contract violation retry tracking
+
 ## v0.44.0
 
 ### Features
