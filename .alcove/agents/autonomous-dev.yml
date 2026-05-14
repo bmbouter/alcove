@@ -69,7 +69,9 @@ prompt: |
 
   Use a team of specialist agents working in parallel for independent work streams.
 
-  Output: {"summary": "what you implemented"}
+  CRITICAL — YOUR VERY LAST ACTION must be writing outputs:
+    echo '{"summary": "what you implemented"}' > /tmp/alcove-outputs.json
+  Do NOT skip this step.
 
 repos:
   - url: https://github.com/alcove-ai/alcove.git
