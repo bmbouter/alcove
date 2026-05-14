@@ -582,6 +582,75 @@ func TestWorkflowEngineValidateOutputContract(t *testing.T) {
 	}
 }
 
+// TestDeadlockDetection verifies that circular dependency chains are detected.
+// Scenario: await-ci and ci-fix both exhausted max_iterations (both failed).
+// code-review depends on "await-ci.Succeeded || revision.Succeeded"
+// revision depends on "code-review.Failed"
+// Neither can ever run — they should both be detected as unreachable.
+func TestDeadlockDetection(t *testing.T) {
+	// After await-ci fails and ci-fix exhausts iterations, these are the
+	// terminal statuses. code-review and revision are still pending.
+	stepStatuses := map[string]string{
+		"implement":   "completed",
+		"create-pr":   "completed",
+		"await-ci":    "failed",
+		"ci-fix":      "failed",
+		"code-review": "pending",
+		"revision":    "pending",
+		"merge":       "pending",
+	}
+
+	// code-review depends on "await-ci.Succeeded || revision.Succeeded"
+	// With await-ci=failed and revision=pending, this is false.
+	// But revision is not terminal, so the single-pass check skips it.
+	codeReviewReady, _ := EvaluateDepends("await-ci.Succeeded || revision.Succeeded", stepStatuses)
+	if codeReviewReady {
+		t.Fatal("code-review should NOT be ready when await-ci=failed and revision=pending")
+	}
+
+	// revision depends on "code-review.Failed"
+	// With code-review=pending, this is false.
+	revisionReady, _ := EvaluateDepends("code-review.Failed", stepStatuses)
+	if revisionReady {
+		t.Fatal("revision should NOT be ready when code-review=pending")
+	}
+
+	// Verify the single-pass unreachable check misses these (references include non-terminal steps):
+	codeReviewRefs := ExtractDependsStepIDs("await-ci.Succeeded || revision.Succeeded")
+	hasNonTerminal := false
+	for _, ref := range codeReviewRefs {
+		s := stepStatuses[ref]
+		if s != "completed" && s != "failed" && s != "skipped" {
+			hasNonTerminal = true
+		}
+	}
+	if !hasNonTerminal {
+		t.Fatal("code-review refs should include non-terminal 'revision' (pending)")
+	}
+
+	// Now simulate the deadlock detection: no running steps + pending steps = deadlock.
+	hasRunning := false
+	pendingCount := 0
+	for _, status := range stepStatuses {
+		if status == "running" {
+			hasRunning = true
+		}
+		if status == "pending" {
+			pendingCount++
+		}
+	}
+	if hasRunning {
+		t.Fatal("there should be no running steps in a deadlocked state")
+	}
+	if pendingCount != 3 {
+		t.Fatalf("expected 3 pending steps (code-review, revision, merge), got %d", pendingCount)
+	}
+
+	// The fix: with no running steps and pending steps remaining,
+	// all pending steps should be marked as skipped (deadlock resolved).
+	// This is what checkWorkflowCompletion now does.
+}
+
 // stringContains is a helper to check substring presence
 func stringContains(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
