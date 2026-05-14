@@ -819,38 +819,77 @@ func (we *WorkflowEngine) checkWorkflowCompletion(ctx context.Context, run *Work
 
 	// Mark unreachable pending steps as skipped: if all referenced steps are
 	// terminal (completed/failed/skipped) and the depends expression is false,
-	// the step can never be triggered.
+	// the step can never be triggered. Iterate until stable — skipping one
+	// step may make others unreachable (handles circular dependency chains).
 	if workflow != nil && stepStatuses != nil {
-		for _, step := range steps {
-			if step.Status != "pending" {
-				continue
-			}
-			stepDef := workflow.GetStepByID(step.StepID)
-			if stepDef == nil || stepDef.Depends == "" {
-				continue
-			}
-			referencedIDs := ExtractDependsStepIDs(stepDef.Depends)
-			allTerminal := true
-			for _, refID := range referencedIDs {
-				status, ok := stepStatuses[refID]
-				if !ok || (status != "completed" && status != "failed" && status != "skipped") {
-					allTerminal = false
-					break
+		for {
+			skippedAny := false
+			for _, step := range steps {
+				if step.Status != "pending" {
+					continue
+				}
+				stepDef := workflow.GetStepByID(step.StepID)
+				if stepDef == nil || stepDef.Depends == "" {
+					continue
+				}
+				referencedIDs := ExtractDependsStepIDs(stepDef.Depends)
+				allTerminal := true
+				for _, refID := range referencedIDs {
+					status, ok := stepStatuses[refID]
+					if !ok || (status != "completed" && status != "failed" && status != "skipped") {
+						allTerminal = false
+						break
+					}
+				}
+				if !allTerminal {
+					continue
+				}
+				result, err := EvaluateDepends(stepDef.Depends, stepStatuses)
+				if err == nil && !result {
+					log.Printf("workflow-engine: marking unreachable step %s as skipped (depends='%s' evaluates to false)", step.StepID, stepDef.Depends)
+					we.updateStepStatus(ctx, run.ID, step.StepID, "skipped", nil, nil)
+					stepStatuses[step.StepID] = "skipped"
+					skippedAny = true
 				}
 			}
-			if !allTerminal {
-				continue
+			if !skippedAny {
+				break
 			}
-			result, err := EvaluateDepends(stepDef.Depends, stepStatuses)
-			if err == nil && !result {
-				log.Printf("workflow-engine: marking unreachable step %s as skipped (depends='%s' evaluates to false)", step.StepID, stepDef.Depends)
-				we.updateStepStatus(ctx, run.ID, step.StepID, "skipped", nil, nil)
+			// Re-fetch steps after skips for the next iteration.
+			steps, err = we.getWorkflowRunSteps(ctx, run.ID)
+			if err != nil {
+				return fmt.Errorf("re-getting workflow run steps: %w", err)
 			}
 		}
-		// Re-fetch steps after potential skips.
+		// Re-fetch steps after all skip iterations.
 		steps, err = we.getWorkflowRunSteps(ctx, run.ID)
 		if err != nil {
 			return fmt.Errorf("re-getting workflow run steps: %w", err)
+		}
+
+		// Deadlock detection: if there are pending steps but no running
+		// steps, the remaining pending steps form a circular dependency
+		// that can never resolve. Mark them all as skipped.
+		hasRunning := false
+		var pendingSteps []WorkflowRunStep
+		for _, step := range steps {
+			if step.Status == "running" || step.Status == "awaiting_approval" {
+				hasRunning = true
+				break
+			}
+			if step.Status == "pending" {
+				pendingSteps = append(pendingSteps, step)
+			}
+		}
+		if !hasRunning && len(pendingSteps) > 0 {
+			for _, step := range pendingSteps {
+				log.Printf("workflow-engine: marking deadlocked step %s as skipped (no running steps, circular dependency)", step.StepID)
+				we.updateStepStatus(ctx, run.ID, step.StepID, "skipped", nil, nil)
+			}
+			steps, err = we.getWorkflowRunSteps(ctx, run.ID)
+			if err != nil {
+				return fmt.Errorf("re-getting workflow run steps after deadlock resolution: %w", err)
+			}
 		}
 	}
 

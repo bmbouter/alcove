@@ -998,6 +998,9 @@ func (d *Dispatcher) RecoverHandles(ctx context.Context) {
 			// Container is gone — mark session as completed.
 			now := time.Now().UTC()
 			d.updateSessionStatus(ctx, sessionID, "completed", nil, &now)
+			if d.workflowEngine != nil {
+				d.workflowEngine.OnStepCompletion(ctx, sessionID, "completed", nil)
+			}
 			orphaned++
 			log.Printf("reconcile: marked orphaned session %s as completed (container gone)", sessionID)
 			continue
@@ -1006,6 +1009,9 @@ func (d *Dispatcher) RecoverHandles(ctx context.Context) {
 		if status == "exited" || status == "stopped" {
 			now := time.Now().UTC()
 			d.updateSessionStatus(ctx, sessionID, "completed", nil, &now)
+			if d.workflowEngine != nil {
+				d.workflowEngine.OnStepCompletion(ctx, sessionID, "completed", nil)
+			}
 			orphaned++
 			log.Printf("reconcile: marked exited session %s as completed", sessionID)
 			continue
@@ -1062,10 +1068,17 @@ func (d *Dispatcher) ReconcileLoop(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
+	workflowTicker := time.NewTicker(5 * time.Minute)
+	defer workflowTicker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-workflowTicker.C:
+			if d.workflowEngine != nil {
+				d.workflowEngine.RecoverWorkflows(ctx)
+			}
 		case <-ticker.C:
 			d.RecoverHandles(ctx)
 
