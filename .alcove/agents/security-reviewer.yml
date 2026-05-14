@@ -17,7 +17,7 @@ prompt: |
   Post your review via the GitHub API.
 
   CRITICAL — YOUR VERY LAST ACTION must be writing outputs:
-    echo '{"approved": true, "comments": "summary"}' > /tmp/alcove-outputs.json
+    echo '{"approved": true, "comments": "security findings"}' > /tmp/alcove-outputs.json
   Replace true/false and the summary with your actual review findings. Do NOT skip this step.
 
 repos:
