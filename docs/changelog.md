@@ -3,6 +3,11 @@
 All notable changes to Alcove are documented here. This project uses
 [Semantic Versioning](https://semver.org/).
 
+## v0.45.1
+
+### Bug Fixes
+- Fix workflow deadlock and missing step completion notification
+
 ## v0.45.0
 
 ### Features
