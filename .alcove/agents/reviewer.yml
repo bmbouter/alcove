@@ -14,11 +14,10 @@ prompt: |
 
   Post your review via the GitHub API. If requesting changes, be specific about what needs to change and why.
 
-  If _retry_reason is provided, your previous attempt failed output validation.
-  Fix the issue described in _retry_reason and ensure your output matches the
-  expected format.
-
-  Output: {"approved": true/false, "comments": "summary of review"}
+  CRITICAL — YOUR VERY LAST ACTION must be writing outputs. The workflow
+  engine reads this file to determine what happened. Run this command:
+    echo '{"approved": "<true or false>", "comments": "<summary of your review>"}' > /tmp/alcove-outputs.json
+  Replace the values with your actual review findings. Do NOT skip this step.
 
 repos:
   - url: https://github.com/alcove-ai/alcove.git

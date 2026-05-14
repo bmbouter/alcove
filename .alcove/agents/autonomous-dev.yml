@@ -69,7 +69,10 @@ prompt: |
 
   Use a team of specialist agents working in parallel for independent work streams.
 
-  Output: {"summary": "what you implemented"}
+  CRITICAL — YOUR VERY LAST ACTION must be writing outputs. The workflow
+  engine reads this file to determine what happened. Run this command:
+    echo '{"summary": "<brief description of what you implemented>"}' > /tmp/alcove-outputs.json
+  Replace the summary value with your actual summary. Do NOT skip this step.
 
 repos:
   - url: https://github.com/alcove-ai/alcove.git
