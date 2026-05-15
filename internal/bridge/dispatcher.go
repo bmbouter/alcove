@@ -46,6 +46,7 @@ type Dispatcher struct {
 	settingsStore   *SettingsStore
 	policyRuleStore *PolicyRuleStore
 	repoGroupStore  *RepoGroupStore
+	catalogStore    *CatalogItemStore
 	mu              sync.Mutex
 	handles         map[string]runtime.TaskHandle // sessionID -> handle
 	ciGate          *CIGateMonitor
@@ -64,6 +65,7 @@ func NewDispatcher(nc *nats.Conn, db *pgxpool.Pool, rt runtime.Runtime, cfg *Con
 		profileStore:    profileStore,
 		settingsStore:   settingsStore,
 		policyRuleStore: policyRuleStore,
+		catalogStore:    NewCatalogItemStore(db),
 		handles:         make(map[string]runtime.TaskHandle),
 	}
 }
@@ -613,20 +615,43 @@ func (d *Dispatcher) DispatchTask(ctx context.Context, req TaskRequest, submitte
 		skiffEnv["SPLUNK_TOKEN"] = token
 	}
 
+	// ResolveCatalogItemsToSkillRepos converts enabled CatalogItem structs to SkillRepo structs
+	// using the catalog entries to map source IDs to source URLs and refs.
+	resolveCatalogItemsToSkillRepos := func(items []CatalogItem) []SkillRepo {
+		if len(items) == 0 {
+			return nil
+		}
+
+		// Load catalog to get source URL mapping
+		catalog := LoadCatalog()
+		sourceMap := make(map[string]CatalogEntry)
+		for _, entry := range catalog {
+			sourceMap[entry.ID] = entry
+		}
+
+		var repos []SkillRepo
+		for _, item := range items {
+			if source, ok := sourceMap[item.SourceID]; ok {
+				enabled := true
+				repos = append(repos, SkillRepo{
+					URL:     source.SourceURL,
+					Ref:     source.Ref,
+					Name:    source.Name,
+					Enabled: &enabled,
+				})
+			}
+		}
+
+		return repos
+	}
+
 	// Resolve skill repos for this task (catalog-based for team sessions).
 	var skillRepos []SkillRepo
 
 	if activeTeamID != "" {
-		// Team-based: resolve from catalog + custom plugins.
-		catalog := LoadCatalog()
-		var enabledMapJSON json.RawMessage
-		if err := d.db.QueryRow(ctx,
-			`SELECT value FROM team_settings WHERE team_id = $1 AND key = 'catalog'`,
-			activeTeamID).Scan(&enabledMapJSON); err == nil {
-			var enabledMap map[string]bool
-			if json.Unmarshal(enabledMapJSON, &enabledMap) == nil {
-				skillRepos = append(skillRepos, ResolveCatalogSkillRepos(catalog, enabledMap)...)
-			}
+		// Team-based: resolve from catalog using CatalogItemStore + custom plugins.
+		if enabledItems, err := d.catalogStore.ListTeamEnabledItems(ctx, activeTeamID); err == nil {
+			skillRepos = append(skillRepos, resolveCatalogItemsToSkillRepos(enabledItems)...)
 		}
 		var customJSON json.RawMessage
 		if err := d.db.QueryRow(ctx,
