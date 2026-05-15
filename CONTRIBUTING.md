@@ -56,6 +56,84 @@ auto-generates this file with a random `database_encryption_key`. See
 See [CLAUDE.md](CLAUDE.md) for the full set of dev commands and architecture
 details.
 
+## Development Process
+
+Alcove development is driven by its own SDLC pipelines. Developers focus on
+alignment and coordination — the pipeline handles implementation, review, and
+merging. All discussion happens in GitHub issues.
+
+### Milestones (larger initiatives)
+
+Milestones group related issues under a shared goal. They follow a structured
+path to ensure alignment before any code is written.
+
+**1. Problem statement.** Create a milestone issue describing the problem — what's
+broken, what's missing, and why it matters. Tag relevant developers and agents.
+
+**2. Problem agreement.** At least one other person must approve the problem
+statement (explicit comment or thumbs-up reaction on the issue). Don't proceed
+until the problem is agreed upon.
+
+**3. Specification.** Once the problem is agreed, write a specification in the
+issue (or link to a design doc). The spec should cover the approach, scope, and
+any architectural decisions.
+
+**4. Spec agreement.** At least one other person must approve the specification.
+Add the `needs-planning` label to invoke the [Milestone Planner](/.alcove/workflows/milestone-planner.yml)
+agent, which contributes a multi-perspective implementation plan directly in the
+issue. Iterate via issue comments — the planner re-runs on each new comment.
+
+**5. Create issues.** Once the spec is agreed, break the milestone into individual
+issues. Each issue should be a single deliverable unit that the SDLC pipeline can
+handle independently.
+
+### Issues and bugs (individual work items)
+
+Issues not attached to a milestone follow the same alignment pattern at a smaller
+scale.
+
+**1. Problem statement.** File an issue describing the problem or feature request.
+Include what you were trying to do, what happened (or what's missing), and why it
+matters.
+
+**2. Agreement.** At least one other person must approve the problem statement.
+
+**3. Implementation plan.** Add details about the expected approach — which files,
+what the fix or feature should look like, acceptance criteria. For non-trivial
+issues, add the `needs-planning` label to get an agent-generated implementation
+plan.
+
+**4. Plan agreement.** At least one other person must approve the implementation
+plan.
+
+**5. Trigger the SDLC.** The issue author adds the `ready-for-dev` label. The
+[SDLC pipeline](/.alcove/workflows/feature-pipeline.yml) claims the issue,
+implements the change, creates a PR, runs CI (with fix loops), runs parallel code
+and security review (with revision loops), and merges.
+
+### Sign-off rules
+
+- **Author cannot self-approve.** At least one person other than the author must
+  sign off at each gate (problem, spec, plan).
+- **Approval format.** Either an explicit approval comment or a thumbs-up reaction
+  on the relevant comment or issue body.
+- **No silent escalation.** If the scope grows during planning, re-confirm
+  agreement before proceeding.
+
+### Overlapping work
+
+When multiple issues touch the same code, let the pipeline handle it. The SDLC
+pipeline includes rebase and conflict-resolve steps. If conflicts arise, the
+pipeline rebases and dispatches an agent to resolve them. File issues
+independently — don't serialize work waiting for other issues to merge.
+
+### Releases
+
+Releases are triggered manually today via the `immediate-release` label on a
+release issue. Automatic daily releases are planned. The
+[release pipeline](/.alcove/workflows/release-pipeline.yml) handles changelog
+generation, tagging, and deployment to staging.
+
 ## Code Style
 
 - Standard Go conventions. Run `go vet ./...` before submitting.
