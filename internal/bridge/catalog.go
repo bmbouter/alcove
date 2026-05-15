@@ -40,21 +40,9 @@ func LoadCatalog() []CatalogEntry {
 	return catalogEntries
 }
 
-func ResolveCatalogSkillRepos(catalog []CatalogEntry, enabledMap map[string]bool) []SkillRepo {
-	var repos []SkillRepo
-	for _, entry := range catalog {
-		if enabledMap[entry.ID] {
-			enabled := true
-			repos = append(repos, SkillRepo{
-				URL:     entry.SourceURL,
-				Ref:     entry.Ref,
-				Name:    entry.Name,
-				Enabled: &enabled,
-			})
-		}
-	}
-	return repos
-}
+// ResolveCatalogSkillRepos has been removed.
+// Catalog item enablement is now handled via CatalogItemStore.ListTeamEnabledItems
+// and the resolveCatalogItemsToSkillRepos function in dispatcher.go.
 
 // --- Catalog Item types and store ---
 

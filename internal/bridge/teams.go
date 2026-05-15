@@ -314,30 +314,8 @@ func (ts *TeamStore) SetTeamAgentRepos(ctx context.Context, teamID string, repos
 	return err
 }
 
-func (ts *TeamStore) GetTeamCatalog(ctx context.Context, teamID string) (map[string]bool, error) {
-	var value json.RawMessage
-	err := ts.db.QueryRow(ctx, `SELECT value FROM team_settings WHERE team_id = $1 AND key = 'catalog'`, teamID).Scan(&value)
-	if err != nil {
-		return nil, err
-	}
-	var catalog map[string]bool
-	if err := json.Unmarshal(value, &catalog); err != nil {
-		return nil, err
-	}
-	return catalog, nil
-}
-
-func (ts *TeamStore) SetTeamCatalog(ctx context.Context, teamID string, catalog map[string]bool) error {
-	value, err := json.Marshal(catalog)
-	if err != nil {
-		return err
-	}
-	_, err = ts.db.Exec(ctx, `
-		INSERT INTO team_settings (team_id, key, value, updated_at) VALUES ($1, 'catalog', $2, $3)
-		ON CONFLICT (team_id, key) DO UPDATE SET value = $2, updated_at = $3
-	`, teamID, value, time.Now().UTC())
-	return err
-}
+// GetTeamCatalog and SetTeamCatalog have been removed.
+// Catalog enablement is now managed via the CatalogItemStore and team_catalog_items table.
 
 func (ts *TeamStore) GetTeamCustomPlugins(ctx context.Context, teamID string) ([]SkillRepo, error) {
 	var value json.RawMessage
