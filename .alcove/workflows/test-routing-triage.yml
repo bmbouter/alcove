@@ -1,0 +1,31 @@
+name: Test Routing - Triage Not Automatable
+description: |
+  Tests condition gate when triage outputs automatable=false.
+  Expected: plan skipped due to condition evaluation. Should work today.
+
+trigger:
+  github:
+    events: [issues]
+    actions: [labeled]
+    labels: [routing-test-triage]
+    repos: [alcove-ai/alcove]
+    delivery_mode: polling
+
+workflow:
+  - id: triage
+    type: agent
+    agent: Test Not Automatable
+    outputs: [complexity, target_area, candidate_files, approach, risks, automatable, reviewers_needed]
+
+  - id: plan
+    type: agent
+    agent: Test Always Pass
+    depends: "triage.Succeeded"
+    condition: "steps.triage.outputs.automatable == 'true'"
+    outputs: [summary]
+
+  - id: implement
+    type: agent
+    agent: Test Always Pass
+    depends: "plan.Succeeded"
+    outputs: [summary]

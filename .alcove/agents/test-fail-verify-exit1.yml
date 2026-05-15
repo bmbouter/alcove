@@ -1,0 +1,28 @@
+name: Test Fail Verify Exit1
+description: |
+  Deterministic test agent that writes verdict=fail and calls sys.exit(1).
+  Documents: Claude Code sessions don't propagate command exit codes.
+  Expected: session completes as "success" despite sys.exit(1).
+
+prompt: |
+  Run this exact command with no modifications. Do not add any other
+  output or commentary. Your only task is to execute this exact script:
+
+  python3 - <<'PYEOF'
+  import json, sys
+  output = {
+      "verdict": "fail",
+      "fixes_required": "fix the broken test in test_group_visibility",
+      "code_issues": "test calls .groups.add() on user_context which has no groups attribute"
+  }
+  with open("/tmp/alcove-outputs.json", "w") as f:
+      json.dump(output, f)
+  sys.exit(1)
+  PYEOF
+
+timeout: 120
+
+outputs:
+  - verdict
+  - fixes_required
+  - code_issues

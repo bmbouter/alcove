@@ -1,0 +1,17 @@
+name: Test No Outputs
+description: |
+  Deterministic test agent that produces no /tmp/alcove-outputs.json.
+  Tests: how does the engine handle a step with declared outputs but no output file?
+
+prompt: |
+  Run this exact command with no modifications. Do not add any other
+  output or commentary. Your only task is to execute this exact script:
+
+  python3 -c "print('done - no outputs written')"
+
+timeout: 120
+
+outputs:
+  - verdict
+  - fixes_required
+  - code_issues
