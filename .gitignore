@@ -34,5 +34,10 @@ alcove.yaml
 alcove.conf
 .dev-credentials.yaml
 
+# PAL / opencode
+.opencode/node_modules/
+.opencode/package-lock.json
+!.env.example
+
 # OS
 .DS_Store

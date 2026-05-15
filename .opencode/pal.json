@@ -1,0 +1,14 @@
+{
+  "activityFeed": {
+    "github": {
+      "repos": {
+        "tier1": ["alcove-ai/alcove"],
+        "tier2": ["alcove-ai/pal"],
+        "tier3": ["alcove-ai/alcove-testing", "alcove-ai/alcove-tests"]
+      },
+      "upstreamPollOrg": "alcove-ai",
+      "botIgnoreList": ["dependabot[bot]", "renovate[bot]", "github-actions[bot]"],
+      "mode": "own"
+    }
+  }
+}

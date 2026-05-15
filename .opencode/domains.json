@@ -1,0 +1,34 @@
+{
+  "domains": [
+    {
+      "name": "Bridge",
+      "github_labels": ["component/bridge"],
+      "repo_globs": ["alcove-ai/alcove"],
+      "owner": "bmbouter"
+    },
+    {
+      "name": "Skiff",
+      "github_labels": ["component/skiff"],
+      "repo_globs": ["alcove-ai/alcove"],
+      "owner": "bmbouter"
+    },
+    {
+      "name": "Gate",
+      "github_labels": ["component/gate"],
+      "repo_globs": ["alcove-ai/alcove"],
+      "owner": "bmbouter"
+    },
+    {
+      "name": "CLI",
+      "github_labels": ["component/cli"],
+      "repo_globs": ["alcove-ai/alcove"],
+      "owner": "bmbouter"
+    },
+    {
+      "name": "Workflows",
+      "github_labels": ["component/workflows"],
+      "repo_globs": ["alcove-ai/alcove"],
+      "owner": "bmbouter"
+    }
+  ]
+}
