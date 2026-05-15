@@ -6570,7 +6570,7 @@
                 var entryId = cb.getAttribute('data-entry-id');
                 var enabled = cb.checked;
                 try {
-                    var resp = await api('PUT', '/api/v1/teams/' + activeTeamId + '/catalog/' + encodeURIComponent(entryId), { enabled: enabled });
+                    var resp = await api('PUT', '/api/v1/teams/' + activeTeamId + '/catalog/' + encodeURIComponent(entryId) + '/' + encodeURIComponent(entryId), { enabled: enabled });
                     if (resp.ok) {
                         catalogEnabledMap[entryId] = enabled;
                     } else {
