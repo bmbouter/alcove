@@ -37,6 +37,7 @@ alcove.conf
 # PAL / opencode
 .opencode/node_modules/
 .opencode/package-lock.json
+.opencode/role.md
 !.env.example
 
 # OS
