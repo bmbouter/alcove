@@ -1,0 +1,34 @@
+name: Test Always Pass
+description: |
+  Deterministic test agent that writes hardcoded success outputs.
+  Part of the routing test suite for validating workflow engine routing.
+
+prompt: |
+  Run this exact command with no modifications. Do not add any other
+  output or commentary. Your only task is to execute this exact script:
+
+  python3 - <<'PYEOF'
+  import json
+  output = {
+      "summary": "test pass",
+      "verdict": "pass",
+      "fixes_required": "",
+      "code_issues": "",
+      "approved": "true",
+      "comments": "test approval",
+      "issues": ""
+  }
+  with open("/tmp/alcove-outputs.json", "w") as f:
+      json.dump(output, f)
+  PYEOF
+
+timeout: 120
+
+outputs:
+  - summary
+  - verdict
+  - fixes_required
+  - code_issues
+  - approved
+  - comments
+  - issues

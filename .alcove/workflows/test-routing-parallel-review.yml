@@ -1,0 +1,62 @@
+name: Test Routing - Parallel Review (one rejects)
+description: |
+  Tests compound dependency routing with parallel reviewers.
+  review-a approves, review-b rejects. Tests OR-dependency (revision) and AND-dependency.
+  Before output contracts: BROKEN (revision skipped). After contracts: FIXED.
+
+trigger:
+  github:
+    events: [issues]
+    actions: [labeled]
+    labels: [routing-test-parallel-review]
+    repos: [alcove-ai/alcove]
+    delivery_mode: polling
+
+workflow:
+  - id: implement
+    type: agent
+    agent: Test Always Pass
+    outputs: [summary]
+
+  - id: verify
+    type: agent
+    agent: Test Always Pass
+    depends: "implement.Succeeded"
+    outputs: [verdict, fixes_required, code_issues]
+
+  - id: review-a
+    type: agent
+    agent: Test Always Pass
+    depends: "verify.Succeeded"
+    max_iterations: 2
+    outputs: [approved, comments, issues]
+    output_contract:
+      allowed_values:
+        approved: ["true", "false"]
+      routing_field: approved
+      success_value: "true"
+
+  - id: review-b
+    type: agent
+    agent: Test Reject Review Exit0
+    depends: "verify.Succeeded"
+    max_iterations: 2
+    outputs: [approved, comments, issues]
+    output_contract:
+      allowed_values:
+        approved: ["true", "false"]
+      routing_field: approved
+      success_value: "true"
+
+  - id: revision
+    type: agent
+    agent: Test Always Pass
+    depends: "review-a.Failed || review-b.Failed"
+    max_iterations: 2
+    outputs: [summary]
+
+  - id: done
+    type: agent
+    agent: Test Always Pass
+    depends: "review-a.Succeeded && review-b.Succeeded"
+    outputs: [summary]

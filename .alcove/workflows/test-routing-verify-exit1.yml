@@ -1,0 +1,44 @@
+name: Test Routing - Verify Fail (exit 1)
+description: |
+  Documents that sys.exit(1) in Claude Code sessions does NOT propagate as step failure.
+  Expected: behaves identically to exit0 test — patch skipped.
+  With output contracts: contract routing overrides exit code — patch triggered.
+
+trigger:
+  github:
+    events: [issues]
+    actions: [labeled]
+    labels: [routing-test-verify-exit1]
+    repos: [alcove-ai/alcove]
+    delivery_mode: polling
+
+workflow:
+  - id: implement
+    type: agent
+    agent: Test Always Pass
+    outputs: [summary]
+
+  - id: verify
+    type: agent
+    agent: Test Fail Verify Exit1
+    depends: "implement.Succeeded"
+    max_iterations: 2
+    outputs: [verdict, fixes_required, code_issues]
+    output_contract:
+      allowed_values:
+        verdict: ["pass", "fail"]
+      routing_field: verdict
+      success_value: "pass"
+
+  - id: patch
+    type: agent
+    agent: Test Always Pass
+    depends: "verify.Failed"
+    max_iterations: 2
+    outputs: [summary]
+
+  - id: review
+    type: agent
+    agent: Test Always Pass
+    depends: "verify.Succeeded"
+    outputs: [approved, comments, issues]

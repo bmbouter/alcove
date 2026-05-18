@@ -1,0 +1,34 @@
+name: Test Not Automatable
+description: |
+  Deterministic test agent that writes automatable=false.
+  Tests: does the condition gate prevent the plan step from running?
+
+prompt: |
+  Run this exact command with no modifications. Do not add any other
+  output or commentary. Your only task is to execute this exact script:
+
+  python3 - <<'PYEOF'
+  import json
+  output = {
+      "complexity": "large",
+      "target_area": "test area",
+      "candidate_files": "test.py",
+      "approach": "requires human architectural decisions",
+      "risks": "too complex for automated implementation",
+      "automatable": "false",
+      "reviewers_needed": "django, security"
+  }
+  with open("/tmp/alcove-outputs.json", "w") as f:
+      json.dump(output, f)
+  PYEOF
+
+timeout: 120
+
+outputs:
+  - complexity
+  - target_area
+  - candidate_files
+  - approach
+  - risks
+  - automatable
+  - reviewers_needed
