@@ -111,6 +111,13 @@ plan.
 implements the change, creates a PR, runs CI (with fix loops), runs parallel code
 and security review (with revision loops), and merges.
 
+**6. Monitor.** The person who triggered the pipeline is responsible for
+monitoring it to completion. Check the workflow run status on the Alcove
+dashboard or via the API. If the pipeline stalls or fails (e.g., deadlocked
+steps, CI timeout, merge conflicts it can't resolve), investigate and either
+fix the underlying issue or re-trigger the pipeline. Notify the team on the
+GitHub issue if the pipeline did not complete as expected.
+
 ### Sign-off rules
 
 - **Author cannot self-approve.** At least one person other than the author must
@@ -129,8 +136,7 @@ independently — don't serialize work waiting for other issues to merge.
 
 ### Releases
 
-Releases are triggered manually today via the `immediate-release` label on a
-release issue. Automatic daily releases are planned. The
+Releases are triggered manually today. The
 [release pipeline](/.alcove/workflows/release-pipeline.yml) handles changelog
 generation, tagging, and deployment to staging.
 
