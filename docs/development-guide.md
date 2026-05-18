@@ -865,3 +865,22 @@ All Containerfiles live in `build/`:
 | `Containerfile.gate` | `alcove-gate` | Base: `ubi9-minimal` (lightweight proxy binary) |
 | `Containerfile.skiff-base` | `alcove-skiff-base` | Base: `ubi9/ubi` (Claude Code worker environment; includes `gh`, `glab`, `alcove-credential-helper`, and git config forcing HTTPS) |
 | `Containerfile.dev` | `alcove-dev` | Base: `golang:1.25` (all-in-one dev container with PostgreSQL 16, NATS, shim binary, s6-overlay; built with `make build-dev`) |
+
+## PAL (optional)
+
+[PAL](https://github.com/alcove-ai/pal) is a terminal dashboard for tracking issues, milestones, and coordinating work. It reads the team's process from `CONTRIBUTING.md` and gives each developer a role-aware view of what needs their attention. Useful if you do a lot of planning or issue triage.
+
+```bash
+# Install
+curl -fsSL https://raw.githubusercontent.com/alcove-ai/pal/main/install.sh | bash
+
+# Set up (one-time)
+cd ~/devel/alcove
+cp .env.example .env
+gh auth login   # if not already authenticated
+
+# Run
+pal
+```
+
+On first launch, PAL prompts for your role on the team. See the [PAL README](https://github.com/alcove-ai/pal) for full documentation.
