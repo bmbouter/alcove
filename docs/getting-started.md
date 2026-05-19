@@ -155,6 +155,97 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/sessions
 make down
 ```
 
+## Connecting to an Existing Instance
+
+If you received a remote Alcove URL and need to connect your CLI, follow this
+4-step flow to set up a profile and start working with the existing instance.
+
+### 1. Add the server profile
+
+Create a named profile pointing to your Alcove instance:
+
+```bash
+alcove profile add <name> --server <url>
+```
+
+Example:
+```bash
+alcove profile add company-alcove --server https://alcove.company.com
+```
+
+This saves the server URL and creates a profile you can reference by name.
+
+### 2. Authenticate
+
+Log in to the remote instance:
+
+```bash
+alcove login <url>
+```
+
+Example:
+```bash
+alcove login https://alcove.company.com
+```
+
+This will prompt for your username and password, then store an authentication
+token for future requests.
+
+### 3. Select your team
+
+List available teams and choose which one to work with:
+
+```bash
+# See all teams you belong to
+alcove teams list
+
+# Switch to the team you want to use
+alcove teams use <team>
+```
+
+Example:
+```bash
+alcove teams list
+# Output: My Team, Engineering, Data Science
+
+alcove teams use Engineering
+```
+
+All subsequent commands will operate within the context of the selected team.
+Your personal team is created automatically, but you may also have access to
+shared teams depending on your organization's setup.
+
+### 4. Verify connectivity
+
+Test that everything is working by listing available resources:
+
+```bash
+alcove list
+```
+
+This shows sessions, agent definitions, and other resources accessible to your
+active team. If you see the expected content, you're ready to start using
+the remote Alcove instance.
+
+### Using profiles
+
+Once you've set up profiles for multiple instances, you can switch between them:
+
+```bash
+# List all configured profiles
+alcove profile list
+
+# Switch to a different profile
+alcove profile use <name>
+
+# Run a single command with a specific profile
+alcove --profile <name> list
+```
+
+> **Tip:** You can manage multiple profiles for different environments (staging,
+> production, local dev) and use `alcove --profile <name>` to override the
+> active profile for a single command.
+
 ## Configuration
 
 ### System LLM
