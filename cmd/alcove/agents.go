@@ -100,7 +100,7 @@ func runAgentsList(cmd *cobra.Command, _ []string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("listing agent definitions", resp.StatusCode, body)
 	}
 
 	var result agentDefinitionsResponse
@@ -201,7 +201,7 @@ func runAgentsCheckCredentials(cmd *cobra.Command, _ []string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("checking agent credentials", resp.StatusCode, body)
 	}
 
 	var result agentDefinitionsResponse
@@ -265,7 +265,7 @@ func runAgentsSync(cmd *cobra.Command, _ []string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("syncing agent definitions", resp.StatusCode, body)
 	}
 
 	if isJSONOutput(cmd) {
@@ -334,7 +334,7 @@ func fetchAgentRepos(cmd *cobra.Command) ([]agentRepo, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return nil, formatAPIError("fetching agent repos", resp.StatusCode, body)
 	}
 
 	var result agentReposResponse
@@ -355,7 +355,7 @@ func putAgentRepos(cmd *cobra.Command, repos []agentRepo) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("updating agent repos", resp.StatusCode, body)
 	}
 
 	return nil
@@ -503,7 +503,7 @@ func runAgentsRun(cmd *cobra.Command, args []string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("fetching agent definitions for run", resp.StatusCode, body)
 	}
 
 	var result agentDefinitionsResponse
@@ -533,7 +533,7 @@ func runAgentsRun(cmd *cobra.Command, args []string) error {
 
 	if runResp.StatusCode != http.StatusCreated && runResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(runResp.Body)
-		return fmt.Errorf("bridge returned %d: %s", runResp.StatusCode, string(body))
+		return formatAPIError("running agent", runResp.StatusCode, body)
 	}
 
 	var runResult runResponse

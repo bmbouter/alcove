@@ -109,7 +109,7 @@ func runWorkflowsList(cmd *cobra.Command, _ []string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("listing workflows", resp.StatusCode, body)
 	}
 
 	var result workflowsListResponse
@@ -182,7 +182,7 @@ func runWorkflowsRun(cmd *cobra.Command, args []string) error {
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("running workflow", resp.StatusCode, body)
 	}
 
 	var result workflowRunInfo
@@ -217,7 +217,7 @@ func resolveWorkflowID(cmd *cobra.Command, idOrName string) (string, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("listing workflows: bridge returned %d: %s", resp.StatusCode, string(body))
+		return "", formatAPIError("listing workflows", resp.StatusCode, body)
 	}
 
 	var result workflowsListResponse
@@ -312,7 +312,7 @@ func runWorkflowsRuns(cmd *cobra.Command, _ []string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("listing workflow runs", resp.StatusCode, body)
 	}
 
 	var result workflowRunsListResponse
@@ -396,7 +396,7 @@ func runWorkflowsCancel(cmd *cobra.Command, args []string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("cancelling workflow run", resp.StatusCode, body)
 	}
 
 	var result map[string]interface{}

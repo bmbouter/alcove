@@ -68,7 +68,7 @@ func runCredentialsList(cmd *cobra.Command, _ []string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("listing credentials", resp.StatusCode, body)
 	}
 
 	var result struct {
@@ -184,7 +184,7 @@ func runCredentialsCreate(cmd *cobra.Command, _ []string) error {
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("creating credential", resp.StatusCode, body)
 	}
 
 	var result credentialInfo
@@ -234,7 +234,7 @@ func runCredentialsDelete(cmd *cobra.Command, args []string) error {
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("deleting credential", resp.StatusCode, body)
 	}
 
 	if isJSONOutput(cmd) {
