@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 )
 
@@ -1190,12 +1191,24 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("reading username: %w", err)
 	}
 	username = strings.TrimSpace(username)
+
 	fmt.Fprint(os.Stderr, "Password: ")
-	password, err = reader.ReadString('\n')
-	if err != nil {
-		return fmt.Errorf("reading password: %w", err)
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		// Use masked password input for terminals
+		passwordBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
+		if err != nil {
+			return fmt.Errorf("reading password: %w", err)
+		}
+		password = string(passwordBytes)
+		fmt.Fprintln(os.Stderr) // Print newline after password input
+	} else {
+		// Fall back to plaintext for non-terminal input (pipes, etc.)
+		password, err = reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("reading password: %w", err)
+		}
+		password = strings.TrimSpace(password)
 	}
-	password = strings.TrimSpace(password)
 
 	// Authenticate
 	loginBody := map[string]string{"username": username, "password": password}
