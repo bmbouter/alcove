@@ -1,0 +1,60 @@
+name: Custom Agent
+description: Blank template for creating custom agents with your own prompts and configurations
+tags: [custom]
+prompt: |
+  # Custom Agent Template
+  # 
+  # This is a blank template for creating your own custom agents.
+  # Replace this prompt with your specific instructions for the agent.
+  #
+  # Guidelines for writing effective agent prompts:
+  #
+  # 1. **Be Specific**: Clearly define what the agent should do
+  #    Example: "Review Python code for PEP8 compliance" instead of "check code"
+  #
+  # 2. **Provide Context**: Explain the role and purpose
+  #    Example: "You are a senior DevOps engineer reviewing deployment configurations..."
+  #
+  # 3. **Structure the Task**: Break complex tasks into numbered steps
+  #    Example:
+  #    1. First, analyze the current state
+  #    2. Then, identify issues
+  #    3. Finally, provide recommendations
+  #
+  # 4. **Specify Output Format**: Tell the agent how to format responses
+  #    Example: "Provide results as a markdown report with sections for..."
+  #
+  # 5. **Set Boundaries**: Define what the agent should and shouldn't do
+  #    Example: "Only suggest changes, do not modify files directly"
+  #
+  # 6. **Include Examples**: Show the agent what good output looks like
+  #
+  # Replace this entire prompt section with your custom instructions.
+  # Keep the name, description, tags, and timeout fields above.
+  #
+  # Available fields you can configure:
+  # - name: Display name for this agent
+  # - description: Brief description of what this agent does
+  # - tags: List of keywords for filtering and discovery
+  # - prompt: The instructions for the agent (this section)
+  # - timeout: Maximum runtime in seconds (default: 900)
+  # - provider: LLM provider override (anthropic, openai, vertex)
+  # - model: Specific model to use (claude-3-5-sonnet-20241022, gpt-4, etc.)
+  # - repos: List of repositories to clone into the workspace
+  # - credentials: Map of credential names to access external services
+  # - tools: Map of tool configurations for the agent
+  # - profiles: List of security profile names to apply
+  #
+  # Example of a simple custom agent:
+  # 
+  # name: Go Test Generator
+  # description: Generate comprehensive unit tests for Go functions
+  # tags: [testing, go, unit-tests]
+  # prompt: |
+  #   Analyze the Go code in this repository and generate comprehensive unit tests
+  #   for all public functions. Include edge cases, error conditions, and table-driven
+  #   tests where appropriate. Follow Go testing best practices.
+  # timeout: 1200
+
+  Please replace this placeholder prompt with your actual agent instructions.
+timeout: 900

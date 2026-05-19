@@ -1,5 +1,6 @@
 name: PR Review on Open
 description: Automatically review pull requests when opened
+tags: [review, pull-request, automation, github]
 prompt: |
   A pull request has been opened. Review the changes for potential bugs,
   security vulnerabilities, and code style issues. Provide specific,

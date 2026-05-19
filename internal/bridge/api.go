@@ -1957,9 +1957,10 @@ func (a *API) handleAgentTemplates(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type tmpl struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		RawYAML     string `json:"raw_yaml"`
+		Name        string   `json:"name"`
+		Description string   `json:"description"`
+		Tags        []string `json:"tags"`
+		RawYAML     string   `json:"raw_yaml"`
 	}
 
 	var templates []tmpl
@@ -1976,13 +1977,19 @@ func (a *API) handleAgentTemplates(w http.ResponseWriter, r *http.Request) {
 			// Include unparseable templates with filename as name.
 			templates = append(templates, tmpl{
 				Name:    entry.Name(),
+				Tags:    []string{},
 				RawYAML: string(data),
 			})
 			continue
 		}
+		tags := td.Tags
+		if tags == nil {
+			tags = []string{}
+		}
 		templates = append(templates, tmpl{
 			Name:        td.Name,
 			Description: td.Description,
+			Tags:        tags,
 			RawYAML:     string(data),
 		})
 	}

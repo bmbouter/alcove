@@ -573,7 +573,7 @@ func TestGetAgentDefinitionFieldCopyRoundTrip(t *testing.T) {
 
 	// Sanity check: make sure we actually checked a meaningful number of fields.
 	// Update this count when adding new yaml-tagged fields to AgentDefinition.
-	const expectedYAMLFields = 22
+	const expectedYAMLFields = 23
 	if yamlFieldCount != expectedYAMLFields {
 		t.Errorf("expected %d yaml-tagged fields in AgentDefinition, found %d; "+
 			"update this test and the copy block in GetAgentDefinition",
@@ -733,5 +733,61 @@ repos:
 	}
 	if !strings.Contains(fullErr.Error(), "prompt") {
 		t.Errorf("expected error to mention missing prompt field, got: %v", fullErr)
+	}
+}
+
+func TestParseAgentDefinitionWithTags(t *testing.T) {
+	yamlData := `
+name: Test Agent
+description: Test agent with tags
+tags: [testing, quality, automation]
+prompt: "Do something"
+timeout: 1200
+`
+	def, err := ParseAgentDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expectedTags := []string{"testing", "quality", "automation"}
+	if !reflect.DeepEqual(def.Tags, expectedTags) {
+		t.Errorf("expected tags %v, got %v", expectedTags, def.Tags)
+	}
+}
+
+func TestParseAgentDefinitionWithoutTags(t *testing.T) {
+	yamlData := `
+name: Test Agent
+description: Test agent without tags
+prompt: "Do something"
+timeout: 900
+`
+	def, err := ParseAgentDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Tags should be nil when not specified
+	if def.Tags != nil {
+		t.Errorf("expected tags to be nil, got %v", def.Tags)
+	}
+}
+
+func TestParseAgentDefinitionWithEmptyTags(t *testing.T) {
+	yamlData := `
+name: Test Agent
+description: Test agent with empty tags array
+tags: []
+prompt: "Do something"
+timeout: 900
+`
+	def, err := ParseAgentDefinition([]byte(yamlData))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Empty tags array should be preserved
+	if def.Tags == nil || len(def.Tags) != 0 {
+		t.Errorf("expected empty tags array, got %v", def.Tags)
 	}
 }

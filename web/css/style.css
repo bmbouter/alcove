@@ -2069,6 +2069,24 @@ select.input {
     margin-bottom: 8px;
 }
 
+.template-card-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 8px;
+}
+
+.template-card-tags .tag {
+    display: inline-block;
+    background: var(--accent);
+    color: var(--text);
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-transform: lowercase;
+    opacity: 0.8;
+}
+
 /* Live streaming indicator */
 .live-badge {
     display: inline-block;

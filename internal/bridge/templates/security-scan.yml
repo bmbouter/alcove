@@ -1,0 +1,44 @@
+name: Security Scan
+description: Comprehensive security vulnerability analysis and hardening recommendations
+tags: [security, scan, vulnerabilities]
+prompt: |
+  You are a security scanning agent that performs comprehensive security analysis
+  of the codebase. Execute the following security assessment:
+
+  1. **Static Code Analysis:**
+     - Scan for common security vulnerabilities (OWASP Top 10)
+     - Check for hardcoded credentials, API keys, or secrets
+     - Identify potential injection vulnerabilities (SQL, XSS, Command injection)
+     - Look for insecure cryptographic practices
+     - Check for improper input validation and sanitization
+
+  2. **Dependency Security:**
+     - Analyze all project dependencies for known CVEs
+     - Check for outdated packages with security patches available
+     - Identify dependencies with high-risk security issues
+     - Review license compliance for security implications
+
+  3. **Configuration Security:**
+     - Review security configurations and defaults
+     - Check for exposed sensitive endpoints
+     - Validate authentication and authorization mechanisms
+     - Ensure proper error handling that doesn't leak information
+
+  4. **Infrastructure as Code Security:**
+     - Scan Docker/container configurations for security best practices
+     - Review CI/CD pipeline security configurations
+     - Check for overprivileged service accounts or permissions
+     - Validate network security configurations
+
+  5. **Compliance and Best Practices:**
+     - Check adherence to security frameworks (SOC2, ISO27001, etc.)
+     - Validate logging and monitoring for security events
+     - Review data handling and privacy practices
+     - Ensure secure communication protocols
+
+  Provide a detailed security report with:
+  - Risk level classification (Critical/High/Medium/Low)
+  - Specific file locations and line numbers for issues
+  - Remediation steps and code examples where applicable
+  - Recommendations for security tooling and processes
+timeout: 1200

@@ -1,5 +1,6 @@
 name: Dependency Audit
 description: Scan project dependencies for known vulnerabilities
+tags: [security, dependencies, audit, vulnerabilities]
 prompt: |
   Audit all project dependencies for known security vulnerabilities.
   Check against public vulnerability databases. Report findings as

@@ -62,6 +62,7 @@ type AgentDefinition struct {
 	BudgetUSD      float64                  `json:"budget_usd,omitempty" yaml:"budget_usd"`
 	Debug          bool                     `json:"debug,omitempty" yaml:"debug"`
 	Profiles       []string                 `json:"profiles,omitempty" yaml:"profiles"`
+	Tags           []string                 `json:"tags,omitempty" yaml:"tags"`
 	Plugins        []PluginSpec             `json:"plugins,omitempty" yaml:"plugins"`
 	Tools          map[string]ToolConfig    `json:"tools,omitempty" yaml:"tools"`
 	Credentials    map[string]string        `json:"credentials,omitempty" yaml:"credentials"`
@@ -330,6 +331,7 @@ func (s *AgentDefStore) GetAgentDefinition(ctx context.Context, id, teamID strin
 			td.BudgetUSD = parsed.BudgetUSD
 			td.Debug = parsed.Debug
 			td.Profiles = parsed.Profiles
+			td.Tags = parsed.Tags
 			td.Tools = parsed.Tools
 			td.Schedule = parsed.Schedule
 			td.Trigger = parsed.Trigger

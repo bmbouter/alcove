@@ -1141,6 +1141,13 @@
             if (t.description) {
                 html += '<div class="template-card-desc">' + escapeHtml(t.description) + '</div>';
             }
+            if (t.tags && t.tags.length > 0) {
+                html += '<div class="template-card-tags">';
+                for (var j = 0; j < t.tags.length; j++) {
+                    html += '<span class="tag">' + escapeHtml(t.tags[j]) + '</span>';
+                }
+                html += '</div>';
+            }
             html += '</div>';
         }
         listEl.innerHTML = html;
