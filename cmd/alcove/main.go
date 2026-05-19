@@ -546,6 +546,16 @@ func outputJSON(v interface{}) error {
 	return enc.Encode(v)
 }
 
+// printTeamContext prints the team context line for team-scoped commands.
+// This helps users understand which team's data they're viewing.
+func printTeamContext(cmd *cobra.Command, teamName string) {
+	if isJSONOutput(cmd) {
+		// Don't print context in JSON mode to avoid breaking parsers
+		return
+	}
+	fmt.Fprintf(os.Stderr, "Team: %s (use --team to change)\n", teamName)
+}
+
 func isJSONOutput(cmd *cobra.Command) bool {
 	if f, _ := cmd.Flags().GetString("output"); f == "json" {
 		return true
@@ -716,6 +726,12 @@ type sessionSummary struct {
 }
 
 func runList(cmd *cobra.Command, _ []string) error {
+	// Get team name and display context
+	teamName := resolveTeamName(cmd)
+	if teamName != "" {
+		printTeamContext(cmd, teamName)
+	}
+
 	var params []string
 	if s, _ := cmd.Flags().GetString("status"); s != "" {
 		params = append(params, "status="+s)
@@ -857,6 +873,12 @@ type statusResponse struct {
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
+	// Get team name and display context
+	teamName := resolveTeamName(cmd)
+	if teamName != "" {
+		printTeamContext(cmd, teamName)
+	}
+
 	sessionID := args[0]
 	resp, err := apiRequest(cmd, http.MethodGet, "/api/v1/sessions/"+sessionID, nil)
 	if err != nil {
@@ -1549,6 +1571,14 @@ func runConfigShow(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stderr, "Server:       <not configured> (%v)\n", serverErr)
 	} else {
 		fmt.Fprintf(os.Stderr, "Server:       %s\n", server)
+	}
+
+	// Team information
+	teamName := resolveTeamName(cmd)
+	if teamName != "" {
+		fmt.Fprintf(os.Stderr, "Team:         %s\n", teamName)
+	} else {
+		fmt.Fprintf(os.Stderr, "Team:         <none>\n")
 	}
 
 	// Output format
