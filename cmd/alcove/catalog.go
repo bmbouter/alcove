@@ -167,6 +167,12 @@ func printCatalogEntries(cmd *cobra.Command, entries []catalogEntry) error {
 		return outputJSON(entries)
 	}
 
+	// Show team context
+	teamName := resolveTeamName(cmd)
+	if teamName != "" {
+		fmt.Fprintf(os.Stderr, "Team: %s (use --team to change)\n", teamName)
+	}
+
 	if len(entries) == 0 {
 		fmt.Fprintln(os.Stderr, "No catalog entries found.")
 		return nil
@@ -286,6 +292,9 @@ func runCatalogItems(cmd *cobra.Command, args []string) error {
 	if isJSONOutput(cmd) {
 		return outputJSON(filtered)
 	}
+
+	// Show team context
+	fmt.Fprintf(os.Stderr, "Team: %s (use --team to change)\n", teamName)
 
 	if len(filtered) == 0 {
 		fmt.Fprintln(os.Stderr, "No items found.")
@@ -421,6 +430,9 @@ func runCatalogAgents(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("no active team; use 'alcove teams use <name>' or --team to set one")
 	}
 
+	// Show team context
+	fmt.Fprintf(os.Stderr, "Team: %s (use --team to change)\n", teamName)
+
 	teamID, err := resolveTeamID(cmd, teamName)
 	if err != nil {
 		return err
@@ -446,6 +458,9 @@ func runCatalogAgents(cmd *cobra.Command, _ []string) error {
 	if isJSONOutput(cmd) {
 		return outputJSON(result.Agents)
 	}
+
+	// Show team context
+	fmt.Fprintf(os.Stderr, "Team: %s (use --team to change)\n", teamName)
 
 	if len(result.Agents) == 0 {
 		fmt.Fprintln(os.Stderr, "No enabled agents found.")

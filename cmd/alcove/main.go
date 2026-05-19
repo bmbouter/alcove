@@ -1572,12 +1572,12 @@ func runConfigShow(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stderr, "Server:       %s\n", server)
 	}
 
-	// Active team
+	// Team resolution
 	teamName := resolveTeamName(cmd)
 	if teamName != "" {
 		fmt.Fprintf(os.Stderr, "Team:         %s\n", teamName)
 	} else {
-		fmt.Fprintf(os.Stderr, "Team:         <not set>\n")
+		fmt.Fprintf(os.Stderr, "Team:         <none>\n")
 	}
 
 	// Output format
