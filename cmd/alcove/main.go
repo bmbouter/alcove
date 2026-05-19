@@ -446,6 +446,21 @@ func resolveTeamName(cmd *cobra.Command) string {
 	return ""
 }
 
+// printTeamContext prints the active team context for team-scoped commands.
+// It should be called once per command, preferably before the main operation.
+// Skips output in JSON mode to avoid polluting the JSON structure.
+func printTeamContext(cmd *cobra.Command) {
+	// Skip team context in JSON mode to avoid polluting JSON output
+	if isJSONOutput(cmd) {
+		return
+	}
+
+	teamName := resolveTeamName(cmd)
+	if teamName != "" {
+		fmt.Fprintf(os.Stderr, "Team: %s (use --team to change)\n", teamName)
+	}
+}
+
 // resolveTeamID resolves a team name to its ID by calling the teams API.
 // It uses apiRequestRaw to avoid infinite recursion (apiRequest calls resolveTeamID).
 func resolveTeamID(cmd *cobra.Command, teamName string) (string, error) {
@@ -716,6 +731,9 @@ type sessionSummary struct {
 }
 
 func runList(cmd *cobra.Command, _ []string) error {
+	// Print team context before the main operation
+	printTeamContext(cmd)
+
 	var params []string
 	if s, _ := cmd.Flags().GetString("status"); s != "" {
 		params = append(params, "status="+s)
@@ -857,6 +875,9 @@ type statusResponse struct {
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
+	// Print team context before the main operation
+	printTeamContext(cmd)
+
 	sessionID := args[0]
 	resp, err := apiRequest(cmd, http.MethodGet, "/api/v1/sessions/"+sessionID, nil)
 	if err != nil {
@@ -1549,6 +1570,14 @@ func runConfigShow(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stderr, "Server:       <not configured> (%v)\n", serverErr)
 	} else {
 		fmt.Fprintf(os.Stderr, "Server:       %s\n", server)
+	}
+
+	// Active team
+	teamName := resolveTeamName(cmd)
+	if teamName != "" {
+		fmt.Fprintf(os.Stderr, "Team:         %s\n", teamName)
+	} else {
+		fmt.Fprintf(os.Stderr, "Team:         <not set>\n")
 	}
 
 	// Output format
