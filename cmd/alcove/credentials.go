@@ -84,7 +84,13 @@ func runCredentialsList(cmd *cobra.Command, _ []string) error {
 	}
 
 	if len(result.Credentials) == 0 {
-		fmt.Fprintln(os.Stderr, "No credentials found.")
+		teamName := resolveTeamName(cmd)
+		if teamName != "" {
+			fmt.Fprintf(os.Stderr, "No credentials found for team %q.\n", teamName)
+		} else {
+			fmt.Fprintln(os.Stderr, "No credentials found.")
+		}
+		fmt.Fprintln(os.Stderr, "Hint: use 'alcove credentials create' to add credentials for external services.")
 		return nil
 	}
 
