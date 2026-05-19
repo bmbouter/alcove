@@ -435,7 +435,35 @@ type teamsListResponse struct {
 	Teams []teamInfo `json:"teams"`
 }
 
-// resolveTeamName determines the team name to use from --team flag or active_team config.
+// printEmptySessionsMessage prints a contextual message when no sessions are found.
+func printEmptySessionsMessage(cmd *cobra.Command) error {
+	teamName := resolveTeamName(cmd)
+
+	if teamName == "" {
+		fmt.Fprintln(os.Stderr, "No sessions found.")
+		fmt.Fprintln(os.Stderr, "Hint: use --team or 'alcove teams use <name>' to set an active team.")
+		return nil
+	}
+
+	fmt.Fprintf(os.Stderr, "No sessions found for team %q.\n", teamName)
+
+	// Try to get team count to suggest exploring other teams
+	resp, err := apiRequestRaw(cmd, http.MethodGet, "/api/v1/teams", nil, "")
+	if err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			var result teamsListResponse
+			if json.NewDecoder(resp.Body).Decode(&result) == nil && len(result.Teams) > 1 {
+				fmt.Fprintf(os.Stderr, "Hint: you belong to %d teams. Use 'alcove teams list' to see all.\n", len(result.Teams))
+				return nil
+			}
+		}
+	}
+
+	fmt.Fprintln(os.Stderr, "Hint: use 'alcove run <prompt>' to create sessions, or 'alcove teams list' to explore other teams.")
+	return nil
+}
+
 func resolveTeamName(cmd *cobra.Command) string {
 	if teamFlag, _ := cmd.Flags().GetString("team"); teamFlag != "" {
 		return teamFlag
@@ -757,7 +785,9 @@ func runList(cmd *cobra.Command, _ []string) error {
 	}
 
 	if len(result.Sessions) == 0 {
-		fmt.Fprintln(os.Stderr, "No sessions found.")
+		if err := printEmptySessionsMessage(cmd); err != nil {
+			return err
+		}
 		return nil
 	}
 

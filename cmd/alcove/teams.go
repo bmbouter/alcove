@@ -74,6 +74,7 @@ func runTeamsList(cmd *cobra.Command, _ []string) error {
 
 	if len(result.Teams) == 0 {
 		fmt.Fprintln(os.Stderr, "No teams found.")
+		fmt.Fprintln(os.Stderr, "Hint: use 'alcove teams create <name>' to create a team.")
 		return nil
 	}
 

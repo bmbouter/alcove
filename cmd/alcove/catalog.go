@@ -71,6 +71,19 @@ func sourceTypeLabel(sourceType string) string {
 	}
 }
 
+// printEmptyCatalogMessage prints a contextual message when no catalog entries are found.
+func printEmptyCatalogMessage(cmd *cobra.Command) error {
+	teamName := resolveTeamName(cmd)
+
+	if teamName != "" {
+		fmt.Fprintf(os.Stderr, "No catalog entries found for team %q.\n", teamName)
+	} else {
+		fmt.Fprintln(os.Stderr, "No catalog entries found.")
+	}
+	fmt.Fprintln(os.Stderr, "Hint: catalog entries are synced from external sources. Contact your administrator to check source configuration.")
+	return nil
+}
+
 // catalogAgent represents an enabled agent from GET /api/v1/teams/{team}/agents.
 type catalogAgent struct {
 	Source string `json:"source"`
@@ -168,7 +181,9 @@ func printCatalogEntries(cmd *cobra.Command, entries []catalogEntry) error {
 	}
 
 	if len(entries) == 0 {
-		fmt.Fprintln(os.Stderr, "No catalog entries found.")
+		if err := printEmptyCatalogMessage(cmd); err != nil {
+			return err
+		}
 		return nil
 	}
 
@@ -288,7 +303,13 @@ func runCatalogItems(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(filtered) == 0 {
-		fmt.Fprintln(os.Stderr, "No items found.")
+		teamName := resolveTeamName(cmd)
+		if teamName != "" {
+			fmt.Fprintf(os.Stderr, "No items found for team %q.\n", teamName)
+		} else {
+			fmt.Fprintln(os.Stderr, "No items found.")
+		}
+		fmt.Fprintln(os.Stderr, "Hint: use 'alcove catalog list' to see available sources.")
 		return nil
 	}
 
@@ -445,7 +466,13 @@ func runCatalogAgents(cmd *cobra.Command, _ []string) error {
 	}
 
 	if len(result.Agents) == 0 {
-		fmt.Fprintln(os.Stderr, "No enabled agents found.")
+		teamName := resolveTeamName(cmd)
+		if teamName != "" {
+			fmt.Fprintf(os.Stderr, "No enabled agents found for team %q.\n", teamName)
+		} else {
+			fmt.Fprintln(os.Stderr, "No enabled agents found.")
+		}
+		fmt.Fprintln(os.Stderr, "Hint: use 'alcove catalog list' to see available sources, then 'alcove catalog enable <source>/<item>'.")
 		return nil
 	}
 
