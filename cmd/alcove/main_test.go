@@ -8,6 +8,68 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func TestPrintTeamContext(t *testing.T) {
+	// Create a test command with proper flags
+	createTestCommand := func() *cobra.Command {
+		cmd := &cobra.Command{}
+		cmd.PersistentFlags().String("team", "", "")
+		cmd.PersistentFlags().String("profile", "", "")
+		cmd.PersistentFlags().String("output", "", "")
+		return cmd
+	}
+
+	t.Run("team from flag", func(t *testing.T) {
+		cmd := createTestCommand()
+		cmd.ParseFlags([]string{"--team", "test-team"})
+
+		// The printTeamContext function should execute without error
+		err := printTeamContext(cmd)
+		if err != nil {
+			t.Errorf("printTeamContext() error = %v", err)
+		}
+
+		// For this test, we just verify that resolveTeamName returns the expected value
+		teamName := resolveTeamName(cmd)
+		if teamName != "test-team" {
+			t.Errorf("resolveTeamName() = %q, expected %q", teamName, "test-team")
+		}
+	})
+
+	t.Run("no team configured", func(t *testing.T) {
+		// Setup isolated config environment
+		setupConfigDir(t)
+		t.Setenv("HOME", filepath.Join(t.TempDir(), "fakehome"))
+
+		cmd := createTestCommand()
+
+		err := printTeamContext(cmd)
+		if err != nil {
+			t.Errorf("printTeamContext() error = %v", err)
+		}
+
+		// Verify that no team is resolved
+		teamName := resolveTeamName(cmd)
+		if teamName != "" {
+			t.Errorf("resolveTeamName() = %q, expected empty string", teamName)
+		}
+	})
+
+	t.Run("json output skips context", func(t *testing.T) {
+		cmd := createTestCommand()
+		cmd.ParseFlags([]string{"--team", "test-team", "--output", "json"})
+
+		err := printTeamContext(cmd)
+		if err != nil {
+			t.Errorf("printTeamContext() error = %v", err)
+		}
+
+		// Verify that isJSONOutput returns true
+		if !isJSONOutput(cmd) {
+			t.Error("isJSONOutput() should return true for --output json")
+		}
+	})
+}
+
 func TestValidateProxyURL(t *testing.T) {
 	tests := []struct {
 		name      string

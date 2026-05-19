@@ -86,6 +86,9 @@ func runCredentialsList(cmd *cobra.Command, _ []string) error {
 		return outputJSON(result)
 	}
 
+	// Show team context
+	fmt.Fprintf(os.Stderr, "Team: %s (use --team to change)\n", teamName)
+
 	if len(result.Credentials) == 0 {
 		fmt.Fprintln(os.Stderr, "No credentials found.")
 		return nil

@@ -446,6 +446,22 @@ func resolveTeamName(cmd *cobra.Command) string {
 	return ""
 }
 
+// printTeamContext prints a context line showing the active team.
+// This is called before team-scoped command output to clarify which team's data is being shown.
+func printTeamContext(cmd *cobra.Command) error {
+	if isJSONOutput(cmd) {
+		return nil // Skip context for JSON output
+	}
+
+	teamName := resolveTeamName(cmd)
+	if teamName == "" {
+		fmt.Fprintf(os.Stderr, "Team: <none> (use 'alcove teams use <name>' or --team to set)\n")
+	} else {
+		fmt.Fprintf(os.Stderr, "Team: %s (use --team to change)\n", teamName)
+	}
+	return nil
+}
+
 // resolveTeamID resolves a team name to its ID by calling the teams API.
 // It uses apiRequestRaw to avoid infinite recursion (apiRequest calls resolveTeamID).
 func resolveTeamID(cmd *cobra.Command, teamName string) (string, error) {
@@ -772,6 +788,11 @@ func runList(cmd *cobra.Command, _ []string) error {
 		return outputJSON(result)
 	}
 
+	// Show team context
+	if err := printTeamContext(cmd); err != nil {
+		return err
+	}
+
 	if len(result.Sessions) == 0 {
 		fmt.Fprintln(os.Stderr, "No sessions found.")
 		return nil
@@ -898,6 +919,11 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	if isJSONOutput(cmd) {
 		return outputJSON(result)
+	}
+
+	// Show team context
+	if err := printTeamContext(cmd); err != nil {
+		return err
 	}
 
 	fmt.Fprintf(os.Stdout, "Session:    %s\n", result.ID)
@@ -1573,7 +1599,7 @@ func runConfigShow(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(os.Stderr, "Server:       %s\n", server)
 	}
 
-	// Team information
+	// Team resolution
 	teamName := resolveTeamName(cmd)
 	if teamName != "" {
 		fmt.Fprintf(os.Stderr, "Team:         %s\n", teamName)
