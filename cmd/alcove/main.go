@@ -106,6 +106,7 @@ func main() {
 		newAgentsCmd(),
 		newWorkflowsCmd(),
 		newVersionCmd(),
+		newWhoamiCmd(),
 	)
 
 	if err := root.Execute(); err != nil {
@@ -1946,6 +1947,151 @@ func streamSSE(cmd *cobra.Command, sessionID, path string) error {
 
 	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("reading SSE stream: %w", err)
+	}
+
+	return nil
+}
+
+// ---------- whoami ----------
+
+func newWhoamiCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "whoami",
+		Short: "Show current user, server, profile, and team context",
+		Long:  "Display comprehensive information about the current user session including authentication details, server connection, active profile, and team membership.",
+		RunE:  runWhoami,
+	}
+}
+
+type whoamiResponse struct {
+	Username    string `json:"username"`
+	Server      string `json:"server"`
+	Version     string `json:"version,omitempty"`
+	Profile     string `json:"profile"`
+	Team        string `json:"team"`
+	TeamsCount  int    `json:"teams_count,omitempty"`
+	Auth        string `json:"auth"`
+	IsAdmin     bool   `json:"is_admin,omitempty"`
+	AuthBackend string `json:"auth_backend,omitempty"`
+}
+
+type meResponse struct {
+	Username    string `json:"username"`
+	IsAdmin     bool   `json:"is_admin"`
+	AuthBackend string `json:"auth_backend"`
+}
+
+func runWhoami(cmd *cobra.Command, _ []string) error {
+	// Get server info
+	server, err := resolveServer(cmd)
+	if err != nil {
+		return err
+	}
+
+	// Get active profile name
+	profileName, _ := cmd.Flags().GetString("profile")
+	if profileName == "" {
+		profileName = os.Getenv("ALCOVE_PROFILE")
+	}
+	if profileName == "" {
+		if cfg, err := loadConfig(); err == nil {
+			profileName = cfg.ActiveProfile
+		}
+	}
+	if profileName == "" {
+		profileName = "default"
+	}
+
+	// Get auth method
+	authMethod := "Bearer token"
+	username, _ := resolveBasicAuth(cmd)
+	if username != "" {
+		authMethod = "Basic Auth"
+	} else {
+		// Check if token exists
+		if token, err := loadToken(); err != nil || token == "" {
+			authMethod = "No authentication"
+		}
+	}
+
+	var result whoamiResponse
+	result.Server = server
+	result.Profile = profileName
+	result.Auth = authMethod
+
+	// Get user info from /api/v1/auth/me
+	resp, err := apiRequest(cmd, http.MethodGet, "/api/v1/auth/me", nil)
+	if err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			var meResp meResponse
+			if err := json.NewDecoder(resp.Body).Decode(&meResp); err == nil {
+				result.Username = meResp.Username
+				result.IsAdmin = meResp.IsAdmin
+				result.AuthBackend = meResp.AuthBackend
+			}
+		}
+	}
+
+	// If we couldn't get user from API but have basic auth, use that username
+	if result.Username == "" && username != "" {
+		result.Username = username
+	}
+
+	// Get server version from /api/v1/health
+	if serverVersion, err := getServerVersion(cmd); err == nil {
+		result.Version = serverVersion
+	}
+
+	// Get team info
+	activeTeam := resolveTeamName(cmd)
+	if activeTeam != "" {
+		result.Team = activeTeam
+
+		// Get total team count
+		if teamsResp, err := apiRequestRaw(cmd, http.MethodGet, "/api/v1/teams", nil, ""); err == nil {
+			defer teamsResp.Body.Close()
+			if teamsResp.StatusCode == http.StatusOK {
+				var teams teamsListResponse
+				if err := json.NewDecoder(teamsResp.Body).Decode(&teams); err == nil {
+					result.TeamsCount = len(teams.Teams)
+				}
+			}
+		}
+	}
+
+	if isJSONOutput(cmd) {
+		return outputJSON(result)
+	}
+
+	// Format output like the expected example
+	fmt.Printf("User:    %s\n", result.Username)
+
+	serverLine := result.Server
+	if result.Version != "" {
+		serverLine += fmt.Sprintf(" (v%s)", result.Version)
+	}
+	fmt.Printf("Server:  %s\n", serverLine)
+	fmt.Printf("Profile: %s\n", result.Profile)
+
+	if result.Team != "" {
+		teamLine := result.Team
+		if result.TeamsCount > 0 {
+			teamLine += fmt.Sprintf(" (%d teams available)", result.TeamsCount)
+		}
+		fmt.Printf("Team:    %s\n", teamLine)
+	} else {
+		fmt.Printf("Team:    <not set>\n")
+	}
+
+	fmt.Printf("Auth:    %s\n", result.Auth)
+
+	if result.AuthBackend != "" {
+		fmt.Printf("Backend: %s\n", result.AuthBackend)
+	}
+
+	if result.IsAdmin {
+		fmt.Printf("Admin:   yes\n")
 	}
 
 	return nil

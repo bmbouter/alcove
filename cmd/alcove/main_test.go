@@ -687,3 +687,35 @@ func TestAgentsReposJsonFlagParsing(t *testing.T) {
 		t.Error("--json flag should be false by default")
 	}
 }
+
+func TestNewWhoamiCmd(t *testing.T) {
+	cmd := newWhoamiCmd()
+
+	// Test basic command setup
+	if cmd.Use != "whoami" {
+		t.Errorf("Expected Use to be 'whoami', got %q", cmd.Use)
+	}
+
+	if cmd.Short == "" {
+		t.Error("Expected Short description to be set")
+	}
+
+	if cmd.Long == "" {
+		t.Error("Expected Long description to be set")
+	}
+
+	if cmd.RunE == nil {
+		t.Error("Expected RunE to be set")
+	}
+
+	// Test that the command accepts no arguments
+	if cmd.Args != nil {
+		t.Error("Expected Args to be nil (no arguments required)")
+	}
+
+	// Test parsing with no flags (should not error)
+	err := cmd.ParseFlags([]string{})
+	if err != nil {
+		t.Fatalf("Failed to parse empty flags: %v", err)
+	}
+}
