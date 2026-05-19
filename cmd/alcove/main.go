@@ -562,16 +562,6 @@ func outputJSON(v interface{}) error {
 	return enc.Encode(v)
 }
 
-// printTeamContext prints the team context line for team-scoped commands.
-// This helps users understand which team's data they're viewing.
-func printTeamContext(cmd *cobra.Command, teamName string) {
-	if isJSONOutput(cmd) {
-		// Don't print context in JSON mode to avoid breaking parsers
-		return
-	}
-	fmt.Fprintf(os.Stderr, "Team: %s (use --team to change)\n", teamName)
-}
-
 func isJSONOutput(cmd *cobra.Command) bool {
 	if f, _ := cmd.Flags().GetString("output"); f == "json" {
 		return true
@@ -742,10 +732,9 @@ type sessionSummary struct {
 }
 
 func runList(cmd *cobra.Command, _ []string) error {
-	// Get team name and display context
-	teamName := resolveTeamName(cmd)
-	if teamName != "" {
-		printTeamContext(cmd, teamName)
+	// Show team context
+	if err := printTeamContext(cmd); err != nil {
+		return err
 	}
 
 	var params []string
@@ -894,10 +883,9 @@ type statusResponse struct {
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
-	// Get team name and display context
-	teamName := resolveTeamName(cmd)
-	if teamName != "" {
-		printTeamContext(cmd, teamName)
+	// Show team context
+	if err := printTeamContext(cmd); err != nil {
+		return err
 	}
 
 	sessionID := args[0]

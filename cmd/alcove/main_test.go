@@ -749,21 +749,3 @@ func TestAgentsReposJsonFlagParsing(t *testing.T) {
 		t.Error("--json flag should be false by default")
 	}
 }
-
-func TestPrintTeamContext(t *testing.T) {
-	// Test that printTeamContext prints team name for table output
-	// and skips output for JSON mode
-
-	// Create a command without JSON output
-	cmd := &cobra.Command{}
-	cmd.PersistentFlags().String("output", "", "")
-
-	// We can't easily test stderr output in unit tests without complex mocking,
-	// but we can at least test that the function doesn't panic and the logic works
-	// This is more of a smoke test
-	printTeamContext(cmd, "test-team")
-
-	// Test JSON output mode - should not print anything
-	cmd.ParseFlags([]string{"--output", "json"})
-	printTeamContext(cmd, "test-team")
-}

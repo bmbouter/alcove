@@ -427,8 +427,8 @@ func runCatalogAgents(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("no active team; use 'alcove teams use <name>' or --team to set one")
 	}
 
-	// Display team context before output
-	printTeamContext(cmd, teamName)
+	// Show team context
+	fmt.Fprintf(os.Stderr, "Team: %s (use --team to change)\n", teamName)
 
 	teamID, err := resolveTeamID(cmd, teamName)
 	if err != nil {
