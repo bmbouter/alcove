@@ -121,6 +121,7 @@ mux.HandleFunc("/api/v1/user/settings/agent-repos", a.handleUserSettingsAgentRep
 	mux.HandleFunc("/api/v1/workflow-runs/", a.handleWorkflowRunByID)
 	mux.HandleFunc("/api/v1/bridge-actions", a.handleBridgeActions)
 	mux.HandleFunc("/api/v1/catalog", a.handleCatalog)
+	mux.HandleFunc("/api/v1/onboard/analyze", a.handleOnboardAnalyze)
 	mux.HandleFunc("/api/v1/teams", a.handleTeams)
 	mux.HandleFunc("/api/v1/teams/", a.handleTeam)
 }
