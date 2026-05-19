@@ -105,6 +105,7 @@ func main() {
 		newCredentialsCmd(),
 		newAgentsCmd(),
 		newWorkflowsCmd(),
+		newWhoamiCmd(),
 		newVersionCmd(),
 	)
 
@@ -1811,6 +1812,162 @@ func runProfileRemove(cmd *cobra.Command, args []string) error {
 	return saveConfig(cfg)
 }
 
+// ---------- whoami ----------
+
+func newWhoamiCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "whoami",
+		Short: "Show current user, server, profile, team and auth information",
+		Long:  "Display comprehensive information about the current authentication context including user, server, active profile, team membership, and authentication method.",
+		RunE:  runWhoami,
+	}
+}
+
+type whoamiResponse struct {
+	User     string `json:"user"`
+	Server   string `json:"server"`
+	Version  string `json:"version,omitempty"`
+	Profile  string `json:"profile"`
+	Team     string `json:"team"`
+	TeamInfo string `json:"team_info,omitempty"`
+	Auth     string `json:"auth"`
+}
+
+func runWhoami(cmd *cobra.Command, _ []string) error {
+	result := whoamiResponse{}
+
+	// Get server information
+	server, err := resolveServer(cmd)
+	if err != nil {
+		result.Server = fmt.Sprintf("(not configured: %v)", err)
+	} else {
+		result.Server = server
+		// Try to get server version
+		if serverVersion, err := getServerVersion(cmd); err == nil {
+			result.Version = serverVersion
+		}
+	}
+
+	// Get profile information
+	profileName, _ := cmd.Flags().GetString("profile")
+	if profileName == "" {
+		profileName = os.Getenv("ALCOVE_PROFILE")
+	}
+	if profileName == "" {
+		if cfg, err := loadConfig(); err == nil && cfg.ActiveProfile != "" {
+			profileName = cfg.ActiveProfile
+		}
+	}
+	if profileName == "" {
+		result.Profile = "<default>"
+	} else {
+		result.Profile = profileName
+	}
+
+	// Get authentication information
+	username, _ := resolveBasicAuth(cmd)
+	if username != "" {
+		result.Auth = "Basic Auth"
+		result.User = username
+	} else {
+		result.Auth = "Bearer Token"
+		// Try to get user info from API if we have a server
+		if result.Server != "" && !strings.Contains(result.Server, "not configured") {
+			if userInfo, err := getCurrentUser(cmd); err == nil {
+				result.User = userInfo.Username
+			} else {
+				result.User = "(error retrieving user: " + err.Error() + ")"
+			}
+		} else {
+			result.User = "(server not configured)"
+		}
+	}
+
+	// Get team information
+	activeTeam := resolveTeamName(cmd)
+	if activeTeam != "" {
+		result.Team = activeTeam
+		// Try to get team count
+		if result.Server != "" && !strings.Contains(result.Server, "not configured") {
+			if teamCount, err := getTeamCount(cmd); err == nil {
+				if teamCount == 1 {
+					result.TeamInfo = "1 team available"
+				} else {
+					result.TeamInfo = fmt.Sprintf("%d teams available", teamCount)
+				}
+			}
+		}
+	} else {
+		result.Team = "(no active team)"
+	}
+
+	if isJSONOutput(cmd) {
+		return outputJSON(result)
+	}
+
+	// Print in the expected format
+	fmt.Printf("User:    %s\n", result.User)
+	if result.Version != "" {
+		fmt.Printf("Server:  %s (v%s)\n", result.Server, result.Version)
+	} else {
+		fmt.Printf("Server:  %s\n", result.Server)
+	}
+	fmt.Printf("Profile: %s\n", result.Profile)
+	if result.TeamInfo != "" {
+		fmt.Printf("Team:    %s (%s)\n", result.Team, result.TeamInfo)
+	} else {
+		fmt.Printf("Team:    %s\n", result.Team)
+	}
+	fmt.Printf("Auth:    %s\n", result.Auth)
+
+	return nil
+}
+
+type currentUserResponse struct {
+	Username    string `json:"username"`
+	IsAdmin     bool   `json:"is_admin"`
+	AuthBackend string `json:"auth_backend"`
+}
+
+func getCurrentUser(cmd *cobra.Command) (*currentUserResponse, error) {
+	resp, err := apiRequest(cmd, http.MethodGet, "/api/v1/auth/me", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result currentUserResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decoding response: %w", err)
+	}
+
+	return &result, nil
+}
+
+func getTeamCount(cmd *cobra.Command) (int, error) {
+	resp, err := apiRequestRaw(cmd, http.MethodGet, "/api/v1/teams", nil, "")
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("bridge returned %d", resp.StatusCode)
+	}
+
+	var result teamsListResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, fmt.Errorf("decoding response: %w", err)
+	}
+
+	return len(result.Teams), nil
+}
+
 // ---------- version ----------
 
 func newVersionCmd() *cobra.Command {
@@ -1950,3 +2107,5 @@ func streamSSE(cmd *cobra.Command, sessionID, path string) error {
 
 	return nil
 }
+
+// ---------- whoami ----------

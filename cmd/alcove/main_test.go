@@ -687,3 +687,70 @@ func TestAgentsReposJsonFlagParsing(t *testing.T) {
 		t.Error("--json flag should be false by default")
 	}
 }
+
+func TestNewWhoamiCmd(t *testing.T) {
+	cmd := newWhoamiCmd()
+
+	// Test basic command setup
+	if cmd.Use != "whoami" {
+		t.Errorf("Expected Use to be 'whoami', got %q", cmd.Use)
+	}
+
+	if cmd.Short == "" {
+		t.Error("Expected Short description to be set")
+	}
+
+	if cmd.Long == "" {
+		t.Error("Expected Long description to be set")
+	}
+
+	if cmd.RunE == nil {
+		t.Error("Expected RunE to be set")
+	}
+
+	// Test that the command accepts no arguments
+	if cmd.Args != nil {
+		t.Error("Expected Args to be nil (no arguments required)")
+	}
+
+	// Test parsing with no flags (should not error)
+	err := cmd.ParseFlags([]string{})
+	if err != nil {
+		t.Fatalf("Failed to parse empty flags: %v", err)
+	}
+}
+
+func TestWhoamiResponseFields(t *testing.T) {
+	// Test that whoamiResponse struct has all expected fields
+	resp := whoamiResponse{
+		User:     "testuser",
+		Server:   "https://test.example.com",
+		Version:  "1.0.0",
+		Profile:  "test-profile",
+		Team:     "test-team",
+		TeamInfo: "3 teams available",
+		Auth:     "Basic Auth",
+	}
+
+	if resp.User != "testuser" {
+		t.Errorf("User field = %q, expected %q", resp.User, "testuser")
+	}
+	if resp.Server != "https://test.example.com" {
+		t.Errorf("Server field = %q, expected %q", resp.Server, "https://test.example.com")
+	}
+	if resp.Version != "1.0.0" {
+		t.Errorf("Version field = %q, expected %q", resp.Version, "1.0.0")
+	}
+	if resp.Profile != "test-profile" {
+		t.Errorf("Profile field = %q, expected %q", resp.Profile, "test-profile")
+	}
+	if resp.Team != "test-team" {
+		t.Errorf("Team field = %q, expected %q", resp.Team, "test-team")
+	}
+	if resp.TeamInfo != "3 teams available" {
+		t.Errorf("TeamInfo field = %q, expected %q", resp.TeamInfo, "3 teams available")
+	}
+	if resp.Auth != "Basic Auth" {
+		t.Errorf("Auth field = %q, expected %q", resp.Auth, "Basic Auth")
+	}
+}
