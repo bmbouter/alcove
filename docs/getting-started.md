@@ -155,6 +155,78 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/sessions
 make down
 ```
 
+## Connecting to an Existing Instance
+
+If you've been given access to a remote Alcove instance instead of setting up
+your own local environment, follow these steps to connect your CLI:
+
+### 1. Add a profile for the remote instance
+
+Create a named profile that points to the remote Alcove server:
+
+```bash
+alcove profile add <profile-name> --server <server-url>
+```
+
+Example:
+```bash
+alcove profile add staging --server https://alcove.mycompany.com
+```
+
+### 2. Log in to the remote instance
+
+Authenticate with the remote server to get an access token:
+
+```bash
+alcove login <server-url>
+```
+
+Example:
+```bash
+alcove login https://alcove.mycompany.com
+```
+
+This will prompt you for your username and password, then save the authentication
+token locally for future use.
+
+### 3. List and select your team
+
+See what teams you belong to and set your active team:
+
+```bash
+# List all teams you have access to
+alcove teams list
+
+# Switch to a specific team
+alcove teams use <team-name>
+```
+
+Example:
+```bash
+alcove teams list
+alcove teams use backend-team
+```
+
+Your personal team is created automatically, but you may also have access to
+shared teams depending on your organization's setup.
+
+### 4. Verify the connection
+
+Confirm everything is working by listing sessions:
+
+```bash
+alcove list
+```
+
+This should show any existing sessions for your active team, or an empty list
+if this is a fresh setup. You're now ready to create sessions, run agents, and
+use all of Alcove's features.
+
+> **Tip:** You can switch between different Alcove instances using profiles.
+> Use `alcove --profile <name>` to override the active profile for a single
+> command, or manage multiple profiles for different environments (staging,
+> production, etc.).
+
 ## Configuration
 
 ### System LLM
