@@ -884,6 +884,49 @@ alcove profile remove staging
 
 ---
 
+## alcove whoami
+
+Show comprehensive information about the current authentication context.
+
+```
+alcove whoami
+```
+
+### Flags
+
+No command-specific flags. Supports global `--output json`.
+
+### Description
+
+The `whoami` command displays comprehensive information about your current authentication context including:
+
+- **User**: Username (from Basic Auth or API token lookup)
+- **Server**: Bridge server URL with version
+- **Profile**: Active profile name or `<default>`
+- **Team**: Current active team with available team count
+- **Auth**: Authentication method (Basic Auth or Bearer Token)
+
+This is the single most useful diagnostic command for new users and support workflows. It aggregates information from multiple sources (`config show`, `version`, `teams list`) into one unified view.
+
+### Examples
+
+```bash
+# Show current context
+alcove whoami
+
+# JSON output
+alcove whoami --output json
+
+# Example output
+# User:    alice@example.com
+# Server:  https://alcove.example.com (v0.24.0)
+# Profile: production
+# Team:    Data Science (3 teams available)
+# Auth:    Basic Auth
+```
+
+---
+
 ## alcove version
 
 Print the CLI version.

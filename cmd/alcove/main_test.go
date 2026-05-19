@@ -719,3 +719,38 @@ func TestNewWhoamiCmd(t *testing.T) {
 		t.Fatalf("Failed to parse empty flags: %v", err)
 	}
 }
+
+func TestWhoamiResponseFields(t *testing.T) {
+	// Test that whoamiResponse struct has all expected fields
+	resp := whoamiResponse{
+		User:     "testuser",
+		Server:   "https://test.example.com",
+		Version:  "1.0.0",
+		Profile:  "test-profile",
+		Team:     "test-team",
+		TeamInfo: "3 teams available",
+		Auth:     "Basic Auth",
+	}
+
+	if resp.User != "testuser" {
+		t.Errorf("User field = %q, expected %q", resp.User, "testuser")
+	}
+	if resp.Server != "https://test.example.com" {
+		t.Errorf("Server field = %q, expected %q", resp.Server, "https://test.example.com")
+	}
+	if resp.Version != "1.0.0" {
+		t.Errorf("Version field = %q, expected %q", resp.Version, "1.0.0")
+	}
+	if resp.Profile != "test-profile" {
+		t.Errorf("Profile field = %q, expected %q", resp.Profile, "test-profile")
+	}
+	if resp.Team != "test-team" {
+		t.Errorf("Team field = %q, expected %q", resp.Team, "test-team")
+	}
+	if resp.TeamInfo != "3 teams available" {
+		t.Errorf("TeamInfo field = %q, expected %q", resp.TeamInfo, "3 teams available")
+	}
+	if resp.Auth != "Basic Auth" {
+		t.Errorf("Auth field = %q, expected %q", resp.Auth, "Basic Auth")
+	}
+}
