@@ -150,7 +150,7 @@ func fetchCatalogEntries(cmd *cobra.Command) ([]catalogEntry, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return nil, formatAPIError("fetching catalog entries", resp.StatusCode, body)
 	}
 
 	var result catalogEntriesResponse
@@ -261,7 +261,7 @@ func runCatalogItems(cmd *cobra.Command, args []string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("fetching catalog items", resp.StatusCode, body)
 	}
 
 	var result catalogItemsResponse
@@ -386,7 +386,7 @@ func setCatalogEnabled(cmd *cobra.Command, arg string, enabled bool) error {
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("updating catalog entry", resp.StatusCode, body)
 	}
 
 	action := "enabled"
@@ -432,7 +432,7 @@ func runCatalogAgents(cmd *cobra.Command, _ []string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("listing catalog agents", resp.StatusCode, body)
 	}
 
 	var result catalogAgentsResponse

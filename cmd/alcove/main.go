@@ -457,7 +457,7 @@ func resolveTeamID(cmd *cobra.Command, teamName string) (string, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("fetching teams: bridge returned %d: %s", resp.StatusCode, string(body))
+		return "", formatAPIError("fetching teams", resp.StatusCode, body)
 	}
 
 	var result teamsListResponse
@@ -521,6 +521,15 @@ func apiRequestRaw(cmd *cobra.Command, method, path string, body interface{}, te
 	}
 
 	return newHTTPClient(proxyConfig).Do(req)
+}
+
+// formatAPIError creates a user-friendly error message for API responses.
+// For 401 errors, it suggests running 'alcove login' to re-authenticate.
+func formatAPIError(operation string, statusCode int, responseBody []byte) error {
+	if statusCode == http.StatusUnauthorized {
+		return fmt.Errorf("authentication failed — token may be expired. Run 'alcove login' to re-authenticate")
+	}
+	return fmt.Errorf("%s: bridge returned %d: %s", operation, statusCode, string(responseBody))
 }
 
 // apiRequest performs an authenticated HTTP request to the Bridge API.
@@ -647,7 +656,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("creating session", resp.StatusCode, body)
 	}
 
 	var result runResponse
@@ -744,7 +753,7 @@ func runList(cmd *cobra.Command, _ []string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("listing sessions", resp.StatusCode, body)
 	}
 
 	var result listResponse
@@ -819,7 +828,7 @@ func runLogs(cmd *cobra.Command, args []string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("fetching logs", resp.StatusCode, body)
 	}
 
 	_, err = io.Copy(os.Stdout, resp.Body)
@@ -866,7 +875,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("fetching session status", resp.StatusCode, body)
 	}
 
 	var result statusResponse
@@ -934,7 +943,7 @@ func runCancel(cmd *cobra.Command, args []string) error {
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("cancelling session", resp.StatusCode, body)
 	}
 
 	if isJSONOutput(cmd) {
@@ -996,7 +1005,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
-			return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+			return formatAPIError("deleting session", resp.StatusCode, body)
 		}
 
 		if isJSONOutput(cmd) {
@@ -1052,7 +1061,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("bulk deleting sessions", resp.StatusCode, body)
 	}
 
 	var result map[string]any
@@ -1115,7 +1124,7 @@ func runDeleteDryRun(cmd *cobra.Command, status, before string) error {
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
-			return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+			return formatAPIError("listing sessions for dry run", resp.StatusCode, body)
 		}
 
 		var result struct {
@@ -1923,7 +1932,7 @@ func streamSSE(cmd *cobra.Command, sessionID, path string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("connecting to SSE stream", resp.StatusCode, body)
 	}
 
 	scanner := bufio.NewScanner(resp.Body)

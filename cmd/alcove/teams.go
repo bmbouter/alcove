@@ -60,7 +60,7 @@ func runTeamsList(cmd *cobra.Command, _ []string) error {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("listing teams", resp.StatusCode, body)
 	}
 
 	var result teamsListResponse
@@ -118,7 +118,7 @@ func runTeamsCreate(cmd *cobra.Command, args []string) error {
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("creating team", resp.StatusCode, body)
 	}
 
 	var result teamInfo
@@ -165,7 +165,7 @@ func runTeamsUse(cmd *cobra.Command, args []string) error {
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
-			return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+			return formatAPIError("finding personal team", resp.StatusCode, body)
 		}
 
 		var result teamsListResponse
@@ -259,7 +259,7 @@ func runTeamsAddMember(cmd *cobra.Command, args []string) error {
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("adding team member", resp.StatusCode, body)
 	}
 
 	if isJSONOutput(cmd) {
@@ -300,7 +300,7 @@ func runTeamsRemoveMember(cmd *cobra.Command, args []string) error {
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("removing team member", resp.StatusCode, body)
 	}
 
 	if isJSONOutput(cmd) {
@@ -353,7 +353,7 @@ func runTeamsDelete(cmd *cobra.Command, args []string) error {
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return formatAPIError("deleting team", resp.StatusCode, body)
 	}
 
 	if isJSONOutput(cmd) {

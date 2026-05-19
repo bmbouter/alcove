@@ -687,3 +687,51 @@ func TestAgentsReposJsonFlagParsing(t *testing.T) {
 		t.Error("--json flag should be false by default")
 	}
 }
+
+func TestFormatAPIError(t *testing.T) {
+	tests := []struct {
+		name         string
+		operation    string
+		statusCode   int
+		responseBody []byte
+		expected     string
+	}{
+		{
+			name:         "401 Unauthorized",
+			operation:    "fetching teams",
+			statusCode:   401,
+			responseBody: []byte(`{"error":"invalid or expired token"}`),
+			expected:     "authentication failed — token may be expired. Run 'alcove login' to re-authenticate",
+		},
+		{
+			name:         "404 Not Found",
+			operation:    "getting session",
+			statusCode:   404,
+			responseBody: []byte(`{"error":"session not found"}`),
+			expected:     "getting session: bridge returned 404: {\"error\":\"session not found\"}",
+		},
+		{
+			name:         "500 Internal Server Error",
+			operation:    "creating session",
+			statusCode:   500,
+			responseBody: []byte(`{"error":"internal server error"}`),
+			expected:     "creating session: bridge returned 500: {\"error\":\"internal server error\"}",
+		},
+		{
+			name:         "401 with empty response body",
+			operation:    "listing workflows",
+			statusCode:   401,
+			responseBody: []byte(""),
+			expected:     "authentication failed — token may be expired. Run 'alcove login' to re-authenticate",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := formatAPIError(tt.operation, tt.statusCode, tt.responseBody)
+			if err.Error() != tt.expected {
+				t.Errorf("formatAPIError() = %q, expected %q", err.Error(), tt.expected)
+			}
+		})
+	}
+}
