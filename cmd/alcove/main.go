@@ -1870,16 +1870,22 @@ func runWhoami(cmd *cobra.Command, _ []string) error {
 		result.Auth = "Basic Auth"
 		result.User = username
 	} else {
-		result.Auth = "Bearer Token"
-		// Try to get user info from API if we have a server
-		if result.Server != "" && !strings.Contains(result.Server, "not configured") {
-			if userInfo, err := getCurrentUser(cmd); err == nil {
-				result.User = userInfo.Username
+		// Check if a token exists before assuming Bearer Token auth
+		if token, err := loadToken(); err == nil && token != "" {
+			result.Auth = "Bearer Token"
+			// Try to get user info from API if we have a server
+			if result.Server != "" && !strings.Contains(result.Server, "not configured") {
+				if userInfo, err := getCurrentUser(cmd); err == nil {
+					result.User = userInfo.Username
+				} else {
+					result.User = "(authentication failed)"
+				}
 			} else {
-				result.User = "(error retrieving user: " + err.Error() + ")"
+				result.User = "(server not configured)"
 			}
 		} else {
-			result.User = "(server not configured)"
+			result.Auth = "None"
+			result.User = "(not authenticated)"
 		}
 	}
 
@@ -1887,14 +1893,11 @@ func runWhoami(cmd *cobra.Command, _ []string) error {
 	activeTeam := resolveTeamName(cmd)
 	if activeTeam != "" {
 		result.Team = activeTeam
-		// Try to get team count
-		if result.Server != "" && !strings.Contains(result.Server, "not configured") {
-			if teamCount, err := getTeamCount(cmd); err == nil {
-				if teamCount == 1 {
-					result.TeamInfo = "1 team available"
-				} else {
-					result.TeamInfo = fmt.Sprintf("%d teams available", teamCount)
-				}
+		// Only fetch team count when we have a valid server configuration and user authentication
+		if result.Server != "" && !strings.Contains(result.Server, "not configured") &&
+		   result.User != "" && !strings.Contains(result.User, "not authenticated") && !strings.Contains(result.User, "server not configured") {
+			if teamCount, err := getTeamCount(cmd); err == nil && teamCount > 1 {
+				result.TeamInfo = fmt.Sprintf("%d teams available", teamCount)
 			}
 		}
 	} else {
@@ -1937,8 +1940,7 @@ func getCurrentUser(cmd *cobra.Command) (*currentUserResponse, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("bridge returned %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("authentication failed")
 	}
 
 	var result currentUserResponse
