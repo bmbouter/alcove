@@ -92,6 +92,9 @@ func newAgentsListCmd() *cobra.Command {
 }
 
 func runAgentsList(cmd *cobra.Command, _ []string) error {
+	// Print team context before the main operation
+	printTeamContext(cmd)
+
 	resp, err := apiRequest(cmd, http.MethodGet, "/api/v1/agent-definitions", nil)
 	if err != nil {
 		return err

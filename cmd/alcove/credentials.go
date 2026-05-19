@@ -50,10 +50,16 @@ func newCredentialsListCmd() *cobra.Command {
 }
 
 func runCredentialsList(cmd *cobra.Command, _ []string) error {
+	// Print team context before the main operation
+	printTeamContext(cmd)
+
 	teamName := resolveTeamName(cmd)
 	if teamName == "" {
 		return fmt.Errorf("no active team; use 'alcove teams use <name>' or --team to set one")
 	}
+
+	// Show team context
+	fmt.Fprintf(os.Stderr, "Team: %s (use --team to change)\n", teamName)
 
 	teamID, err := resolveTeamID(cmd, teamName)
 	if err != nil {
@@ -82,6 +88,9 @@ func runCredentialsList(cmd *cobra.Command, _ []string) error {
 	if isJSONOutput(cmd) {
 		return outputJSON(result)
 	}
+
+	// Show team context
+	fmt.Fprintf(os.Stderr, "Team: %s (use --team to change)\n", teamName)
 
 	if len(result.Credentials) == 0 {
 		fmt.Fprintln(os.Stderr, "No credentials found.")

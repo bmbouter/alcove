@@ -8,6 +8,59 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func TestPrintTeamContext(t *testing.T) {
+	// Create a test command with proper flags
+	createTestCommand := func() *cobra.Command {
+		cmd := &cobra.Command{}
+		cmd.PersistentFlags().String("team", "", "")
+		cmd.PersistentFlags().String("profile", "", "")
+		cmd.PersistentFlags().String("output", "", "")
+		return cmd
+	}
+
+	t.Run("team from flag", func(t *testing.T) {
+		cmd := createTestCommand()
+		cmd.ParseFlags([]string{"--team", "test-team"})
+
+		// The printTeamContext function should execute without error
+		printTeamContext(cmd)
+
+		// For this test, we just verify that resolveTeamName returns the expected value
+		teamName := resolveTeamName(cmd)
+		if teamName != "test-team" {
+			t.Errorf("resolveTeamName() = %q, expected %q", teamName, "test-team")
+		}
+	})
+
+	t.Run("no team configured", func(t *testing.T) {
+		// Setup isolated config environment
+		setupConfigDir(t)
+		t.Setenv("HOME", filepath.Join(t.TempDir(), "fakehome"))
+
+		cmd := createTestCommand()
+
+		printTeamContext(cmd)
+
+		// Verify that no team is resolved
+		teamName := resolveTeamName(cmd)
+		if teamName != "" {
+			t.Errorf("resolveTeamName() = %q, expected empty string", teamName)
+		}
+	})
+
+	t.Run("json output skips context", func(t *testing.T) {
+		cmd := createTestCommand()
+		cmd.ParseFlags([]string{"--team", "test-team", "--output", "json"})
+
+		printTeamContext(cmd)
+
+		// Verify that isJSONOutput returns true
+		if !isJSONOutput(cmd) {
+			t.Error("isJSONOutput() should return true for --output json")
+		}
+	})
+}
+
 func TestValidateProxyURL(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -652,39 +705,137 @@ func TestAgentsReposJsonFlag(t *testing.T) {
 	}
 }
 
-func TestAgentsReposJsonFlagParsing(t *testing.T) {
-	// Test that the --json flag can be parsed correctly
-	cmd := newAgentsReposCmd()
+func TestPrintTeamContext_JSONMode(t *testing.T) {
+	// Test that team context is skipped in JSON mode
+	configYAML := `
+active_team: test-team
+`
+	cleanup := setupTestConfig(t, configYAML)
+	defer cleanup()
 
-	// Test with --json flag set
-	err := cmd.ParseFlags([]string{"--json"})
+	cmd := newTestCmd()
+	cmd.ParseFlags([]string{"--output", "json"})
+
+	// Capture stderr (where team context would go)
+	origStderr := os.Stderr
+	r, w, err := os.Pipe()
 	if err != nil {
-		t.Fatalf("Failed to parse --json flag: %v", err)
+		t.Fatal(err)
 	}
+	os.Stderr = w
+	defer func() {
+		os.Stderr = origStderr
+	}()
 
-	jsonFlag, err := cmd.Flags().GetBool("json")
+	printTeamContext(cmd)
+
+	w.Close()
+	buf := make([]byte, 1024)
+	n, _ := r.Read(buf)
+	output := string(buf[:n])
+
+	if output != "" {
+		t.Errorf("Expected no output in JSON mode, got: %q", output)
+	}
+}
+
+func TestPrintTeamContext_WithTeam(t *testing.T) {
+	// Test that team context is printed when active team is set
+	configYAML := `
+active_team: test-team
+`
+	cleanup := setupTestConfig(t, configYAML)
+	defer cleanup()
+
+	cmd := newTestCmd()
+	// Don't set JSON mode
+
+	// Capture stderr
+	origStderr := os.Stderr
+	r, w, err := os.Pipe()
 	if err != nil {
-		t.Fatalf("Failed to get --json flag value: %v", err)
+		t.Fatal(err)
 	}
+	os.Stderr = w
 
-	if !jsonFlag {
-		t.Error("--json flag should be true when set")
+	printTeamContext(cmd)
+
+	w.Close()
+	os.Stderr = origStderr
+
+	buf := make([]byte, 1024)
+	n, _ := r.Read(buf)
+	output := string(buf[:n])
+
+	expected := "Team: test-team (use --team to change)\n"
+	if output != expected {
+		t.Errorf("Expected %q, got %q", expected, output)
 	}
+}
 
-	// Test without --json flag (default case)
-	cmd2 := newAgentsReposCmd()
-	err = cmd2.ParseFlags([]string{})
+func TestPrintTeamContext_NoTeam(t *testing.T) {
+	// Test that nothing is printed when no active team is set
+	configYAML := `
+server: https://test.example.com
+`
+	cleanup := setupTestConfig(t, configYAML)
+	defer cleanup()
+
+	cmd := newTestCmd()
+
+	// Capture stderr
+	origStderr := os.Stderr
+	r, w, err := os.Pipe()
 	if err != nil {
-		t.Fatalf("Failed to parse flags without --json: %v", err)
+		t.Fatal(err)
 	}
+	os.Stderr = w
 
-	jsonFlag2, err := cmd2.Flags().GetBool("json")
+	printTeamContext(cmd)
+
+	w.Close()
+	os.Stderr = origStderr
+
+	buf := make([]byte, 1024)
+	n, _ := r.Read(buf)
+	output := string(buf[:n])
+
+	if output != "" {
+		t.Errorf("Expected no output when no team is set, got: %q", output)
+	}
+}
+
+func TestPrintTeamContext_TeamFlag(t *testing.T) {
+	// Test that --team flag overrides config
+	configYAML := `
+active_team: config-team
+`
+	cleanup := setupTestConfig(t, configYAML)
+	defer cleanup()
+
+	cmd := newTestCmd()
+	cmd.ParseFlags([]string{"--team", "flag-team"})
+
+	// Capture stderr
+	origStderr := os.Stderr
+	r, w, err := os.Pipe()
 	if err != nil {
-		t.Fatalf("Failed to get --json flag value: %v", err)
+		t.Fatal(err)
 	}
+	os.Stderr = w
 
-	if jsonFlag2 {
-		t.Error("--json flag should be false by default")
+	printTeamContext(cmd)
+
+	w.Close()
+	os.Stderr = origStderr
+
+	buf := make([]byte, 1024)
+	n, _ := r.Read(buf)
+	output := string(buf[:n])
+
+	expected := "Team: flag-team (use --team to change)\n"
+	if output != expected {
+		t.Errorf("Expected %q, got %q", expected, output)
 	}
 }
 

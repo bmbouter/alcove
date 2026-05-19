@@ -74,6 +74,7 @@ func newTestCmd() *cobra.Command {
 	cmd.PersistentFlags().String("proxy-url", "", "")
 	cmd.PersistentFlags().String("no-proxy", "", "")
 	cmd.PersistentFlags().String("profile", "", "")
+	cmd.PersistentFlags().String("team", "", "")
 	return cmd
 }
 
